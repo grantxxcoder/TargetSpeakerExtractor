@@ -1,415 +1,298 @@
-# Research Plan & Route Recommendation
+# Research Plan
 
-**Written:** 2026-08-06
-**Horizon:** 3 months to final submission (~2026-11-05), *including* write-up
-**Status:** proposal — supersedes nothing; log the chosen route in `docs/decisions.md` once agreed with supervisors
-
----
-
-## 0. The short version
-
-**Do not build the winning challenge system. Do not do a broad multi-paper
-replication. Do both of the following instead:**
-
-1. **Reimplement exactly one baseline** — the causal BSRNN + TF-Map online
-   baseline — and use it as an *instrument*, not as a result.
-2. **Make the live-model metric the thesis.** It is the only genuinely novel
-   thing in the brief, it is the thing your supervisor said matters most
-   (meeting note 1), and it is almost free in GPU-hours.
-
-Then, if and only if time remains, add a third leg: an **accuracy-vs-compute
-Pareto study under the 100 ms latency budget**, which is a real and documented
-hole in the literature.
-
-The rest of this document argues why, rules out the alternatives, names the
-specific papers, and lays out a week-by-week plan with a cut list.
+**Written:** 2026-08-06 · **Rewritten:** 2026-08-07 for the re-scoped objective
+**Horizon:** ~3 months to final submission (2026-11-05), *including* write-up
+**Supersedes:** the metric-first-but-baseline-replication plan of 2026-08-06.
+Decisions are logged in `docs/decisions.md`.
 
 ---
 
-## 1. Three constraints that decide everything
+## 0. The thesis in one paragraph
 
-Before comparing routes, be honest about the box you are in. Every
-recommendation below falls out of these three facts.
+Conventional target speaker extraction is optimised and scored on how good
+the separated audio *is*. For a voice assistant, what matters is what the
+downstream live speech-to-speech model *understands*. These are not the same
+thing, and our supervisors have observed them diverging. This project
+defines a metric for the second thing, uses it to characterise the
+divergence across existing systems, and then trains a streaming TSE model
+with differentiable proxies aligned to it — with the live model held out as
+an independent judge throughout.
 
-### 1.1 You have no evaluation data, so you cannot "replicate" anything
+Three claims, in decreasing order of confidence that they will land:
 
-`docs/decisions.md` already records this: challenge registration closed before
-we could register, so we have no DEV/EVAL audio and no baseline checkpoints.
+1. **A metric.** Live-model content fidelity is definable, gaming-resistant
+   and measurable. (`docs/metric-definitions.md`)
+2. **A finding.** Signal quality, perceptual quality and offline WER do not
+   predict live-model content fidelity — and conventional TSE can improve
+   the former while degrading the latter.
+3. **A model.** Training against differentiable proxies aligned to the
+   objective improves live-model content fidelity over a
+   conventionally-trained streaming baseline.
 
-This has a consequence that is easy to miss and fatal if missed late:
+Claim 1 is the deliverable that cannot be cut. Claim 2 needs no training at
+all. Claim 3 is where the compute goes and it is the one that can fail.
 
-> **A replication you cannot validate is not a replication — it is a
-> reimplementation.**
+---
 
-If you frame the thesis as "I replicated the REAL-TSE online baselines," an
-examiner will ask what number you matched. The honest answer is *none, because
-the eval audio differs*. That is a weak position to defend for a whole thesis,
-and it is entirely avoidable by framing the reimplementation as infrastructure
-supporting an evaluation-methodology contribution.
+## 1. Three constraints that shape everything
 
-Frame it as: **"a new evaluation methodology for real-time TSE, instrumented
-with a faithfully reimplemented online baseline."** The baseline then only has
-to be *credible* and *correctly described*, not *numerically identical* — which
-is achievable, whereas the alternative is not.
+### 1.1 The judge is a black box
 
-### 1.2 Compute is the binding constraint, and it is tighter than it looks
+A live speech-to-speech API cannot be backpropagated through, is stochastic,
+costs money per call, and changes silently over time. Everything follows
+from this:
 
-Confirmed available: Kaggle GPUs now, university HPC probably (not yet secured).
-No local GPU.
+- Training uses **differentiable proxies**, never the judge.
+- The proxy must be a **different model family** from the judge, or the
+  benchmark measures overfitting to one evaluator. This is the single most
+  important methodological rule in the project.
+- Every number carries a model ID and a date.
+- Trial-set size is bounded by **API budget**, not by data availability.
 
-Kaggle in practice means: ~30 GPU-hours/week, hard 12-hour session limit,
-single P100 or dual T4, and a working-disk quota that Libri2Mix will strain.
-Every training run must checkpoint and resume from step one of the project —
-retrofitting that after a session dies at hour 11 costs you a week.
+### 1.2 Compute is the binding constraint
 
-Rough order-of-magnitude on a single P100: a 27 M-parameter causal BSRNN on
-Libri2Mix-100 at a normal recipe length is on the order of **40–70 wall-clock
-hours** for one run. That is two to three weeks of your Kaggle quota, for *one*
-model, assuming nothing breaks.
+Confirmed: Kaggle GPUs. University HPC probably, not yet secured. No local
+GPU.
 
-**Budget realistically for two to four full training runs across the entire
-project.** Not ten. Any plan that implies more than four is fiction.
+Kaggle in practice: ~30 GPU-hours/week, hard 12-hour session limit, single
+P100 or dual T4, constrained working disk. Every training run must
+checkpoint and resume **from day one** — retrofitting that after a session
+dies at hour 11 costs a week.
+
+A causal BSRNN-class model on LibriSpeech-derived data is on the order of
+**40–70 wall-clock hours** for one run on a P100. Budget for **one base
+training run plus two to three fine-tunes**, not ten. Any plan implying more
+is fiction.
+
+This is why claim 3 is structured as *train once, then fine-tune variants* —
+fine-tuning from a converged base is a fraction of the cost and lets the
+proxy-objective comparison be a controlled A/B rather than two independent
+runs.
 
 ### 1.3 Ten technical weeks, not thirteen
 
-Three months including write-up means roughly **10 weeks of technical work and
-3 weeks of writing**, and the writing weeks are not compressible — they are what
-you are actually graded on. Treat 2026-10-14 as the hard freeze date for new
-experiments.
+Roughly **10 weeks technical, 3 weeks writing**, and the writing weeks are
+not compressible — they are what gets graded. **2026-10-14 is the hard
+freeze on new experiments.**
 
 ---
 
-## 2. The routes you asked about, assessed
+## 2. The four legs
 
-### Route A — "Just recreate the papers." Which papers? — **Rejected as the primary plan**
+Strict priority order. Everything shares one evaluation harness so the
+infrastructure is paid for once.
 
-Reimplementing 3–4 architectures (BSRNN, TF-Map, USEF-TSE, SA-Mamba) means 3–4
-training runs, which §1.2 says you cannot afford, and it produces **zero
-novelty**. Worse, per §1.1, you cannot verify any of them against their
-published numbers, so you would spend your entire compute budget generating
-results whose only honest caption is "not comparable to the source paper."
+| # | Leg | Claim | GPU cost | Cut if behind? |
+|---|-----|-------|----------|----------------|
+| 1 | Metric definition + scoring harness + trial sets | 1 | ~0 | **Never** |
+| 2 | Benchmark study: existing systems × judges | 2 | ~0 | **Never** |
+| 3 | Streaming TSE baseline, conventionally trained | 3 | high | No — shrink it |
+| 4 | Proxy-objective fine-tune + ablation | 3 | medium | **Cut first** |
 
-Breadth of *reading* is required and you already have it. Breadth of
-*reimplementation* is the single worst use of your GPU quota.
+Legs 1 and 2 are CPU/API work. They do not compete with training for the
+Kaggle quota, and they constitute a complete thesis on their own. **If every
+training run fails, legs 1 and 2 still submit.** That property is the reason
+for this ordering — invert it and a training failure leaves nothing.
 
-There is one exception, and it is the plan in §3: reimplement **one** baseline,
-deeply, because you need a working online TSE system as an instrument regardless.
+Leg 3 exists to give leg 4 something to fine-tune from, and to give leg 2 a
+system we fully control and understand.
 
-### Route B — "Implement the winning solution (CARTSE) + one metric." — **Rejected, and it is the worst fit of the three**
+### What leg 4 is not
 
-This is the intuitive choice and it is the trap. Your own literature review
-(`review_synthesis.md`, finding 2 and entry #2) already contains the reason:
-
-> the top Track 1 entries were nearly all built on BSRNN-style backbones
-> architecturally close to the provided baseline, and the large score gains came
-> from data simulation, real-data adaptation, pseudo-label generation and
-> filtering, multi-objective loss design, and latency control — not from new
-> architectures.
-
-So "implement the winner" does not mean implementing a clever architecture. It
-means reproducing **a data pipeline**, and specifically:
-
-- an entire *second* system (their offline Track-2 teacher) to generate
-  pseudo-labels — i.e. double the training cost before you start;
-- pseudo-labelling ~38 h of real audio and filtering it on four automatic
-  metrics;
-- a two-stage fine-tune with five auxiliary losses, including DNSMOS-in-the-loop
-  and a multi-layer Zipformer feature-matching loss.
-
-That is comfortably a 500+ GPU-hour project and it needs the real conversational
-training data and the eval set to steer against. You have neither. On Kaggle it
-is not a stretch goal, it is impossible — and if you attempt it you will spend
-ten weeks with nothing finished.
-
-There is also a subtler reason to avoid it: CARTSE **explicitly optimises against
-DNSMOS**, and the organisers subsequently found DNSMOS-OVRL had been so heavily
-over-optimised that its correlation with human MOS on Track 1 was approximately
-zero. Reproducing a metric-gaming pipeline is a strange centrepiece for a thesis
-whose novel contribution is a *better metric*.
-
-**What to take from CARTSE instead:** two components that are cheap, need no
-teacher, and are separable —
-
-- **target-absent training** (~38 % of training examples have no target present;
-  split loss: masked SI-SDR when present, push-to-silence when absent), and
-- **channel-gap enrollment augmentation** (random RMS-preserving EQ curves on the
-  enrollment so conditioning learns device invariance).
-
-Both are a day of work each, both address goals in your brief (interruptions;
-microphone mismatch), and both are legitimately citable as "adopted from Li &
-Seki (2026)." That is the right dose of CARTSE for this project.
-
-### Route C — "Add on one metric to a replication." — **Right ingredients, wrong emphasis**
-
-This is close to correct, but the word *add-on* is backwards, and getting the
-emphasis right is the single highest-leverage decision in this document.
-
-The metric is not a garnish on a replication. It is:
-
-- **the only novel contribution in the brief** — the spec says the challenge
-  does not measure this and the project should define how;
-- **explicitly prioritised by your supervisor** — meeting note 1: *"the actual
-  score values from my defined metric do not matter — the metric itself matters
-  more"*;
-- **nearly compute-free** — it is inference and API calls over audio you already
-  have, so it does not compete with training for your Kaggle quota;
-- **the de-risking leg** — if every training run fails, you still have a thesis.
-  If you invert the priorities and training fails, you have nothing.
-
-So: same ingredients as Route C, inverted weighting. That is Route D.
-
-### Route D — Metric-first, baseline-as-instrument — **Recommended**
-
-Three legs, in strict priority order, sharing one evaluation pipeline so the
-infrastructure cost is paid once:
-
-| # | Leg | Brief deliverable | GPU cost | Drop if behind? |
-|---|-----|-------------------|----------|-----------------|
-| 1 | Eval pipeline + AMI-based REAL-T-style test set | "replicate the evaluation pipeline" | ~0 | **Never** |
-| 2 | Live-model utility metric + benchmark study | "define the live-model measurement" | ~0 | **Never** |
-| 3 | One reimplemented causal BSRNN+TF-Map baseline | "replicate the online-track baselines" | high | No, but shrink it |
-| 4 | Accuracy-vs-compute Pareto under 100 ms latency | "explore a new architecture" | high | **Yes — cut this first** |
-
-Legs 1 and 2 are CPU/API work and are the thesis. Leg 3 is the instrument that
-makes leg 2 interesting (you need *something* to compare against unprocessed
-audio). Leg 4 is the stretch.
-
-Note what leg 4 is *not*: it is not "a fundamentally new architecture." In ten
-weeks on Kaggle, that is not on the table, and claiming it would be the kind of
-overreach that gets punished in a viva. What leg 4 *is* — per your review's own
-closing section — is the documented gap that **no REAL-TSE entry reported a
-parameter or MAC budget anywhere near on-device class** (smallest online system:
-15.89 M params / 30 GMAC/s). Since you settled on a paper compute budget rather
-than real hardware, you can populate that gap with a scaling study, cheaply, and
-frame it honestly as an efficiency characterisation rather than a new model.
+It is not "a fundamentally new architecture." In ten weeks on Kaggle that is
+not on the table, and claiming it invites a bad viva. Leg 4 is a controlled
+comparison: same architecture, same data, same base checkpoint, different
+training objective. That is a clean, defensible, publishable experiment, and
+it is directly aligned with spec note 8.
 
 ---
 
-## 3. Which specific papers, and what to do with each
+## 3. Leg 1 — the metric and its harness
 
-Direct answer to your question. Four tiers, by *action*, not by importance.
+Full specification in `docs/metric-definitions.md`. Summary of what has to
+get built:
 
-**Tier 1 — reimplement in code (this is your only build):**
+**Trial construction — constructed set (primary).** LibriSpeech-derived
+mixtures with a target, ≥1 interferer, real noise (WHAM!-style) and
+reverberation (WHAMR!-style RIRs). Gives exact verbatim ground truth for
+both target and interferer, a true clean-target ceiling, and controllable
+overlap ratio, SNR and device mismatch. Speaker-disjoint splits.
 
-- **#4 BSRNN** (Luo & Yu, TASLP 2023) — the backbone.
-- **#3 Multi-Level Speaker Representation / TF-Map** (Zhang et al., ICASSP 2025)
-  — the conditioning.
+**Trial construction — AMI set (secondary).** REAL-T-style construction (Li
+et al., Interspeech 2025): use existing diarisation annotations to find
+naturally overlapping segments as mixtures, and ≥5 s non-overlapping
+same-speaker segments as enrollment. Distant mic as mixture, headset (IHM)
+as the **approximate** ceiling. This is the real-audio transfer check, and
+without it we only ever measure ourselves in training conditions.
 
-These are one codebase, not two: the causal `BSRNN_TFMAP_CAUSAL` baseline is the
-intersection of both papers, and it is the variant your review notes actually
-*beats the non-causal embedding baseline on TER* — a genuinely useful result for
-an online-track project. Read both papers against the `wesep-real-tse` source.
+**Judge harness.** Fixed prompt, fixed response-transcription ASR, pinned
+model IDs, k≥3 repeats per trial, cost accounting. At least one open-weight
+judge alongside the closed API, for reproducibility.
 
-**Tier 2 — reproduce methodologically, no model training:**
-
-- **#6 REAL-T** (Li et al., Interspeech 2025) — the trial-construction pipeline.
-  This is your test set and, per your review, "probably the single most useful
-  piece of infrastructure you can build in your first month." Agreed.
-- **#1 REAL-TSE overview** (Wang et al., arXiv:2607.15198) — the scoring
-  pipeline, the metric definitions, the latency verification protocol.
-
-**Tier 3 — read deeply, borrow two components, do not replicate:**
-
-- **#2 CARTSE** (Li & Seki, 2026) — take target-absent simulation and
-  channel-gap EQ augmentation. Leave the pseudo-label teacher pipeline. See §2
-  Route B.
-
-**Tier 4 — prior art for the metric (read, cite, do not implement):**
-
-- **PS4** (Ning et al., arXiv:2607.08111) — the closest published prior art to
-  "optimise TSE for what a downstream model needs." Your review is right that
-  this is the most important Tier-2 paper for your contribution; read it in the
-  first fortnight, not later.
-- **Ma et al., arXiv:2501.14477** — joint TSE + target-speaker ASR; directly
-  addresses the "more transcribable yet worse for a live model" phenomenon in
-  your spec.
-- **Delcroix et al., Interspeech 2022, "Listen only to me!"** — target-absent
-  behaviour and false alarms; underpins both the interruption goal and the
-  distractor-leakage half of your metric.
-
-**Background chapter only:** #5 Žmolíková survey. Do not cite as current SOTA —
-your review already flags that it predates everything that matters here.
-
-**Explicitly out of scope — name them in the thesis as future work:**
-#10 SA-Mamba, #9 USEF-TSE, #7 causal TF-GridNet, #8 TF-MLPNet as a *build*.
-Each is a defensible project on its own and none fits in the remaining budget.
-Saying so deliberately is much stronger than leaving them unmentioned.
-
-**Housekeeping:** the spec cites TF-MLPNet as Interspeech 2025; per your review
-it is the 6th Clarity Workshop (Clarity 2025). Fix before the proposal is marked.
+**Conventional metrics alongside.** SI-SDR, DNSMOS-P808, offline ASR WER —
+computed on the same trials, specifically so leg 2 can show where they
+diverge from LCF.
 
 ---
 
-## 4. The metric — a concrete proposal
+## 4. Leg 2 — the benchmark study
 
-This is the contribution, so it deserves a real design rather than "define a
-metric." Treat the following as a starting draft to argue with, not a spec.
+This is claim 2, and it is the highest value-per-GPU-hour work in the
+project. No training required: run existing systems over the trial sets and
+score them.
 
-### 4.1 What it must measure
+Systems to include:
+- Unprocessed mixture (floor)
+- Clean target (ceiling)
+- ≥2 off-the-shelf pretrained TSE models, ideally one streaming and one
+  offline, to separate the effect of causality from the effect of extraction
+- A conventional speech enhancer, as a "denoising without extraction" control
+- Later: our own leg-3 and leg-4 models
 
-The spec's observation: *traditional TSE can improve transcription accuracy
-while making the audio harder for live speech-to-speech models to understand.*
-So the metric must be sensitive to something WER is blind to. That rules out any
-metric computed on a transcript.
+Judges: ≥1 closed live API + ≥1 open-weight speech-to-speech model.
 
-### 4.2 Proposed design: task-completion, not signal quality
+**The result this is designed to produce:** a table where the ranking of
+systems by SI-SDR / DNSMOS / offline-WER differs from the ranking by
+LCF-WER. If that divergence exists, the metric is justified and the thesis
+has its central finding. If it doesn't — if conventional metrics predict
+live-model fidelity perfectly well — that is *also* a publishable negative
+result, and it is better to discover it in week 5 than week 11. Either way
+this leg de-risks the project.
 
-Measure whether a **live speech-to-speech model does the right thing**, not
-whether the audio sounds good.
-
-Construct trials where the target speaker utters an instruction with a
-**verifiable answer**, while an interfering speaker utters a **conflicting
-distractor instruction**. Feed the audio to the live model. Score:
-
-- **TIC — Target Instruction Compliance:** fraction of trials where the response
-  correctly follows the target's instruction.
-- **DLR — Distractor Leakage Rate:** fraction where it follows the interferer's
-  instruction instead. *This is the number a WER-based metric structurally
-  cannot see, and the one your supervisors' observation predicts will behave
-  strangely under TSE.*
-- **NRR — Non-Response Rate:** "sorry, I didn't catch that" / refusal / silence.
-
-Headline score = TIC, reported always alongside DLR and NRR. Baselines:
-unprocessed mixture (floor), and target-speaker-only clean audio (ceiling).
-
-### 4.3 Why this design resists gaming — build this in from day one
-
-Your review's caution is the strongest argument available for the whole
-contribution: DNSMOS-OVRL was gamed hard enough (in one case with adversarial
-waveform perturbations) that its human-MOS correlation on Track 1 was ~0.003,
-and the organisers had to swap metrics after the fact. Design against that
-explicitly, and say so in the thesis:
-
-- **Semantic, end-to-end, and discrete.** The score depends on whether a model
-  *did the right thing*, not on a differentiable perceptual score. There is no
-  smooth signal to hill-climb with waveform perturbations.
-- **Two-sided.** Suppressing everything scores well on DLR but destroys TIC.
-  Passing everything through scores well on TIC but blows up DLR. Only genuine
-  extraction moves both.
-- **Held-out instruction bank.** Publish the protocol and a public split; keep a
-  private split for scoring. Prevents overfitting to specific prompts.
-- **Report the ceiling.** Clean-target TIC bounds what is achievable and makes
-  an implausible score obvious.
-
-### 4.4 Two methodological requirements — do not skip these
-
-- **Pin and date every model.** Closed live models change silently. Record exact
-  model IDs and run dates for every number, and treat cross-date comparisons as
-  invalid unless re-run.
-- **Include at least one open-weight speech-to-speech model** alongside the
-  closed API. If the benchmark can only be reproduced by someone paying for an
-  API whose behaviour changes monthly, it is not a scientific contribution. This
-  is the single most important design decision for the metric's shelf life.
-
-**Budget:** API calls cost real money. Estimate cost per trial × number of trials
-× number of systems × number of live models *before* week 7, and size the trial
-set to fit. Cheaper to discover this on a spreadsheet than at 2 a.m.
+**Week-1 check with a large payoff:** find out which pretrained streaming
+TSE checkpoints are publicly available (WeSep/WeSep-family releases,
+HuggingFace, USEF-TSE's released code). A usable public checkpoint would
+strengthen leg 2 immediately and reduce leg 3 from "train from scratch" to
+"fine-tune from a released model", which changes the entire compute picture.
+Ten minutes of searching, potentially weeks saved.
 
 ---
 
-## 5. Data plan
+## 5. Legs 3 and 4 — the model
 
-**Training:** Libri2Mix-100 + WHAM!, matching what the baselines used.
-Generation is a multi-hour CPU job producing a large corpus — you have ~146 GB
-free. Generate **only** the sample rate and mode you need (16 kHz, one of
-min/max — decide and record it in `decisions.md`); generating everything will
-exhaust the disk.
+**Architecture.** Causal BSRNN-family extractor with TF-Map + speaker-
+embedding conditioning. Rationale: it is the best-understood strong
+streaming TSE design, the challenge evidence shows the causal TF-Map variant
+is unusually strong for an online system, and reference implementations
+exist to read. We are borrowing it as a well-characterised instrument, not
+replicating it as a result — see `docs/decisions.md`.
 
-**Evaluation:** AMI first, per `decisions.md`. One point worth exploiting:
+Cite: Luo & Yu (TASLP 2023) for BSRNN; Zhang et al. (ICASSP 2025) for
+TF-Map / multi-level speaker representation.
 
-> AMI has per-speaker **headset (IHM)** microphones alongside the distant array
-> (SDM). So unlike REAL-T — which has no clean target and is therefore forced
-> into reference-free metrics — you can use SDM/array as the mixture and the
-> corresponding IHM channel as an **approximate** clean target.
+**Leg 3 training (conventional).** SI-SDR + multi-resolution STFT, with two
+cheap components borrowed from CARTSE (Li & Seki, 2026):
+- **target-absent training** — a substantial fraction of examples with no
+  target present, split loss (masked SI-SDR when present, push-to-silence
+  when absent). Addresses false alarms and the interruption goal.
+- **channel-gap enrollment augmentation** — random RMS-preserving EQ curves
+  on the enrollment, so conditioning learns device invariance. Addresses the
+  microphone-mismatch concern in the spec.
 
-That lets you additionally report intrusive metrics (SI-SDR etc.) that the
-official protocol cannot compute. That is a small genuine methodological
-advantage and worth a paragraph in the thesis. **Caveat it properly** — IHM has
-cross-talk bleed and a completely different channel response from the array, so
-it is an approximate reference, not ground truth. Per CLAUDE.md this caveat goes
-in a code comment *and* in `docs/decisions.md`.
+Both are ~a day of work each and are separable, citable components.
 
-Download only what you need: AMI in full is hundreds of GB.
+**Leg 4 training (proxy-aligned).** Fine-tune the leg-3 checkpoint with
+added differentiable proxies:
 
-**Still worth chasing:** email the organisers again about academic access to
-DEV/EVAL and the baseline checkpoints, and separately check whether any
-`wesep-real-tse` checkpoint is public (HuggingFace / the WeSep repo). **A
-released checkpoint would change this entire plan** — it would remove leg 3's
-training cost outright and free those weeks for legs 2 and 4. It is a ten-minute
-check with a very large payoff; do it in week 1.
+1. **Frozen-encoder feature matching** (primary proxy) — match intermediate
+   activations of a frozen ASR/SSL encoder between output and clean target.
+   Cheaper than full ASR cross-entropy, precedented by CARTSE's Zipformer
+   feature-matching loss and PS4's proxy objectives.
+2. **ASR cross-entropy** (stretch) — full differentiable ASR in the loop.
+   Roughly doubles memory and step time; only attempt if leg 4 is on
+   schedule.
+3. Speaker-similarity and target-activity terms as auxiliaries.
+
+**The rule, restated because it is easy to violate accidentally:** the proxy
+encoder must be a different model family from the judge. Record which, and
+why, in the experiment config.
+
+**Ablation.** Base vs +feature-matching vs +ASR-CE, each scored on LCF and
+on conventional metrics. This is the controlled experiment that supports
+claim 3, and it is why leg 3 and leg 4 share a base checkpoint.
+
+**Latency.** ~200–300 ms streaming budget (`docs/decisions.md`). Measured
+algorithmic latency and RTF reported for every system. Note the budget is
+currently a stated assumption — see §8.
 
 ---
 
-## 6. Timeline (2026-08-06 → 2026-11-05)
+## 6. Timeline (2026-08-07 → 2026-11-05)
 
 Hard freeze on new experiments: **2026-10-14.**
 
 | Week | Dates | Work | Done when |
 |------|-------|------|-----------|
-| 1 | Aug 6–12 | **De-risk.** Secure HPC. Check for public baseline checkpoints (§5). Re-email organisers. Official scoring repo running on dummy audio. Start AMI download. Fix TF-MLPNet citation. | Scoring pipeline produces all four metrics on a toy file |
-| 2 | Aug 13–19 | REAL-T-style trial construction from AMI. Score **unprocessed mixtures** through the pipeline. | A trial set exists + the "do nothing" floor is measured on every metric — this is a real result, log it |
-| 3 | Aug 20–26 | Training infra: `wesep-real-tse` running, Libri2Mix-100 + WHAM! generated, YAML config committed, **checkpoint/resume proven across a session kill** | A 1-epoch run completes, dies, and resumes cleanly |
-| 4–5 | Aug 27–Sep 9 | Train causal BSRNN+TF-Map. **In parallel (no GPU):** design the metric, write the protocol doc, build the instruction bank | Checkpoint exists; metric protocol reviewed by supervisors |
-| 6 | Sep 10–16 | Evaluate baseline on AMI set. Run the official latency-verification script. | First full comparison table: unprocessed vs baseline, all four metrics + verified latency |
-| 7–8 | Sep 17–30 | **Metric benchmark.** Unprocessed / baseline / ≥1 public TSE model × ≥2 live models (1 API + 1 open-weight). Gaming-resistance analysis. | The thesis's central result table |
-| 9–10 | Oct 1–14 | **Stretch:** Pareto study — 2–3 shrunk baseline variants, report params/MACs/RTF/latency vs metrics | Accuracy-vs-compute curve, or an honest "cut for time" |
+| 1 | Aug 7–13 | **De-risk.** Secure HPC. Survey public streaming-TSE checkpoints (§4) and open-weight speech-to-speech judges. Estimate API cost. Pilot: 20 trials by hand through one live model to sanity-check the whole idea. | You have seen real judge responses and know roughly what a trial costs |
+| 2 | Aug 14–20 | Constructed trial-set generation. Scoring implementation (LCF-WER, ICR, NRR) + conventional metrics. | Floor and ceiling measured on the constructed set — a real result, log it |
+| 3 | Aug 21–27 | Judge harness: fixed prompt, k-repeats, variance, cost accounting, second (open-weight) judge. Prompt-sensitivity ablation. | Metric is stable enough that run-to-run spread is smaller than system differences |
+| 4 | Aug 28–Sep 3 | **Leg 2 benchmark** on constructed set. AMI download + REAL-T-style construction in parallel. | The divergence table exists — claim 2 stands or falls here |
+| 5 | Sep 4–10 | AMI trial set finished, leg 2 extended to it. Training infra: data generation, YAML config, **checkpoint/resume proven across a session kill**. | A 1-epoch run completes, dies, resumes cleanly |
+| 6–7 | Sep 11–24 | **Train leg-3 baseline.** Metric protocol write-up and supervisor review in parallel (no GPU). | Converged checkpoint; protocol signed off |
+| 8 | Sep 25–Oct 1 | Score leg-3 model on both trial sets, both judges. Latency + RTF verification. | Our model is in the benchmark table |
+| 9–10 | Oct 2–14 | **Leg 4:** proxy-objective fine-tune + ablation. | Ablation table, or an honest "cut for time" |
 | 11–13 | Oct 15–Nov 5 | Write-up. Buffer. | Submitted |
+
+Note weeks 1–4 produce a defensible result with zero GPU time. That is
+deliberate.
 
 ### Cut list, in order
 
-If you are behind at the week-6 checkpoint, cut in this order and record each
-cut in `decisions.md`:
+Record every cut in `docs/decisions.md`.
 
-1. **Leg 4 entirely** (weeks 9–10 become writing buffer). Costs nothing
-   essential — it was always the stretch.
-2. **Shrink the metric benchmark**: one live model instead of two, fewer trials.
-   Keep the open-weight one, not the API one — reproducibility beats prestige.
-3. **Shrink the baseline**: train a deliberately smaller BSRNN and report it as
-   such. A well-documented small baseline you understand beats a large one that
-   never finished.
-4. **Never cut:** the eval pipeline, the AMI test set, the unprocessed-mixture
-   floor, or the metric *definition*. Those four are the thesis.
+1. **ASR cross-entropy proxy** → feature-matching only. Costs one ablation row.
+2. **Leg 4 entirely** → weeks 9–10 become writing buffer. The thesis becomes
+   claims 1 and 2, which is still a complete thesis.
+3. **Shrink leg 3**: train a deliberately smaller model and report it as
+   such. A small baseline you fully understand beats a large one that never
+   converged.
+4. **Reduce judges to one** — keep the **open-weight** one, not the API.
+   Reproducibility beats prestige.
+5. **Never cut:** the metric definition, the constructed trial set, the
+   floor/ceiling anchors, or the leg-2 divergence table.
 
-Note that item 3 and leg 4 point the same direction — if training goes badly,
-the small-model path is both the fallback *and* the contribution. That is a
-useful property of this plan: its failure mode degrades into a different valid
-result rather than into nothing.
+The AMI leg sits between items 3 and 4 in priority: cut it only if the
+alternative is not finishing, and if cut, say plainly in the thesis that
+real-audio transfer is untested.
 
 ---
 
 ## 7. What to tell your supervisors
 
-A one-paragraph pitch to take to the next meeting:
+> The goal is to improve what a live speech-to-speech model understands, not
+> how good the audio sounds — and those two can point in opposite
+> directions. So the first contribution is a metric for the former, designed
+> to be hard to game, with the live model held out as an independent judge.
+> The second is a benchmark showing where conventional metrics mispredict
+> it. Then I train a streaming extractor with differentiable proxies aligned
+> to that objective — I can't backprop through Gemini Live, so the proxies
+> are frozen encoders from a different model family, which also keeps the
+> judge honest. I'm not replicating the challenge; I'm borrowing its
+> data-construction methods and its lessons about metric gaming.
 
-> The challenge is over and the organisers' own conclusion is that the winning
-> online systems were baseline-like architectures lifted by data pipelines, not
-> new architectures. Reproducing the winner therefore means reproducing a
-> pipeline that needs an offline teacher, real conversational training data and
-> the eval set to steer against — none of which we have, and which does not fit
-> the compute budget. So: I will reimplement one online baseline as an
-> instrument, build a REAL-T-style eval set from AMI, and spend the bulk of the
-> project on the live-model measurement, which is the part of the brief nobody
-> in the challenge addressed. If it goes well, I will add an
-> accuracy-versus-compute characterisation under the 100 ms latency budget,
-> since no challenge entry reported a compute budget anywhere near on-device
-> class.
+Get explicit sign-off on two things:
 
-Two things to get explicit sign-off on, because they change the plan:
-
-1. **Is a reimplemented-but-unvalidated baseline acceptable** for the
-   "replicate the baselines" deliverable, given the eval data is unavailable?
-   (§1.1 — this is the biggest framing risk in the project.)
-2. **Is the metric allowed to be the primary contribution**, with architecture
-   work demoted to a stretch goal? Meeting notes 1 and 7 suggest yes, but get it
-   said out loud and minuted.
+1. **Is the metric allowed to be the primary contribution**, with the model
+   work as the second half rather than the centrepiece? Spec notes 1 and 8
+   say yes; get it minuted.
+2. **Is the ~200–300 ms latency budget acceptable**, and does anyone have
+   evidence for what live models actually tolerate? (§8)
 
 ---
 
 ## 8. Open questions
 
-- HPC access — unresolved, and it materially changes what leg 4 can be.
-- API budget for the live-model benchmark — unestimated (§4.4).
-- Which open-weight speech-to-speech model to use as the reproducible anchor —
-  needs a survey in week 4, before the protocol is frozen.
-- Whether any `wesep-real-tse` checkpoint is public — a week-1 check that could
-  reshape the whole schedule (§5).
+- **The 200–300 ms latency budget is an assumption, not a result.** We have
+  no evidence yet for the turn-taking tolerance of live speech-to-speech
+  models. Find published evidence or measure it; until then present it as a
+  stated assumption.
+- **Which open-weight speech-to-speech judge.** Needs a survey in week 1,
+  before the protocol freezes. The metric's reproducibility depends on it.
+- **API budget** — unestimated. Must be a spreadsheet before week 2.
+- **HPC access** — unresolved; materially changes what leg 4 can be.
+- **Does the divergence actually exist?** The entire motivation rests on the
+  supervisors' observation. Week 1's 20-trial pilot is the cheapest possible
+  test of it. If it doesn't reproduce, re-scope immediately rather than
+  building a harness for a phenomenon that isn't there.
+- **Prompt sensitivity.** If judge scores move more with prompt wording than
+  with system quality, the metric needs redesign. Week 3.

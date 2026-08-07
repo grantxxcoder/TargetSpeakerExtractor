@@ -1,20 +1,36 @@
 # Project: Real-time Target Speaker Extraction (masters research project)
 
 ## Context
-Replicating REAL-TSE Challenge online-track baselines and eval pipeline,
-then exploring a novel low-latency, interpretable TSE architecture.
-See docs/specification.md for the full brief.
+The objective is to build a streaming TSE model that maximises how
+accurately a **live speech-to-speech model** (Gemini Live and similar)
+recovers what the target speaker said from a mixture. We are optimising
+for downstream live-model content fidelity, NOT for the perceptual or
+signal quality of the separated audio. Quality may help, but it is not
+the target. See docs/specification.md for the full brief (esp. note 10).
 
-Note: official REAL-TSE dev/eval data is not available to us (challenge
-registration closed before we could register). We are instead:
-1. Training/replicating baselines on Libri2Mix-100 + WHAM! (the same data
-   the official baselines were trained on).
-2. Building our own REAL-T-style eval set from the public training splits
-   of AMI (and later AliMeeting/AISHELL-4), following the same
-   overlapping-segment extraction method the challenge organizers describe.
-3. Using the official REAL-TSE-Challenge eval pipeline code for scoring,
-   so our numbers are methodologically comparable even though the eval
-   audio itself differs.
+Working setup:
+1. **Metric first.** The primary contribution is a defined, gaming-resistant
+   metric for live-model content fidelity, plus the harness that computes
+   it. See docs/metric-definitions.md.
+2. **Train with differentiable proxies; judge with the live model.** A live
+   API model cannot be backpropagated through, so it is a held-out judge
+   only. Training uses differentiable proxies (frozen-ASR/SSL feature
+   matching, optionally ASR cross-entropy, speaker and VAD terms).
+   **The proxy must be a different model family from the judge** — training
+   against your own evaluator makes the benchmark meaningless.
+3. **Data is ours.** Training and primary eval are constructed mixtures
+   (LibriSpeech-derived + real noise/reverb), because differentiable
+   proxies need a clean target signal and exact ground-truth text — neither
+   of which real conversational corpora provide. A smaller AMI-derived set
+   is the secondary real-audio transfer check.
+4. **Server-class compute is assumed.** On-device / small-model deployment
+   is explicitly out of scope. Latency is a secondary objective with a
+   ~200-300 ms streaming budget.
+
+We are NOT replicating the REAL-TSE Challenge baselines or its eval
+pipeline (spec note 8). We borrow ideas, data-construction methods and
+metric-design lessons from it, and cite it as the anchor benchmark for
+real conversational TSE.
 
 ## Non-negotiable rules
 - NEVER commit directly to main. Always branch, then open a PR.
@@ -27,9 +43,15 @@ registration closed before we could register). We are instead:
   code comment at the top of the file/function.
 - After any nontrivial change, explain in plain language what the code
   does and why — I need to be able to defend every line in my thesis.
-- Any place our evaluation setup differs from the official REAL-TSE
-  protocol (different eval audio, etc.) must be noted in a comment and in
-  docs/decisions.md — never presented as identical without caveat.
+- Never present our numbers as comparable to published REAL-TSE results.
+  Different data, different metric, different protocol. Any borrowed
+  method or metric must be cited as borrowed, and the difference noted in
+  a code comment and in docs/decisions.md.
+- Every live-model (judge) result must record the exact model ID, the
+  exact prompt, and the run date. Closed models change silently, so
+  comparisons across dates are invalid unless re-run.
+- The judge model must never appear anywhere in the training loop, in any
+  form, including as a proxy or a data filter.
 - Prefer small, single-purpose PRs over large ones.
 
 ## Stack

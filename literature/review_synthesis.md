@@ -307,4 +307,3 @@ The REAL-TSE overview says the top online systems all used baseline-like backbon
 - [ ] SA-Mamba / DeepSound Track-1 report — real-tse.github.io/assets/pdf/DeepSound-Track1.pdf
 - [ ] PS4: Proxy-Supervised Joint Training — arXiv:2607.08111
 - [ ] SonicAGI / SwiftNet-Lookahead — arXiv:2607.11083
-- [ ] All remaining Track 1 system reports (12 total) — real-tse.github.io/challenge/#rankings
