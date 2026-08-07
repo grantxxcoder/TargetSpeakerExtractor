@@ -295,10 +295,10 @@ The REAL-TSE overview says the top online systems all used baseline-like backbon
 
 ## Checklist form
 
-- [ ] SLT 2026 REAL-TSE Challenge overview — arXiv:2607.15198
-- [ ] CARTSE Track-1 system report — real-tse.github.io/assets/pdf/CARTSE-Track1.pdf
-- [ ] Multi-Level Speaker Representation for TSE — arXiv:2410.16059
-- [ ] Music Source Separation with Band-Split RNN — TASLP 2023 / arXiv:2209.15174
+- [X] SLT 2026 REAL-TSE Challenge overview — arXiv:2607.15198
+- [X] CARTSE Track-1 system report — real-tse.github.io/assets/pdf/CARTSE-Track1.pdf
+- [X] Multi-Level Speaker Representation for TSE — arXiv:2410.16059
+- [X] Music Source Separation with Band-Split RNN — TASLP 2023 / arXiv:2209.15174
 - [ ] Neural Target Speech Extraction: An Overview — doi:10.1109/MSP.2023.3240008
 - [ ] REAL-T: Real Conversational Mixtures for TSE — Interspeech 2025
 - [ ] Exploring T-F Domain TSE for Causal and Non-Causal Processing — ASRU 2023
