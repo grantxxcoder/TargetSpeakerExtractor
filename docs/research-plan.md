@@ -1,9 +1,15 @@
 # Research Plan
 
 **Written:** 2026-08-06 · **Rewritten:** 2026-08-07 for the re-scoped objective
+· **§2 and §6 re-ordered:** 2026-08-07 (evening) to a build-first sequence
 **Horizon:** ~3 months to final submission (2026-11-05), *including* write-up
 **Supersedes:** the metric-first-but-baseline-replication plan of 2026-08-06.
 Decisions are logged in `docs/decisions.md`.
+
+> **Schedule authority is `docs/milestones.md`.** This file holds the reasoning;
+> the milestone file holds the dates and the checklists. §2 and §6 below have
+> been brought back into agreement with it. Sections 3–5 are organised by
+> *workstream*, not by schedule — read §2's table for what happens when.
 
 ---
 
@@ -77,25 +83,48 @@ freeze on new experiments.**
 
 ---
 
-## 2. The four legs
+## 2. The four legs, in build order
 
-Strict priority order. Everything shares one evaluation harness so the
-infrastructure is paid for once.
+Ordering changed 2026-08-07 (evening) from risk-first to **build-first**, at
+the researcher's direction. Everything still shares one evaluation harness so
+the infrastructure is paid for once.
 
-| # | Leg | Claim | GPU cost | Cut if behind? |
+| Order | Leg | Claim | GPU cost | Cut if behind? |
 |---|-----|-------|----------|----------------|
-| 1 | Metric definition + scoring harness + trial sets | 1 | ~0 | **Never** |
-| 2 | Benchmark study: existing systems × judges | 2 | ~0 | **Never** |
-| 3 | Streaming TSE baseline, conventionally trained | 3 | high | No — shrink it |
-| 4 | Proxy-objective fine-tune + ablation | 3 | medium | **Cut first** |
+| 1 | Data construction (training + eval, one generator) | — | ~0 | **Never** |
+| 2 | Streaming TSE baseline, conventionally trained | 3 | high | No — shrink it |
+| 3 | Conventional evaluation of that baseline | — | ~0 | **Never** |
+| 4 | Metric definition + scoring harness + trial sets | 1 | ~0 | **Never** |
+| 5 | Proxy-objective fine-tune (the "second model") | 3 | medium | **Cut first** |
+| 6 | Benchmark / divergence table | 2 | ~0 | **Never** |
 
-Legs 1 and 2 are CPU/API work. They do not compete with training for the
-Kaggle quota, and they constitute a complete thesis on their own. **If every
-training run fails, legs 1 and 2 still submit.** That property is the reason
-for this ordering — invert it and a training failure leaves nothing.
+### Why this order, and what it costs
 
-Leg 3 exists to give leg 4 something to fine-tune from, and to give leg 2 a
-system we fully control and understand.
+**The argument for it:** you cannot design a good measuring instrument for a
+phenomenon you have not yet heard. Building the extractor first means the
+metric is frozen *after* someone has listened to real masked-extraction output
+and characterised its artefacts, and it means the divergence in claim 2 is
+measured within a system we built, trained and fully understand — rather than
+across off-the-shelf models whose training data and objectives we cannot
+inspect. That is a stronger claim-2 than the previous ordering produced.
+
+**The argument against it, accepted with mitigations:** the previous ordering
+put legs 1 and 2 first specifically so that a total training failure still left
+a submittable thesis. That property is gone. Legs 4 and 6 now sit downstream of
+a training run that has to converge on Kaggle. Two mitigations, both in
+`docs/milestones.md`:
+
+1. **The public-checkpoint survey moves to week 1.** If a causal BSRNN + TF-Map
+   checkpoint is publicly released, leg 2 becomes a fine-tune and its failure
+   mode largely disappears. This was already a week-1 item (§4); it is now the
+   single highest-leverage hour in the schedule.
+2. **The metric is designed on paper during leg 2's training weeks**, when the
+   GPU is busy and there is no other GPU-bound work to do. Designed by end of
+   week 6, implemented in week 8. Leg 4 is split across the calendar even
+   though it is one workstream.
+
+Leg 5 still exists to be fine-tuned *from* leg 2, and leg 2 still exists to
+give leg 6 a system we control.
 
 ### What leg 4 is not
 
@@ -242,20 +271,22 @@ assumption — see §8.
 
 Hard freeze on new experiments: **2026-10-14.**
 
-| Week | Dates | Work | Done when |
-|------|-------|------|-----------|
-| 1 | Aug 7–13 | **De-risk.** Secure HPC. Survey public streaming-TSE checkpoints (§4) and open-weight speech-to-speech judges. Estimate API cost. Pilot: 20 trials by hand through one live model to sanity-check the whole idea — **through both the audio and the text input**, since the same 20 trials answer both questions and the text path is a handful of extra API calls. | You have seen real judge responses and know roughly what a trial costs |
-| 2 | Aug 14–20 | Constructed trial-set generation. Scoring implementation (LCF-WER, ICR, NRR) + conventional metrics. | Floor and ceiling measured on the constructed set — a real result, log it |
-| 3 | Aug 21–27 | Judge harness: fixed prompt, k-repeats, variance, cost accounting, second (open-weight) judge. Prompt-sensitivity ablation. | Metric is stable enough that run-to-run spread is smaller than system differences |
-| 4 | Aug 28–Sep 3 | **Leg 2 benchmark** on constructed set, including the text reference condition and its two text anchors. AMI download + REAL-T-style construction in parallel. | The divergence table exists — claim 2 stands or falls here |
-| 5 | Sep 4–10 | AMI trial set finished, leg 2 extended to it. Training infra: data generation, YAML config, **checkpoint/resume proven across a session kill**. | A 1-epoch run completes, dies, resumes cleanly |
-| 6–7 | Sep 11–24 | **Train leg-3 baseline.** Metric protocol write-up and supervisor review in parallel (no GPU). | Converged checkpoint; protocol signed off |
-| 8 | Sep 25–Oct 1 | Score leg-3 model on both trial sets, both judges. Latency + RTF verification. | Our model is in the benchmark table |
-| 9–10 | Oct 2–14 | **Leg 4:** proxy-objective fine-tune + ablation. | Ablation table, or an honest "cut for time" |
-| 11–13 | Oct 15–Nov 5 | Write-up. Buffer. | Submitted |
+| Week | Dates | Work | Milestone | Done when |
+|------|-------|------|-----------|-----------|
+| 1–2 | Aug 7–20 | **Data.** Constructed mixture generator: target + interferer + noise + reverb, verbatim text for *both* speakers, speaker-disjoint splits. In parallel and cheap: survey public streaming-TSE checkpoints, resolve HPC, shortlist judges. | M0 | A generated set on disk with a manifest, config, commit hash and seed |
+| 3–4 | Aug 21–Sep 3 | **Build the baseline.** Causal BSRNN + TF-Map. STFT window/hop sized to the 200–300 ms budget. Target-absent training + channel-gap enrollment augmentation. Training infra, YAML config, **checkpoint/resume proven across a session kill**. | M1 | A 1-epoch run completes, is killed, and resumes cleanly |
+| 5–6 | Sep 4–17 | **Train it.** Metric designed on paper in parallel — GPU is busy, you are not. | M2 | Converged checkpoint; metric protocol drafted to v1 |
+| 7 | Sep 18–24 | **Evaluate it conventionally.** SI-SDR, DNSMOS-P808, offline WER, latency, RTF. Listen to the outputs and characterise the artefacts. | M3 | A results row — and an informed opinion about the artefact hypothesis |
+| 8 | Sep 25–Oct 1 | **Implement the metric.** LCF-WER / ICR / NRR, judge harness, k-repeats, floor and ceiling measured, text reference path, prompt-sensitivity ablation. | M4 | Run-to-run spread smaller than the floor-to-ceiling gap |
+| 9–10 | Oct 2–14 | **Second model** (proxy-objective fine-tune) **and the comparison.** Scoring runs as checkpoints land. AMI leg if it survived. | M5, M6 | The divergence table exists — or an honest "cut for time" on M5 |
+| 11–13 | Oct 15–Nov 5 | Write-up. Buffer. | M7 | Submitted |
 
-Note weeks 1–4 produce a defensible result with zero GPU time. That is
-deliberate.
+**Note what changed about the risk profile.** Under the previous ordering,
+weeks 1–4 produced a defensible result with zero GPU time. Under this one the
+first result that is *part of the thesis argument* arrives in week 7, and
+everything from week 8 onwards depends on a training run converging. §2 lists
+the two mitigations. Weeks 9 and 10 carry no slack at all: if M5 slips it is
+cut, not delayed, because M6 must still run before the freeze.
 
 ### Cut list, in order
 
