@@ -142,6 +142,48 @@ computed from the individual headset (IHM) channel. IHM has cross-talk
 bleed and a different channel response from the distant mic used as the
 mixture. It is an approximate reference, never ground truth.
 
+## 2026-08-07 — Output modality: audio is the build target, text is a reference condition
+Spec note 10, final two sentences: the live model accepts **either text or
+audio**, so the extractor's output modality is an open design choice.
+
+Decision: **the system we build outputs audio.** Reasons, in order:
+
+1. **Latency.** A text path must run a streaming ASR to completion and
+   endpoint before anything can be sent. That serialises a whole decoding
+   stage behind extraction and adds endpointing delay on top, which the
+   ~200-300 ms budget does not have room for. The spec reaches the same
+   conclusion.
+2. **It keeps the research question intact.** The project's premise is that
+   live speech-to-speech models are unusually sensitive to *processing
+   artefacts in audio*. Hand the judge text and that premise no longer
+   applies — there is no audio for it to mishear. A text-only project would
+   be a streaming target-speaker-ASR project, which is a different thesis.
+3. **Text discards everything non-lexical.** Prosody, emphasis, hesitation,
+   emotion and speaker identity are all thrown away at the ASR boundary, and
+   a speech-to-speech model uses them both to interpret the turn and to
+   shape its spoken reply. Our metric is lexical and would not see that
+   loss, which is a reason to be suspicious of a good text-path score, not a
+   reason to prefer the path.
+
+**But the text path is not dropped — it is demoted to a reference
+condition** in the benchmark: leg-3 extractor → an off-the-shelf streaming
+ASR → text → judge. No extra training, one extra row in the results table,
+and it answers "how much of the content is recoverable at all once the
+extractor has run?" It is measured, reported, and not optimised for.
+
+**Do not call the text row an upper bound.** It is not guaranteed to be one.
+An ASR error is unrecoverable once committed to text, whereas the audio path
+leaves the judge the acoustic evidence to work from. Expect it to win
+sometimes and lose sometimes; which, and under what conditions, is itself a
+result.
+
+Consequence for the metric: **output modality becomes a recorded property of
+every trial**, and the metric is defined so both paths are scored by the same
+end-to-end question — what did the assistant recover? See
+`docs/metric-definitions.md` §3.5. Cross-modality comparisons are valid on
+that end-to-end number and invalid as statements about the judge's listening
+ability, because in the text condition the judge is close to a pass-through.
+
 ## 2026-08-07 — Metric is the primary contribution
 Spec note 1 ("the actual score values from my defined metric do not
 matter — the metric itself matters more") plus note 8 (metric first, then

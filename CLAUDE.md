@@ -26,6 +26,13 @@ Working setup:
 4. **Server-class compute is assumed.** On-device / small-model deployment
    is explicitly out of scope. Latency is a secondary objective with a
    ~200-300 ms streaming budget.
+5. **The model outputs audio.** The live model accepts text too (spec note
+   10), but a text path costs a whole ASR decode plus endpointing inside the
+   latency budget, and it dissolves the research question — there are no
+   audio artefacts to mishear if you hand the judge text. Text is therefore
+   measured as a *reference condition* in the benchmark (extractor →
+   off-the-shelf ASR → text → judge), never optimised for and never built.
+   See docs/decisions.md and docs/metric-definitions.md §3.5.
 
 We are NOT replicating the REAL-TSE Challenge baselines or its eval
 pipeline (spec note 8). We borrow ideas, data-construction methods and
@@ -48,8 +55,13 @@ real conversational TSE.
   method or metric must be cited as borrowed, and the difference noted in
   a code comment and in docs/decisions.md.
 - Every live-model (judge) result must record the exact model ID, the
-  exact prompt, and the run date. Closed models change silently, so
-  comparisons across dates are invalid unless re-run.
+  exact prompt, the input modality (audio or text), and the run date.
+  Closed models change silently, so comparisons across dates are invalid
+  unless re-run.
+- Never compare an audio-input judge result to a text-input one without
+  stating that in the text condition the judge is close to a pass-through,
+  so the number mostly reflects the front-end ASR, not the judge's
+  listening.
 - The judge model must never appear anywhere in the training loop, in any
   form, including as a proxy or a data filter.
 - Prefer small, single-purpose PRs over large ones.

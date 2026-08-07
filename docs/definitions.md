@@ -126,6 +126,8 @@ Both spellings **enrollment** (US) and **enrolment** (UK) appear in the literatu
 | **Params** ★ | Parameter count, i.e. model size. REAL-TSE online systems were 15–27 M; a hearable chip wants far less. |
 | **QAT** | Quantization-Aware Training. Training the model to survive being squashed to low-precision integers for cheap hardware. |
 | **Knowledge distillation** ★ | Training a small model to imitate a big one. |
+| **Endpointing** ★ | Deciding that the speaker has finished, so the recognised text can be sent onward. A text output path cannot emit anything until this fires, which is why it is slower than just streaming audio. |
+| **Cascade** ★ | Chaining separate models (extractor → ASR → downstream model) instead of one end-to-end system. Each stage adds its own latency, and errors made early cannot be undone later. Your text reference condition is a cascade. |
 | **On-device / edge** | Running locally rather than in the cloud. |
 | **NPU / DSP / MCU** | Neural Processing Unit / Digital Signal Processor / Microcontroller — the tiny chips you'd deploy on. |
 | **GAP9** | A specific ultra-low-power chip used in hearing-device research (TF-MLPNet targets it). **GAPFlow** is its compiler. |
@@ -267,6 +269,26 @@ Both spellings **enrollment** (US) and **enrolment** (UK) appear in the literatu
 | **LCC** ★ | Linear Correlation Coefficient (Pearson). How well a metric's values track human MOS. |
 | **SRCC** ★ | Spearman's Rank Correlation Coefficient. How well a metric's *ranking* matches humans'. |
 | **Metric over-optimisation / gaming** ★ | Raising the score without improving the real quality it stands for. Happened with DNSMOS-OVRL in this challenge. |
+
+### This project's own vocabulary ★
+
+Defined in full in `docs/metric-definitions.md`. These are terms you will use
+constantly and will not find in any paper, because they are yours.
+
+| Term | Meaning |
+|---|---|
+| **Judge** ★ | The live speech-to-speech model that scores you by reporting what it understood. Held out from training entirely — never a loss, never a proxy, never a data filter. |
+| **LCF** ★ | Live-model Content Fidelity. The metric family: how much of what the target actually said the judge recovered. |
+| **LCF-WER** ★ | The headline score. Word error rate of the judge's report against the target's true words. **Lower better.** |
+| **ICR** ★ | Interferer Content Rate. How often the judge reports words the *other* speaker said. Stops you scoring well by passing everything through. **Lower better.** |
+| **NRR** ★ | Non-Response Rate. How often the judge declines, hears nothing, or returns silence. Stops you scoring well by outputting silence. **Lower better.** |
+| **Floor / ceiling** ★ | Mandatory reference rows: the unprocessed mixture (doing nothing) and the clean target (the best extraction could ever do on this judge). A system that doesn't beat the floor is worthless; a score above the ceiling means something is wrong with your harness. |
+| **Proxy** ★ | A differentiable stand-in for the judge, used in training because you cannot backprop through an API. Must be a **different model family** from the judge. |
+| **Output modality** ★ | Whether your system hands the judge **audio** or **text**. Audio is what we build; text is measured as a reference condition. Must be recorded on every result. |
+| **Text reference condition** ★ | Extractor → off-the-shelf streaming ASR → text → judge. A benchmark row, not a build target. Not an upper bound either — an ASR error is permanent, whereas audio leaves the judge acoustic evidence. |
+| **Text floor / text ceiling** ★ | The text path's own anchors: ASR run on the raw mixture, and the ground-truth transcript handed over directly. |
+| **Front-end ASR vs response ASR** ★ | Easy to confuse and important not to. The **front-end** ASR is part of your system, inside the latency budget, only present in the text condition. The **response** ASR is part of the measuring instrument, outside the budget, used to transcribe the judge's spoken reply in every condition. |
+| **Paralinguistics** ★ | Everything in speech that isn't the words: tone, emphasis, hesitation, emotion, identity. Destroyed by the text path, invisible to LCF because LCF is purely lexical. A known blind spot, stated rather than fixed. |
 
 ### Reading a results table
 

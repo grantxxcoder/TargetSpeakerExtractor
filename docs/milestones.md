@@ -12,8 +12,14 @@ supervisors" is not a milestone — a thing that exists is.
 
 - [ ] Supervisors sign off that the metric is the primary contribution
 - [ ] Supervisors sign off on the ~200–300 ms latency budget
+- [ ] Supervisors sign off that **audio-out is the build target**, with
+      text-out measured as a reference condition (spec note 10 leaves this
+      open; `docs/decisions.md` decides it, but it should be minuted)
 - [ ] **Pilot: 20 trials by hand through one live model** — does the
       quality-vs-intelligibility divergence actually reproduce?
+- [ ] Same 20 trials through the judge's **text** input, to see how far the
+      text bypass gets. Confirm the judge exposes a text input at comparable
+      latency and cost.
 - [ ] Public streaming-TSE checkpoint survey done
 - [ ] Open-weight speech-to-speech judge candidates shortlisted
 - [ ] API cost per trial estimated; trial-set size sized to budget
@@ -32,7 +38,8 @@ build a harness for a phenomenon that isn't there.
 - [ ] LCF-WER, ICR, NRR implemented
 - [ ] Conventional metrics (SI-SDR, DNSMOS-P808, offline WER) on same trials
 - [ ] Judge harness: fixed prompt, fixed response ASR, pinned model IDs,
-      k≥3 repeats, cost logging
+      k≥3 repeats, cost logging, **input modality recorded per trial** and
+      an audio *and* a text path to the judge
 - [ ] Second (open-weight) judge wired in
 - [ ] Prompt-sensitivity ablation run
 - [ ] **Floor and ceiling measured** on the constructed set
@@ -51,7 +58,9 @@ This is the thesis's central finding and the point of no-GPU de-risking.
 
 - [ ] ≥2 off-the-shelf pretrained TSE systems scored
 - [ ] Enhancement-only control scored
-- [ ] Both judges, both anchors
+- [ ] **Text reference condition** scored (extractor → off-the-shelf
+      streaming ASR → text → judge), with its text floor and text ceiling
+- [ ] Both judges, all anchors (audio floor/ceiling + text floor/ceiling)
 - [ ] AMI trial set built (REAL-T-style construction, IHM approximate ceiling)
 - [ ] Benchmark extended to AMI
 
@@ -81,7 +90,8 @@ a 12-hour Kaggle session costs a week.
 - [ ] Target-absent training and channel-gap enrollment augmentation in
 - [ ] Converged checkpoint
 - [ ] Scored on both trial sets, both judges
-- [ ] Measured algorithmic latency + RTF, against the ~200–300 ms budget
+- [ ] Measured algorithmic latency + RTF, against the ~200–300 ms budget,
+      reported separately for the audio path and the text reference path
 
 **Proof:** our model appears as a row in the M2 benchmark table.
 
@@ -108,6 +118,9 @@ without it.
 - [ ] Every borrowed method cited
 - [ ] Every deviation and cut recorded in `docs/decisions.md`
 - [ ] Approximate-ceiling caveat stated wherever AMI numbers appear
+- [ ] Modality recorded on every judge result, and the cross-modality caveat
+      (`docs/metric-definitions.md` §3.5) stated wherever audio and text rows
+      appear in the same table
 - [ ] Written, reviewed, submitted
 
 ---

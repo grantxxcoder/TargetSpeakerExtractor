@@ -8,6 +8,11 @@ Re-scoped 2026-08-07. Ordered by what unblocks the most. See
 - [ ] **Pilot the core premise.** ~20 trials by hand through one live model:
       unprocessed mixture vs an off-the-shelf TSE output vs clean target.
       Does the divergence actually reproduce? Everything depends on this.
+- [ ] Same 20 trials through the judge's **text** input (ASR the audio first).
+      Cheap, and it tells you early whether the text bypass beats the audio
+      path. Confirm the judge exposes text input at comparable latency/cost.
+- [ ] Get audio-out-as-build-target minuted with supervisors (spec note 10
+      leaves it open; `docs/decisions.md` decides it)
 - [ ] Survey public pretrained **streaming** TSE checkpoints (WeSep family,
       HuggingFace, USEF-TSE). A usable one changes the compute picture.
 - [ ] Shortlist open-weight speech-to-speech judges (the reproducibility
@@ -43,7 +48,12 @@ BSRNN.
 - [ ] LCF-WER / ICR / NRR scoring
 - [ ] Conventional metrics on the same trials, for the divergence table
 - [ ] Judge harness: fixed prompt, fixed response ASR, pinned IDs, k≥3 repeats
-- [ ] Prompt-sensitivity ablation
+- [ ] Judge harness **text path** + modality logging; keep the front-end ASR
+      (part of the system) separate from the response ASR (part of the
+      instrument) in the logs
+- [ ] Text floor (ASR on raw mixture) and text ceiling (ground-truth text)
+      anchors
+- [ ] Prompt-sensitivity ablation, both modalities
 - [ ] Decide: add a semantic-equivalence score alongside strict WER?
       (live models paraphrase; strict WER may penalise correct answers)
 
@@ -55,12 +65,21 @@ BSRNN.
 - [ ] Frozen-encoder feature-matching proxy; **confirm different model family
       from every judge** and record it in the config
 
+Model output is **audio** — settled, see `docs/decisions.md` 2026-08-07. No
+text-generating head is being built; the text row in the benchmark comes from
+an off-the-shelf ASR at eval time.
+
 ## Housekeeping
 
 - [ ] Fix TF-MLPNet citation in `docs/specification.md`: it is the 6th Clarity
       Workshop (Clarity 2025), not Interspeech 2025
-- [ ] Fix duplicate numbering in `docs/specification.md` — there are two
-      items numbered 9
-- [ ] Replace the placeholder commit hashes in `README.md`
+- [X] ~~Fix duplicate numbering in `docs/specification.md`~~ — checked
+      2026-08-07, the list runs 1–10 cleanly. Was already fixed.
+- [X] ~~Replace the placeholder commit hashes in `README.md`~~ — the
+      dependencies they pointed at were dropped in the re-scope; README now
+      describes the actual dependency set instead.
 - [ ] Create `experiments/configs/` and `experiments/results/` (required by
       CLAUDE.md, don't yet exist)
+- [ ] Pick and pin the front-end streaming ASR for the text reference
+      condition. Must be distinct in the logs from the response-transcription
+      ASR, and note in `decisions.md` if they end up being the same model.

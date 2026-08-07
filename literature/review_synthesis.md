@@ -2,6 +2,25 @@
 
 Compiled 5 August 2026. Ranked most → least important online/streaming TSE, low latency, small on-device model, handles interruptions, interpretable STT output, anchored on the REAL-TSE Online track.
 
+> **Read with the 2026-08-07 re-scope in mind.** This list was written under
+> the original brief and its *rankings* no longer match the project. The
+> summaries are all still accurate; what changed is which papers matter.
+>
+> - **On-device / small-model work is out of scope.** TF-MLPNet (#8) and the
+>   "highest-value gap" at the bottom of this file are now background and
+>   named future work, not a build target. See `docs/decisions.md`.
+> - **Replicating the challenge baselines is dropped.** Where this file says
+>   "the baseline you must replicate", read "the architecture you are
+>   borrowing as a well-characterised instrument."
+> - **PS4 and Ma et al. moved up.** They are the closest prior art to the
+>   actual contribution and are currently only in Tier 2. Read them first.
+> - **"Interpretable STT output" is now a measured reference condition, not a
+>   goal.** The model outputs audio; text is a benchmark row. This makes the
+>   TS-ASR literature — Ma et al. especially, and USEF-TP's joint framing —
+>   relevant as *what a serious text path would look like*, which is the
+>   comparison our deliberately cheap extractor→ASR cascade should be cited
+>   against.
+
 ---
 
 ## Before starting: three findings that should shape plan
@@ -288,6 +307,13 @@ Your supervisors asked for 5–6 papers reviewed deeply, then reimplementation, 
 5. **Your metric contribution, in parallel throughout:** PS4 and the Whisper joint-optimisation paper are your prior art. Design the metric to be hard to game; the challenge's own DNSMOS failure is your justification for caring.
 
 ## The one experiment I'd flag as the highest-value gap
+
+> **Superseded 2026-08-07.** This recommendation was made under the original
+> brief and points at the on-device leg, which is now explicitly out of scope
+> (spec note 10 assumes server-class compute). Retained because the reasoning
+> is sound and it is the strongest candidate for the future-work section. The
+> current highest-value experiment is the leg-2 divergence table — see
+> `docs/research-plan.md` §4.
 
 The REAL-TSE overview says the top online systems all used baseline-like backbones lifted by data pipelines, and that stronger backbones probably still have headroom with an equally strong pipeline. Separately, **not a single REAL-TSE entry reported a parameter or MAC budget anywhere near hearable-class hardware** — the smallest online system was 15.89 M params / 30 GMAC/s, versus TF-MLPNet running 6 ms chunks on a GAP9. So: *take a genuinely on-device backbone (TF-MLPNet-class or a compressed SA-Mamba), train it with CARTSE-class real-data pseudo-label adaptation, and evaluate it on the REAL-TSE online protocol with a reported compute budget.* Nobody has done this, the ingredients are all publicly described, and it lands squarely on your project's stated goal of a sufficiently accurate low-latency system that runs on on-device hardware.
 

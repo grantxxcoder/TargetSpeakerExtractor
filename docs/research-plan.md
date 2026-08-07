@@ -127,7 +127,11 @@ without it we only ever measure ourselves in training conditions.
 
 **Judge harness.** Fixed prompt, fixed response-transcription ASR, pinned
 model IDs, k≥3 repeats per trial, cost accounting. At least one open-weight
-judge alongside the closed API, for reproducibility.
+judge alongside the closed API, for reproducibility. **Two input paths to the
+judge — audio and text — with the modality recorded on every result**, since
+spec note 10 permits either as the extractor's output. Build both from the
+start: retrofitting a second path through a harness that assumes audio is
+more work than allowing for it now.
 
 **Conventional metrics alongside.** SI-SDR, DNSMOS-P808, offline ASR WER —
 computed on the same trials, specifically so leg 2 can show where they
@@ -147,6 +151,14 @@ Systems to include:
 - ≥2 off-the-shelf pretrained TSE models, ideally one streaming and one
   offline, to separate the effect of causality from the effect of extraction
 - A conventional speech enhancer, as a "denoising without extraction" control
+- **Text reference condition**: extractor → off-the-shelf streaming ASR →
+  text → judge, with its own text floor (ASR on the raw mixture) and text
+  ceiling (ground-truth text). Spec note 10 permits a text output; this is
+  how we measure it without building a second system. No training, one extra
+  harness path, and it tells us how much content is recoverable at all.
+  See `docs/decisions.md`, 2026-08-07 output-modality decision, and
+  `docs/metric-definitions.md` §3.5 for why it is a reference condition
+  rather than a rival build target — and why it is *not* an upper bound.
 - Later: our own leg-3 and leg-4 models
 
 Judges: ≥1 closed live API + ≥1 open-weight speech-to-speech model.
@@ -169,6 +181,12 @@ Ten minutes of searching, potentially weeks saved.
 ---
 
 ## 5. Legs 3 and 4 — the model
+
+**Output modality: audio.** Settled — see `docs/decisions.md`, 2026-08-07.
+Text output is measured as a benchmark reference condition (§4), not built.
+Nothing in legs 3 and 4 changes because of it: the extractor produces a
+waveform, the proxy losses are computed on that waveform, and the text row is
+produced by bolting an existing ASR onto the same checkpoint at eval time.
 
 **Architecture.** Causal BSRNN-family extractor with TF-Map + speaker-
 embedding conditioning. Rationale: it is the best-understood strong
@@ -212,8 +230,11 @@ on conventional metrics. This is the controlled experiment that supports
 claim 3, and it is why leg 3 and leg 4 share a base checkpoint.
 
 **Latency.** ~200–300 ms streaming budget (`docs/decisions.md`). Measured
-algorithmic latency and RTF reported for every system. Note the budget is
-currently a stated assumption — see §8.
+algorithmic latency and RTF reported for every system, **and separately per
+output modality** — the text reference condition pays for ASR decoding and
+endpointing on top of extraction, and reporting one latency figure across
+both modalities would hide that. Note the budget is currently a stated
+assumption — see §8.
 
 ---
 
@@ -223,10 +244,10 @@ Hard freeze on new experiments: **2026-10-14.**
 
 | Week | Dates | Work | Done when |
 |------|-------|------|-----------|
-| 1 | Aug 7–13 | **De-risk.** Secure HPC. Survey public streaming-TSE checkpoints (§4) and open-weight speech-to-speech judges. Estimate API cost. Pilot: 20 trials by hand through one live model to sanity-check the whole idea. | You have seen real judge responses and know roughly what a trial costs |
+| 1 | Aug 7–13 | **De-risk.** Secure HPC. Survey public streaming-TSE checkpoints (§4) and open-weight speech-to-speech judges. Estimate API cost. Pilot: 20 trials by hand through one live model to sanity-check the whole idea — **through both the audio and the text input**, since the same 20 trials answer both questions and the text path is a handful of extra API calls. | You have seen real judge responses and know roughly what a trial costs |
 | 2 | Aug 14–20 | Constructed trial-set generation. Scoring implementation (LCF-WER, ICR, NRR) + conventional metrics. | Floor and ceiling measured on the constructed set — a real result, log it |
 | 3 | Aug 21–27 | Judge harness: fixed prompt, k-repeats, variance, cost accounting, second (open-weight) judge. Prompt-sensitivity ablation. | Metric is stable enough that run-to-run spread is smaller than system differences |
-| 4 | Aug 28–Sep 3 | **Leg 2 benchmark** on constructed set. AMI download + REAL-T-style construction in parallel. | The divergence table exists — claim 2 stands or falls here |
+| 4 | Aug 28–Sep 3 | **Leg 2 benchmark** on constructed set, including the text reference condition and its two text anchors. AMI download + REAL-T-style construction in parallel. | The divergence table exists — claim 2 stands or falls here |
 | 5 | Sep 4–10 | AMI trial set finished, leg 2 extended to it. Training infra: data generation, YAML config, **checkpoint/resume proven across a session kill**. | A 1-epoch run completes, dies, resumes cleanly |
 | 6–7 | Sep 11–24 | **Train leg-3 baseline.** Metric protocol write-up and supervisor review in parallel (no GPU). | Converged checkpoint; protocol signed off |
 | 8 | Sep 25–Oct 1 | Score leg-3 model on both trial sets, both judges. Latency + RTF verification. | Our model is in the benchmark table |
@@ -255,6 +276,12 @@ The AMI leg sits between items 3 and 4 in priority: cut it only if the
 alternative is not finishing, and if cut, say plainly in the thesis that
 real-audio transfer is untested.
 
+The **text reference condition** is not on the cut list in any useful sense —
+it is an off-the-shelf ASR and an extra harness path, costing well under a
+day, and it directly answers a question the spec asks. If it is somehow cut,
+say in the thesis that the text output permitted by spec note 10 was
+considered, argued against on latency grounds, and left unmeasured.
+
 ---
 
 ## 7. What to tell your supervisors
@@ -277,6 +304,11 @@ Get explicit sign-off on two things:
    say yes; get it minuted.
 2. **Is the ~200–300 ms latency budget acceptable**, and does anyone have
    evidence for what live models actually tolerate? (§8)
+3. **Is audio-out the agreed build target**, with text-out measured as a
+   reference condition rather than developed? Spec note 10 leans this way
+   ("it would probably make more sense to have audio output") but stops short
+   of deciding. Worth minuting, because building a text path later is a
+   different project, not an extension of this one.
 
 ---
 
@@ -296,3 +328,12 @@ Get explicit sign-off on two things:
   building a harness for a phenomenon that isn't there.
 - **Prompt sensitivity.** If judge scores move more with prompt wording than
   with system quality, the metric needs redesign. Week 3.
+- **Does the text path beat the audio path?** Cheap to find out in week 1's
+  pilot. If text wins by a wide margin the honest framing of the thesis
+  shifts — the contribution becomes "here is how much artefact sensitivity
+  costs the audio path, measured against a text bypass" rather than "here is
+  a better audio path." That is still a good thesis, but it is better to know
+  in week 1 than week 8. It does not change the build target (see §5).
+- **Does the judge expose a text input with comparable latency and pricing?**
+  Assumed, unverified. Check in week 1 alongside the API cost estimate — the
+  text row's cost model may differ enough to matter for trial-set sizing.

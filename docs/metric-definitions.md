@@ -1,8 +1,12 @@
 # LCF — Live-model Content Fidelity
 
-**Status:** draft v0.1, 2026-08-07. Not yet reviewed by supervisors.
+**Status:** draft v0.2, 2026-08-07. Not yet reviewed by supervisors.
 **Purpose:** the project's primary contribution. Defines what we measure,
 how, and why it resists gaming.
+**Changed in v0.2:** output modality (audio vs text into the judge) is now an
+explicit, recorded property of every trial rather than an unstated assumption
+that the judge is handed audio — see §3.5. Follows the amendment to spec
+note 10.
 
 ---
 
@@ -45,14 +49,20 @@ A trial is a tuple:
 without it the metric is one-sided and trivially gameable.
 
 The system under test produces `ŝ = f(x, e)`, streaming, within the latency
-budget.
+budget. `ŝ` is **audio in the primary condition and text in the reference
+condition** — see §3.5. Modality is a recorded property of every trial, never
+an implicit assumption.
 
 ---
 
 ## 3. Scoring procedure
 
 1. Present `ŝ` to a live speech-to-speech model under a **fixed, published
-   prompt** asking it to report what it heard.
+   prompt** asking it to report what it heard — via the model's audio input
+   in the primary condition, via its text input in the reference condition
+   (§3.5). The prompt wording is held fixed across modalities except for the
+   minimum change needed to make it grammatical ("what you heard" vs "what
+   you received"); both wordings are published verbatim.
 2. If the model responds in audio, transcribe the response with a **fixed
    ASR system**, identical across all conditions. Record it as part of the
    protocol — it is a component of the measuring instrument, and changing it
@@ -91,17 +101,62 @@ score perfectly on ICR.
 
 ### 3.4 Reported anchors — mandatory
 
-Every results table reports these two rows alongside the systems:
+Every results table reports these rows alongside the systems:
 
-| Anchor | Audio presented | Interpretation |
-|---|---|---|
-| **Floor** | Unprocessed mixture `x` | Doing nothing. Any system must beat this or it is worthless. |
-| **Ceiling** | Clean target only | The best any extraction could achieve on this judge. |
+| Anchor | Presented to judge | Modality | Interpretation |
+|---|---|---|---|
+| **Floor** | Unprocessed mixture `x` | audio | Doing nothing. Any system must beat this or it is worthless. |
+| **Ceiling** | Clean target only | audio | The best any extraction could achieve on this judge. |
+| **Text ceiling** | Ground-truth text `t` | text | The best the text path could achieve with a perfect ASR. Bounds the reference condition, and separates "the ASR was wrong" from "the judge mishandled clean text". |
+
+The **text floor** — an off-the-shelf ASR run on the unprocessed mixture `x`,
+its output handed to the judge as text — is reported whenever any text-path
+row is reported. Without it a text row has nothing to be better than.
 
 On constructed trials the ceiling is exact. On AMI it is **approximate**,
 computed from the individual headset (IHM) channel, which carries cross-talk
 bleed and a different channel response from the distant mixture mic. Always
 label it as approximate. See `docs/decisions.md`, 2026-08-07 data decision.
+
+### 3.5 Output modality — audio primary, text as a reference condition
+
+Spec note 10 allows the extractor to hand the live model **either audio or
+text**. The metric is defined so that both are scored by the same end-to-end
+question — *what did the assistant recover of what the target said?* — and
+LCF-WER, ICR and NRR are computed identically in both cases. What differs is
+what the number means.
+
+| | **Primary (audio)** | **Reference (text)** |
+|---|---|---|
+| What is built | Streaming TSE extractor, `ŝ` is a waveform | Same extractor + off-the-shelf streaming ASR |
+| Judge input | audio | text |
+| Judge's role | Listens and reports | Reads and echoes — close to a pass-through |
+| What LCF-WER measures | Judge's recovery from processed audio | Mostly the front-end ASR's WER |
+| Optimised for? | Yes — this is the build target | **No.** Measured and reported only |
+
+Two consequences that must not be lost:
+
+**A text-path score is not evidence about the judge's listening.** In the
+text condition the judge is handed the answer in the modality it is best at,
+so the score largely reflects the cascade's ASR. Cross-modality comparison is
+legitimate as a statement about *pipelines* ("this way of getting content to
+the assistant recovers more of it"), and illegitimate as a statement about
+*the judge* ("the model understands text better than speech"). Every table
+that mixes modalities must carry that caveat.
+
+**The metric is blind to what the text path throws away.** LCF-WER, ICR and
+NRR are all lexical. Prosody, emphasis, hesitation, emotion and speaker
+identity vanish at the ASR boundary, and a speech-to-speech model uses them
+both to interpret a turn and to shape its spoken reply. A text row can
+therefore score well while being a worse assistant experience, and the metric
+will not show it. This is a known blind spot, stated rather than fixed — it
+is the strongest single argument against reading the text row as an upper
+bound. If the text row wins decisively, the honest next step is a
+paralinguistic probe (see §7), not a switch of build target.
+
+Latency is reported per modality and is not comparable across them without
+it: the text path pays for ASR decoding plus endpointing on top of
+extraction. See `docs/decisions.md`, 2026-08-07 output-modality decision.
 
 ---
 
@@ -132,6 +187,14 @@ training-data filter.
 judge, so an implausible score is visible immediately rather than being
 mistaken for a breakthrough.
 
+**Modality must be declared.** Converting to text and sending that instead is
+an obvious way to sidestep the audio problem the metric exists to measure. It
+is not forbidden — spec note 10 permits it — but it must be declared, scored
+against the text floor and text ceiling, and reported with its own latency.
+An undeclared text path would make two systems' numbers silently
+incomparable, so this rule is what keeps the leaderboard meaningful rather
+than what keeps anyone honest.
+
 Additionally: keep a **private trial split**. Publish the protocol, the
 construction code and a public split; hold back a private split for the
 headline numbers. Prevents overfitting to specific utterances.
@@ -144,9 +207,18 @@ These are not optional — they are what makes the benchmark a scientific
 instrument rather than an anecdote.
 
 **Pin and date everything.** Record the exact judge model ID, the exact
-prompt, the exact response-transcription ASR, and the run date for every
-number. Closed live models change silently. Cross-date comparisons are
-invalid unless re-run.
+prompt, the exact response-transcription ASR, the **input modality**, and the
+run date for every number. Closed live models change silently. Cross-date
+comparisons are invalid unless re-run.
+
+**Two ASRs, kept separate.** The text condition introduces a *front-end* ASR
+(part of the system under test, inside the latency budget). The judge harness
+already has a *response-transcription* ASR (part of the measuring
+instrument, outside the budget). These are different components with
+different roles and must be logged separately — conflating them makes the
+system look like it contains the instrument. They may be the same checkpoint,
+but that must be stated, since a shared error profile could flatter the text
+condition.
 
 **At least one open-weight judge.** Alongside the closed API, evaluate with
 an open-weight speech-to-speech model so the benchmark is reproducible by
@@ -185,7 +257,11 @@ Prior art to position against, not duplicate:
   live speech-to-speech model rather than a cascaded ASR.
 - **Ma et al.** (arXiv:2501.14477) — joint generative TSE + target-speaker
   ASR for intelligibility. Directly addresses the transcribable-but-worse
-  phenomenon.
+  phenomenon, and is the closest prior art to the text reference condition of
+  §3.5: it is what a *properly built* text path would look like, versus our
+  deliberately cheap extractor→off-the-shelf-ASR cascade. Cite it when
+  reporting the text row, so the row is not mistaken for a serious attempt at
+  the text path.
 - **REAL-TSE TER** — offline Zipformer transcription. This is the metric we
   are arguing is insufficient for the live-model use case.
 
@@ -203,3 +279,17 @@ Prior art to position against, not duplicate:
 - Whether to add a semantic-equivalence score alongside LCF-WER, since a
   live model may paraphrase correctly and be penalised by strict WER. Likely
   needed; decide after seeing pilot responses.
+- **Whether the text reference condition beats the audio path**, and under
+  what conditions (SNR, overlap ratio, device mismatch). If text wins
+  everywhere, the interesting question becomes *why* the audio path cannot
+  close the gap — the answer is the thesis's contribution, not a reason to
+  change build target.
+- **Whether a lexical metric is enough**, given that the text path discards
+  all paralinguistic content and LCF cannot see the loss (§3.5). A small
+  probe — trials where the target's meaning depends on emphasis, question
+  intonation or hesitation — would test it cheaply. Only worth building if
+  the text row wins.
+- Whether the judge's text and audio front-ends normalise numbers, dates and
+  disfluencies differently. If they do, the shared normalisation in §3.1 is
+  doing unequal work across modalities and must be re-checked before any
+  cross-modality claim.
