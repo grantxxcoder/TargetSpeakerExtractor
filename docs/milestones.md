@@ -47,10 +47,10 @@ built once.
       it ICR is not computable, and regenerating the set later to add it is
       the kind of avoidable rework that costs a week)
 - [ ] Enrollment segments ≥5 s, from a different recording than the mixture
-- [ ] Speaker-disjoint train / val / eval splits
+- [X] Speaker-disjoint train / val / eval splits
 - [ ] Controllable overlap ratio, SNR and enrollment-device mismatch, recorded
       per trial as experimental variables
-- [ ] Seed set and logged; generation config in `experiments/configs/`
+- [X] Seed set and logged; generation config in `experiments/configs/`
 
 **Proof:** a generated set on disk with a manifest, plus a config + commit hash
 + seed in `experiments/results/`.
