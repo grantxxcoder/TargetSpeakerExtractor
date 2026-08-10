@@ -217,3 +217,29 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 literature/papers/
+
+# --- Datasets and generated audio (see docs/data-setup.md) ---
+# Source corpora and generated mixtures live on disk, never in git.
+# ~36 GB steady state. Manifests and configs ARE tracked; audio is not.
+data/
+reference/
+LibriMix/
+
+# Belt and braces: no audio or archives anywhere in the tree
+*.wav
+*.flac
+*.sph
+*.zip
+*.tar.gz
+*.tgz
+
+# Model checkpoints
+*.pt
+*.pth
+*.ckpt
+
+# Experiment outputs: track configs and results, not artefacts
+experiments/runs/
+experiments/**/checkpoints/
+!experiments/configs/**
+!experiments/results/**
