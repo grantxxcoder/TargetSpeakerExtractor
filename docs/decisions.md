@@ -282,3 +282,20 @@ comparability for a freedom we do not need.
 
 Obligations, per-corpus attribution text and the required thesis wording
 are in `docs/data-licences.md`.
+
+## 2026-08-11 — Target-absent trials: the interferer is the level anchor
+
+`sir_db` is blank when `target_absent = 1` — with no target there is no
+target-to-interferer ratio. But `snr_db` and `target_loudness_lufs` are still
+recorded, and both are defined relative to that missing target, so nothing in
+the manifest fixes the interferer or the noise gain.
+
+Decision: **in target-absent trials the interferer becomes the anchor.**
+Normalise the interferer to `target_loudness_lufs`, then place the noise at
+`snr_db` relative to the interferer. `sir_db` stays blank and unused.
+
+Why: both recorded columns keep their meaning, absent trials sit at comparable
+volume to present ones, and no manifest changes are needed. The alternative — a
+fixed absolute level for absent trials — would make the condition identifiable
+by loudness alone, which the model could exploit instead of listening to the
+enrollment.
