@@ -243,3 +243,4 @@ experiments/runs/
 experiments/**/checkpoints/
 !experiments/configs/**
 !experiments/results/**
+docs/decisions-pending.md
