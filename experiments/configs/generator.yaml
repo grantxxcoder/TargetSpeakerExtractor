@@ -46,8 +46,10 @@ defaults:
 
 splits:
   train:        {n_trials: 20000, noise_split: tr, target_absent_fraction: 0.35}
-  val:          {n_trials: 200,   noise_split: cv, target_absent_fraction: 0.0}
+  # val matches train's absent fraction so validation can exercise the
+  # push-to-silence half of the loss. The eval splits stay at 0.0 pending B4.
+  val:          {n_trials: 200,   noise_split: cv, target_absent_fraction: 0.35}
   eval_public:  {n_trials: 500,   noise_split: tt, target_absent_fraction: 0.0}
   eval_private: {n_trials: 500,   noise_split: tt, target_absent_fraction: 0.0}
   smoke_train:  {n_trials: 50,    noise_split: tr, target_absent_fraction: 0.35}
-  smoke_val:    {n_trials: 20,    noise_split: cv, target_absent_fraction: 0.0}
+  smoke_val:    {n_trials: 20,    noise_split: cv, target_absent_fraction: 0.35}
