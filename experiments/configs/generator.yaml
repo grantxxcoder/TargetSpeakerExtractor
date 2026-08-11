@@ -1,0 +1,53 @@
+# Mixture generator parameters.
+# What each value means and where it came from: docs/data-construction-parameters.md
+#
+# [low, high] is sampled uniformly per trial. A single value is fixed.
+
+seed: 42
+sample_rate: 16000
+
+paths:
+  librispeech: data/librispeech/LibriSpeech
+  wham_noise: data/wham_noise_16k
+  splits: experiments/configs/splits.yaml
+
+defaults:
+  mixture_length_s: [15.0, 20.0]
+
+  # Fraction of the mixture where both speakers talk. Cannot exceed
+  # target_activity_ratio, so 0.7 is the ceiling while that is 0.75.
+  overlap_ratio: [0.2, 0.7]
+  overlap_tolerance: 0.03
+
+  # Fraction of the mixture the target talks for. Each source is a run of
+  # consecutive utterances from one chapter; the leftover time becomes gaps.
+  target_activity_ratio: 0.75
+  activity_tolerance: 0.1
+  max_utterances_per_source: 6
+
+  sir_db: [-5.0, 15.0]
+  snr_db: [0.0, 20.0]
+  target_loudness_lufs: [-33.0, -25.0]
+  clip_ceiling: 0.95
+
+  t60_s: [0.15, 0.6]
+  room_length_m: [5.0, 10.0]
+  room_width_m: [5.0, 10.0]
+  room_height_m: [3.0, 4.0]
+  source_distance_m: [0.66, 2.0]
+  source_height_m: [0.9, 1.8]
+  mic_height_m: [0.9, 1.8]
+  early_reflections_ms: 50
+
+  enrollment_length_s: 5.0
+  enrollment_eq_prob: 0.5
+
+  same_gender_fraction: 0.5
+
+splits:
+  train:        {n_trials: 20000, noise_split: tr, target_absent_fraction: 0.35}
+  val:          {n_trials: 200,   noise_split: cv, target_absent_fraction: 0.0}
+  eval_public:  {n_trials: 500,   noise_split: tt, target_absent_fraction: 0.0}
+  eval_private: {n_trials: 500,   noise_split: tt, target_absent_fraction: 0.0}
+  smoke_train:  {n_trials: 50,    noise_split: tr, target_absent_fraction: 0.35}
+  smoke_val:    {n_trials: 20,    noise_split: cv, target_absent_fraction: 0.0}

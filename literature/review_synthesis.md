@@ -330,6 +330,6 @@ The REAL-TSE overview says the top online systems all used baseline-like backbon
 - [ ] Exploring T-F Domain TSE for Causal and Non-Causal Processing — ASRU 2023
 - [ ] TF-MLPNet: Tiny Real-Time Neural Speech Separation — arXiv:2508.03047
 - [ ] USEF-TSE — arXiv:2409.02615 (+ USEF-TP, arXiv:2501.03612)
-- [ ] SA-Mamba / DeepSound Track-1 report — real-tse.github.io/assets/pdf/DeepSound-Track1.pdf
-- [ ] PS4: Proxy-Supervised Joint Training — arXiv:2607.08111
+- [X] SA-Mamba / DeepSound Track-1 report — real-tse.github.io/assets/pdf/DeepSound-Track1.pdf
+- [X] PS4: Proxy-Supervised Joint Training — arXiv:2607.08111
 - [ ] SonicAGI / SwiftNet-Lookahead — arXiv:2607.11083

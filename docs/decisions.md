@@ -190,3 +190,95 @@ matter — the metric itself matters more") plus note 8 (metric first, then
 architecture) make this explicit. The metric definition and its harness
 are the deliverable that must not be cut under any schedule pressure.
 Full specification in docs/metric-definitions.md.
+
+## 2026-08-10 — Sample rate: 16 kHz mono, 16-bit, everywhere
+Every audio path in this project — source corpora, generated mixtures,
+enrollment, model I/O, and the audio handed to the judge — is **16 kHz,
+mono, 16-bit PCM**. This is a hard project-wide invariant, not a per-stage
+choice.
+
+Reasons, in descending order of how costly they'd be to get wrong:
+
+1. **Every frozen model in the loop is a 16 kHz model.** The differentiable
+   proxies (frozen ASR/SSL feature matching), the speaker encoder and the
+   VAD are all trained at 16 kHz — WavLM, Whisper, Zipformer, ECAPA-TDNN
+   and WeSpeaker all assume it. Since the proxy losses *are* our training
+   signal, the pipeline is pinned to 16 kHz by that alone.
+2. **The judge takes 16 kHz.** Gemini Live's input format is raw 16-bit
+   PCM, 16 kHz, mono, little-endian. It will resample other rates, but an
+   uncontrolled resample sitting between our extractor and our evaluator
+   is a confound in a benchmark whose whole purpose is measuring what the
+   judge hears. We control that boundary explicitly.
+3. **Intelligibility content is below 8 kHz.** Nyquist gives 8 kHz of
+   bandwidth at this rate. Vowels, formants and voicing sit well under
+   4 kHz; what is lost above 8 kHz is mainly the upper energy of sibilant
+   fricatives (/s/, /ʃ/, /f/), which affects perceived crispness more than
+   word identity. Since our metric is lexical content fidelity, this is the
+   band that matters.
+4. **It is the field standard**, so our conditions are comparable *in kind*
+   to REAL-TSE, LibriSpeech, WHAM! and the published TSE literature — while
+   remaining non-comparable in number, per the standing rule.
+
+**Consequences.** The 200-300 ms latency budget is measured on 16 kHz
+frames. Any future 48 kHz or wideband extension is a new experiment with
+new proxies, not a config change. If a judge is added that prefers a
+different rate, the resample must be explicit, logged per trial and named
+in the results table.
+
+**Note on the WHAM! conversion in `docs/data-setup.md` step 1e:** WHAM!
+noise is *already* 16 kHz, so `-ar 16000` there is a no-op guard. The 4×
+storage reduction comes entirely from stereo → mono and 32-bit float →
+16-bit. Do not defend it as a sample-rate saving.
+
+**16-bit is a deliberate, mildly lossy choice.** 32-bit float sources are
+quantised to 16-bit on ingest. 16-bit gives ~96 dB of dynamic range, far
+more than these signals use at the SNRs we mix at, and it matches what the
+judge accepts anyway. Chosen, not defaulted to.
+
+Sources: <https://ai.google.dev/gemini-api/docs/live-api/capabilities>,
+<https://firebase.google.com/docs/ai-logic/live-api/limits-and-specs>,
+<http://wham.whisper.ai/>, and `docs/definitions.md:60`.
+
+## 2026-08-10 — Data licensing: the constructed set inherits CC BY-NC
+Our three corpora do not share a licence:
+
+| Corpus | Licence | Commercial use |
+|---|---|---|
+| LibriSpeech | CC BY 4.0 | permitted |
+| AMI | CC BY 4.0 | permitted |
+| **WHAM! noise** | **CC BY-NC 4.0** | **prohibited** |
+
+Because every constructed mixture contains WHAM! noise, the constructed
+train/val/eval sets are **derivative works of an NC-licensed corpus**. The
+most restrictive input governs the output.
+
+**The AMI secondary eval set is exempt.** It contains no WHAM! material —
+it is real meeting audio only — so AMI-derived trials stay CC BY 4.0 and
+may be released permissively. The NC blanket covers the constructed leg,
+not the AMI leg. These are two separate release decisions.
+
+Decision: accept the NC constraint rather than substitute the noise corpus.
+It is the right trade for a masters project — WHAM! is the field-standard
+noise set, real recorded (not synthetic), and swapping it would cost
+comparability for a freedom we do not need.
+
+**What this binds us to:**
+- We may **not** redistribute generated mixture audio under a permissive
+  licence, sell it, or use it in any commercial product.
+- Publishing the "public trial split" required by
+  `docs/metric-definitions.md:198-200` must be **CC BY-NC 4.0**, with
+  attribution to all three upstream corpora.
+- Safer alternative for release: publish the **generation code, manifests
+  and seeds** rather than the audio, so users regenerate locally from
+  corpora they obtain themselves. This sidesteps redistribution entirely
+  and is better for reproducibility. Prefer this; treat audio release as a
+  fallback.
+- **Model weights are a separate question and are not clearly restricted**
+  by NC. A trained model is generally not considered a derivative work of
+  its training data, but this is unsettled and jurisdiction-dependent. If
+  weights are ever released, note the training data's NC status and, if it
+  matters, get an actual opinion — I am not a lawyer and this is not legal
+  advice.
+
+Obligations, per-corpus attribution text and the required thesis wording
+are in `docs/data-licences.md`.

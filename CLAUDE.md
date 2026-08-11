@@ -65,9 +65,11 @@ real conversational TSE.
 - The judge model must never appear anywhere in the training loop, in any
   form, including as a proxy or a data filter.
 - Prefer small, single-purpose PRs over large ones.
-
-## Stack
-Python, PyTorch
+- When generating text/markdown files, I do not want long explanations. Short, concise answers are
+  always preferred unless expressly asked otherwise.
+- If needing a format for what to do always begin with the instruction first,
+  highlighted, or made clear, followed by the short explanation as to why it
+  is required only if necessary.
 
 ## Current phase
-Phase 1: literature review
+Phase 2: data preparation
