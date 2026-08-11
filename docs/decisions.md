@@ -282,3 +282,78 @@ comparability for a freedom we do not need.
 
 Obligations, per-corpus attribution text and the required thesis wording
 are in `docs/data-licences.md`.
+
+## 2026-08-11 — Target-absent trials: the interferer is the level anchor
+
+`sir_db` is blank when `target_absent = 1` — with no target there is no
+target-to-interferer ratio. But `snr_db` and `target_loudness_lufs` are still
+recorded, and both are defined relative to that missing target, so nothing in
+the manifest fixes the interferer or the noise gain.
+
+Decision: **in target-absent trials the interferer becomes the anchor.**
+Normalise the interferer to `target_loudness_lufs`, then place the noise at
+`snr_db` relative to the interferer. `sir_db` stays blank and unused.
+
+Why: both recorded columns keep their meaning, absent trials sit at comparable
+volume to present ones, and no manifest changes are needed. The alternative — a
+fixed absolute level for absent trials — would make the condition identifiable
+by loudness alone, which the model could exploit instead of listening to the
+enrollment.
+
+## 2026-08-11 — Target-absent trials: interferer activity must match present trials
+
+Found while exploring `smoke_train`: absent trials had `interferer_activity` of
+0.75-0.85 in every case, while present trials spanned 0.29-0.82. A gap of 1.4
+standard deviations, with barely overlapping ranges.
+
+Cause: the absent branch set interferer activity to `target_activity_ratio`
+(a scalar, so exactly 0.75, then filled to `activity_tolerance`). Present trials
+draw it from the §2.2 feasibility band instead. Two different distributions.
+
+Why it matters: the condition became detectable from activity alone. A model
+could learn "one voice talking near-continuously ⇒ emit silence" and score 35%
+of the training set without ever consulting the enrollment — the shortcut these
+trials exist to prevent.
+
+Decision: **absent trials draw interferer activity from the same distribution a
+present trial would have produced.** `build_manifest.py` now takes a shadow
+overlap draw and a shadow target activity, then applies the same
+`uniform(overlap, 1 - t_act + overlap)` band the present branch uses.
+
+Consequence: low activity values are harder to satisfy from long LibriSpeech
+utterances, so `n_failed` may rise. Check it on every regenerated manifest.
+
+General lesson, worth applying to any future condition flag: **a condition the
+model is supposed to infer by listening must not be inferable from the
+manifest's summary statistics.** Compare every column across the two groups.
+
+## 2026-08-11 — Noise is shorter than the mixtures: wrap around
+
+WHAM! clips are shorter than the mixtures. In the `tr` split they run 3.4-47.7 s
+with a median of 10.0 s, against mixtures of 15-20 s. Only 86 of 20000 clips
+(0.43%) reach 20 s, and in `smoke_train` all 50 trials need more noise than
+their clip holds.
+
+Decision: **the noise bed wraps.** `noise_offset_s` is a phase into a looped
+stream, not a slice index. The renderer reads `mixture_length_s` seconds from
+that offset, returning to the start of the clip when it runs out.
+
+Rejected: using only clips long enough (discards 99.6% of the library and biases
+toward whichever scenes were recorded for longer), and shortening the mixtures
+(breaks comparability with REAL-TSE's ~17-18 s).
+
+Cost: a faint repeat at each seam. Measured on `smoke_train`, trials cross the
+clip end **1.9 times on average** (1 seam in 12 trials, 2 in 33, 3 in 5) — more
+than the "wraps once" a median 10 s clip in a 17.5 s window suggests, because
+`noise_offset_s` is uniform over the whole clip and so usually starts the read
+partway through. Record it as a known artefact of the constructed set; the AMI
+leg has no such artefact.
+
+If 1.9 seams proves audible in the §11 listening pass, the cheap mitigation is to
+draw `noise_offset_s` over `[0, max(0, duration - mixture_length_s)]` where the
+clip allows it, which removes one seam without touching the wrap logic.
+
+Renderer note: a naive `noise[offset : offset + length]` silently yields short or
+zero-padded noise. The wrap is mandatory, not an optimisation.
+
+Was `decisions-pending.md` A2.

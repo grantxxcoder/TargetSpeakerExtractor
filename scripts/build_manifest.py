@@ -241,7 +241,21 @@ def build_trial(trial_id, split, cfg, speakers, sex, book, by_speaker,
             target_spans = []
             target_onsets = []
             enrollment = long_enough[pick.integers(len(long_enough))]
-            i_act = draw(level, cfg["target_activity_ratio"])
+
+            # The interferer's activity is drawn from the same distribution a
+            # present trial would have produced. Pinning it at
+            # target_activity_ratio (the previous behaviour) made absent trials
+            # identifiable without listening: their interferer always talked
+            # 0.75-0.85 of the window, where present-trial interferers span
+            # roughly 0.2-0.9. A model could then emit silence whenever one
+            # voice talks near-continuously and never consult the enrollment --
+            # the exact shortcut target-absent trials exist to prevent.
+            # decisions.md 2026-08-11.
+            shadow_overlap = draw(level, cfg["overlap_ratio"])
+            shadow_t_act = cfg["target_activity_ratio"] + level.uniform(
+                0.0, cfg["activity_tolerance"])
+            i_act = level.uniform(shadow_overlap,
+                                  min(1.0, 1.0 - shadow_t_act + shadow_overlap))
         else:
             t_wanted = cfg["target_activity_ratio"] * length
             found = pick_run(pick, chapters_of[target], by_chapter, t_wanted,

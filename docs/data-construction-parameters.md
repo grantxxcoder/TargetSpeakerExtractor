@@ -33,8 +33,11 @@ matches perceived level and is what both references use.
 
 ### `target_loudness_lufs`
 **U(−33, −25) LUFS.**
-Absolute level of the mixture. Prevents every trial sitting at identical volume.
-*LibriMix constants `MIN_LOUDNESS`/`MAX_LOUDNESS` (`:14-21`).* Also known as background noise.
+Absolute level of the **target**. The target anchors the trial: the interferer
+is then placed at `sir_db` relative to it, and the noise at `snr_db`. Prevents
+every trial sitting at identical volume. In target-absent trials the interferer
+is the anchor instead — `decisions.md` 2026-08-11.
+*LibriMix constants `MIN_LOUDNESS`/`MAX_LOUDNESS` (`:14-21`), applied per source.*
 
 ### `clip_ceiling`
 **0.95, common-gain rescale across all stems.**
@@ -53,15 +56,35 @@ Length of each trial. Matches REAL-TSE's ~17–18 s so conditions are comparable
 in kind.
 
 ### `overlap_ratio` — *pilot*
-**U(0.2, 0.8), mean ~0.5. Record it.**
+**U(0.2, 0.7), mean ~0.45. Record it.**
 Fraction of the mixture where more than one person is talking. An experimental
-variable, not a setting.
+variable, not a setting. The 0.7 ceiling follows from `target_activity_ratio`:
+overlap cannot exceed the fraction the target talks for (0.75), and the
+interferer needs slack to remain placeable.
 *REAL-TSE averages ~0.48–0.53 (`literature/review_synthesis.md:50`).*
+
+### `overlap_tolerance`
+**0.03.**
+How far `overlap_achieved` may fall from `overlap_requested` before the trial is
+discarded. The interferer is one contiguous block slid along the window, so a
+discrete search cannot always land on the requested value. Not a realism
+setting — purely an accept/reject bound. Both values are recorded per trial.
 
 ### `target_activity_ratio`
 **~0.75.**
 Fraction of the mixture where the target is talking at all. Matches REAL-TSE's
 ~0.73–0.75.
+
+### `activity_tolerance`
+**0.1, one-sided.**
+Speech is assembled from whole utterances, so 0.75 cannot be hit exactly. A run
+totalling between 0.75 and 0.85 of the window is accepted. Never below the
+target ratio, up to 0.10 above it — not ±0.1.
+
+### `max_utterances_per_source`
+**6.**
+Cap on how many consecutive utterances are joined to make one speaker's speech,
+so a source is never assembled from a long string of short fragments.
 
 ### `target_absent_fraction`
 **~0.35 of training examples.**
@@ -70,11 +93,19 @@ rather than hallucinate the interferer. Needs a split loss (masked SI-SDR when
 present, push-to-silence when absent).
 *CARTSE uses ~38% (Li & Seki, 2026).*
 
-### `length_mode`
+### `length_mode` — **not yet implemented**
 **Pad, do not truncate. Extend the window past the last source by ≥ T60.**
 How sources of unequal length are fitted together. Truncating to the shortest
 source (LibriMix `min` mode) cuts the reverb tail, so reference and mixture stop
 corresponding.
+
+*Status: the generator reserves no tail. It asserts sources fit inside
+`mixture_length_s`, and in `smoke_train` 12 of 50 trials have a source ending in
+the final 1% of the window while T60 reaches 0.6 s. The renderer must therefore
+synthesise `mixture_length_s + T60` and trim back, so the tail decays into the
+window rather than being clipped at it. Decide alongside `target_reference`
+(§4) — if the reference is direct+early, the clipped tail is late reverb the
+model is meant to remove anyway.*
 
 ---
 
@@ -185,8 +216,12 @@ in the metric.
 **WHAM! tr → train, cv → val, tt → eval. Never cross.**
 A noise clip heard in training must not appear in eval.
 
-### `noise_speech_rejection`
+### `noise_speech_rejection` — **not yet implemented**
 **Reject any noise segment whose own speech content exceeds −6 dB. Resample.**
+*Status: `build_manifest.py` picks a clip and offset at random with no speech
+check. Implementing it needs audio, so it belongs in the renderer or in a
+manifest post-pass, and the accepted offset must be written back to the
+manifest to stay reproducible.*
 Critical for this project specifically: intelligible speech in the noise bed
 enters as an unlabelled third talker, and the metric would score those words as
 hallucination when the extractor faithfully passed through what was there.

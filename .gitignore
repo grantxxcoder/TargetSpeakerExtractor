@@ -244,3 +244,4 @@ experiments/**/checkpoints/
 !experiments/configs/**
 !experiments/results/**
 docs/decisions-pending.md
+tse_venv/
