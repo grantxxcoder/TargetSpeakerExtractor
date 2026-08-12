@@ -294,6 +294,71 @@ anything.
 **Still open — take to the supervisor before pinning.** Depends on A1; revisit if
 the reference signal changes.
 
+### B12. Every parameter's distribution and constraints must be settable from config (**generator controllability**) — **NB**
+
+> **NB. This is the lever for the "is the data too hard to learn from" question.**
+> Raised 2026-08-12. Without it, tuning difficulty means editing
+> `build_manifest.py` each time, which is neither reproducible nor loggable.
+
+Today `build_manifest.py` hardcodes `rng.uniform(lo, hi)` for every parameter, so
+config can move a range but never its shape. Four things are wanted:
+
+1. **Distribution shape per parameter**, chosen in config rather than in code.
+2. **A narrower "average case" band per parameter**, so the base condition is
+   learnable and the full range becomes a harder reported condition. Applies to
+   every parameter, not just the examples.
+3. **Relational constraints**, which no range can express — the given example is
+   *the target is always closer to the mic than the interferer*.
+4. Whichever of these are adopted must be **recorded per trial**, or the trial
+   stops being reproducible from the manifest.
+
+| Option | Cost |
+|---|---|
+| Ranges only, as now | Free. Difficulty can only be tuned by editing code, and the average-case idea cannot be expressed at all |
+| Named distribution per parameter — `{dist: uniform\|truncnorm\|beta, ...}` | Covers 1 and 2 in one mechanism: an average-case band is a narrow distribution, and a hard condition is a wide one. Needs a small sampler layer and a schema |
+| Above, plus a rejection-constraint list | Adds 3. Rejection interacts with the trial retry loop, and §4/§7 of the notebook show rejection is exactly what bends distributions and creates shortcuts — any constraint added must be re-checked there |
+
+**Recommended: the second now, the third only for constraints that are actually
+wanted.** Ranges stay valid as shorthand for uniform, so nothing existing breaks.
+
+**Two things to settle first:**
+
+→ **Which distributions?** `uniform`, `truncnorm` and `beta` cover "flat",
+"clustered around a typical value" and "skewed within bounds", which is most of
+what points 1–2 need. Confirm before implementing.
+
+→ **The wall-absorption example.** "Only accounts up to 0.5 of that uniform
+distribution" — the lower half of the range, absorption coefficient ≤ 0.5, or the
+middle 50 %? Absorption is not a config parameter; it is derived from `t60_s` by
+`pra.inverse_sabine`, so a cap on it is a rejection rule, or a change to sampling
+absorption directly and deriving T60 from it.
+
+Depends on nothing; blocks the B9/B10/B4 rebuild if the rebuild is meant to use
+the new shapes.
+
+### B13. Results must be reported per condition, never as one number (**stratified reporting**)
+
+Raised 2026-08-12: interpretability is to be treated as strict. Every headline
+number on the final test set must break out by condition rather than collapse
+into an aggregate — at minimum target present vs absent, and interruptions.
+
+Why it is a decision and not just a reporting habit: the strata have to exist in
+the data before they can be reported, so this constrains what the eval splits
+must contain, and it sets a floor on trials per split (B6) — every cell needs
+enough trials to be readable, so the count multiplies by the number of strata.
+
+**Candidate strata**, to confirm: target present / absent (B4), overlap band,
+SIR band, T60 above / below the latency budget (B11), same vs different gender,
+one-book vs two-book target speaker (B10).
+
+→ **Clarify: what counts as an "interruption"?** Nothing marks one today. The
+nearest column is `overlap_achieved`, which is continuous, so an interruption
+stratum needs either a threshold on it or a new trial type. B9 already proposes
+adding turn-taking and target-only trials, so the definition should be fixed
+**before** that rebuild rather than derived from it afterwards.
+
+→ **Minimum trials per cell:**
+
 ---
 
 ## C. Ask the supervisor

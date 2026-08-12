@@ -40,18 +40,63 @@ evaluate → nothing to compare.
 Both training and evaluation draw from the same construction code, so this is
 built once.
 
-- [ ] Constructed mixture generator: target + ≥1 interferer + real noise
-      (WHAM!-style) + reverberation (WHAMR!-style RIRs), 16 kHz
-- [ ] Exact verbatim ground-truth text retained for **both** target and
-      interferer (`d` is required by `docs/data/metric-definitions.md` §2 — without
-      it ICR is not computable, and regenerating the set later to add it is
-      the kind of avoidable rework that costs a week)
-- [ ] Enrollment segments ≥5 s, from a different recording than the mixture
-- [ ] Build dataset
+**Status 2026-08-12.** Manifests exist for all six splits and have been audited
+(`src/exploratory/data_setup.ipynb`). **No audio exists yet** — the renderer is
+unwritten and blocked on A1. The audit found two shortcuts serious enough to
+require regenerating the manifests before any audio is made.
+
+Done:
 - [X] ~~Speaker-disjoint train / val / eval splits~~
-- [ ] Controllable overlap ratio, SNR and enrollment-device mismatch, recorded
-      per trial as experimental variables
 - [X] ~~Seed set and logged; generation config in `experiments/configs/`~~
+- [X] ~~Manifest generator: speakers, timing, levels, rooms, noise, enrollment~~
+- [X] ~~Enrollment segments ≥5 s, from a different recording than the mixture~~
+- [X] ~~Manifest audit §1–§7: timing, levels, rooms, enrollment, noise, absent trials~~
+
+Blocked on a decision:
+- [ ] **A1 — reference signal.** Nothing about the renderer can be written until
+      this is answered. Highest-priority unblock.
+- [ ] **B12 — generator controllability.** Decide before the rebuild, or the
+      rebuild happens twice.
+
+Manifest rebuild — one pass covering all of:
+- [ ] **B9** — add `target_only_fraction`; let `target_activity_ratio` vary.
+      Silent-target trials are currently detectable at AUC 1.000 without
+      listening, and a target speaking uninterrupted never occurs
+- [ ] **B10** — book-preferred, chapter-fallback enrollment, recording which rule
+      fired per trial. 60 % of speakers can never be a present target today
+- [ ] **B4** — silent-target trials in the eval splits (fraction still open)
+- [ ] Re-run the §7.5 leak scoreboard afterwards and show the AUCs dropped
+
+Still unimplemented from `data-construction-parameters.md`:
+- [ ] **`noise_speech_rejection`** — the docs call it critical. Speech in the
+      noise bed enters as an unlabelled third talker and the metric scores those
+      words as hallucination. Needs audio, so it lands in the renderer
+- [ ] `length_mode`
+
+Renderer, once A1 is answered:
+- [ ] Manifest row → audio: RIRs, levels at BS.1770, noise wrap, clip ceiling
+- [ ] Five stems per trial: mixture, clean target, enrollment, both texts
+- [ ] Exact verbatim ground-truth text for **both** target and interferer
+      (`d` is required by `docs/data/metric-definitions.md` §2 — without it ICR is
+      not computable, and regenerating later to add it costs a week)
+- [ ] Guards: stem <400 ms breaks BS.1770; assert on a silent stem
+- [ ] Transcripts cut to match any audio truncation
+
+Notebook and verification:
+- [ ] §7.5 — leak scoreboard, **before** the rebuild so it is a before/after
+- [ ] §8 — `enrollment_eq` rate vs config, `same_gender` rate vs config
+- [ ] **EDA per parameter** — plot each parameter's realised distribution against
+      the intended one (raised 2026-08-12, needed to verify B12)
+- [ ] Revise §2, §7 and the final health checks after the rebuild; §3–§6 survive
+
+Pilot calibration, before freezing any range:
+- [ ] Listen to 40 trials with transcripts in hand
+- [ ] Floor and ceiling WER measured; aim for a 60–80 % floor
+- [ ] Confirm conditions separate — bin by SIR and by overlap
+
+Housekeeping:
+- [ ] `requirements.txt` / `pyproject.toml` — none exists, and `pyloudnorm` is
+      now a real dependency
 
 **Proof:** a generated set on disk with a manifest, plus a config + commit hash
 + seed in `experiments/results/`.

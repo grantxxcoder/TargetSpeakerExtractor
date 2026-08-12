@@ -2,6 +2,15 @@
 # What each value means and where it came from: docs/data/data-construction-parameters.md
 #
 # [low, high] is sampled uniformly per trial. A single value is fixed.
+#
+# Each parameter below carries two comments: what it controls in plain English,
+# and "typical:" — roughly what the value would be in an ordinary room with two
+# people talking. The typical figures are indicative starting points for the
+# average-case discussion raised on 2026-08-12, NOT measured values. Confirm them
+# in the pilot before relying on any of them (data-construction-parameters.md §11).
+#
+# Where a range is already noticeably harder than typical, the comment says so.
+# Those are the candidates for a narrower "base case" band.
 
 seed: 42
 sample_rate: 16000
@@ -12,43 +21,117 @@ paths:
   splits: experiments/configs/splits.yaml
 
 defaults:
+  # How long each generated clip is, start to finish.
+  # Typical: ~17.5 s. Chosen to sit near REAL-TSE's clip length.
   mixture_length_s: [15.0, 20.0]
 
-  # Fraction of the mixture where both speakers talk. Cannot exceed
+  # Fraction of the clip where BOTH people are talking at once. Cannot exceed
   # target_activity_ratio, so 0.7 is the ceiling while that is 0.75.
+  # Typical: ~0.10-0.15. Real meetings overlap far less than this.
+  # HARDER THAN TYPICAL — the floor of 0.2 is already above a normal conversation,
+  # and decisions-pending B9 shows it also makes silent-target trials detectable.
   overlap_ratio: [0.2, 0.7]
+
+  # How close the achieved overlap must land to the requested one, or the trial
+  # is thrown away and redrawn. Smaller = stricter = more rejected trials.
   overlap_tolerance: 0.03
 
-  # Fraction of the mixture the target talks for. Each source is a run of
+  # Fraction of the clip the target spends talking. Each source is a run of
   # consecutive utterances from one chapter; the leftover time becomes gaps.
+  # Typical: ~0.4-0.5. In a two-person conversation each person holds the floor
+  # roughly half the time.
+  # HARDER THAN TYPICAL — a target talking 75-85% of the window is a monologue,
+  # not a conversation, and it forces the high overlap above. See B9.
   target_activity_ratio: 0.75
+
+  # How far the achieved talking time may drift from the ratio above.
   activity_tolerance: 0.1
+
+  # Most recordings that may be strung together to make one speaker's turn.
+  # Currently the target averages only 1.1, because LibriSpeech utterances are
+  # long enough to fill the window on their own.
   max_utterances_per_source: 6
 
+  # How much louder the target is than the interfering speaker, in dB.
+  # Negative = the interferer is louder. This is the main difficulty axis.
+  # Typical: ~0 to +6 dB for two people at similar distance from the mic.
   sir_db: [-5.0, 15.0]
+
+  # How much louder the target is than the background noise bed, in dB.
+  # Typical: ~15-20 dB in an office or home; ~5-10 dB in a busy cafe.
   snr_db: [0.0, 20.0]
+
+  # Absolute loudness of the target, BS.1770 integrated (decisions.md 2026-08-12).
+  # Stops every trial sitting at the same volume. In silent-target trials the
+  # interferer is normalised to this instead (decisions.md 2026-08-11).
+  # Typical: broadcast reference is -23 LUFS; this range sits below it to leave
+  # headroom for the interferer and noise on top.
   target_loudness_lufs: [-33.0, -25.0]
+
+  # If the summed audio exceeds this fraction of full scale, quieten the mixture
+  # AND every stem by the same amount, so SIR and SNR are preserved.
   clip_ceiling: 0.95
 
+  # Reverberation time: how long echoes take to fade by 60 dB. Higher = boomier.
+  # Typical: ~0.3-0.5 s for a carpeted meeting room or office.
+  # NOTE: 66.8% of trials exceed the 200-300 ms streaming window, so the model
+  # cannot hear the tail it is scored on. See decisions-pending B11.
   t60_s: [0.15, 0.6]
+
+  # Room floor plan. Shoebox, so length x width.
+  # Typical: ~5-7 m a side for a meeting room. 10 m is a large hall.
   room_length_m: [5.0, 10.0]
   room_width_m: [5.0, 10.0]
+
+  # Floor-to-ceiling height.
+  # Typical: ~2.4-2.7 m in an ordinary office or home.
+  # HIGHER THAN TYPICAL — 3-4 m is a hall or an older building.
   room_height_m: [3.0, 4.0]
+
+  # How far each speaker stands from the microphone, measured horizontally.
+  # (The true 3-D distance is slightly larger once height differs — up to 2.18 m.)
+  # Typical: ~0.5-1 m for a laptop or phone; 1-2 m for a table mic.
   source_distance_m: [0.66, 2.0]
+
+  # Height of each speaker's mouth above the floor.
+  # Typical: ~1.2 m seated, ~1.6 m standing.
   source_height_m: [0.9, 1.8]
+
+  # Height of the microphone above the floor.
+  # Typical: ~0.75 m for a mic sitting on a table.
+  # HIGHER THAN TYPICAL — 0.9-1.8 m is a stand or a head-height mic.
   mic_height_m: [0.9, 1.8]
+
+  # The cutoff that separates "early" echoes from the late reverb tail. Echoes
+  # before this are kept in the clean target; everything after is what the model
+  # must remove. Depends on A1, still undecided.
   early_reflections_ms: 50
 
+  # Length of the sample of the target's voice given to the model so it knows
+  # who to listen for. Fixed, not sampled (decisions.md 2026-08-12).
+  # Set to a [low, high] pair to sweep it as an experiment.
   enrollment_length_s: 5.0
+
+  # Chance the enrollment clip gets a random EQ applied, faking a different
+  # microphone, so the model matches on voice rather than on recording channel.
   enrollment_eq_prob: 0.5
 
+  # Chance the two speakers are the same gender. Same-gender pairs are the hard
+  # case and must be reportable separately.
+  # Typical: ~0.5 for randomly paired people.
   same_gender_fraction: 0.5
 
 splits:
+  # n_trials: how many to generate. noise_split: which WHAM! noise pool to draw
+  # from, never crossed between training and evaluation.
+  # target_absent_fraction: share of trials where the target never speaks at all,
+  # which is what teaches the model to stay silent rather than invent words.
   train:        {n_trials: 20000, noise_split: tr, target_absent_fraction: 0.35}
   # val matches train's absent fraction so validation can exercise the
-  # push-to-silence half of the loss. The eval splits stay at 0.0 pending B4.
+  # push-to-silence half of the loss.
   val:          {n_trials: 200,   noise_split: cv, target_absent_fraction: 0.35}
+  # Supervisor decided 2026-08-12 that eval must carry silent-target trials too;
+  # the fraction and the scoring rule are still open. See decisions-pending B4.
   eval_public:  {n_trials: 500,   noise_split: tt, target_absent_fraction: 0.0}
   eval_private: {n_trials: 500,   noise_split: tt, target_absent_fraction: 0.0}
   smoke_train:  {n_trials: 50,    noise_split: tr, target_absent_fraction: 0.35}

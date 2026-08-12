@@ -20,81 +20,50 @@ traced both ways.
 | **B4** | Silent-target trials in eval too? | **Yes — we are measuring intelligibility, so eval must include them** | **Decided, not implemented.** Needs a config change and an eval rebuild — see below |
 | **A3** | Levels measured how? | **RMS** — reversed same day to **BS.1770 integrated loudness** | Done. `decisions.md` 2026-08-12. No code change: `pyloudnorm` 0.2.0 already in `tse_venv`, column names and ranges already correct |
 
-### B4 — what is still outstanding
+### Difficulty, controllability and reporting
 
-The answer settles *whether* absent trials appear in eval. Two things it does not
-settle, both of which block implementation:
+**Core concern: the data may be too hard to learn from, despite being realistic.**
+Realism and trainability are traded against each other with no dial to trade them
+on. Everything below follows from that.
 
-1. `eval_public` and `eval_private` are `target_absent_fraction: 0.0` in
-   `experiments/configs/generator.yaml`. Changing them forces an eval rebuild.
-   Fold into the B9/B10 rebuild rather than doing it twice.
-2. **`metric-definitions.md` has no scoring rule for a trial with no reference
-   text.** The main score cannot be computed on these. The standing proposal is a
-   separate reported row measuring only how often the system invents speech that
-   was not there, never folded into the headline number. Not yet confirmed.
+1. **Each parameter's distribution must be quickly changeable.** The generator
+   hardcodes uniform sampling over `[lo, hi]` for every parameter. Needed: change
+   the shape from config, not code. Room size given as the example where uniform
+   is probably wrong.
 
-→ **Fraction to use in eval:**
+2. **Constraints, not only distributions.** Some conditions are *relational* and
+   cannot be written as a range — e.g. **the target is always closer to the mic
+   than the interferer**. The generator cannot express this today.
 
-→ **How they are scored:**
+3. **A realistic "average case" band per parameter.** Restrict the base condition
+   to the easier part of each range so there is something learnable, and treat the
+   full range as a harder reported condition. To apply to **all** parameters, not
+   only the example given.
 
-### A3 — RMS was reversed to BS.1770 the same day
+   → **Clarify:** the wall-absorption example, "only accounts up to 0.5 of that
+   uniform distribution" — the lower half of the range, an absorption coefficient
+   ≤ 0.5, or the middle 50 %? Absorption is not a config parameter at present; it
+   is derived from `t60_s` by `pra.inverse_sabine`.
 
-RMS was the initial answer. Reversed before anything was implemented, because it
-was the *more* expensive option, not the cheaper one:
+4. **Should the distribution *type* be configurable per parameter?** Idea only:
+   name a distribution and its parameters in config (uniform / exponential /
+   binomial / …) instead of always uniform. → **Decision needed.**
 
-- **It forces a gating rule.** Measured at 16 kHz on identical speech, once
-  continuous and once padded to 20 s: BS.1770 gives −23.35 vs −23.77 LUFS, plain
-  RMS gives −26.01 vs −33.55 dBFS. **0.4 dB apart against 7.5 dB.** Under RMS
-  `sir_db` means something different in every trial and level correlates with
-  activity — a new entry for the §7 leak scoreboard. Worse once B9 varies
-  `target_activity_ratio`.
-- **It would have made `target_loudness_lufs` a misnomer**, forcing a rename
-  across config, generator, six CSVs and the notebook, plus recalibration of the
-  `[-33, -25]` range. BS.1770 keeps all of it valid.
-- **`pyloudnorm` was already installed** (0.2.0 in `tse_venv`) — the "not
-  currently installed" note in the pending doc was stale.
+5. **Reporting must be stratified over every condition.** Final test-set metrics
+   broken out for all conditions — target present, target absent, interruptions —
+   never collapsed into one aggregate. Interpretability to be treated as strict.
 
-The one point for RMS, that gated loudness returns `-inf` on a silent stem, does
-not apply: the 2026-08-11 anchor decision means a silent target is never measured.
+   → **Clarify:** "interruptions" — high-overlap trials, or a new trial type?
+   Nothing marks an interruption today; the nearest column is `overlap_achieved`.
+   Overlaps with B9, which proposes adding turn-taking and target-only trials.
 
-Renderer constraints, both verified: a stem under 400 ms raises `ValueError`
-(BS.1770 block size), so the generator needs a minimum target-speech guard; a
-fully silent stem returns `-inf`, reachable only via a bug, so assert on it.
+6. **EDA per parameter, to verify the realised distribution is the intended one.**
+   The manifest notebook checks ranges (§3) and shortcuts (§7) but never plots
+   each parameter's realised shape against what was asked for.
 
-### Raised but not yet answered
-
-Carried from `decisions-pending.md`. The first three are new this week.
-
-- **B9** — silent-target trials are detectable without listening. Overlap and
-  total speech both separate the classes perfectly (AUC 1.000, holds under a
-  VAD-style check). Proposed: add `target_only_fraction`, and let
-  `target_activity_ratio` vary. **NB**
-- **B10** — the different-book enrollment guard split the speaker pool: 60.2 % of
-  LibriSpeech speakers recorded one book, so they can never be a present target.
-  Identity now predicts absence at AUC 0.795. Fix partly reverses B8. **NB**
-- **B11** — 66.8 % of trials have reverb longer than the streaming window. My
-  leaning: change the metric, never the data — score at 100/200/300/400/500 ms
-  and report the decay.
-- **A1** — reference signal. Still the biggest blocker on the renderer.
-- Floor WER calibration target: is 60–80 % right?
+**Own action:** add a plain-English comment to every parameter in
+`experiments/configs/generator.yaml` — what it controls, and a realistic
+average-case value.
 
 → **Notes:**
 
-### Actions
-
-| # | Action | Owner | By |
-|---|---|---|---|
-| 1 | | | |
-| 2 | | | |
-| 3 | | | |
-
-### Follow-on already known
-
-- If B9 and B10 are approved, one full manifest rebuild covers them plus B4.
-- Still unimplemented: `noise_speech_rejection` (own docs call it critical —
-  speech in the noise bed enters as an unlabelled third talker and gets scored as
-  hallucination) and `length_mode`.
-- Notebook: §2, §7 and the final health checks assume the current timing model
-  and need revising after any rebuild; §3–§6 do not. §7.5 (leak plots) deferred
-  to 2026-08-13 and should be written **before** the rebuild, so the leak
-  scoreboard becomes a before/after rather than a claim.
