@@ -5,7 +5,7 @@
 #
 # Pinned before any data was generated. Changing this file after mixtures
 # exist silently redefines what "eval" means and invalidates every prior
-# result. See docs/data-setup.md step 6.
+# result. See docs/data/data-setup.md step 6.
 
 meta:
   generated: "2026-08-10"
@@ -1264,7 +1264,7 @@ eval_public:
     - "8463"
 
 # test-clean, second half, sex-stratified. HELD BACK — headline numbers only.
-# Required by docs/metric-definitions.md:198-200.
+# Required by docs/data/metric-definitions.md:198-200.
 eval_private:
     - "121"
     - "260"

@@ -9,7 +9,7 @@ Every trial in the constructed set is built from LibriSpeech speakers. If a
 speaker appears in both training and evaluation, the model has heard that
 voice before and the eval number is inflated — silently, with no error and
 no obvious symptom. Speech splits must be *speaker*-disjoint, not merely
-file-disjoint (docs/definitions.md:315).
+file-disjoint (docs/data/definitions.md:315).
 
 This script pins the assignment ONCE, deterministically, before any data is
 generated, and writes it to experiments/configs/splits.yaml. Everything
@@ -26,7 +26,7 @@ HOW THE ASSIGNMENT WORKS
   eval_public   half of test-clean                  (20 speakers)
   eval_private  the other half of test-clean        (20 speakers)
 
-test-clean is split in half because docs/metric-definitions.md:198-200
+test-clean is split in half because docs/data/metric-definitions.md:198-200
 requires a private split held back from publication, so that headline
 numbers cannot be overfitted to trials anyone can see.
 
@@ -164,7 +164,7 @@ def main() -> None:
     if not speakers_txt.exists():
         sys.exit(
             f"ERROR: {speakers_txt} not found.\n"
-            "Finish docs/data-setup.md step 3 first, or pass --librispeech-root."
+            "Finish docs/data/data-setup.md step 3 first, or pass --librispeech-root."
         )
 
     rows = parse_speakers(speakers_txt)
@@ -239,7 +239,7 @@ def main() -> None:
             f"WARNING: {len(missing)} assigned speakers have no directory on "
             f"disk (e.g. {missing[:5]}).\n"
             "An archive probably failed to extract, or extracted to a nested "
-            "path. Check docs/data-setup.md step 3d.",
+            "path. Check docs/data/data-setup.md step 3d.",
             file=sys.stderr,
         )
 
@@ -258,7 +258,7 @@ def main() -> None:
 #
 # Pinned before any data was generated. Changing this file after mixtures
 # exist silently redefines what "eval" means and invalidates every prior
-# result. See docs/data-setup.md step 6.
+# result. See docs/data/data-setup.md step 6.
 
 meta:
   generated: "{date.today().isoformat()}"
@@ -288,7 +288,7 @@ eval_public:
 {yaml_list(eval_public)}
 
 # test-clean, second half, sex-stratified. HELD BACK — headline numbers only.
-# Required by docs/metric-definitions.md:198-200.
+# Required by docs/data/metric-definitions.md:198-200.
 eval_private:
 {yaml_list(eval_private)}
 
