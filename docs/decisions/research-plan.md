@@ -4,9 +4,9 @@
 · **§2 and §6 re-ordered:** 2026-08-07 (evening) to a build-first sequence
 **Horizon:** ~3 months to final submission (2026-11-05), *including* write-up
 **Supersedes:** the metric-first-but-baseline-replication plan of 2026-08-06.
-Decisions are logged in `docs/decisions.md`.
+Decisions are logged in `docs/decisions/decisions.md`.
 
-> **Schedule authority is `docs/milestones.md`.** This file holds the reasoning;
+> **Schedule authority is `docs/decisions/milestones.md`.** This file holds the reasoning;
 > the milestone file holds the dates and the checklists. §2 and §6 below have
 > been brought back into agreement with it. Sections 3–5 are organised by
 > *workstream*, not by schedule — read §2's table for what happens when.
@@ -27,7 +27,7 @@ an independent judge throughout.
 Three claims, in decreasing order of confidence that they will land:
 
 1. **A metric.** Live-model content fidelity is definable, gaming-resistant
-   and measurable. (`docs/metric-definitions.md`)
+   and measurable. (`docs/data/metric-definitions.md`)
 2. **A finding.** Signal quality, perceptual quality and offline WER do not
    predict live-model content fidelity — and conventional TSE can improve
    the former while degrading the latter.
@@ -112,7 +112,7 @@ inspect. That is a stronger claim-2 than the previous ordering produced.
 put legs 1 and 2 first specifically so that a total training failure still left
 a submittable thesis. That property is gone. Legs 4 and 6 now sit downstream of
 a training run that has to converge on Kaggle. Two mitigations, both in
-`docs/milestones.md`:
+`docs/decisions/milestones.md`:
 
 1. **The public-checkpoint survey moves to week 1.** If a causal BSRNN + TF-Map
    checkpoint is publicly released, leg 2 becomes a fine-tune and its failure
@@ -138,7 +138,7 @@ it is directly aligned with spec note 8.
 
 ## 3. Leg 1 — the metric and its harness
 
-Full specification in `docs/metric-definitions.md`. Summary of what has to
+Full specification in `docs/data/metric-definitions.md`. Summary of what has to
 get built:
 
 **Trial construction — constructed set (primary).** LibriSpeech-derived
@@ -185,8 +185,8 @@ Systems to include:
   ceiling (ground-truth text). Spec note 10 permits a text output; this is
   how we measure it without building a second system. No training, one extra
   harness path, and it tells us how much content is recoverable at all.
-  See `docs/decisions.md`, 2026-08-07 output-modality decision, and
-  `docs/metric-definitions.md` §3.5 for why it is a reference condition
+  See `docs/decisions/decisions.md`, 2026-08-07 output-modality decision, and
+  `docs/data/metric-definitions.md` §3.5 for why it is a reference condition
   rather than a rival build target — and why it is *not* an upper bound.
 - Later: our own leg-3 and leg-4 models
 
@@ -211,7 +211,7 @@ Ten minutes of searching, potentially weeks saved.
 
 ## 5. Legs 3 and 4 — the model
 
-**Output modality: audio.** Settled — see `docs/decisions.md`, 2026-08-07.
+**Output modality: audio.** Settled — see `docs/decisions/decisions.md`, 2026-08-07.
 Text output is measured as a benchmark reference condition (§4), not built.
 Nothing in legs 3 and 4 changes because of it: the extractor produces a
 waveform, the proxy losses are computed on that waveform, and the text row is
@@ -222,7 +222,7 @@ embedding conditioning. Rationale: it is the best-understood strong
 streaming TSE design, the challenge evidence shows the causal TF-Map variant
 is unusually strong for an online system, and reference implementations
 exist to read. We are borrowing it as a well-characterised instrument, not
-replicating it as a result — see `docs/decisions.md`.
+replicating it as a result — see `docs/decisions/decisions.md`.
 
 Cite: Luo & Yu (TASLP 2023) for BSRNN; Zhang et al. (ICASSP 2025) for
 TF-Map / multi-level speaker representation.
@@ -258,7 +258,7 @@ why, in the experiment config.
 on conventional metrics. This is the controlled experiment that supports
 claim 3, and it is why leg 3 and leg 4 share a base checkpoint.
 
-**Latency.** ~200–300 ms streaming budget (`docs/decisions.md`). Measured
+**Latency.** ~200–300 ms streaming budget (`docs/decisions/decisions.md`). Measured
 algorithmic latency and RTF reported for every system, **and separately per
 output modality** — the text reference condition pays for ASR decoding and
 endpointing on top of extraction, and reporting one latency figure across
@@ -290,7 +290,7 @@ cut, not delayed, because M6 must still run before the freeze.
 
 ### Cut list, in order
 
-Record every cut in `docs/decisions.md`.
+Record every cut in `docs/decisions/decisions.md`.
 
 1. **ASR cross-entropy proxy** → feature-matching only. Costs one ablation row.
 2. **Leg 4 entirely** → weeks 9–10 become writing buffer. The thesis becomes

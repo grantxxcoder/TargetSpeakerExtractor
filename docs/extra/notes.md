@@ -1,5 +1,5 @@
 Plain-language notes to myself. Formal versions of all of this live in
-docs/decisions.md.
+docs/decisions/decisions.md.
 
 **LibriMix** takes clean audiobook recordings of people reading, and digitally adds two of them together to fake a conversation. It's not a real conversation — nobody interrupted anyone, there's no real room echo, no background clatter. It's clean and artificial (this is what "simulated" means). This is what I use for **training**, and — updated after the 2026-08-07 re-scope — also for my **primary eval**. The reason is that my training losses need a clean target signal and exact ground-truth text, and real recordings give me neither. My primary eval has to be constructed too, because the metric needs to know exactly what the target said, and needs a true "clean target" ceiling to compare against. 
 

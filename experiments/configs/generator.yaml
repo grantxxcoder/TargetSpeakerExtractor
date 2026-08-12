@@ -1,5 +1,5 @@
 # Mixture generator parameters.
-# What each value means and where it came from: docs/data-construction-parameters.md
+# What each value means and where it came from: docs/data/data-construction-parameters.md
 #
 # [low, high] is sampled uniformly per trial. A single value is fixed.
 

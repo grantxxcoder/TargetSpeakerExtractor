@@ -32,7 +32,7 @@ validation set, nothing more.
 ---
 
 ## 2026-08-07 — Re-scope: downstream live-model content fidelity is the objective
-Supervisor meeting notes 8-10 (docs/specification.md) redefine the goal.
+Supervisor meeting notes 8-10 (docs/decisions/specification.md) redefine the goal.
 The project is no longer "replicate the REAL-TSE online baselines, then
 explore an architecture." It is:
 
@@ -180,7 +180,7 @@ result.
 Consequence for the metric: **output modality becomes a recorded property of
 every trial**, and the metric is defined so both paths are scored by the same
 end-to-end question — what did the assistant recover? See
-`docs/metric-definitions.md` §3.5. Cross-modality comparisons are valid on
+`docs/data/metric-definitions.md` §3.5. Cross-modality comparisons are valid on
 that end-to-end number and invalid as statements about the judge's listening
 ability, because in the text condition the judge is close to a pass-through.
 
@@ -189,7 +189,7 @@ Spec note 1 ("the actual score values from my defined metric do not
 matter — the metric itself matters more") plus note 8 (metric first, then
 architecture) make this explicit. The metric definition and its harness
 are the deliverable that must not be cut under any schedule pressure.
-Full specification in docs/metric-definitions.md.
+Full specification in docs/data/metric-definitions.md.
 
 ## 2026-08-10 — Sample rate: 16 kHz mono, 16-bit, everywhere
 Every audio path in this project — source corpora, generated mixtures,
@@ -225,7 +225,7 @@ new proxies, not a config change. If a judge is added that prefers a
 different rate, the resample must be explicit, logged per trial and named
 in the results table.
 
-**Note on the WHAM! conversion in `docs/data-setup.md` step 1e:** WHAM!
+**Note on the WHAM! conversion in `docs/data/data-setup.md` step 1e:** WHAM!
 noise is *already* 16 kHz, so `-ar 16000` there is a no-op guard. The 4×
 storage reduction comes entirely from stereo → mono and 32-bit float →
 16-bit. Do not defend it as a sample-rate saving.
@@ -237,7 +237,7 @@ judge accepts anyway. Chosen, not defaulted to.
 
 Sources: <https://ai.google.dev/gemini-api/docs/live-api/capabilities>,
 <https://firebase.google.com/docs/ai-logic/live-api/limits-and-specs>,
-<http://wham.whisper.ai/>, and `docs/definitions.md:60`.
+<http://wham.whisper.ai/>, and `docs/data/definitions.md:60`.
 
 ## 2026-08-10 — Data licensing: the constructed set inherits CC BY-NC
 Our three corpora do not share a licence:
@@ -266,7 +266,7 @@ comparability for a freedom we do not need.
 - We may **not** redistribute generated mixture audio under a permissive
   licence, sell it, or use it in any commercial product.
 - Publishing the "public trial split" required by
-  `docs/metric-definitions.md:198-200` must be **CC BY-NC 4.0**, with
+  `docs/data/metric-definitions.md:198-200` must be **CC BY-NC 4.0**, with
   attribution to all three upstream corpora.
 - Safer alternative for release: publish the **generation code, manifests
   and seeds** rather than the audio, so users regenerate locally from
@@ -281,7 +281,7 @@ comparability for a freedom we do not need.
   advice.
 
 Obligations, per-corpus attribution text and the required thesis wording
-are in `docs/data-licences.md`.
+are in `docs/data/data-licences.md`.
 
 ## 2026-08-11 — Target-absent trials: the interferer is the level anchor
 
@@ -399,3 +399,112 @@ Why the asymmetry: validation and evaluation are different jobs. Val exists to
 tell you whether training is working, so it must cover every loss term. Eval
 reports results, and whether absent trials belong there is still open — see
 `decisions-pending.md` B4, which this decision deliberately does not pre-empt.
+
+
+
+## 2026-08-12 — Enrollment carries no room
+
+The enrollment clip is the few seconds of the target speaking alone that tells
+the model which voice to follow. It could be rendered dry, or convolved with the
+same room as the mixture.
+
+Decision (supervisor, 2026-08-12): **no room on the enrollment at all. It stays a
+clean sample, so the model knows what the target sounds like clean.**
+
+Why: if the enrollment carried the same echo signature as the mixture, the model
+could match on room acoustics instead of on voice, and the score would stop
+measuring what it claims to measure. This is the same argument that makes
+`shared_room` non-negotiable, applied to the conditioning path — and the same
+argument behind the different-book guard (2026-08-11): every route to identifying
+the target other than the voice itself has to be closed.
+
+Cost: a channel mismatch between enrollment and mixture, which is realistic
+rather than a defect — a stored voice profile genuinely is captured elsewhere.
+`enrollment_eq_augmentation` already trains the conditioning path to tolerate it.
+
+No code change: the renderer is unwritten, and LibriSpeech enrollment audio is
+already dry, so this constrains what the renderer must *not* do.
+
+Was `decisions-pending.md` A4.
+
+## 2026-08-12 — Enrollment length fixed at 5 s, and stays configurable
+
+Longer enrollment makes the target easier to identify, so length is a confound if
+it varies per trial.
+
+Decision (supervisor, 2026-08-12): **fixed at exactly 5 s everywhere, held as a
+parameter that can be changed rather than a hardcoded constant.**
+
+Why: 5 s is the minimum `docs/data/metric-definitions.md` allows, so the headline
+result is a worst case rather than a flattering one. Keeping it configurable
+leaves the door open to varying it later as a deliberate experiment, which is the
+only defensible way to vary it — one value per run, recorded, not sampled per
+trial.
+
+No code change: `experiments/configs/generator.yaml` already has
+`enrollment_length_s: 5.0` under `defaults`, and `draw()` returns a scalar
+unchanged while sampling uniformly from a `[lo, hi]` list. Setting it to a range
+is therefore a one-line config edit whenever that experiment is wanted.
+
+Was `decisions-pending.md` B3.
+
+## 2026-08-12 — Levels are measured as BS.1770 integrated loudness
+
+`sir_db`, `snr_db` and `target_loudness_lufs` all state a level, and something has
+to define what "level" means before the renderer can apply them.
+
+Decision: **BS.1770-4 integrated loudness, via `pyloudnorm`.**
+
+Recorded for the trail: RMS was chosen first in the same 2026-08-12 meeting and
+reversed the same day, before anything was implemented. The reversal is not a
+preference — RMS turned out to be the *more* expensive option:
+
+1. **It forces a gating rule.** BS.1770 gates out quiet passages by
+   specification. Plain RMS averages over everything handed to it, so a target
+   talking for a fifth of the window measures far quieter than one talking for
+   most of it at the identical speaking level. Measured at 16 kHz on identical
+   speech, once continuous and once padded to 20 s:
+
+   | | BS.1770 | plain RMS |
+   |---|---|---|
+   | 3 s continuous | −23.35 LUFS | −26.01 dBFS |
+   | same 3 s, 14 s of silence around it | −23.77 LUFS | −33.55 dBFS |
+
+   0.4 dB apart against 7.5 dB apart. Under RMS, `sir_db` would mean something
+   different in every trial and level would correlate with speech activity — the
+   same class of shortcut §7 of the manifest notebook exists to find, and it
+   would land on the leak scoreboard as a new entry. Gating RMS by hand fixes it
+   but only by rebuilding a cruder version of what the standard already defines.
+   This gets worse if `decisions-pending.md` B9 is accepted, since variable
+   `target_activity_ratio` widens the activity spread that drives it.
+
+2. **It would have made `target_loudness_lufs` a misnomer.** LUFS is the BS.1770
+   unit. The column, the config key and the range `[-33.0, -25.0]` all came from
+   LibriMix's `pyloudnorm` constants, so under RMS the name is wrong and the
+   numbers denote a different physical level — a rename across the config,
+   `build_manifest.py`, six manifest CSVs and the notebook, plus recalibration.
+   Keeping BS.1770 costs none of that.
+
+3. **Both reference implementations use loudness.** LibriMix and WHAMR! both set
+   levels this way. Our numbers are still not comparable to theirs — different
+   data, different protocol — but the *method* needs no separate defence.
+
+The one advantage RMS had, that it is always defined where gated loudness returns
+`-inf` on a silent stem, does not apply: the 2026-08-11 level-anchor decision
+makes the interferer the anchor in target-absent trials, so a silent target stem
+is never measured.
+
+Renderer constraints this imposes, both verified against `pyloudnorm` 0.2.0 at
+16 kHz:
+
+- **A stem shorter than 400 ms raises `ValueError`** (BS.1770 block size). Guard
+  with a minimum target-speech duration in the generator — needed anyway once B9
+  lets activity vary.
+- **A fully silent stem returns `-inf`.** Reachable only through a bug given the
+  anchor rule, so assert rather than handle.
+
+Environment: `pyloudnorm` 0.2.0 is installed in `tse_venv` (Python 3.12.3,
+numpy 2.5.2, scipy 1.18.0). Pin it — there is still no requirements file in the
+repo, which is a reproducibility gap in its own right.
+
+Was `decisions-pending.md` A3.

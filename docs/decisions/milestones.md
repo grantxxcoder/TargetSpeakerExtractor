@@ -10,7 +10,7 @@ Each milestone names the artefact that proves it is done. "Reviewed by
 supervisors" is not a milestone — a thing that exists is.
 
 > **Supersedes** the metric-first milestone set of 2026-08-07 (morning).
-> `docs/research-plan.md` §2 and §6 still describe the old leg ordering and
+> `docs/decisions/research-plan.md` §2 and §6 still describe the old leg ordering and
 > now disagree with this file. This file is authoritative; the plan needs
 > reconciling.
 
@@ -43,7 +43,7 @@ built once.
 - [ ] Constructed mixture generator: target + ≥1 interferer + real noise
       (WHAM!-style) + reverberation (WHAMR!-style RIRs), 16 kHz
 - [ ] Exact verbatim ground-truth text retained for **both** target and
-      interferer (`d` is required by `docs/metric-definitions.md` §2 — without
+      interferer (`d` is required by `docs/data/metric-definitions.md` §2 — without
       it ICR is not computable, and regenerating the set later to add it is
       the kind of avoidable rework that costs a week)
 - [ ] Enrollment segments ≥5 s, from a different recording than the mixture
@@ -94,7 +94,7 @@ discovering it is broken at hour 11 of a 12-hour Kaggle session costs a week.
 **Proof:** a checkpoint in `experiments/results/` that reproduces its own
 reported numbers from its config.
 
-**Run in parallel (no GPU):** draft `docs/metric-definitions.md` to v1 — fixed
+**Run in parallel (no GPU):** draft `docs/data/metric-definitions.md` to v1 — fixed
 prompt wording, response-transcription ASR chosen and pinned, judge shortlisted,
 k-repeat protocol, cost model. See M3.
 
@@ -188,10 +188,10 @@ week 12.
 - [ ] Experiment freeze honoured (Oct 14)
 - [ ] Every result traceable to config + commit hash + seed + date
 - [ ] Every borrowed method cited
-- [ ] Every deviation and cut recorded in `docs/decisions.md`
+- [ ] Every deviation and cut recorded in `docs/decisions/decisions.md`
 - [ ] Approximate-ceiling caveat stated wherever AMI numbers appear
 - [ ] Modality recorded on every judge result, and the cross-modality caveat
-      (`docs/metric-definitions.md` §3.5) stated wherever audio and text rows
+      (`docs/data/metric-definitions.md` §3.5) stated wherever audio and text rows
       appear in the same table
 - [ ] Written, reviewed, submitted
 
@@ -228,7 +228,7 @@ slips at all, it is cut rather than delayed — M6 must still run.
 
 ## Dropped from earlier milestone sets
 
-See `docs/decisions.md`, 2026-08-07:
+See `docs/decisions/decisions.md`, 2026-08-07:
 
 - Replication of REAL-TSE online-track baselines
 - Use of the official challenge scoring pipeline as primary evaluation

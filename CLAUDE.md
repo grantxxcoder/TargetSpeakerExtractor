@@ -6,12 +6,12 @@ accurately a **live speech-to-speech model** (Gemini Live and similar)
 recovers what the target speaker said from a mixture. We are optimising
 for downstream live-model content fidelity, NOT for the perceptual or
 signal quality of the separated audio. Quality may help, but it is not
-the target. See docs/specification.md for the full brief (esp. note 10).
+the target. See docs/decisions/specification.md for the full brief (esp. note 10).
 
 Working setup:
 1. **Metric first.** The primary contribution is a defined, gaming-resistant
    metric for live-model content fidelity, plus the harness that computes
-   it. See docs/metric-definitions.md.
+   it. See docs/data/metric-definitions.md.
 2. **Train with differentiable proxies; judge with the live model.** A live
    API model cannot be backpropagated through, so it is a held-out judge
    only. Training uses differentiable proxies (frozen-ASR/SSL feature
@@ -32,7 +32,7 @@ Working setup:
    audio artefacts to mishear if you hand the judge text. Text is therefore
    measured as a *reference condition* in the benchmark (extractor →
    off-the-shelf ASR → text → judge), never optimised for and never built.
-   See docs/decisions.md and docs/metric-definitions.md §3.5.
+   See docs/decisions/decisions.md and docs/data/metric-definitions.md §3.5.
 
 We are NOT replicating the REAL-TSE Challenge baselines or its eval
 pipeline (spec note 8). We borrow ideas, data-construction methods and
@@ -53,7 +53,7 @@ real conversational TSE.
 - Never present our numbers as comparable to published REAL-TSE results.
   Different data, different metric, different protocol. Any borrowed
   method or metric must be cited as borrowed, and the difference noted in
-  a code comment and in docs/decisions.md.
+  a code comment and in docs/decisions/decisions.md.
 - Every live-model (judge) result must record the exact model ID, the
   exact prompt, the input modality (audio or text), and the run date.
   Closed models change silently, so comparisons across dates are invalid

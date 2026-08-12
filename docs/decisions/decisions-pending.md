@@ -4,9 +4,9 @@
 turns a row into audio does not, and cannot be written until group A is answered.
 
 Plain wording first, the jargon term in brackets so it can be matched to
-`docs/data-construction-parameters.md`.
+`docs/data/data-construction-parameters.md`.
 
-Move each answer into `docs/decisions.md` once made.
+Move each answer into `docs/decisions/decisions.md` once made.
 
 ---
 
@@ -33,28 +33,9 @@ the exact thing this project claims live models mishear.
 Numbers are kept in `decisions.md`. The gap in numbering is deliberate: A3-A6
 keep their identifiers so earlier references stay valid.
 
-### A3. How is "how loud" measured? (**level measurement**)
+### A3. *Decided 2026-08-12 — BS.1770 integrated loudness. See `decisions.md`.*
 
-Every trial says the target should be a certain amount louder than the other
-speaker and than the noise. Something has to define louder.
-
-| Option | Note |
-|---|---|
-| Perceived loudness to a broadcast standard (**BS.1770 integrated loudness**) | Matches how people hear it; what LibriMix and WHAMR! use. Needs `pyloudnorm`, **not currently installed** |
-| Average signal power (**RMS**) | One line of code, no dependency, but a quiet-but-hissy signal and a loud-but-clean one can measure the same |
-
-**Recommended: broadcast loudness.** Install `pyloudnorm`. Also decide what
-happens when a signal is mostly silence — the standard ignores quiet parts, and
-can return nothing at all for a near-silent stem.
-
-### A4. Should the voice sample used to identify the target sound like it was recorded in the same room? (**enrollment reverberation**)
-
-The model is given a few seconds of the target speaking alone so it knows which
-voice to follow.
-
-**Recommended: no room on it at all.** If the sample carries the same echo
-signature as the mixture, the model can follow the room instead of the voice,
-and the score stops meaning what it claims to mean.
+### A4. *Decided 2026-08-12 — no room on the enrollment. See `decisions.md`.*
 
 ### A5. Does the mixture keep running after the last person stops talking? (**tail padding**)
 
@@ -94,23 +75,28 @@ recording therefore overstates how much genuine talking overlaps.
 **Recommended: detect it.** It is a one-off cost and it makes the number
 defensible.
 
-### B3. Should the identifying voice sample always be the same length? (**enrollment length**)
-
-Longer samples make the target easier to identify, so length is a confound.
-
-**Recommended: fixed at exactly 5 s everywhere.** 5 s is the minimum the metric
-allows, so the headline result is a worst case rather than a flattering one. Vary
-it later as a separate experiment if there is time.
+### B3. *Decided 2026-08-12 — fixed 5 s, kept configurable. See `decisions.md`.*
 
 ### B4. Should some evaluation trials contain no target speech at all? (**target-absent trials**)
 
 Roughly a third of training trials have the target never speaking, so the model
 learns to output silence rather than invent words.
 
-The problem in evaluation: there is no correct text to compare against, so the
-main score cannot be computed. **Recommended: keep them, but as a separate
-reported row measuring only how often the system invents speech that was not
-there** — never folded into the main score.
+**Answered 2026-08-12 (supervisor): yes — eval must include them, because what is
+being measured is intelligibility.** Two things that answer does not settle, and
+both block implementation:
+
+1. `eval_public` and `eval_private` are `target_absent_fraction: 0.0` in
+   `experiments/configs/generator.yaml`. Changing them forces an eval rebuild —
+   fold it into the B9/B10 rebuild rather than rebuilding twice. **The fraction
+   to use is still undecided**; train and val are at 0.35.
+2. There is no correct text to compare against, so the main score cannot be
+   computed on these trials, and `docs/data/metric-definitions.md` currently
+   defines no rule for them. Standing proposal: **a separate reported row
+   measuring only how often the system invents speech that was not there**,
+   never folded into the main score. Not yet confirmed.
+
+Stays open until both are settled.
 
 ### B5. How should the written text be tidied before comparison? (**text normalisation**)
 
