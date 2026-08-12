@@ -10,9 +10,9 @@ Each milestone names the artefact that proves it is done. "Reviewed by
 supervisors" is not a milestone — a thing that exists is.
 
 > **Supersedes** the metric-first milestone set of 2026-08-07 (morning).
-> `docs/decisions/research-plan.md` §2 and §6 still describe the old leg ordering and
-> now disagree with this file. This file is authoritative; the plan needs
-> reconciling.
+> This file is authoritative for scheduling. `docs/decisions/research-plan.md`
+> was reconciled with it on 2026-08-12: §6 points here for dates, and its §2
+> build-order table agrees with this file.
 
 ---
 
@@ -167,6 +167,10 @@ the divergence table in M5.
 Drafted during M2, finished here now that there is a real system to point it at.
 
 - [ ] LCF-WER, ICR, NRR implemented
+- [ ] **A scoring rule for silent-target trials.** B4 is decided (eval carries
+      them) but `metric-definitions.md` defines nothing for a trial with no
+      reference text, so the main score is not computable on them. Standing
+      proposal: a separate false-alarm row, never folded into the headline
 - [ ] Judge harness: fixed prompt, fixed response ASR, pinned model IDs, k≥3
       repeats, **input modality recorded per trial**, cost/compute logging
 - [ ] Judge decided and its cost model resolved — closed API (money) or

@@ -6,10 +6,11 @@
 **Supersedes:** the metric-first-but-baseline-replication plan of 2026-08-06.
 Decisions are logged in `docs/decisions/decisions.md`.
 
-> **Schedule authority is `docs/decisions/milestones.md`.** This file holds the reasoning;
-> the milestone file holds the dates and the checklists. §2 and §6 below have
-> been brought back into agreement with it. Sections 3–5 are organised by
-> *workstream*, not by schedule — read §2's table for what happens when.
+> **Schedule authority is `docs/decisions/milestones.md`.** This file holds
+> the reasoning; the milestone file holds the dates and the checklists. §2
+> and §6 below have been brought back into agreement with it. Sections 3–5
+> are organised by *workstream*, not by schedule — read §2's table for what
+> happens when.
 
 ---
 
@@ -83,7 +84,7 @@ freeze on new experiments.**
 
 ---
 
-## 2. The four legs, in build order
+## 2. The six workstreams, in build order
 
 Ordering changed 2026-08-07 (evening) from risk-first to **build-first**, at
 the researcher's direction. Everything still shares one evaluation harness so
@@ -109,34 +110,34 @@ across off-the-shelf models whose training data and objectives we cannot
 inspect. That is a stronger claim-2 than the previous ordering produced.
 
 **The argument against it, accepted with mitigations:** the previous ordering
-put legs 1 and 2 first specifically so that a total training failure still left
-a submittable thesis. That property is gone. Legs 4 and 6 now sit downstream of
-a training run that has to converge on Kaggle. Two mitigations, both in
-`docs/decisions/milestones.md`:
+put the metric and the benchmark first specifically so that a total training
+failure still left a submittable thesis. That property is gone. The metric and
+the benchmark now sit downstream of a training run that has to converge on
+Kaggle. Two mitigations, both in `docs/decisions/milestones.md`:
 
 1. **The public-checkpoint survey moves to week 1.** If a causal BSRNN + TF-Map
-   checkpoint is publicly released, leg 2 becomes a fine-tune and its failure
-   mode largely disappears. This was already a week-1 item (§4); it is now the
-   single highest-leverage hour in the schedule.
-2. **The metric is designed on paper during leg 2's training weeks**, when the
-   GPU is busy and there is no other GPU-bound work to do. Designed by end of
-   week 6, implemented in week 8. Leg 4 is split across the calendar even
-   though it is one workstream.
+   checkpoint is publicly released, the baseline becomes a fine-tune and its
+   failure mode largely disappears. This was already a week-1 item (§4); it is
+   now the single highest-leverage hour in the schedule.
+2. **The metric is designed on paper during the baseline's training weeks**, when
+   the GPU is busy and there is no other GPU-bound work to do. Designed by end
+   of week 6, implemented in week 8. The metric work is split across the
+   calendar even though it is one workstream.
 
-Leg 5 still exists to be fine-tuned *from* leg 2, and leg 2 still exists to
-give leg 6 a system we control.
+The second model still exists to be fine-tuned *from* the baseline, and the
+baseline still exists to give the benchmark a system we control.
 
-### What leg 4 is not
+### What the second model is not
 
 It is not "a fundamentally new architecture." In ten weeks on Kaggle that is
-not on the table, and claiming it invites a bad viva. Leg 4 is a controlled
-comparison: same architecture, same data, same base checkpoint, different
-training objective. That is a clean, defensible, publishable experiment, and
-it is directly aligned with spec note 8.
+not on the table, and claiming it invites a bad viva. The second model is a
+controlled comparison: same architecture, same data, same base checkpoint,
+different training objective. That is a clean, defensible, publishable
+experiment, and it is directly aligned with spec note 8.
 
 ---
 
-## 3. Leg 1 — the metric and its harness
+## 3. The metric and its harness
 
 Full specification in `docs/data/metric-definitions.md`. Summary of what has to
 get built:
@@ -163,12 +164,12 @@ start: retrofitting a second path through a harness that assumes audio is
 more work than allowing for it now.
 
 **Conventional metrics alongside.** SI-SDR, DNSMOS-P808, offline ASR WER —
-computed on the same trials, specifically so leg 2 can show where they
-diverge from LCF.
+computed on the same trials, specifically so the benchmark study can show
+where they diverge from LCF.
 
 ---
 
-## 4. Leg 2 — the benchmark study
+## 4. The benchmark study
 
 This is claim 2, and it is the highest value-per-GPU-hour work in the
 project. No training required: run existing systems over the trial sets and
@@ -188,7 +189,7 @@ Systems to include:
   See `docs/decisions/decisions.md`, 2026-08-07 output-modality decision, and
   `docs/data/metric-definitions.md` §3.5 for why it is a reference condition
   rather than a rival build target — and why it is *not* an upper bound.
-- Later: our own leg-3 and leg-4 models
+- Later: our own baseline and second model
 
 Judges: ≥1 closed live API + ≥1 open-weight speech-to-speech model.
 
@@ -203,19 +204,20 @@ this leg de-risks the project.
 **Week-1 check with a large payoff:** find out which pretrained streaming
 TSE checkpoints are publicly available (WeSep/WeSep-family releases,
 HuggingFace, USEF-TSE's released code). A usable public checkpoint would
-strengthen leg 2 immediately and reduce leg 3 from "train from scratch" to
-"fine-tune from a released model", which changes the entire compute picture.
-Ten minutes of searching, potentially weeks saved.
+strengthen the benchmark study immediately and reduce the baseline from "train
+from scratch" to "fine-tune from a released model", which changes the entire
+compute picture. Ten minutes of searching, potentially weeks saved.
 
 ---
 
-## 5. Legs 3 and 4 — the model
+## 5. The model
 
-**Output modality: audio.** Settled — see `docs/decisions/decisions.md`, 2026-08-07.
-Text output is measured as a benchmark reference condition (§4), not built.
-Nothing in legs 3 and 4 changes because of it: the extractor produces a
-waveform, the proxy losses are computed on that waveform, and the text row is
-produced by bolting an existing ASR onto the same checkpoint at eval time.
+**Output modality: audio.** Settled — see `docs/decisions/decisions.md`,
+2026-08-07. Text output is measured as a benchmark reference condition (§4),
+not built. Nothing in the model work changes because of it: the extractor
+produces a waveform, the proxy losses are computed on that waveform, and the
+text row is produced by bolting an existing ASR onto the same checkpoint at
+eval time.
 
 **Architecture.** Causal BSRNN-family extractor with TF-Map + speaker-
 embedding conditioning. Rationale: it is the best-understood strong
@@ -227,7 +229,7 @@ replicating it as a result — see `docs/decisions/decisions.md`.
 Cite: Luo & Yu (TASLP 2023) for BSRNN; Zhang et al. (ICASSP 2025) for
 TF-Map / multi-level speaker representation.
 
-**Leg 3 training (conventional).** SI-SDR + multi-resolution STFT, with two
+**Baseline training (conventional).** SI-SDR + multi-resolution STFT, with two
 cheap components borrowed from CARTSE (Li & Seki, 2026):
 - **target-absent training** — a substantial fraction of examples with no
   target present, split loss (masked SI-SDR when present, push-to-silence
@@ -238,15 +240,15 @@ cheap components borrowed from CARTSE (Li & Seki, 2026):
 
 Both are ~a day of work each and are separable, citable components.
 
-**Leg 4 training (proxy-aligned).** Fine-tune the leg-3 checkpoint with
-added differentiable proxies:
+**Second-model training (proxy-aligned).** Fine-tune the baseline checkpoint
+with added differentiable proxies:
 
 1. **Frozen-encoder feature matching** (primary proxy) — match intermediate
    activations of a frozen ASR/SSL encoder between output and clean target.
    Cheaper than full ASR cross-entropy, precedented by CARTSE's Zipformer
    feature-matching loss and PS4's proxy objectives.
 2. **ASR cross-entropy** (stretch) — full differentiable ASR in the loop.
-   Roughly doubles memory and step time; only attempt if leg 4 is on
+   Roughly doubles memory and step time; only attempt if the second model is on
    schedule.
 3. Speaker-similarity and target-activity terms as auxiliaries.
 
@@ -256,14 +258,15 @@ why, in the experiment config.
 
 **Ablation.** Base vs +feature-matching vs +ASR-CE, each scored on LCF and
 on conventional metrics. This is the controlled experiment that supports
-claim 3, and it is why leg 3 and leg 4 share a base checkpoint.
+claim 3, and it is why the baseline and the second model share a base
+checkpoint.
 
-**Latency.** ~200–300 ms streaming budget (`docs/decisions/decisions.md`). Measured
-algorithmic latency and RTF reported for every system, **and separately per
-output modality** — the text reference condition pays for ASR decoding and
-endpointing on top of extraction, and reporting one latency figure across
-both modalities would hide that. Note the budget is currently a stated
-assumption — see §8.
+**Latency.** ~200–300 ms streaming budget (`docs/decisions/decisions.md`).
+Measured algorithmic latency and RTF reported for every system, **and
+separately per output modality** — the text reference condition pays for ASR
+decoding and endpointing on top of extraction, and reporting one latency
+figure across both modalities would hide that. Note the budget is currently a
+stated assumption — see §8.
 
 ---
 
@@ -271,15 +274,8 @@ assumption — see §8.
 
 Hard freeze on new experiments: **2026-10-14.**
 
-| Week | Dates | Work | Milestone | Done when |
-|------|-------|------|-----------|-----------|
-| 1–2 | Aug 7–20 | **Data.** Constructed mixture generator: target + interferer + noise + reverb, verbatim text for *both* speakers, speaker-disjoint splits. In parallel and cheap: survey public streaming-TSE checkpoints, resolve HPC, shortlist judges. | M0 | A generated set on disk with a manifest, config, commit hash and seed |
-| 3–4 | Aug 21–Sep 3 | **Build the baseline.** Causal BSRNN + TF-Map. STFT window/hop sized to the 200–300 ms budget. Target-absent training + channel-gap enrollment augmentation. Training infra, YAML config, **checkpoint/resume proven across a session kill**. | M1 | A 1-epoch run completes, is killed, and resumes cleanly |
-| 5–6 | Sep 4–17 | **Train it.** Metric designed on paper in parallel — GPU is busy, you are not. | M2 | Converged checkpoint; metric protocol drafted to v1 |
-| 7 | Sep 18–24 | **Evaluate it conventionally.** SI-SDR, DNSMOS-P808, offline WER, latency, RTF. Listen to the outputs and characterise the artefacts. | M3 | A results row — and an informed opinion about the artefact hypothesis |
-| 8 | Sep 25–Oct 1 | **Implement the metric.** LCF-WER / ICR / NRR, judge harness, k-repeats, floor and ceiling measured, text reference path, prompt-sensitivity ablation. | M4 | Run-to-run spread smaller than the floor-to-ceiling gap |
-| 9–10 | Oct 2–14 | **Second model** (proxy-objective fine-tune) **and the comparison.** Scoring runs as checkpoints land. AMI leg if it survived. | M5, M6 | The divergence table exists — or an honest "cut for time" on M5 |
-| 11–13 | Oct 15–Nov 5 | Write-up. Buffer. | M7 | Submitted |
+Week-by-week dates and per-milestone acceptance criteria live in
+`docs/decisions/milestones.md`, which is authoritative for scheduling.
 
 **Note what changed about the risk profile.** Under the previous ordering,
 weeks 1–4 produced a defensible result with zero GPU time. Under this one the
@@ -293,15 +289,15 @@ cut, not delayed, because M6 must still run before the freeze.
 Record every cut in `docs/decisions/decisions.md`.
 
 1. **ASR cross-entropy proxy** → feature-matching only. Costs one ablation row.
-2. **Leg 4 entirely** → weeks 9–10 become writing buffer. The thesis becomes
-   claims 1 and 2, which is still a complete thesis.
-3. **Shrink leg 3**: train a deliberately smaller model and report it as
+2. **The second model entirely** → weeks 9–10 become writing buffer. The
+   thesis becomes claims 1 and 2, which is still a complete thesis.
+3. **Shrink the baseline**: train a deliberately smaller model and report it as
    such. A small baseline you fully understand beats a large one that never
    converged.
 4. **Reduce judges to one** — keep the **open-weight** one, not the API.
    Reproducibility beats prestige.
 5. **Never cut:** the metric definition, the constructed trial set, the
-   floor/ceiling anchors, or the leg-2 divergence table.
+   floor/ceiling anchors, or the benchmark's divergence table.
 
 The AMI leg sits between items 3 and 4 in priority: cut it only if the
 alternative is not finishing, and if cut, say plainly in the thesis that
@@ -315,33 +311,8 @@ considered, argued against on latency grounds, and left unmeasured.
 
 ---
 
-## 7. What to tell your supervisors
-
-> The goal is to improve what a live speech-to-speech model understands, not
-> how good the audio sounds — and those two can point in opposite
-> directions. So the first contribution is a metric for the former, designed
-> to be hard to game, with the live model held out as an independent judge.
-> The second is a benchmark showing where conventional metrics mispredict
-> it. Then I train a streaming extractor with differentiable proxies aligned
-> to that objective — I can't backprop through Gemini Live, so the proxies
-> are frozen encoders from a different model family, which also keeps the
-> judge honest. I'm not replicating the challenge; I'm borrowing its
-> data-construction methods and its lessons about metric gaming.
-
-Get explicit sign-off on two things:
-
-1. **Is the metric allowed to be the primary contribution**, with the model
-   work as the second half rather than the centrepiece? Spec notes 1 and 8
-   say yes; get it minuted.
-2. **Is the ~200–300 ms latency budget acceptable**, and does anyone have
-   evidence for what live models actually tolerate? (§8)
-3. **Is audio-out the agreed build target**, with text-out measured as a
-   reference condition rather than developed? Spec note 10 leans this way
-   ("it would probably make more sense to have audio output") but stops short
-   of deciding. Worth minuting, because building a text path later is a
-   different project, not an extension of this one.
-
----
+*§7 ("What to tell your supervisors") removed 2026-08-12 — superseded by
+`docs/meetings/meetings.md`. §8 keeps its number so existing references hold.*
 
 ## 8. Open questions
 
@@ -352,7 +323,7 @@ Get explicit sign-off on two things:
 - **Which open-weight speech-to-speech judge.** Needs a survey in week 1,
   before the protocol freezes. The metric's reproducibility depends on it.
 - **API budget** — unestimated. Must be a spreadsheet before week 2.
-- **HPC access** — unresolved; materially changes what leg 4 can be.
+- **HPC access** — unresolved; materially changes what the second model can be.
 - **Does the divergence actually exist?** The entire motivation rests on the
   supervisors' observation. Week 1's 20-trial pilot is the cheapest possible
   test of it. If it doesn't reproduce, re-scope immediately rather than

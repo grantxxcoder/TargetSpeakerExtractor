@@ -27,9 +27,14 @@ defaults:
 
   # Fraction of the clip where BOTH people are talking at once. Cannot exceed
   # target_activity_ratio, so 0.7 is the ceiling while that is 0.75.
-  # Typical: ~0.10-0.15. Real meetings overlap far less than this.
-  # HARDER THAN TYPICAL — the floor of 0.2 is already above a normal conversation,
-  # and decisions-pending B9 shows it also makes silent-target trials detectable.
+  # Typical: REAL-TSE, our anchor benchmark, averages ~0.5 — this range means
+  # ~0.45, so it is deliberately matched to the anchor, not accidentally hard.
+  # An ordinary meeting overlaps far less (~0.10-0.15), so the set is already
+  # harder than daily conversation BY DESIGN. Do not "fix" that without deciding
+  # to diverge from the anchor.
+  # Separately: the FLOOR of 0.2 is a problem regardless, because no present
+  # trial can have zero overlap, which is what makes silent-target trials
+  # detectable without listening. See decisions-pending B9.
   overlap_ratio: [0.2, 0.7]
 
   # How close the achieved overlap must land to the requested one, or the trial
@@ -38,10 +43,12 @@ defaults:
 
   # Fraction of the clip the target spends talking. Each source is a run of
   # consecutive utterances from one chapter; the leftover time becomes gaps.
-  # Typical: ~0.4-0.5. In a two-person conversation each person holds the floor
-  # roughly half the time.
-  # HARDER THAN TYPICAL — a target talking 75-85% of the window is a monologue,
-  # not a conversation, and it forces the high overlap above. See B9.
+  # Typical: REAL-TSE is ~0.75, so this matches the anchor exactly. An ordinary
+  # two-person conversation is ~0.4-0.5, so again: harder than daily speech by
+  # design, matched to the benchmark.
+  # The problem is that it is FIXED rather than varied — every target is equally
+  # talkative, which forces high overlap and removes the short-utterance case
+  # entirely. See decisions-pending B9.
   target_activity_ratio: 0.75
 
   # How far the achieved talking time may drift from the ratio above.
