@@ -357,3 +357,45 @@ Renderer note: a naive `noise[offset : offset + length]` silently yields short o
 zero-padded noise. The wrap is mandatory, not an optimisation.
 
 Was `decisions-pending.md` A2.
+
+## 2026-08-11 — Enrollment must come from a different book, not just a different chapter
+
+The interferer is required to read a **different book** from the target, so that
+shared vocabulary cannot be mistaken for contamination by the metric. The
+enrollment clip was only required to come from a different **chapter**.
+
+In LibriSpeech a speaker usually reads consecutive chapters of one book, so a
+different chapter of the same book shares narrative, characters, proper nouns and
+register. Measured on `smoke_train`: **11 of 36 present trials** had enrollment
+from the same book as the mixture.
+
+Decision: **the enrollment guard now matches the interferer guard — different
+book.** `build_manifest.py` filters candidates on `book[chapter]` rather than on
+`chapter`, and the trial assertion was tightened to match.
+
+Why: the same argument justifies both guards. One being weaker than the other is
+not defensible in writing, and the shortcut it leaves open — matching enrollment
+to target on topic instead of on voice — makes the task easier than the thesis
+claims it is.
+
+Cost: a smaller candidate pool, so `n_failed` rises. Speakers who read only one
+book now yield no valid present trial. Check `n_failed` and the per-speaker trial
+counts on the next build; if a material number of speakers drop out entirely,
+revisit as a book-preferred-with-chapter-fallback rule.
+
+Was `decisions-pending.md` B8.
+
+## 2026-08-11 — val carries target-absent trials; the eval splits do not
+
+`val` and `smoke_val` were `target_absent_fraction: 0.0`, so validation could not
+exercise the push-to-silence half of the split loss. That term would have been
+trained on 35% of training batches and measured on none — a collapse in it would
+not have shown up in any val curve.
+
+Decision: **`val` and `smoke_val` move to 0.35, matching train. The eval splits
+stay at 0.0.**
+
+Why the asymmetry: validation and evaluation are different jobs. Val exists to
+tell you whether training is working, so it must cover every loss term. Eval
+reports results, and whether absent trials belong there is still open — see
+`decisions-pending.md` B4, which this decision deliberately does not pre-empt.

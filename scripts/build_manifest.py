@@ -264,11 +264,17 @@ def build_trial(trial_id, split, cfg, speakers, sex, book, by_speaker,
                 continue
             target_chapter, target_run, target_speech = found
 
-            other_chapter = [u for u in long_enough
-                             if u["chapter"] != target_chapter[1]]
-            if not other_chapter:
+            # The same guard the interferer gets: a different *book*, not merely a
+            # different chapter. A LibriSpeech speaker usually reads consecutive
+            # chapters of one book, so a different chapter of the same book still
+            # shares narrative, characters, proper nouns and register -- enough
+            # for the model to match enrollment to target on content rather than
+            # on voice. decisions.md 2026-08-11 (was decisions-pending B8).
+            other_book = [u for u in long_enough
+                          if book[u["chapter"]] != book[target_chapter[1]]]
+            if not other_book:
                 continue
-            enrollment = other_chapter[pick.integers(len(other_chapter))]
+            enrollment = other_book[pick.integers(len(other_book))]
 
             target_onsets = lay_out(level, target_run, length)
             target_spans = spans(target_run, target_onsets)
@@ -328,7 +334,7 @@ def build_trial(trial_id, split, cfg, speakers, sex, book, by_speaker,
     assert all(0 <= o for o in target_onsets + interferer_onsets)
     assert interferer_onsets[-1] + float(interferer_run[-1]["duration"]) <= length + 1e-6
     if target_chapter is not None:
-        assert enrollment["chapter"] != target_chapter[1]
+        assert book[enrollment["chapter"]] != book[target_chapter[1]]
         assert book[interferer_chapter[1]] != book[target_chapter[1]]
         assert target_onsets[-1] + float(target_run[-1]["duration"]) <= length + 1e-6
 
@@ -425,15 +431,16 @@ def main():
     for spk, chapter in sorted(by_chapter):
         chapters_of[spk].append((spk, chapter))
 
-    rows, failed = [], 0
+    rows, failed_ids = [], []
     for i in range(cfg["n_trials"]):
         trial_id = f"{args.split}-{config['seed']}-{i:06d}"
         row = build_trial(trial_id, args.split, cfg, speakers, sex, book,
                           by_speaker, by_chapter, chapters_of, noise)
         if row is None:
-            failed += 1
+            failed_ids.append(trial_id)
         else:
             rows.append(row)
+    failed = len(failed_ids)
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -442,6 +449,16 @@ def main():
         w = csv.DictWriter(f, fieldnames=COLUMNS)
         w.writeheader()
         w.writerows(rows)
+
+    # Unsatisfiable trials are dropped, and the ones that fail are the hard ones
+    # -- tight overlap, low interferer activity, speakers with little material.
+    # Their absence therefore biases the split. Record which ids were lost so the
+    # bias can be characterised instead of guessed at.
+    failed_file = out_dir / f"{args.split}.failed.txt"
+    if failed_ids:
+        failed_file.write_text("\n".join(failed_ids) + "\n")
+    elif failed_file.exists():
+        failed_file.unlink()
 
     (out_dir / f"{args.split}.meta.yaml").write_text(yaml.safe_dump({
         "generated": date.today().isoformat(),
@@ -452,7 +469,9 @@ def main():
         "config_md5": config_md5,
         "git_commit": git_commit(),
         "n_trials": len(rows),
+        "n_requested": cfg["n_trials"],
         "n_failed": failed,
+        "failed_ids_file": failed_file.name if failed_ids else None,
     }, sort_keys=False))
 
     print(f"Wrote {out}  ({len(rows)} trials, {failed} unsatisfiable)")

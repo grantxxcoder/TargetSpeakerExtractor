@@ -87,7 +87,9 @@ Cap on how many consecutive utterances are joined to make one speaker's speech,
 so a source is never assembled from a long string of short fragments.
 
 ### `target_absent_fraction`
-**~0.35 of training examples.**
+**~0.35 of training *and validation* examples; 0.0 in eval, pending B4.**
+Val must carry them or the push-to-silence loss term is trained and never
+measured. *decisions.md 2026-08-11.*
 Examples where the target never speaks. Trains the model to output silence
 rather than hallucinate the interferer. Needs a split loss (masked SI-SDR when
 present, push-to-silence when absent).
@@ -175,9 +177,12 @@ Wichern & Le Roux (2020).*
 **≥5 s.** *Required by `docs/metric-definitions.md:43`.*
 
 ### `enrollment_source`
-**A different recording from the mixture utterance. Assert it.**
+**A different book from the mixture utterance. Assert it.**
 Same chapter means the model can match on content instead of voice, which builds
-a much easier task than you think you have.
+a much easier task than you think you have. A different chapter of the *same*
+book is not enough: LibriSpeech speakers read consecutive chapters, so narrative,
+characters, proper nouns and register all carry over. Same guard the interferer
+gets. *decisions.md 2026-08-11.*
 
 ### `enrollment_eq_augmentation`
 **On for ~50% of training examples.**
@@ -201,7 +206,7 @@ Same-gender pairs are the hard case and must be reportable separately.
 
 ### `pairing_guards`
 **Assert all three:** target ≠ interferer; target and interferer from different
-books; enrollment recording ≠ mixture recording.
+books; enrollment from a different book than the mixture.
 Shared vocabulary between target and interferer inflates apparent contamination
 in the metric.
 
