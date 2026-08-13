@@ -47,6 +47,12 @@ how hard the task should be, which needs the supervisor and blocks nothing meanw
 What is left is implementation: B12's two PRs, then one manifest rebuild, then the
 renderer.
 
+**Schedule reality check.** The target is Aug 20 and no code is written yet. What
+makes it survivable is that manifest rebuilds take 58 s and training audio is
+generated on the fly, so only `val` and the two eval splits (~1,200 trials) need
+rendering to disk. The pilot calibration below is the item most likely to slip, and
+it depends on C2.
+
 Done:
 - [X] ~~Speaker-disjoint train / val / eval splits~~
 - [X] ~~Seed set and logged; generation config in `experiments/configs/`~~
@@ -54,7 +60,7 @@ Done:
 - [X] ~~Enrollment segments ≥5 s, from a different recording than the mixture~~
 - [X] ~~Manifest audit §1–§7: timing, levels, rooms, enrollment, noise, absent trials~~
 
-Decisions — all closed except two, both for the supervisor:
+Decisions — all closed except C2, which needs the supervisor:
 - [X] ~~**A1** reference signal, **A5** tail padding, **A6** clipping. Group A closed~~
 - [X] ~~**B1** overlap range is a dial setting, **B2** VAD, **B4** eval absent trials,
       **B5** text normalisation, **B6** trial count, **B7** resampling, **B11** latency
@@ -96,6 +102,10 @@ Still unimplemented from `data-construction-parameters.md`:
 - [ ] **`noise_speech_rejection`** — the docs call it critical. Speech in the
       noise bed enters as an unlabelled third talker and the metric scores those
       words as hallucination. Needs audio, so it lands in the renderer
+- [ ] **B2 — voice-activity detection pass over the corpus**, cached alongside the
+      utterance index, so overlap is measured from where speech actually is. Name the
+      detector in the PR. Changes every overlap figure, so it belongs *before* the
+      rebuild, not after
 - [ ] `length_mode`
 
 Renderer (unblocked 2026-08-13):
@@ -127,6 +137,8 @@ Pilot calibration, before freezing any range:
 Housekeeping:
 - [ ] `requirements.txt` / `pyproject.toml` — none exists, and `pyloudnorm` is
       now a real dependency
+- [X] ~~`.gitignore`: `data/` was unanchored and matched `docs/data/` too, so all 8
+      files there were untracked. Anchored to `/data/` 2026-08-13~~
 
 **Proof:** a generated set on disk with a manifest, plus a config + commit hash
 + seed in `experiments/results/`.
@@ -197,10 +209,13 @@ the divergence table in M5.
 Drafted during M2, finished here now that there is a real system to point it at.
 
 - [ ] LCF-WER, ICR, NRR implemented
-- [ ] **A scoring rule for silent-target trials.** B4 is decided (eval carries
-      them) but `metric-definitions.md` defines nothing for a trial with no
-      reference text, so the main score is not computable on them. Standing
-      proposal: a separate false-alarm row, never folded into the headline
+- [ ] **Write B4's scoring rule into `metric-definitions.md`** — decided
+      2026-08-13: absent trials are excluded from the main score and reported as
+      their own invented-speech row, never folded into the headline. The decision is
+      made; the document still defines nothing for a trial with no reference text
+- [ ] **Pin B5's normaliser** — Whisper `EnglishTextNormalizer`, applied identically
+      to both sides, frozen before the first judge result and never adjusted per
+      system (decisions.md 2026-08-13)
 - [ ] Judge harness: fixed prompt, fixed response ASR, pinned model IDs, k≥3
       repeats, **input modality recorded per trial**, cost/compute logging
 - [ ] Judge decided and its cost model resolved — closed API (money) or
@@ -208,7 +223,9 @@ Drafted during M2, finished here now that there is a real system to point it at.
       **Currently unresolved**; this is the gating question for the whole
       milestone
 - [ ] Trial-set size fixed to that budget, on a spreadsheet, before the harness
-      is finalised
+      is finalised. **Floor is 200 scored trials** (B6/B13: 100 per bucket across a
+      two-way split); 500 are generated, and scoring more later extends the set
+      rather than replacing it
 - [ ] **Floor and ceiling measured** (unprocessed mixture; clean target)
 - [ ] Text reference condition wired: extractor → off-the-shelf ASR → text →
       judge, with its text floor and text ceiling
@@ -254,6 +271,16 @@ scoring, not training, so it does not need its own week.
       cost, and it is what stops the divergence claim from resting on n=2
 - [ ] AMI trial set built and the benchmark extended to it, if it survived
 - [ ] Latency reported per modality
+- [ ] **B13 — every number broken out condition by condition, no combinations.**
+      Primary: which voice is louder, how much they overlap, whether the target
+      speaks. Secondary: T60 above/below budget, gender, `enrollment_guard` tier.
+      100 trials per bucket minimum. **A headline aggregate must never appear alone**
+- [ ] **B11 — latency decay curve**, the same model scored at 100/200/300/400/500 ms
+      rather than a single pass/fail at 300 ms
+- [ ] **A1 ablation, if time allows** — the same architecture trained against a
+      direct+early reference instead of the full reverberant one, to measure the
+      artefact-versus-residue trade rather than assume it. Needs the second reference
+      stem rendered, which is why M0 records the RIR per trial. Cut before M5 is cut
 
 **Proof:** a table where ranking by SI-SDR / DNSMOS / offline-WER differs from
 ranking by LCF-WER — or evidence that it doesn't.
@@ -272,6 +299,11 @@ week 12.
 - [ ] Modality recorded on every judge result, and the cross-modality caveat
       (`docs/data/metric-definitions.md` §3.5) stated wherever audio and text rows
       appear in the same table
+- [ ] **Reverberation stated as a known limitation** (A1). The reference is what the
+      mic heard, so late reverb is never removed; it costs recognition accuracy and
+      the write-up must say so rather than omit it
+- [ ] **Divergence from WHAMR!'s direct-path reference noted** wherever the reference
+      signal is described — different task, not a better choice
 - [ ] Written, reviewed, submitted
 
 ---
