@@ -508,3 +508,93 @@ numpy 2.5.2, scipy 1.18.0). Pin it — there is still no requirements file in th
 repo, which is a reproducibility gap in its own right.
 
 Was `decisions-pending.md` A3.
+
+## 2026-08-13 — Reference signal: the target's reverberant image ("what the mic heard")
+
+Decision (GB, 2026-08-13, pending supervisor sign-off): **`target_reference` =
+full reverberant. The reference is the target speaker convolved with their own
+room impulse response — exactly what the microphone received from that person.
+The interferer and the noise bed are excluded, so separation and denoising remain
+in the task; dereverberation does not.**
+
+Dereverberation becomes an **ablation only, if time allows** (see below).
+
+### Why
+
+**1. Removing echo cannot be done inside the latency budget.** `t60_s` reaches
+0.6 s against a 200–300 ms causal window; 66.8 % of trials have a tail longer than
+the model is allowed to see (`decisions-pending.md` B11). A model cannot cancel
+what it has not yet heard, so the demand trains a room prior, not cancellation.
+
+**2. Trying anyway costs more than leaving it.** Enhancement error splits into
+what was left behind and what was destroyed in the attempt, and the destruction —
+"artifacts" — is the dominant cause of ASR degradation, not the residue
+(Iwamoto et al., 2022; Ochiai et al., 2024). Sato et al. (2021) push this further:
+processing artifacts can make a separated signal recognised *worse* than the
+unprocessed mixture, so they gate on whether to separate at all. Since this
+project's whole claim is that live models mishear artefacts, deliberately choosing
+the task with the smaller artefact surface is the consistent choice.
+
+**3. Early reflections should not be removed under any option.** Reflections
+arriving within ~50 ms are as useful to intelligibility as the direct sound itself
+(Bradley & Sato, 2003). So the real choice was only ever "remove the late tail or
+not", and (1) says we cannot.
+
+### What this concedes, stated plainly
+
+Late reverberation genuinely does cost recognition accuracy — the REVERB challenge
+line of work is unambiguous (Kinoshita et al., 2016), and spectral smearing also
+degrades the separation itself, which is the job we *are* keeping (Maciejewski
+et al., 2020). This decision does not claim reverb is harmless. It claims removal
+is unaffordable online and that attempting it costs more than it returns. **The
+write-up must state this as a known limitation, not omit it.**
+
+### Why the noise bed stays out of the reference
+
+Considered and rejected: leaving the noise in the reference too (remove only the
+competing voice). `snr_db` runs down to 0.0, where the bed is as loud as the target
+and masks words even though it contains none — `noise_speech_rejection` (not yet
+implemented) guarantees no intelligible speech in it. Non-intelligible noise cannot
+make the judge hear *wrong* words but can stop it hearing the right ones, and
+denoising needs no lookahead, so it is affordable online in a way dereverberation
+is not.
+
+### Consequences
+
+- **A5 (tail padding) is now mandatory**, not optional: the reference contains the
+  tail, so the window must extend past the last speech by at least the room's decay
+  or reference and mixture stop matching.
+- **B11 largely dissolves.** The model is no longer asked to suppress a tail it
+  cannot hear. What survives is the weaker question of whether reverb limits
+  separation, which the stratified reporting in B13 (T60 above/below budget) covers.
+- **Ablation, if time allows:** render the direct+early stem as a second reference
+  and train the same architecture against it. Report both. That measures the
+  artefact/residue trade rather than assuming it. Cheap to render, one extra
+  training run.
+- Renderer must record the RIR per trial so any reference variant is reproducible
+  without re-drawing rooms.
+
+### References
+
+- Bradley, J. S. & Sato, H. (2003). On the importance of early reflections for
+  speech in rooms. *JASA* 113(6), 3233–3244.
+- Iwamoto, K., Ochiai, T., Delcroix, M., et al. (2022). How bad are artifacts?:
+  Analyzing the impact of speech enhancement errors on ASR. *Interspeech 2022*,
+  5418–5422.
+- Kinoshita, K., Delcroix, M., Gannot, S., et al. (2016). A summary of the REVERB
+  challenge. *EURASIP J. Adv. Signal Process.* 2016:7.
+- Maciejewski, M., Wichern, G., McQuinn, E. & Le Roux, J. (2020). WHAMR!: Noisy and
+  reverberant single-channel speech separation. *ICASSP 2020*.
+- Ochiai, T., Iwamoto, K., Delcroix, M., et al. (2024). Rethinking processing
+  distortions: Disentangling the impact of speech enhancement errors on speech
+  recognition performance. arXiv:2404.14860.
+- Sato, H., Ochiai, T., Delcroix, M., et al. (2021). Should we always separate?:
+  Switching between enhanced and observed signals for overlapping speech
+  recognition. *Interspeech 2021*. arXiv:2106.00949.
+
+Note on borrowing: WHAMR! chose direct-path-only references
+(`wham_room.py:47-60`); we deliberately diverge, because WHAMR! is an offline
+separation benchmark scored on signal quality and this is a causal streaming system
+scored on downstream content fidelity. Not comparable to WHAMR! numbers.
+
+Was `decisions-pending.md` A1.

@@ -6,6 +6,39 @@ traced both ways.
 
 ---
 
+## 2026-08-13 — Lecturer
+
+**Present:**
+**Phase:** 2, data preparation.
+
+### Research posture
+
+1. **This is research, not software engineering.** Deliverable is a defensible
+   finding, not a well-built system. Engineering effort only counts where it is
+   needed to produce or trust the result.
+
+2. **Quality over quantity.** One well-designed, well-evidenced contribution beats
+   several shallow ones. Prefer depth on the metric and a small number of clean,
+   interpretable experiments.
+
+3. **Innovate around the compute limit — do not brute-force it.** 11 weeks and a
+   constrained compute budget. A cheaper training method that is *slightly worse*
+   is preferred over a costly one, and the shortcut is itself a contribution.
+
+4. **Report the compute-limited gap explicitly.** Every efficiency shortcut must be
+   written up as: what was traded, what it cost in metric terms, and what the model
+   would be expected to reach with full resources. Evidence for the projection where
+   possible (e.g. a scaling point, an ablation, or a short full-cost run).
+
+**Implication for modelling:** treat compute as a first-class design constraint
+alongside the ~200–300 ms latency budget. Candidate levers to evaluate and report —
+shorter training crops, subsampled training set, smaller proxy encoder, fewer epochs
+with a stronger schedule, mixed precision, frozen-feature caching.
+
+→ **Notes:**
+
+---
+
 ## 2026-08-12 — Supervisor
 
 **Present:**

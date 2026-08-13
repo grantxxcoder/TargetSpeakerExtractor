@@ -40,10 +40,11 @@ evaluate → nothing to compare.
 Both training and evaluation draw from the same construction code, so this is
 built once.
 
-**Status 2026-08-12.** Manifests exist for all six splits and have been audited
-(`src/exploratory/data_setup.ipynb`). **No audio exists yet** — the renderer is
-unwritten and blocked on A1. The audit found two shortcuts serious enough to
-require regenerating the manifests before any audio is made.
+**Status 2026-08-13.** Manifests exist for all six splits and have been audited
+(`src/exploratory/data_setup.ipynb`). **No audio exists yet**, but A1 is now
+decided (full reverberant reference), so the renderer is unblocked. The audit found
+two shortcuts serious enough to require regenerating the manifests before any audio
+is made.
 
 Done:
 - [X] ~~Speaker-disjoint train / val / eval splits~~
@@ -53,8 +54,8 @@ Done:
 - [X] ~~Manifest audit §1–§7: timing, levels, rooms, enrollment, noise, absent trials~~
 
 Blocked on a decision:
-- [ ] **A1 — reference signal.** Nothing about the renderer can be written until
-      this is answered. Highest-priority unblock.
+- [X] ~~**A1 — reference signal.** Decided 2026-08-13: full reverberant. Supervisor
+      sign-off outstanding but the renderer no longer waits on it~~
 - [ ] **B12 — generator controllability.** Decide before the rebuild, or the
       rebuild happens twice.
 
@@ -73,9 +74,14 @@ Still unimplemented from `data-construction-parameters.md`:
       words as hallucination. Needs audio, so it lands in the renderer
 - [ ] `length_mode`
 
-Renderer, once A1 is answered:
+Renderer (unblocked 2026-08-13):
 - [ ] Manifest row → audio: RIRs, levels at BS.1770, noise wrap, clip ceiling
 - [ ] Five stems per trial: mixture, clean target, enrollment, both texts
+- [ ] Clean target = target × its own RIR, no interferer, no noise (A1). Record the
+      RIR per trial so the direct+early ablation stem can be rendered later without
+      re-drawing rooms
+- [ ] Tail padding past the last speech by at least the room's decay (A5) — now
+      mandatory, since the reference contains the tail
 - [ ] Exact verbatim ground-truth text for **both** target and interferer
       (`d` is required by `docs/data/metric-definitions.md` §2 — without it ICR is
       not computable, and regenerating later to add it costs a week)
