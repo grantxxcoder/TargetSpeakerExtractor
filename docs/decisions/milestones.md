@@ -41,10 +41,11 @@ Both training and evaluation draw from the same construction code, so this is
 built once.
 
 **Status 2026-08-13.** Manifests exist for all six splits and have been audited
-(`src/exploratory/data_setup.ipynb`). **No audio exists yet**, but A1 is now
-decided (full reverberant reference), so the renderer is unblocked. The audit found
-two shortcuts serious enough to require regenerating the manifests before any audio
-is made.
+(`src/exploratory/data_setup.ipynb`). **No audio exists yet.** **Every data decision is
+now made** — all of group A and all thirteen B items. The only open question is **C2**,
+how hard the task should be, which needs the supervisor and blocks nothing meanwhile.
+What is left is implementation: B12's two PRs, then one manifest rebuild, then the
+renderer.
 
 Done:
 - [X] ~~Speaker-disjoint train / val / eval splits~~
@@ -53,20 +54,43 @@ Done:
 - [X] ~~Enrollment segments ≥5 s, from a different recording than the mixture~~
 - [X] ~~Manifest audit §1–§7: timing, levels, rooms, enrollment, noise, absent trials~~
 
-Blocked on a decision:
-- [X] ~~**A1 — reference signal.** Decided 2026-08-13: full reverberant. Supervisor
-      sign-off outstanding but the renderer no longer waits on it~~
-- [ ] **B12 — generator controllability.** Decide before the rebuild, or the
-      rebuild happens twice.
+Decisions — all closed except two, both for the supervisor:
+- [X] ~~**A1** reference signal, **A5** tail padding, **A6** clipping. Group A closed~~
+- [X] ~~**B1** overlap range is a dial setting, **B2** VAD, **B4** eval absent trials,
+      **B5** text normalisation, **B6** trial count, **B7** resampling, **B11** latency
+      reporting, **B13** stratified reporting~~
+- [X] ~~**B9** — 50 % both / 25 % absent / 25 % target-only, and a variable
+      `target_activity_ratio`. Sets B4's eval fraction at 0.25~~
+- [X] ~~**B12 — generator controllability.** Architecture decided 2026-08-13.
+      Implementation outstanding: PR1 sampler, PR2 wire-in~~
+- [X] ~~**B10** — three enrollment tiers (`book` / `chapter` / `utterance`) recorded
+      per trial; eval pools redrawn to balance the tier mix. Executes B8's own
+      documented contingency rather than reversing it~~
+- [ ] **C2** — how hard the task should be (floor WER); needs the supervisor. Blocks
+      nothing that can be done meanwhile
+
+B12 implementation, before the rebuild:
+- [ ] **PR1** — `src/data/sampling.py`: `draw()`, `resolve()`, unit tests. No wiring
+- [ ] **PR2** — wire into `build_manifest.py`, add the `regime` column, raise the
+      `t60_s` floor to 0.25, eval splits skip regimes. Acceptance test: a no-op
+      config must reproduce the current manifest byte-identically
+- [ ] Decide whether `data/manifests/` is tracked in git — before PR2 changes the
+      schema. `.gitignore:223` claims manifests are tracked; none are
 
 Manifest rebuild — one pass covering all of:
 - [ ] **B9** — add `target_only_fraction`; let `target_activity_ratio` vary.
       Silent-target trials are currently detectable at AUC 1.000 without
       listening, and a target speaking uninterrupted never occurs
-- [ ] **B10** — book-preferred, chapter-fallback enrollment, recording which rule
-      fired per trial. 60 % of speakers can never be a present target today
-- [ ] **B4** — silent-target trials in the eval splits (fraction still open)
-- [ ] Re-run the §7.5 leak scoreboard afterwards and show the AUCs dropped
+- [ ] **B10** — three-tier enrollment guard with `enrollment_guard` recorded per
+      trial; assert enrollment and mixture never share an utterance
+- [ ] **B10** — `make_splits.py`: redraw eval pools so the guard-tier mix matches
+      between `eval_public` and `eval_private` (8/20 vs 3/20 weakest tier today)
+- [ ] **B4** — apply the decided absent fraction to the eval splits (currently 0.0);
+      the fraction itself follows B9
+- [ ] Define the **interruption** condition and add it as a column (B13's one
+      deferred part)
+- [ ] Re-run the §7.5 leak scoreboard afterwards, **per regime as well as pooled**,
+      and show the AUCs dropped
 
 Still unimplemented from `data-construction-parameters.md`:
 - [ ] **`noise_speech_rejection`** — the docs call it critical. Speech in the

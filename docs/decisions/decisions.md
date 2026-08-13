@@ -715,3 +715,352 @@ Doing B12 before the B9/B10/B4 rebuild avoids rebuilding twice. Timing measured
 committed manifest byte-identically, so all of this is cheap while no audio exists.
 
 Was `decisions-pending.md` B12.
+
+## 2026-08-13 — A5: the mixture keeps running after the last word
+
+Echo continues after speech stops. Cutting the file at the last word cuts the echo
+with it, so the reference signal and the mixture stop matching.
+
+**Decision: pad the rendered output by `t60_s` beyond the nominal
+`mixture_length_s`.** Transcripts are unaffected — no speech occurs in the tail.
+
+Why padding rather than placing speech earlier: forbidding late onsets would make
+speech placement depend on the room's reverberation time, so *when* people talk
+would correlate with *how echoey the room is* — a new confound of exactly the kind
+§7 of the manifest notebook exists to catch. Padding introduces no such link.
+
+Now mandatory rather than optional: the A1 decision (2026-08-13) puts the reverberant
+tail inside the reference signal, so a truncated tail is a mismatch, not a cosmetic
+issue.
+
+Was `decisions-pending.md` A5.
+
+## 2026-08-13 — A6: clipping is fixed by rescaling everything together
+
+**Decision: if any sample exceeds 0.95 of full scale after summing, scale the mixture
+and every stem by the same factor.**
+
+Why the same factor: quietening only the offending track would change the loudness
+differences the trial was constructed to have, silently altering its SIR and SNR.
+A common gain preserves both.
+
+Already specified in `data-construction-parameters.md`; recorded here so it is a
+decision rather than an undocumented default.
+
+Was `decisions-pending.md` A6.
+
+## 2026-08-13 — B2: overlap is measured from detected speech, not file boundaries
+
+A read sentence contains pauses, so measuring overlap from where recordings start and
+stop overstates how much genuine talking coincides.
+
+**Decision: detect where speech actually is first, and measure overlap from that.**
+One pass over the corpus, cached alongside the existing utterance index.
+
+Why: it costs nothing after the first run and it makes the overlap figure defensible
+and comparable to REAL-TSE's. The current inflated number cannot be quoted next to
+the anchor benchmark's.
+
+The specific detector is an implementation choice, to be named in the PR that adds it.
+
+Was `decisions-pending.md` B2.
+
+## 2026-08-13 — B4: target-absent trials in eval, scored on their own row
+
+**Decision: the eval splits carry the same target-absent fraction as `train`, and
+those trials are excluded from the main content score and reported separately as how
+often the system invents speech that was not there.**
+
+Why excluded from the main score: there is no correct text to compare against when
+nobody speaks, so any content-fidelity figure computed on them would be meaningless.
+
+Why the same fraction as train: it keeps the strata comparable between what the model
+saw and what it is judged on.
+
+Why a separate row rather than folded in: inventing speech and mis-hearing speech are
+different failures with different fixes. One number hiding both is unusable, and
+B13 (2026-08-13) forbids it.
+
+Supersedes the eval splits' `target_absent_fraction: 0.0`. The exact fraction follows
+B9, which sets it for `train`.
+
+Was `decisions-pending.md` B4.
+
+## 2026-08-13 — B5: text is normalised with Whisper's English normaliser
+
+The corpus transcripts are capitals with no punctuation. A live model replies in
+ordinary prose with digits. Compared unchanged, every system looks worse than it is.
+
+**Decision: adopt Whisper's `EnglishTextNormalizer` unchanged, applied identically to
+the reference and to the system output.** Cite Radford et al. (2023).
+
+Why an off-the-shelf normaliser: it is published, widely used and not ours, so it
+cannot be suspected of having been tuned to flatter our numbers. Writing our own
+would mean defending every individual choice about case, punctuation, digits and
+contractions.
+
+Two rules that come with it:
+
+- **Frozen before the first judge result is recorded.** Changing it afterwards
+  invalidates every comparison.
+- **Never adjusted per system.** Both sides of every comparison get the identical
+  function.
+
+Note this does not make Whisper part of the pipeline. The normaliser is a text
+function, so it touches neither the training loop nor the judge, and the rules in
+`CLAUDE.md` about model families are unaffected.
+
+Was `decisions-pending.md` B5.
+
+## 2026-08-13 — B13: results are reported condition by condition, never combined
+
+A single overall score averages over trials that are nothing like each other — some
+with the target as the dominant voice in a dry room, some with a louder interferer
+talking over it in a reverberant one. The average says nothing about which.
+
+**Decision: report each condition on its own. No combinations.**
+
+Six conditions, in priority order:
+
+| | Condition | Split on |
+|---|---|---|
+| **Primary** | Which voice is louder | `sir_db` band |
+| | How much they talk over each other | `overlap_achieved` band |
+| | Whether the target speaks at all | `target_absent` |
+| **Secondary** | How echoey the room is | `t60_s` above / below the latency budget |
+| | Same or different gender | `same_gender` |
+| | How content-disjoint the enrollment is | `enrollment_guard` tier (B10): `book` / `chapter` / `utterance` |
+
+**Minimum 100 trials per bucket.** Each trial counts toward every condition at once,
+so a two-way split of *N* scored trials gives *N*/2 per bucket — 200 scored trials is
+the floor.
+
+Why no combinations: six conditions crossed together is 64 buckets, roughly 8 trials
+each at 500 trials. Unreadable, and reaching 100 per bucket would need ~6,400 trials
+and about 13× the judge budget. The primary/secondary order says what to protect if
+the budget turns out tight.
+
+The interruption condition named in the original entry is deferred: nothing in the
+data marks an interruption today, and defining one needs the turn-taking trials B9
+introduces.
+
+Was `decisions-pending.md` B13.
+
+## 2026-08-13 — Eval splits draw independently, with no regimes
+
+Amends the B12 entry above, prompted by B13.
+
+**Decision: the eval splits omit the `regimes:` block entirely and draw every
+parameter independently from the wide ranges. `regime` records `none`. Training keeps
+regimes as decided.**
+
+Why: under regimes, a `hard` trial draws a wide SIR *and* a wide overlap together, so
+the two become correlated — `P(high overlap)` is 0.20 overall but 0.50 given a louder
+interferer, a 2.5× enrichment. B13's per-condition tables would then partly describe
+the same trials, reporting one effect twice as two findings. That is the precise
+failure the stratified reporting exists to avoid.
+
+Regimes exist so training data can be filtered when it proves too hard. Eval is never
+filtered, so it gains nothing from them and loses independent conditions.
+
+## 2026-08-13 — B6: 500 trials generated, 200 the minimum scored
+
+**Decision: keep 500 trials per eval split. Score at least 200; grow as the judge
+budget allows.**
+
+Why this works without a budget figure: rows are generated in a fixed order, so the
+first 200 are contained in the first 300. Scoring more later extends the set instead
+of replacing it, and the numbers stay comparable as the budget grows.
+
+The 200 floor comes from B13: 100 trials per bucket across a two-way split.
+
+Was `decisions-pending.md` B6.
+
+## 2026-08-13 — B7: training mixtures are not resampled each pass
+
+Rebuilding mixtures with fresh loudness and room draws every epoch gives the model
+more variety, but the run can then no longer be reproduced from the manifest alone.
+
+**Decision: off for the main run. Available as a config switch.**
+
+Why: reproducibility of the headline result is worth more than the extra variety, and
+the variety can be recovered as a reported ablation if it turns out to matter.
+
+Was `decisions-pending.md` B7.
+
+## 2026-08-13 — B11: latency is reported as a decay curve, not a threshold
+
+Two thirds of trials have reverberation lasting longer than the streaming window lets
+the model see.
+
+**Decision: never cap `t60_s` to make the task fit. Score the same model at 100, 200,
+300, 400 and 500 ms of allowed latency and report how performance decays.**
+
+Why not cap it: capping would make the data less like a real room, which is the one
+thing constructed data has to get right, and latency is a secondary objective in the
+specification. Changing the metric costs several evaluation passes; changing the data
+costs the realism the whole set exists to provide.
+
+Largely defused by A1 (2026-08-13), which stopped asking the model to remove the
+tail at all. What remains is whether reverberation limits *separation*, which the
+T60 condition in B13 reports directly.
+
+Was `decisions-pending.md` B11.
+
+## 2026-08-13 — B9: a target speaking uninterrupted becomes a quarter of the data
+
+### The problem
+
+35 % of training trials have the target never speaking. They exist to teach one
+behaviour: **stay quiet when the enrolled voice is not there** — a system that invents
+speech is worse than useless to a live model.
+
+But in every one of those trials only one person talks, and in every trial where the
+target *does* speak, two voices overlap at some point. So *"did two voices ever
+overlap?"* answers *"is the target absent?"* on **every trial in the set** (AUC 1.000
+on `train`, 1.000 on `val`), without ever consulting the enrollment. The behaviour is
+never actually trained, and nothing in any training curve would reveal it.
+
+It also inverts in deployment. Someone talking with nobody interrupting looks exactly
+like "target absent", so a model that learned *no overlap → emit silence* would go
+quiet on the most common real condition there is. That condition currently appears in
+**zero** trials.
+
+### The decision
+
+| Trial type | Before | After |
+|---|---|---|
+| Both speaking | 65 % | **50 %** |
+| Target absent | 35 % | **25 %** — of which 5 % is noise bed only, neither speaker |
+| Target only, nobody interrupting | 0 % | **25 %** |
+
+And **`target_activity_ratio` varies** instead of being pinned at 0.75:
+base `[0.45, 0.85]`, hard `[0.15, 0.85]` (regime-scoped, per B12).
+
+### Why these numbers
+
+**The 25/25 split is symmetric because the two failure modes are weighed equally.**
+Inventing speech and dropping speech are both content-fidelity failures, and neither
+is privileged. Making the two zero-overlap cases equally frequent puts
+`P(target absent | no overlap)` at exactly **0.50** — a coin flip, so the shortcut
+carries no information at all. Any other ratio leaves it partly predictive: the
+originally proposed 30/15 would have left it 0.67, still right two thirds of the time.
+
+**The two changes compound rather than merely stack.** Once the target's talkativeness
+varies, some both-speaking trials become genuine turn-taking with near-zero overlap.
+Those sit on the *present* side of the zero-overlap pool, pushing the figure below
+0.50 and leaving no residual signal to exploit.
+
+**Widening `overlap_ratio` instead would not work.** Overlap is floored by
+`overlap >= target_activity + interferer_activity - 1`. With the target pinned at
+0.75–0.85, zero overlap requires an interferer at ≤ 0.20 activity — roughly 3.5 s
+against a current mean of 10.0 s — and that block must fit inside a gap in the
+target's timeline, where the largest median gap is 2.68 s. The result would be a
+narrow corner of near-silent-interferer trials, which is a *new* giveaway, plus heavy
+rejection. **The binding constraint is `target_activity_ratio`, not `overlap_ratio`.**
+
+### What else this fixes
+
+- **The residual `interferer_activity` leak** (§7.3, AUC 0.614) at source. It exists
+  because present trials get rejected when a contiguous interferer block cannot reach
+  the requested overlap, while target-absent trials never face that test. A less
+  talkative target widens the achievable overlap range, so the tolerance check stops
+  firing asymmetrically.
+- **The realism gap.** The target currently speaks in a mean of 1.1 utterances per
+  trial — one unbroken ~14 s monologue filling 80 % of the window. That is not
+  conversation.
+- **B4's open number.** Eval splits take `target_absent_fraction: 0.25`, matching
+  train, as B4 requires.
+
+### Cost
+
+The larger of the two changes touches `pick_run`, `best_onset` and the overlap bounds
+together, plus a new branch in `build_trial` mirroring the target-absent branch. A
+full manifest rebuild is required. §2, §7 and the health checks of the manifest
+notebook assume the current timing model and will need revising; §3–§6 will not.
+
+The §7 leak scoreboard must be re-run **per regime as well as pooled** (B12), and must
+show the AUCs dropped.
+
+Was `decisions-pending.md` B9.
+
+## 2026-08-13 — B10: enrollment falls back through three tiers, recorded per trial
+
+### The problem
+
+B8 (2026-08-11) requires the enrollment clip to come from a different **book** than
+the mixture. A present trial therefore needs a target who read two or more books —
+but in LibriSpeech most readers read one. Of the 1,172 speakers in `train`, only
+**467 (39.8 %)** own two books, so those 467 were the only speakers that could ever
+be a present target. The other 705 appeared exclusively in target-absent trials.
+
+Scoring each trial by how often its target speaker is silent elsewhere gives
+**AUC 0.795** on `train` and 0.756 on `val`. Interferer identity gives 0.502, so the
+leak is specifically about the voice the model is told to listen for: the silence
+decision could be made by recognising the speaker instead of by listening.
+
+**This is not a reversal of B8.** B8's own cost note specified the remedy and its
+trigger: *"if a material number of speakers drop out entirely, revisit as a
+book-preferred-with-chapter-fallback rule."* 60.2 % is material.
+
+### The decision
+
+**Enrollment falls back through three tiers, and which tier fired is recorded per
+trial in an `enrollment_guard` column.**
+
+| Tier | Rule | Speakers in `train` | |
+|---|---|---|---|
+| `book` | Different book from the mixture | 467 | 39.8 % |
+| `chapter` | Different chapter, same book | 469 | 40.0 % |
+| `utterance` | Same chapter, utterances not used in the mixture | 236 | 20.1 % |
+
+Book-preferred alone would have left the 236 single-chapter speakers with no valid
+enrollment at all — no different book *and* no different chapter — recreating the same
+absent-only leak at reduced strength.
+
+**Within the `utterance` tier, pick the enrollment from the utterances furthest in
+index from those used in the mixture.** LibriSpeech numbers utterances sequentially
+within a chapter, so maximising that distance costs nothing and minimises how much
+narrative the enrollment shares with the mixture.
+
+**Assert that no utterance appears in both the enrollment and the mixture.** In the
+first two tiers this is automatic; in the third it is the only thing separating them.
+
+### Why keep all 1,172 speakers
+
+Two alternatives were rejected:
+
+- **Dropping the 236.** Clean and leak-free, but discards a fifth of the speaker pool
+  for a speaker-conditioned model.
+- **Using them as interferers only.** This mirrors the leak it is meant to close: a
+  voice that is *never* the target teaches "suppress this speaker" without consulting
+  the enrollment. Interferer identity currently sits at AUC 0.502 — no leak — and this
+  would manufacture one.
+
+Keeping every speaker and **recording the tier** means the content-leak cost is
+measurable rather than assumed. If `utterance`-tier trials score conspicuously better
+than `book`-tier ones, that is the leak, quantified. B8 called same-book enrollment
+indefensible as a *default*; as a recorded, measured fallback for speakers who leave
+no alternative, it is defensible.
+
+### Eval splits are redrawn
+
+The three tiers are unevenly distributed across the eval pools: `eval_public` has 8 of
+20 speakers in the weakest tier against `eval_private`'s 3 of 20. That would make
+`eval_public` systematically the easier set — a confound between the two eval sets
+before any system is measured.
+
+**Decision: `make_splits.py` redraws the eval pools so the guard-tier composition
+matches between `eval_public` and `eval_private`.** Speaker-disjointness from `train`
+is unchanged. This invalidates the current manifests, but PR3 rebuilds them anyway, so
+the timing is free.
+
+### Consequences
+
+- **B13 gains a three-level condition.** The "one-book vs two-book target speaker"
+  condition in B13 becomes **guard tier: `book` / `chapter` / `utterance`**, which is
+  what actually varies.
+- New column `enrollment_guard`; `make_splits.py` and `splits.yaml` both change.
+- Folds into the PR3 rebuild.
+
+Was `decisions-pending.md` B10.
