@@ -218,12 +218,14 @@ __marimo__/
 .streamlit/secrets.toml
 literature/papers/
 
-# --- Datasets and generated audio (see docs/data-setup.md) ---
+# --- Datasets and generated audio (see docs/data/data-setup.md) ---
 # Source corpora and generated mixtures live on disk, never in git.
 # ~36 GB steady state. Manifests and configs ARE tracked; audio is not.
-data/
-reference/
-LibriMix/
+# Anchored with a leading slash: an unanchored `data/` also matches docs/data/,
+# which silently untracked every file in it (including metric-definitions.md).
+/data/
+/reference/
+/LibriMix/
 
 # Belt and braces: no audio or archives anywhere in the tree
 *.wav

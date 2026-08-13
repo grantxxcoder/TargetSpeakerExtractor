@@ -31,10 +31,8 @@ pinned to exact commits as each is actually brought in.
 | Judge (reproducibility anchor) | an open-weight speech-to-speech model | not yet chosen |
 | Front-end ASR, text reference condition | an off-the-shelf streaming ASR | not yet chosen |
 
-**Note on what is no longer a dependency.** Earlier versions of this README
-listed the REAL-TSE Challenge baseline repo and its official scoring pipeline.
-Replicating the challenge baselines and using its eval pipeline were both
-dropped in the 2026-08-07 re-scope (spec note 8). We still borrow ideas,
-data-construction methods and metric-design lessons from the challenge, and
-cite it as the anchor benchmark — but our numbers are never comparable to
-published REAL-TSE results. See `docs/decisions/decisions.md`.
+The REAL-TSE Challenge is cited as the anchor benchmark for real
+conversational TSE, and we borrow its data-construction methods and its
+lessons about metric gaming — but we replicate neither its baselines nor its
+eval pipeline, so our numbers are never comparable to published REAL-TSE
+results. See `docs/decisions/decisions.md`.

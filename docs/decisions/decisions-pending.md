@@ -12,21 +12,9 @@ Move each answer into `docs/decisions/decisions.md` once made.
 
 ## A. Blocks the renderer
 
-### A1. What should the "correct answer" audio sound like? (**reference signal / training target**)
+### A1. *Decided 2026-08-13 — full reverberant, "what the mic heard". See `decisions.md`.*
 
-The model is trained to reproduce one specific signal. Choosing it chooses the
-task.
-
-| Option | The model must learn to |
-|---|---|
-| The original recording, no room at all (**dry source**) | Separate the voices *and* remove all echo |
-| Only the sound arriving straight from mouth to mic (**direct path**) | Separate and remove all echo, but keep the delay and quietening from distance |
-| Straight path plus the first echoes off nearby walls (**direct + early reflections**, ~50 ms) | Separate, and remove only the long lingering echo |
-| Exactly what the mic heard from that person (**full reverberant**) | Separate only, leave the room as it is |
-
-**Recommended: straight path plus early echoes.** Removing lingering echo is a
-second hard job, and it is where the audio starts sounding artificial — which is
-the exact thing this project claims live models mishear.
+Pending supervisor sign-off. Dereverberation is an ablation only, if time allows.
 
 ### A2. *Decided 2026-08-11 — wrap around. See `decisions.md`.*
 
@@ -55,12 +43,12 @@ silently change the loudness differences the trial was built to have.
 
 ## B. Needed before the real sets are generated
 
-### B1. How much of the mixture has both people talking at once? (**overlap ratio**)
+### B1. *Closed 2026-08-13 — subsumed by the difficulty dial. See `decisions.md`.*
 
-Currently requested between 20 % and 70 % of the mixture, and recorded per trial
-as an experimental variable. **Confirm the range is wide enough to show an effect
-and narrow enough to be realistic.** 70 % is a hard ceiling while the target
-talks 75 % of the time — both cannot exceed the quieter one.
+Not a standalone decision: `overlap_ratio` is one of the 14 parameters ranked in
+`docs/data/difficulty-dial.md`, adjustable on request once B12 lands. Recorded there
+as the narrowing to do **last**, because its 0.7 ceiling is deliberately matched to
+REAL-TSE and changing it diverges from the anchor.
 
 ### B2. Is "both talking" counted from where the recordings sit, or from where speech actually is? (**utterance boundaries vs voice activity detection**)
 
@@ -266,11 +254,19 @@ measured rather than assumed. Reversing B8 in part — take it to the supervisor
 
 ### B11. Reverberation runs longer than the model is allowed to look (**T60 vs the latency budget**)
 
-`t60_s` is sampled from [0.15, 0.6] s. With A1 settled as direct + early
-reflections to 50 ms, the model is asked to suppress a tail reaching up to 600 ms
+**Largely resolved by A1 (2026-08-13).** This finding is what settled A1: the
+reference is now full reverberant, so the model is never asked to suppress a tail
+it has not heard. The options below applied when the reference still demanded
+dereverberation and are kept for the trail. What survives is the weaker question of
+whether reverb limits *separation*, answered by reporting stratified on T60 above
+and below the budget (B13) — i.e. the third option below, which is the standing
+choice.
+
+`t60_s` is sampled from [0.15, 0.6] s. When A1 was still direct + early
+reflections to 50 ms, the model was asked to suppress a tail reaching up to 600 ms
 from a streaming window of 200–300 ms. **66.8 % of trials have a T60 longer than
 that window.** It cannot cancel what it has not heard yet, so on those trials it
-can only learn an average prior over rooms.
+could only learn an average prior over rooms.
 
 | Option | Cost |
 |---|---|
@@ -291,14 +287,57 @@ dimensions so the model learns how sound propagates — so trials whose tail
 outruns the window are the ones that will show whether the prior is doing
 anything.
 
-**Still open — take to the supervisor before pinning.** Depends on A1; revisit if
-the reference signal changes.
+**Status after A1 (2026-08-13): the third option stands, and no longer depends on
+an open A1.** Still worth mentioning to the supervisor as reporting policy, but it
+no longer blocks anything.
+
+### B12. *Architecture decided 2026-08-13 — two regimes, sampler layer, no relational constraints. See `decisions.md`.*
+
+**Still open: implementation.** PR1 sampler module → PR2 wire in + `regime` column
++ raise `t60_s` floor to 0.25 → PR3 the B9/B10/B4 rebuild. Do PR1–PR2 before the
+rebuild or the rebuild happens twice.
+
+Band values live in `docs/data/difficulty-dial.md` §2; the how-to is
+`docs/data/changing-the-data.md`.
+
+Two sub-questions the original entry raised, both now answered in `decisions.md`:
+beta is dropped (no use case), and the wall-absorption ambiguity is resolved by
+**not** capping absorption — it is derived from `t60_s` and volume, so a cap would
+be a rejection rule, and rejection is what bends distributions. Raising the `t60_s`
+floor achieves the same realism gain without rejection (`difficulty-dial.md` §1).
+
+### B13. Results must be reported per condition, never as one number (**stratified reporting**)
+
+Raised 2026-08-12: interpretability is to be treated as strict. Every headline
+number on the final test set must break out by condition rather than collapse
+into an aggregate — at minimum target present vs absent, and interruptions.
+
+Why it is a decision and not just a reporting habit: the strata have to exist in
+the data before they can be reported, so this constrains what the eval splits
+must contain, and it sets a floor on trials per split (B6) — every cell needs
+enough trials to be readable, so the count multiplies by the number of strata.
+
+**Candidate strata**, to confirm: target present / absent (B4), overlap band,
+SIR band, T60 above / below the latency budget (B11), same vs different gender,
+one-book vs two-book target speaker (B10).
+
+→ **Clarify: what counts as an "interruption"?** Nothing marks one today. The
+nearest column is `overlap_achieved`, which is continuous, so an interruption
+stratum needs either a threshold on it or a new trial type. B9 already proposes
+adding turn-taking and target-only trials, so the definition should be fixed
+**before** that rebuild rather than derived from it afterwards.
+
+→ **Minimum trials per cell:**
 
 ---
 
 ## C. Ask the supervisor
 
-1. **A1** — straight path only, or straight path plus early echoes?
+1. **A1 — decided, needs sign-off only.** Reference is what the mic heard from the
+   target (full reverberant): separate and denoise, do not dereverberate. Removing a
+   0.6 s tail from a 300 ms causal window is not possible, and attempting it trades
+   residue for artefacts, which are what degrade recognition most. Dereverberation
+   kept as an ablation if time allows. `decisions.md` 2026-08-13.
 2. **How hard should the task be?** Measured as how badly an off-the-shelf
    transcriber does on the raw mixture (**floor word error rate**). Too easy and
    nothing distinguishes systems; too hard and nothing can be ranked. The current

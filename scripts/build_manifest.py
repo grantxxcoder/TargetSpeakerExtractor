@@ -133,7 +133,18 @@ def index_noise(root, noise_split, cache):
 
 def sample_room(rng, cfg):
     """Room dimensions, T60 and mic position. Redraws until the T60 is
-    physically reachable in the room (small T60 in a big room is not)."""
+    physically reachable in the room (small T60 in a big room is not).
+
+    Reachability is Sabine's equation, T60 = 0.161V / (S*alpha), for room volume
+    V, total surface area S and average absorption alpha -- Sabine (1922),
+    "Collected Papers on Acoustics". `pra.inverse_sabine` solves it for alpha and
+    raises when the answer would exceed 1, i.e. when the wanted T60 is shorter
+    than perfectly absorbing walls could achieve.
+
+    The whole room is redrawn on failure, not just the T60. Holding the room and
+    resampling T60 alone would sample from a range truncated by room size, so big
+    rooms would systematically get longer reverb and the T60 distribution would
+    skew upward. Verified uniform in section 4 of the manifest notebook."""
     for _ in range(50):
         dims = [draw(rng, cfg["room_length_m"]),
                 draw(rng, cfg["room_width_m"]),

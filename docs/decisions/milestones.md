@@ -10,9 +10,9 @@ Each milestone names the artefact that proves it is done. "Reviewed by
 supervisors" is not a milestone — a thing that exists is.
 
 > **Supersedes** the metric-first milestone set of 2026-08-07 (morning).
-> `docs/decisions/research-plan.md` §2 and §6 still describe the old leg ordering and
-> now disagree with this file. This file is authoritative; the plan needs
-> reconciling.
+> This file is authoritative for scheduling. `docs/decisions/research-plan.md`
+> was reconciled with it on 2026-08-12: §6 points here for dates, and its §2
+> build-order table agrees with this file.
 
 ---
 
@@ -40,18 +40,69 @@ evaluate → nothing to compare.
 Both training and evaluation draw from the same construction code, so this is
 built once.
 
-- [ ] Constructed mixture generator: target + ≥1 interferer + real noise
-      (WHAM!-style) + reverberation (WHAMR!-style RIRs), 16 kHz
-- [ ] Exact verbatim ground-truth text retained for **both** target and
-      interferer (`d` is required by `docs/data/metric-definitions.md` §2 — without
-      it ICR is not computable, and regenerating the set later to add it is
-      the kind of avoidable rework that costs a week)
-- [ ] Enrollment segments ≥5 s, from a different recording than the mixture
-- [ ] Build dataset
+**Status 2026-08-13.** Manifests exist for all six splits and have been audited
+(`src/exploratory/data_setup.ipynb`). **No audio exists yet**, but A1 is now
+decided (full reverberant reference), so the renderer is unblocked. The audit found
+two shortcuts serious enough to require regenerating the manifests before any audio
+is made.
+
+Done:
 - [X] ~~Speaker-disjoint train / val / eval splits~~
-- [ ] Controllable overlap ratio, SNR and enrollment-device mismatch, recorded
-      per trial as experimental variables
 - [X] ~~Seed set and logged; generation config in `experiments/configs/`~~
+- [X] ~~Manifest generator: speakers, timing, levels, rooms, noise, enrollment~~
+- [X] ~~Enrollment segments ≥5 s, from a different recording than the mixture~~
+- [X] ~~Manifest audit §1–§7: timing, levels, rooms, enrollment, noise, absent trials~~
+
+Blocked on a decision:
+- [X] ~~**A1 — reference signal.** Decided 2026-08-13: full reverberant. Supervisor
+      sign-off outstanding but the renderer no longer waits on it~~
+- [ ] **B12 — generator controllability.** Decide before the rebuild, or the
+      rebuild happens twice.
+
+Manifest rebuild — one pass covering all of:
+- [ ] **B9** — add `target_only_fraction`; let `target_activity_ratio` vary.
+      Silent-target trials are currently detectable at AUC 1.000 without
+      listening, and a target speaking uninterrupted never occurs
+- [ ] **B10** — book-preferred, chapter-fallback enrollment, recording which rule
+      fired per trial. 60 % of speakers can never be a present target today
+- [ ] **B4** — silent-target trials in the eval splits (fraction still open)
+- [ ] Re-run the §7.5 leak scoreboard afterwards and show the AUCs dropped
+
+Still unimplemented from `data-construction-parameters.md`:
+- [ ] **`noise_speech_rejection`** — the docs call it critical. Speech in the
+      noise bed enters as an unlabelled third talker and the metric scores those
+      words as hallucination. Needs audio, so it lands in the renderer
+- [ ] `length_mode`
+
+Renderer (unblocked 2026-08-13):
+- [ ] Manifest row → audio: RIRs, levels at BS.1770, noise wrap, clip ceiling
+- [ ] Five stems per trial: mixture, clean target, enrollment, both texts
+- [ ] Clean target = target × its own RIR, no interferer, no noise (A1). Record the
+      RIR per trial so the direct+early ablation stem can be rendered later without
+      re-drawing rooms
+- [ ] Tail padding past the last speech by at least the room's decay (A5) — now
+      mandatory, since the reference contains the tail
+- [ ] Exact verbatim ground-truth text for **both** target and interferer
+      (`d` is required by `docs/data/metric-definitions.md` §2 — without it ICR is
+      not computable, and regenerating later to add it costs a week)
+- [ ] Guards: stem <400 ms breaks BS.1770; assert on a silent stem
+- [ ] Transcripts cut to match any audio truncation
+
+Notebook and verification:
+- [ ] §7.5 — leak scoreboard, **before** the rebuild so it is a before/after
+- [ ] §8 — `enrollment_eq` rate vs config, `same_gender` rate vs config
+- [ ] **EDA per parameter** — plot each parameter's realised distribution against
+      the intended one (raised 2026-08-12, needed to verify B12)
+- [ ] Revise §2, §7 and the final health checks after the rebuild; §3–§6 survive
+
+Pilot calibration, before freezing any range:
+- [ ] Listen to 40 trials with transcripts in hand
+- [ ] Floor and ceiling WER measured; aim for a 60–80 % floor
+- [ ] Confirm conditions separate — bin by SIR and by overlap
+
+Housekeeping:
+- [ ] `requirements.txt` / `pyproject.toml` — none exists, and `pyloudnorm` is
+      now a real dependency
 
 **Proof:** a generated set on disk with a manifest, plus a config + commit hash
 + seed in `experiments/results/`.
@@ -122,6 +173,10 @@ the divergence table in M5.
 Drafted during M2, finished here now that there is a real system to point it at.
 
 - [ ] LCF-WER, ICR, NRR implemented
+- [ ] **A scoring rule for silent-target trials.** B4 is decided (eval carries
+      them) but `metric-definitions.md` defines nothing for a trial with no
+      reference text, so the main score is not computable on them. Standing
+      proposal: a separate false-alarm row, never folded into the headline
 - [ ] Judge harness: fixed prompt, fixed response ASR, pinned model IDs, k≥3
       repeats, **input modality recorded per trial**, cost/compute logging
 - [ ] Judge decided and its cost model resolved — closed API (money) or
