@@ -598,3 +598,120 @@ separation benchmark scored on signal quality and this is a causal streaming sys
 scored on downstream content fidelity. Not comparable to WHAMR! numbers.
 
 Was `decisions-pending.md` A1.
+
+## 2026-08-13 — B1 closed: overlap range is a dial setting, not a decision
+
+`overlap_ratio` stays `[0.2, 0.7]` for now. It is not pinned by a decision — it is
+one of the 14 parameters ranked in `docs/data/difficulty-dial.md` and moves on
+request once B12 lands.
+
+Two constraints on moving it, recorded so they are not rediscovered:
+
+1. **The 0.7 ceiling is deliberate, not accidental.** It matches REAL-TSE's ~0.5
+   average overlap, our anchor benchmark. An ordinary meeting overlaps 0.10–0.15,
+   so the set is already harder than daily conversation *by design*. Narrowing the
+   ceiling is a divergence from the anchor and needs its own decision entry — which
+   is why the difficulty dial lists it as the narrowing to do **last**.
+2. **The 0.2 floor is a separate problem and does not belong to B1.** No present
+   trial can have zero overlap, which is what makes silent-target trials detectable
+   without listening (AUC 1.000). That is B9, and it is fixed by
+   `target_only_fraction` and variable `target_activity_ratio`, not by moving this
+   range.
+
+Was `decisions-pending.md` B1.
+
+## 2026-08-13 — B12 architecture: two regimes, a sampler layer, no relational constraints
+
+Decision (GB, 2026-08-13). B12 asked for four things; this settles the shape of all
+four. **Not yet implemented** — see the PR order at the end.
+
+### 1. Two named regimes, sampled per trial, recorded as a `regime` column
+
+**One regime is drawn per trial, then every parameter for that trial comes from that
+regime's bands.** Weights `base: 0.6`, `hard: 0.4`.
+
+Why per trial and not per parameter: with six parameters each independently 50/50,
+only ~1.6 % of trials would be base-case on all six, so the base condition would
+barely exist. Drawing the regime once makes it exactly 60 %.
+
+`hard` inherits `defaults` wholesale, so **`base` is a sub-range of `hard`** and the
+column records *provenance, not difficulty*. Measured on the proposed bands, a
+`hard` draw lands inside the base band 50–71 % of the time depending on the
+parameter, and inside all five simultaneously 7.1 % of the time. Two consequences:
+
+- **`regime` must not be a reporting stratum (B13).** Base vs hard would compare
+  overlapping populations and understate the gap. Report on value bands — SIR band,
+  overlap band, T60 above/below budget — as B13 already specifies.
+- **Filtering `regime == base` is sufficient.** It keeps 60.0 % of rows against
+  62.8 % for a full value-based filter: 2.8 points apart, not worth the complexity.
+
+`train` carries both regimes mixed. If the data proves too hard, filter to
+`regime == base` — **no rebuild required**, which is the main thing this buys.
+
+`regime` is renderer metadata. The model receives the mixture and the enrollment and
+nothing else, so the column cannot be a shortcut. What it does require is that the
+§7 leak audit be re-run **within** each regime, since a shortcut inside `base` can be
+diluted to invisibility in a pooled AUC.
+
+### 2. Regime-scoped parameters: 6. Everything else global
+
+| Regime-scoped | Global |
+|---|---|
+| `sir_db`, `snr_db`, `overlap_ratio`, `t60_s`, `source_distance_m`, `target_activity_ratio` | `same_gender_fraction`, `enrollment_length_s`, `enrollment_eq_prob`, `mixture_length_s`, `target_loudness_lufs`, room dimensions, mic/source heights, `clip_ceiling` |
+
+The global ones are either deliberate worst cases or the experimental variables B13
+stratifies on independently; they should not move with difficulty.
+
+`target_activity_ratio` is regime-scoped in the schema but **identical in both
+regimes until B9 lands**, because what varying it means is B9's decision.
+
+Band values: `difficulty-dial.md` §2, "Narrow to" column. Provisional by design — a
+rebuild is 58 s.
+
+### 3. Distributions: `fixed`, `uniform`, `truncnorm`. Not beta
+
+Beta was proposed in B12 and is dropped: no parameter has a stated need for
+skew-within-bounds, and an unused shape is one more thing to defend.
+
+**Shapes are not introduced in the same PR as regimes.** Every parameter starts
+`uniform`, i.e. behaviourally identical to today, so the regime PR's diff is exactly
+the new column plus the band values and can be verified against the current manifest.
+`truncnorm` is added later, one parameter at a time, each with a recorded reason.
+
+`truncnorm` must be implemented by inverse-CDF over a single `rng.uniform` draw
+(`scipy.stats.norm.ppf`), **not** `scipy.stats.truncnorm.rvs(random_state=rng)`. Under
+`rvs`, a scipy upgrade can change how many uniforms are consumed per sample, which
+silently changes what `seed: 42` means and makes the logged seed worthless.
+
+### 4. Relational constraints: deferred entirely
+
+B12 point 3 is not implemented. Nothing in the data forces it, so it can be added
+later without a second rebuild.
+
+Recorded so the reasoning is not lost: B12's own example, *the target is always
+closer to the mic than the interferer*, **must not be implemented as a hard rule.**
+It would make proximity a perfect predictor of target identity, so the model could
+learn "nearer voice = target" and never consult the enrollment — the same failure
+class as B9's overlap leak and B10's speaker leak, and it would land on the §7
+scoreboard as a third entry. If it is ever wanted, it must be probabilistic
+(`p_target_closer: 0.6`) so it is a prior rather than a rule.
+
+More generally: constraints enforced by rejection bend distributions, which §4 and §7
+show is precisely what creates shortcuts. Prefer constraints satisfiable by
+construction.
+
+### Implementation order
+
+1. **PR1** — `src/data/sampling.py`: `draw(rng, spec)` and `resolve(cfg, regime)`,
+   with unit tests. No behaviour change, nothing wired in. Tested on its own because
+   every number in every later experiment comes out of it.
+2. **PR2** — wire into `build_manifest.py`, add the `regime` column, raise the
+   `t60_s` floor from 0.15 to 0.25 (`difficulty-dial.md` §1: T60 0.15 in a room this
+   size implies anechoic-grade wall absorption).
+3. **PR3** — B9 + B10 + B4, then re-run the §7 leak scoreboard per regime.
+
+Doing B12 before the B9/B10/B4 rebuild avoids rebuilding twice. Timing measured
+2026-08-13: a full 20,000-trial `train` rebuild is **58 s** and reproduces the
+committed manifest byte-identically, so all of this is cheap while no audio exists.
+
+Was `decisions-pending.md` B12.

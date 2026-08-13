@@ -43,12 +43,12 @@ silently change the loudness differences the trial was built to have.
 
 ## B. Needed before the real sets are generated
 
-### B1. How much of the mixture has both people talking at once? (**overlap ratio**)
+### B1. *Closed 2026-08-13 — subsumed by the difficulty dial. See `decisions.md`.*
 
-Currently requested between 20 % and 70 % of the mixture, and recorded per trial
-as an experimental variable. **Confirm the range is wide enough to show an effect
-and narrow enough to be realistic.** 70 % is a hard ceiling while the target
-talks 75 % of the time — both cannot exceed the quieter one.
+Not a standalone decision: `overlap_ratio` is one of the 14 parameters ranked in
+`docs/data/difficulty-dial.md`, adjustable on request once B12 lands. Recorded there
+as the narrowing to do **last**, because its 0.7 ceiling is deliberately matched to
+REAL-TSE and changing it diverges from the anchor.
 
 ### B2. Is "both talking" counted from where the recordings sit, or from where speech actually is? (**utterance boundaries vs voice activity detection**)
 
@@ -291,51 +291,20 @@ anything.
 an open A1.** Still worth mentioning to the supervisor as reporting policy, but it
 no longer blocks anything.
 
-### B12. Every parameter's distribution and constraints must be settable from config (**generator controllability**) — **NB**
+### B12. *Architecture decided 2026-08-13 — two regimes, sampler layer, no relational constraints. See `decisions.md`.*
 
-> **NB. This is the lever for the "is the data too hard to learn from" question.**
-> Raised 2026-08-12. Without it, tuning difficulty means editing
-> `build_manifest.py` each time, which is neither reproducible nor loggable.
+**Still open: implementation.** PR1 sampler module → PR2 wire in + `regime` column
++ raise `t60_s` floor to 0.25 → PR3 the B9/B10/B4 rebuild. Do PR1–PR2 before the
+rebuild or the rebuild happens twice.
 
-Today `build_manifest.py` hardcodes `rng.uniform(lo, hi)` for every parameter, so
-config can move a range but never its shape. Four things are wanted:
+Band values live in `docs/data/difficulty-dial.md` §2; the how-to is
+`docs/data/changing-the-data.md`.
 
-1. **Distribution shape per parameter**, chosen in config rather than in code.
-2. **A narrower "average case" band per parameter**, so the base condition is
-   learnable and the full range becomes a harder reported condition. Applies to
-   every parameter, not just the examples.
-3. **Relational constraints**, which no range can express — the given example is
-   *the target is always closer to the mic than the interferer*.
-4. Whichever of these are adopted must be **recorded per trial**, or the trial
-   stops being reproducible from the manifest.
-
-| Option | Cost |
-|---|---|
-| Ranges only, as now | Free. Difficulty can only be tuned by editing code, and the average-case idea cannot be expressed at all |
-| Named distribution per parameter — `{dist: uniform\|truncnorm\|beta, ...}` | Covers 1 and 2 in one mechanism: an average-case band is a narrow distribution, and a hard condition is a wide one. Needs a small sampler layer and a schema |
-| Above, plus a rejection-constraint list | Adds 3. Rejection interacts with the trial retry loop, and §4/§7 of the notebook show rejection is exactly what bends distributions and creates shortcuts — any constraint added must be re-checked there |
-
-**Recommended: the second now, the third only for constraints that are actually
-wanted.** Ranges stay valid as shorthand for uniform, so nothing existing breaks.
-
-**Two things to settle first:**
-
-→ **Which distributions?** `uniform`, `truncnorm` and `beta` cover "flat",
-"clustered around a typical value" and "skewed within bounds", which is most of
-what points 1–2 need. Confirm before implementing.
-
-→ **The wall-absorption example.** "Only accounts up to 0.5 of that uniform
-distribution" — the lower half of the range, absorption coefficient ≤ 0.5, or the
-middle 50 %? Absorption is not a config parameter; it is derived from `t60_s` by
-`pra.inverse_sabine`, so a cap on it is a rejection rule, or a change to sampling
-absorption directly and deriving T60 from it.
-
-Depends on nothing; blocks the B9/B10/B4 rebuild if the rebuild is meant to use
-the new shapes.
-
-**Which parameters, and in what order:** `docs/data/difficulty-dial.md`
-(2026-08-13) ranks all 14 by damage and by realism-per-unit-of-relief, with a
-proposed base-case band for each. B12 is what makes that document actionable.
+Two sub-questions the original entry raised, both now answered in `decisions.md`:
+beta is dropped (no use case), and the wall-absorption ambiguity is resolved by
+**not** capping absorption — it is derived from `t60_s` and volume, so a cap would
+be a rejection rule, and rejection is what bends distributions. Raising the `t60_s`
+floor achieves the same realism gain without rejection (`difficulty-dial.md` §1).
 
 ### B13. Results must be reported per condition, never as one number (**stratified reporting**)
 
