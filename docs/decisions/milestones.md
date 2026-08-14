@@ -41,10 +41,17 @@ Both training and evaluation draw from the same construction code, so this is
 built once.
 
 **Status 2026-08-13.** Manifests exist for all six splits and have been audited
-(`src/exploratory/data_setup.ipynb`). **No audio exists yet**, but A1 is now
-decided (full reverberant reference), so the renderer is unblocked. The audit found
-two shortcuts serious enough to require regenerating the manifests before any audio
-is made.
+(`src/exploratory/data_setup.ipynb`). **No audio exists yet.** **Every data decision is
+now made** — all of group A and all thirteen B items. The only open question is **C2**,
+how hard the task should be, which needs the supervisor and blocks nothing meanwhile.
+What is left is implementation: B12's two PRs, then one manifest rebuild, then the
+renderer.
+
+**Schedule reality check.** The target is Aug 20 and no code is written yet. What
+makes it survivable is that manifest rebuilds take 58 s and training audio is
+generated on the fly, so only `val` and the two eval splits (~1,200 trials) need
+rendering to disk. The pilot calibration below is the item most likely to slip, and
+it depends on C2.
 
 Done:
 - [X] ~~Speaker-disjoint train / val / eval splits~~
@@ -53,25 +60,52 @@ Done:
 - [X] ~~Enrollment segments ≥5 s, from a different recording than the mixture~~
 - [X] ~~Manifest audit §1–§7: timing, levels, rooms, enrollment, noise, absent trials~~
 
-Blocked on a decision:
-- [X] ~~**A1 — reference signal.** Decided 2026-08-13: full reverberant. Supervisor
-      sign-off outstanding but the renderer no longer waits on it~~
-- [ ] **B12 — generator controllability.** Decide before the rebuild, or the
-      rebuild happens twice.
+Decisions — all closed except C2, which needs the supervisor:
+- [X] ~~**A1** reference signal, **A5** tail padding, **A6** clipping. Group A closed~~
+- [X] ~~**B1** overlap range is a dial setting, **B2** VAD, **B4** eval absent trials,
+      **B5** text normalisation, **B6** trial count, **B7** resampling, **B11** latency
+      reporting, **B13** stratified reporting~~
+- [X] ~~**B9** — 50 % both / 25 % absent / 25 % target-only, and a variable
+      `target_activity_ratio`. Sets B4's eval fraction at 0.25~~
+- [X] ~~**B12 — generator controllability.** Architecture decided 2026-08-13.
+      Implementation outstanding: PR1 sampler, PR2 wire-in~~
+- [X] ~~**B10** — three enrollment tiers (`book` / `chapter` / `utterance`) recorded
+      per trial; eval pools redrawn to balance the tier mix. Executes B8's own
+      documented contingency rather than reversing it~~
+- [ ] **C2** — how hard the task should be (floor WER); needs the supervisor. Blocks
+      nothing that can be done meanwhile
+
+B12 implementation, before the rebuild:
+- [ ] **PR1** — `src/data/sampling.py`: `draw()`, `resolve()`, unit tests. No wiring
+- [ ] **PR2** — wire into `build_manifest.py`, add the `regime` column, raise the
+      `t60_s` floor to 0.25, eval splits skip regimes. Acceptance test: a no-op
+      config must reproduce the current manifest byte-identically
+- [ ] Decide whether `data/manifests/` is tracked in git — before PR2 changes the
+      schema. `.gitignore:223` claims manifests are tracked; none are
 
 Manifest rebuild — one pass covering all of:
 - [ ] **B9** — add `target_only_fraction`; let `target_activity_ratio` vary.
       Silent-target trials are currently detectable at AUC 1.000 without
       listening, and a target speaking uninterrupted never occurs
-- [ ] **B10** — book-preferred, chapter-fallback enrollment, recording which rule
-      fired per trial. 60 % of speakers can never be a present target today
-- [ ] **B4** — silent-target trials in the eval splits (fraction still open)
-- [ ] Re-run the §7.5 leak scoreboard afterwards and show the AUCs dropped
+- [ ] **B10** — three-tier enrollment guard with `enrollment_guard` recorded per
+      trial; assert enrollment and mixture never share an utterance
+- [ ] **B10** — `make_splits.py`: redraw eval pools so the guard-tier mix matches
+      between `eval_public` and `eval_private` (8/20 vs 3/20 weakest tier today)
+- [ ] **B4** — apply the decided absent fraction to the eval splits (currently 0.0);
+      the fraction itself follows B9
+- [ ] Define the **interruption** condition and add it as a column (B13's one
+      deferred part)
+- [ ] Re-run the §7.5 leak scoreboard afterwards, **per regime as well as pooled**,
+      and show the AUCs dropped
 
 Still unimplemented from `data-construction-parameters.md`:
 - [ ] **`noise_speech_rejection`** — the docs call it critical. Speech in the
       noise bed enters as an unlabelled third talker and the metric scores those
       words as hallucination. Needs audio, so it lands in the renderer
+- [ ] **B2 — voice-activity detection pass over the corpus**, cached alongside the
+      utterance index, so overlap is measured from where speech actually is. Name the
+      detector in the PR. Changes every overlap figure, so it belongs *before* the
+      rebuild, not after
 - [ ] `length_mode`
 
 Renderer (unblocked 2026-08-13):
@@ -103,6 +137,8 @@ Pilot calibration, before freezing any range:
 Housekeeping:
 - [ ] `requirements.txt` / `pyproject.toml` — none exists, and `pyloudnorm` is
       now a real dependency
+- [X] ~~`.gitignore`: `data/` was unanchored and matched `docs/data/` too, so all 8
+      files there were untracked. Anchored to `/data/` 2026-08-13~~
 
 **Proof:** a generated set on disk with a manifest, plus a config + commit hash
 + seed in `experiments/results/`.
@@ -173,10 +209,13 @@ the divergence table in M5.
 Drafted during M2, finished here now that there is a real system to point it at.
 
 - [ ] LCF-WER, ICR, NRR implemented
-- [ ] **A scoring rule for silent-target trials.** B4 is decided (eval carries
-      them) but `metric-definitions.md` defines nothing for a trial with no
-      reference text, so the main score is not computable on them. Standing
-      proposal: a separate false-alarm row, never folded into the headline
+- [ ] **Write B4's scoring rule into `metric-definitions.md`** — decided
+      2026-08-13: absent trials are excluded from the main score and reported as
+      their own invented-speech row, never folded into the headline. The decision is
+      made; the document still defines nothing for a trial with no reference text
+- [ ] **Pin B5's normaliser** — Whisper `EnglishTextNormalizer`, applied identically
+      to both sides, frozen before the first judge result and never adjusted per
+      system (decisions.md 2026-08-13)
 - [ ] Judge harness: fixed prompt, fixed response ASR, pinned model IDs, k≥3
       repeats, **input modality recorded per trial**, cost/compute logging
 - [ ] Judge decided and its cost model resolved — closed API (money) or
@@ -184,7 +223,9 @@ Drafted during M2, finished here now that there is a real system to point it at.
       **Currently unresolved**; this is the gating question for the whole
       milestone
 - [ ] Trial-set size fixed to that budget, on a spreadsheet, before the harness
-      is finalised
+      is finalised. **Floor is 200 scored trials** (B6/B13: 100 per bucket across a
+      two-way split); 500 are generated, and scoring more later extends the set
+      rather than replacing it
 - [ ] **Floor and ceiling measured** (unprocessed mixture; clean target)
 - [ ] Text reference condition wired: extractor → off-the-shelf ASR → text →
       judge, with its text floor and text ceiling
@@ -230,6 +271,16 @@ scoring, not training, so it does not need its own week.
       cost, and it is what stops the divergence claim from resting on n=2
 - [ ] AMI trial set built and the benchmark extended to it, if it survived
 - [ ] Latency reported per modality
+- [ ] **B13 — every number broken out condition by condition, no combinations.**
+      Primary: which voice is louder, how much they overlap, whether the target
+      speaks. Secondary: T60 above/below budget, gender, `enrollment_guard` tier.
+      100 trials per bucket minimum. **A headline aggregate must never appear alone**
+- [ ] **B11 — latency decay curve**, the same model scored at 100/200/300/400/500 ms
+      rather than a single pass/fail at 300 ms
+- [ ] **A1 ablation, if time allows** — the same architecture trained against a
+      direct+early reference instead of the full reverberant one, to measure the
+      artefact-versus-residue trade rather than assume it. Needs the second reference
+      stem rendered, which is why M0 records the RIR per trial. Cut before M5 is cut
 
 **Proof:** a table where ranking by SI-SDR / DNSMOS / offline-WER differs from
 ranking by LCF-WER — or evidence that it doesn't.
@@ -248,6 +299,11 @@ week 12.
 - [ ] Modality recorded on every judge result, and the cross-modality caveat
       (`docs/data/metric-definitions.md` §3.5) stated wherever audio and text rows
       appear in the same table
+- [ ] **Reverberation stated as a known limitation** (A1). The reference is what the
+      mic heard, so late reverb is never removed; it costs recognition accuracy and
+      the write-up must say so rather than omit it
+- [ ] **Divergence from WHAMR!'s direct-path reference noted** wherever the reference
+      signal is described — different task, not a better choice
 - [ ] Written, reviewed, submitted
 
 ---

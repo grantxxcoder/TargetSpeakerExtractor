@@ -187,12 +187,28 @@ ablation, if time allows.*
 **≥5 s.** *Required by `docs/data/metric-definitions.md:43`.*
 
 ### `enrollment_source`
-**A different book from the mixture utterance. Assert it.**
-Same chapter means the model can match on content instead of voice, which builds
-a much easier task than you think you have. A different chapter of the *same*
-book is not enough: LibriSpeech speakers read consecutive chapters, so narrative,
-characters, proper nouns and register all carry over. Same guard the interferer
-gets. *decisions.md 2026-08-11.*
+**Three tiers, best available wins. Record which fired in `enrollment_guard`.**
+
+| Tier | Rule | `train` speakers |
+|---|---|---|
+| `book` | Different book from the mixture | 467 (39.8 %) |
+| `chapter` | Different chapter, same book | 469 (40.0 %) |
+| `utterance` | Same chapter, utterances not in the mixture — pick the furthest by index | 236 (20.1 %) |
+
+Why a guard at all: same content means the model can match on topic instead of on
+voice, which builds a much easier task than you think you have. A different chapter of
+the same book is weaker than a different book — LibriSpeech speakers read consecutive
+chapters, so narrative, characters, proper nouns and register carry over.
+
+Why tiers rather than one rule: only 39.8 % of speakers read two books, so a
+book-only guard makes 60 % of them unusable as a present target and leaks target
+absence through speaker identity (AUC 0.795). Recording the tier makes the residual
+content leak measurable instead of assumed.
+
+**Assert that no utterance appears in both the enrollment and the mixture.** Automatic
+in the first two tiers; in the third it is the only separation there is.
+
+*decisions.md 2026-08-11 (B8) and 2026-08-13 (B10).*
 
 ### `enrollment_eq_augmentation`
 **On for ~50% of training examples.**
