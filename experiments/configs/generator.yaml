@@ -63,8 +63,19 @@ defaults:
   # Negative = the interferer is louder. This is the main difficulty axis.
   # Typical: ~0 to +6 dB for two people at similar distance from the mic.
   sir_db: [-5.0, 15.0]
-  # here is an example of how to change the distribution of SIR to a truncated normal distribution, instead of uniform. This will change for ALL distributions for all regimes. If you want to change the distribution for a specific regime, need to do it in the regime config file.
+  # Example: make SIR a truncated normal instead of uniform. Same bounds, mass
+  # pulled toward the typical case -- an interferer louder than the target goes
+  # from 25% of trials to 17%.
   #sir_db: {dist: truncnorm, lo: -5.0, hi: 15.0, mu: 5.0, sigma: 6.0}
+  #
+  # Scope: a spec written HERE applies to `hard` (which inherits defaults) and to
+  # any regime that does not name this parameter itself. It does NOT reach a
+  # regime that overrides it -- `base` sets its own sir_db below, so editing this
+  # line alone would leave every base trial unchanged. To change base, edit it in
+  # the `regimes:` block further down THIS file. There is no separate regime file.
+  #
+  # truncnorm consumes exactly one uniform, same as a [lo, hi] range, so swapping
+  # the shape of one parameter does not shift any other parameter's draws.
 
 
   # How much louder the target is than the background noise bed, in dB.
@@ -105,7 +116,7 @@ defaults:
   # How far each speaker stands from the microphone, measured horizontally.
   # (The true 3-D distance is slightly larger once height differs — up to 2.18 m.)
   # Typical: ~0.5-1 m for a laptop or phone; 1-2 m for a table mic.
-  source_distance_m: [0.66, 2.0]
+  source_distance_m: [0.1, 2.0]
 
   # Height of each speaker's mouth above the floor.
   # Typical: ~1.2 m seated, ~1.6 m standing.
@@ -160,7 +171,7 @@ regimes:
     snr_db: [8.0, 20.0]
     # Ceiling only. The 0.25 floor is already the global floor.
     t60_s: [0.25, 0.5]
-    source_distance_m: [0.66, 1.4]
+    source_distance_m: [0.1, 2.0]
     # NOT narrowed here, deliberately:
     #   overlap_ratio        -- its 0.7 ceiling is matched to REAL-TSE on
     #                           purpose. difficulty-dial.md section 3 puts this
