@@ -85,9 +85,9 @@ B12 implementation, before the rebuild:
       `difficulty-dial.md` §3 puts it last and requires supervisor agreement plus a
       `decisions.md` entry, because its 0.7 ceiling is deliberately matched to
       REAL-TSE. One config line once approved
-- [ ] Decide whether `data/manifests/` is tracked in git — still open, and now
+- [X] ~~Decide whether `data/manifests/` is tracked in git — still open, and now
       overdue: PR2 changed the schema. `.gitignore:222` claims manifests are
-      tracked, `/data/` on line 223 untracks them; none are in git
+      tracked, `/data/` on line 223 untracks them; none are in git~~
 
 Manifest rebuild — one pass covering all of:
 - [ ] **B9** — add `target_only_fraction`; let `target_activity_ratio` vary.
