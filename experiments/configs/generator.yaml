@@ -63,6 +63,9 @@ defaults:
   # Negative = the interferer is louder. This is the main difficulty axis.
   # Typical: ~0 to +6 dB for two people at similar distance from the mic.
   sir_db: [-5.0, 15.0]
+  # here is an example of how to change the distribution of SIR to a truncated normal distribution, instead of uniform. This will change for ALL distributions for all regimes. If you want to change the distribution for a specific regime, need to do it in the regime config file.
+  #sir_db: {dist: truncnorm, lo: -5.0, hi: 15.0, mu: 5.0, sigma: 6.0}
+
 
   # How much louder the target is than the background noise bed, in dB.
   # Typical: ~15-20 dB in an office or home; ~5-10 dB in a busy cafe.
@@ -83,7 +86,11 @@ defaults:
   # Typical: ~0.3-0.5 s for a carpeted meeting room or office.
   # NOTE: 66.8% of trials exceed the 200-300 ms streaming window, so the model
   # cannot hear the tail it is scored on. See decisions-pending B11.
-  t60_s: [0.15, 0.6]
+  # Floor raised 0.15 -> 0.25 (PR2). A 0.15 s T60 in a room this size implies
+  # near-anechoic wall absorption, so the low end was the UNREALISTIC end, not
+  # the easy one -- raising it improves realism and difficulty together.
+  # difficulty-dial.md sections 1 and 3.
+  t60_s: [0.25, 0.6]
 
   # Room floor plan. Shoebox, so length x width.
   # Typical: ~5-7 m a side for a meeting room. 10 m is a large hall.
@@ -128,9 +135,50 @@ defaults:
   # Typical: ~0.5 for randomly paired people.
   same_gender_fraction: 0.5
 
+# One regime is drawn per trial; every regime-scoped parameter for that trial
+# then comes from that regime's bands. Drawn once per trial rather than once per
+# parameter: with six parameters chosen independently, an all-base trial would
+# occur ~1.6% of the time and the base condition would barely exist.
+#
+# `hard` has no block because it inherits `defaults` wholesale. `base` is
+# therefore a SUB-RANGE of `hard`, so the recorded `regime` column is
+# provenance, not difficulty, and must never be a B13 reporting stratum -- base
+# and hard overlap, so comparing them would understate the gap.
+#
+# If training proves too hard, filter to `regime == base`. No rebuild needed.
+# That is the whole point of this block. decisions.md 2026-08-13 (B12).
+#
+# Only the six parameters listed in src/data/sampling.py REGIME_SCOPED may
+# appear here; anything else is rejected at load.
+regimes:
+  weights: {base: 0.6, hard: 0.4}
+  base:
+    # Ranked #1 for damage in difficulty-dial.md section 2. The full range keeps
+    # a louder-than-target interferer, which is real but uncommon.
+    sir_db: [0.0, 12.0]
+    # 0 dB noise is beyond a busy cafe; 8 dB is a normal room.
+    snr_db: [8.0, 20.0]
+    # Ceiling only. The 0.25 floor is already the global floor.
+    t60_s: [0.25, 0.5]
+    source_distance_m: [0.66, 1.4]
+    # NOT narrowed here, deliberately:
+    #   overlap_ratio        -- its 0.7 ceiling is matched to REAL-TSE on
+    #                           purpose. difficulty-dial.md section 3 puts this
+    #                           LAST and requires supervisor agreement plus a
+    #                           decisions.md entry, not a config edit.
+    #   target_activity_ratio -- regime-scoped in the schema but identical in
+    #                           both regimes until B9 decides what varying it
+    #                           means (decisions.md 2026-08-13).
+
 splits:
   # n_trials: how many to generate. noise_split: which WHAM! noise pool to draw
   # from, never crossed between training and evaluation.
+  # regimes: null opts a split out, so every parameter is drawn independently
+  # from the wide ranges and `regime` records "none". The eval splits do this:
+  # under regimes a hard trial draws wide SIR AND wide overlap together, which
+  # correlates them, so B13's per-condition tables would report one effect twice.
+  # Eval is never filtered, so it gains nothing from regimes. decisions.md
+  # 2026-08-13.
   # target_absent_fraction: share of trials where the target never speaks at all,
   # which is what teaches the model to stay silent rather than invent words.
   train:        {n_trials: 20000, noise_split: tr, target_absent_fraction: 0.35}
@@ -139,7 +187,7 @@ splits:
   val:          {n_trials: 200,   noise_split: cv, target_absent_fraction: 0.35}
   # Supervisor decided 2026-08-12 that eval must carry silent-target trials too;
   # the fraction and the scoring rule are still open. See decisions-pending B4.
-  eval_public:  {n_trials: 500,   noise_split: tt, target_absent_fraction: 0.0}
-  eval_private: {n_trials: 500,   noise_split: tt, target_absent_fraction: 0.0}
+  eval_public:  {n_trials: 500,   noise_split: tt, target_absent_fraction: 0.0, regimes: null}
+  eval_private: {n_trials: 500,   noise_split: tt, target_absent_fraction: 0.0, regimes: null}
   smoke_train:  {n_trials: 50,    noise_split: tr, target_absent_fraction: 0.35}
   smoke_val:    {n_trials: 20,    noise_split: cv, target_absent_fraction: 0.35}

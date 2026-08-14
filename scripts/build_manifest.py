@@ -24,6 +24,11 @@ import pyroomacoustics as pra
 import soundfile as sf
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src.data.sampling import (  # noqa: E402
+    draw, draw_regime, resolve, split_config,
+)
+
 COLUMNS = [
     "trial_id", "split",
     "target_speaker", "target_chapter", "target_utts", "target_onsets_s",
@@ -39,6 +44,10 @@ COLUMNS = [
     "target_x", "target_y", "target_z",
     "interferer_x", "interferer_y", "interferer_z",
     "target_absent", "same_gender",
+    # Appended, not inserted, so every column a reader already indexes keeps its
+    # position. Provenance of the bands this trial was drawn from, never a
+    # reporting stratum -- decisions.md 2026-08-13 (B12).
+    "regime",
 ]
 
 
@@ -51,10 +60,6 @@ def rngs(trial_id, n):
     digest = hashlib.blake2b(trial_id.encode(), digest_size=8).digest()
     seeds = np.random.SeedSequence(int.from_bytes(digest, "big")).spawn(n)
     return [np.random.default_rng(s) for s in seeds]
-
-
-def draw(rng, value):
-    return float(rng.uniform(*value)) if isinstance(value, list) else float(value)
 
 
 # --- corpus metadata ------------------------------------------------------
@@ -223,9 +228,18 @@ def best_onset(target_spans, block_s, length, wanted_s):
     return float(candidates[i]), overlaps[i]
 
 
-def build_trial(trial_id, split, cfg, speakers, sex, book, by_speaker,
+def build_trial(trial_id, split, sampling_cfg, speakers, sex, book, by_speaker,
                 by_chapter, chapters_of, noise):
-    pick, level, room, aug = rngs(trial_id, 4)
+    # `reg` is a fifth, dedicated stream: SeedSequence.spawn(5) yields the same
+    # first four children as spawn(4), so adding it moves no existing draw, and
+    # the regime can never shift the values of the parameters it selects.
+    pick, level, room, aug, reg = rngs(trial_id, 5)
+
+    # One regime per trial, then every band comes from it. None when the split
+    # declares no regimes (the eval splits), in which case nothing is consumed
+    # from `reg` and cfg is the defaults unchanged.
+    regime = draw_regime(reg, sampling_cfg)
+    cfg = resolve(sampling_cfg, regime)
 
     length = draw(level, cfg["mixture_length_s"])
     absent = aug.random() < cfg["target_absent_fraction"]
@@ -386,6 +400,7 @@ def build_trial(trial_id, split, cfg, speakers, sex, book, by_speaker,
         "interferer_z": round(interferer_pos[2], 3),
         "target_absent": int(absent),
         "same_gender": int(sex[interferer] == sex[target]),
+        "regime": regime or "none",
     }
 
 
@@ -414,7 +429,7 @@ def main():
 
     if args.split not in config["splits"]:
         sys.exit(f"unknown split '{args.split}'. Known: {sorted(config['splits'])}")
-    cfg = {**config["defaults"], **config["splits"][args.split]}
+    sampling_cfg, cfg = split_config(config, args.split)
 
     ls_root = Path(config["paths"]["librispeech"])
     splits = yaml.safe_load(Path(config["paths"]["splits"]).read_text())
@@ -445,7 +460,7 @@ def main():
     rows, failed_ids = [], []
     for i in range(cfg["n_trials"]):
         trial_id = f"{args.split}-{config['seed']}-{i:06d}"
-        row = build_trial(trial_id, args.split, cfg, speakers, sex, book,
+        row = build_trial(trial_id, args.split, sampling_cfg, speakers, sex, book,
                           by_speaker, by_chapter, chapters_of, noise)
         if row is None:
             failed_ids.append(trial_id)
@@ -483,6 +498,11 @@ def main():
         "n_requested": cfg["n_trials"],
         "n_failed": failed,
         "failed_ids_file": failed_file.name if failed_ids else None,
+        # Which bands produced this split, recorded here because the config can
+        # change under a manifest that is not itself in git.
+        "regimes": sampling_cfg["regimes"],
+        "regime_mix": {r: sum(1 for x in rows if x["regime"] == r)
+                       for r in sorted({x["regime"] for x in rows})},
     }, sort_keys=False))
 
     print(f"Wrote {out}  ({len(rows)} trials, {failed} unsatisfiable)")
@@ -490,6 +510,9 @@ def main():
     same = sum(r["same_gender"] for r in rows)
     present = [r for r in rows if not r["target_absent"]]
     print(f"  target absent  {absent / len(rows):.2f}")
+    for r in sorted({x["regime"] for x in rows}):
+        share = sum(1 for x in rows if x["regime"] == r) / len(rows)
+        print(f"  regime {r:<8} {share:.2f}")
     print(f"  same gender    {same / len(rows):.2f}")
     for name in ("overlap_requested", "overlap_achieved", "target_activity",
                  "interferer_activity"):

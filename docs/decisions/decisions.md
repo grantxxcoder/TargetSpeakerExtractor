@@ -1064,3 +1064,44 @@ the timing is free.
 - Folds into the PR3 rebuild.
 
 Was `decisions-pending.md` B10.
+
+## 2026-08-14 — B12 PR2: sampler wired in; two bands deliberately not narrowed
+
+Implements the 2026-08-13 B12 architecture. Code only — the manifests on disk are
+still the old schema and are rebuilt in PR3.
+
+**Wiring.** `build_manifest.py` draws the regime from a fifth RNG stream
+(`rngs(trial_id, 5)`). `SeedSequence.spawn(5)` returns the same first four children
+as `spawn(4)`, so the new stream moves no existing draw, and the regime can never
+shift the values of the parameters it selects. A split opts out with `regimes: null`,
+which the eval splits do; `draw_regime` then consumes nothing and `regime` records
+`none`.
+
+**Acceptance test passed.** With the config unchanged, all six splits — 21,270 rows —
+are byte-identical to the previous manifests once the new `regime` column is ignored.
+`scripts/check_manifest_parity.py`, run 2026-08-14.
+
+**Two bands from `difficulty-dial.md` §2 were NOT applied to `base`:**
+
+- **`overlap_ratio` keeps `[0.2, 0.7]`.** §3 ranks this narrowing last and states it
+  needs supervisor agreement and a decision entry, not a config edit, because the 0.7
+  ceiling is deliberately matched to REAL-TSE. Applying it would have been a research
+  decision smuggled in as an implementation detail. Confirmed in the rebuild: mean
+  `overlap_achieved` is 0.294 in `base` and 0.293 in `hard`.
+- **`target_activity_ratio` stays fixed at 0.75.** Regime-scoped in the schema,
+  identical in both regimes until B9 lands, exactly as the B12 entry specifies.
+
+So `base` narrows four parameters: `sir_db` `[0, 12]`, `snr_db` `[8, 20]`, `t60_s`
+`[0.25, 0.5]`, `source_distance_m` `[0.66, 1.4]`.
+
+**Conflict recorded, not resolved.** `difficulty-dial.md` §2 proposes a `base`
+`overlap_ratio` floor of 0.1 against a global floor of 0.2, so `base` would not be a
+sub-range of `hard` and the provenance argument above would not hold for that one
+parameter. The 0.2 floor is itself the B9 bug. Whichever document is wrong, it is
+B9's call in PR3. `resolve()` therefore does not enforce containment; the exception
+is pinned by a named unit test instead.
+
+**Measured after the config change** (`train`, 19,569 rows, unchanged count):
+`t60_s` floor 0.15 → 0.25 as intended; regime mix 0.60 / 0.40 exactly. In the eval
+splits only the room columns moved, because `t60_s` is drawn from the `room` stream —
+speech, levels, enrollment and noise are bit-identical to before.

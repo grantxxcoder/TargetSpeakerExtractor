@@ -83,9 +83,14 @@ to suppress a tail it has not heard.
 
 ### B12. *Architecture decided 2026-08-13 — two regimes, sampler layer, no relational constraints. See `decisions.md`.*
 
-**Still open: implementation.** PR1 sampler module → PR2 wire in + `regime` column
-+ raise `t60_s` floor to 0.25 → PR3 the B9/B10/B4 rebuild. Do PR1–PR2 before the
-rebuild or the rebuild happens twice.
+**PR1 and PR2 landed 2026-08-14.** `src/data/sampling.py` holds the sampler;
+`build_manifest.py` draws a regime per trial and records it. PR3 (B9/B10/B4 rebuild)
+is next.
+
+One band was deliberately not applied: `overlap_ratio` keeps its full `[0.2, 0.7]`
+in `base`, because narrowing it diverges from the REAL-TSE anchor and needs
+supervisor agreement (`difficulty-dial.md` §3). `target_activity_ratio` likewise
+stays fixed until B9 decides what varying it means.
 
 Band values live in `docs/data/difficulty-dial.md` §2; the how-to is
 `docs/data/changing-the-data.md`.
