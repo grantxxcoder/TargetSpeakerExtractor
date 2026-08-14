@@ -85,9 +85,10 @@ B12 implementation, before the rebuild:
       `difficulty-dial.md` §3 puts it last and requires supervisor agreement plus a
       `decisions.md` entry, because its 0.7 ceiling is deliberately matched to
       REAL-TSE. One config line once approved
-- [ ] Decide whether `data/manifests/` is tracked in git — still open, and now
-      overdue: PR2 changed the schema. `.gitignore:222` claims manifests are
-      tracked, `/data/` on line 223 untracks them; none are in git
+- [X] ~~Decide whether `data/manifests/` is tracked in git — **no, final** (GB,
+      2026-08-14). Nothing under `data/` has ever been committed on any branch, so
+      the behaviour was already correct; only the `.gitignore` comment claiming
+      otherwise was wrong, and it is fixed. Users rerun the scripts~~
 
 Manifest rebuild — one pass covering all of:
 - [ ] **B9** — add `target_only_fraction`; let `target_activity_ratio` vary.

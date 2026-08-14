@@ -1105,3 +1105,27 @@ is pinned by a named unit test instead.
 `t60_s` floor 0.15 → 0.25 as intended; regime mix 0.60 / 0.40 exactly. In the eval
 splits only the room columns moved, because `t60_s` is drawn from the `room` stream —
 speech, levels, enrollment and noise are bit-identical to before.
+
+## 2026-08-14 — Manifests are not tracked in git. Regenerate them
+
+**Decision (GB, 2026-08-14, final): nothing under `data/` is tracked, manifests
+included. Anyone using the repo reruns the scripts.**
+
+Why: the config, the seed and the generator are tracked, and a manifest is a pure
+function of those three. Tracking the output as well adds a 6 MB CSV per rebuild to
+the history and creates a second source of truth that can silently disagree with the
+config that supposedly produced it. `train.csv` rebuilds in 58 s.
+
+**No change in behaviour was needed.** `/data/` has been in `.gitignore` throughout
+and nothing under it has ever been committed on any branch. The only defect was the
+comment on `.gitignore:223`, which claimed "Manifests and configs ARE tracked" — it
+described an intention that the rule below it had never implemented. Comment
+corrected; the rule is untouched.
+
+**What makes a rebuild trustworthy instead:** `<split>.meta.yaml` records the seed,
+the config path, the config MD5, the git commit and the regime bands, so a manifest
+can be tied back to the exact inputs that produced it without being in git itself.
+
+Consequence for reproducibility claims: a result is reproducible from
+`(git commit, config MD5, seed)`, never from a manifest file. State it that way in
+the thesis.

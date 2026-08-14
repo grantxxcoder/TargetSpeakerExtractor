@@ -219,8 +219,11 @@ __marimo__/
 literature/papers/
 
 # --- Datasets and generated audio (see docs/data/data-setup.md) ---
-# Source corpora and generated mixtures live on disk, never in git.
-# ~36 GB steady state. Manifests and configs ARE tracked; audio is not.
+# Source corpora, manifests and generated mixtures live on disk, never in git.
+# ~36 GB steady state. NOTHING under /data/ is tracked, manifests included --
+# they are regenerated from the tracked config with scripts/build_manifest.py.
+# The config IS tracked, which is what makes them reproducible.
+# Decided 2026-08-14, see docs/decisions/decisions.md.
 # Anchored with a leading slash: an unanchored `data/` also matches docs/data/,
 # which silently untracked every file in it (including metric-definitions.md).
 /data/

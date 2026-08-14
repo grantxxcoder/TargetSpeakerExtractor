@@ -5,6 +5,13 @@ in the notebook or the trainer. Edit that file, rerun one command.
 
 A full 20,000-trial rebuild takes **~58 s**. Rebuilds are cheap — no audio is stored.
 
+**On a fresh clone there are no manifests — build them.** Nothing under `data/` is
+in git (decisions.md 2026-08-14), so a clone gives you the config and the generator
+and nothing else. Run the rebuild-everything loop below once, after the corpora are
+in place per `data-setup.md`. A result is reproducible from
+`(git commit, config MD5, seed)` — the three things `.meta.yaml` records — never from
+a manifest file.
+
 ---
 
 ## The command
