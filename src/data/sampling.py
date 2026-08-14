@@ -102,6 +102,20 @@ def draw_regime(rng, cfg):
     return names[-1]  # float rounding only
 
 
+def split_config(config, split):
+    """(sampling config, flat cfg) for one split of the generator config.
+
+    A split inherits the top-level `regimes:` block unless it declares its own;
+    `regimes: null` opts out, which is how the eval splits draw every parameter
+    independently from the wide ranges (decisions.md 2026-08-13). `regimes` is
+    popped rather than merged, so it can never be mistaken for a parameter.
+    """
+    split_cfg = dict(config["splits"][split])
+    regimes = split_cfg.pop("regimes", config.get("regimes"))
+    cfg = {**config["defaults"], **split_cfg}
+    return {"defaults": cfg, "regimes": regimes}, cfg
+
+
 def resolve(cfg, regime):
     """The parameter bands for one trial: defaults, overlaid by the regime.
 

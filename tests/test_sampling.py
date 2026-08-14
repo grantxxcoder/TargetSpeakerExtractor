@@ -12,7 +12,9 @@ import numpy as np
 import pytest
 from scipy.stats import norm
 
-from src.data.sampling import REGIME_SCOPED, draw, draw_regime, resolve
+from src.data.sampling import (
+    REGIME_SCOPED, draw, draw_regime, resolve, split_config,
+)
 
 SEED = 42
 
@@ -264,3 +266,90 @@ def test_every_parameter_of_a_trial_comes_from_one_regime():
         params = resolve(CFG, draw_regime(r, CFG))
         assert draw(r, params["sir_db"]) >= -5.0
         assert 0.15 <= draw(r, params["t60_s"]) <= 0.6
+
+
+# --- split_config: which splits get regimes (PR2) -------------------------
+
+GEN = {
+    "defaults": CFG["defaults"],
+    "regimes": CFG["regimes"],
+    "splits": {
+        "train":        {"n_trials": 20000, "noise_split": "tr"},
+        "eval_public":  {"n_trials": 500, "noise_split": "tt", "regimes": None},
+    },
+}
+
+
+def test_train_inherits_the_global_regimes():
+    sampling_cfg, cfg = split_config(GEN, "train")
+    assert sampling_cfg["regimes"] == CFG["regimes"]
+    assert cfg["n_trials"] == 20000
+    assert draw_regime(rng(), sampling_cfg) in {"base", "hard"}
+
+
+def test_eval_split_opts_out_and_records_none():
+    sampling_cfg, _ = split_config(GEN, "eval_public")
+    assert sampling_cfg["regimes"] is None
+    assert draw_regime(rng(), sampling_cfg) is None
+    # ...and resolving that gives the wide defaults, not the base bands.
+    assert resolve(sampling_cfg, None)["sir_db"] == CFG["defaults"]["sir_db"]
+
+
+def test_regimes_never_leaks_into_the_parameter_dict():
+    _, cfg = split_config(GEN, "eval_public")
+    assert "regimes" not in cfg
+
+
+def test_split_settings_override_defaults():
+    gen = {**GEN, "splits": {"s": {"t60_s": [0.3, 0.4]}}}
+    _, cfg = split_config(gen, "s")
+    assert cfg["t60_s"] == [0.3, 0.4]
+
+
+def test_opting_out_consumes_no_randomness():
+    # Why the no-op acceptance test can pass: an eval split's stream is
+    # untouched by the regime machinery.
+    sampling_cfg, _ = split_config(GEN, "eval_public")
+    r = rng()
+    draw_regime(r, sampling_cfg)
+    assert r.uniform() == rng().uniform()
+
+
+# --- the checked-in config must satisfy all of the above ------------------
+
+def real_config():
+    import pathlib, yaml
+    p = pathlib.Path(__file__).resolve().parents[1] / "experiments/configs/generator.yaml"
+    return yaml.safe_load(p.read_text())
+
+
+def test_real_config_regime_bands_are_legal():
+    cfg = real_config()
+    for name in cfg["splits"]:
+        sampling_cfg, _ = split_config(cfg, name)
+        for regime in (sampling_cfg["regimes"] or {}).get("weights", {}):
+            resolve(sampling_cfg, regime)          # raises on an illegal override
+    assert set(cfg["regimes"]["base"]) <= set(REGIME_SCOPED)
+
+
+def test_real_config_base_is_a_subrange_of_defaults():
+    cfg = real_config()
+    for key, band in cfg["regimes"]["base"].items():
+        wide = cfg["defaults"][key]
+        assert band[0] >= wide[0] and band[1] <= wide[1], key
+
+
+def test_real_config_eval_splits_have_no_regimes():
+    cfg = real_config()
+    for name in ("eval_public", "eval_private"):
+        assert split_config(cfg, name)[0]["regimes"] is None
+    for name in ("train", "val"):
+        assert split_config(cfg, name)[0]["regimes"] is not None
+
+
+def test_real_config_t60_floor_is_raised():
+    assert real_config()["defaults"]["t60_s"][0] == 0.25
+
+
+def test_real_config_weights_sum_to_one():
+    assert sum(real_config()["regimes"]["weights"].values()) == pytest.approx(1.0)

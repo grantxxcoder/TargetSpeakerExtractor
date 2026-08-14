@@ -76,12 +76,18 @@ Decisions — all closed except C2, which needs the supervisor:
       nothing that can be done meanwhile
 
 B12 implementation, before the rebuild:
-- [ ] **PR1** — `src/data/sampling.py`: `draw()`, `resolve()`, unit tests. No wiring
-- [ ] **PR2** — wire into `build_manifest.py`, add the `regime` column, raise the
-      `t60_s` floor to 0.25, eval splits skip regimes. Acceptance test: a no-op
-      config must reproduce the current manifest byte-identically
-- [ ] Decide whether `data/manifests/` is tracked in git — before PR2 changes the
-      schema. `.gitignore:223` claims manifests are tracked; none are
+- [X] ~~**PR1** — `src/data/sampling.py`: `draw()`, `resolve()`, unit tests. No wiring~~
+- [X] ~~**PR2** — wire into `build_manifest.py`, add the `regime` column, raise the
+      `t60_s` floor to 0.25, eval splits skip regimes. Acceptance test passed: with
+      the config unchanged, all six splits (21,270 rows) are byte-identical once the
+      new `regime` column is ignored — `scripts/check_manifest_parity.py`~~
+- [ ] **Narrow `overlap_ratio` in the `base` regime** — left out of PR2 on purpose.
+      `difficulty-dial.md` §3 puts it last and requires supervisor agreement plus a
+      `decisions.md` entry, because its 0.7 ceiling is deliberately matched to
+      REAL-TSE. One config line once approved
+- [ ] Decide whether `data/manifests/` is tracked in git — still open, and now
+      overdue: PR2 changed the schema. `.gitignore:222` claims manifests are
+      tracked, `/data/` on line 223 untracks them; none are in git
 
 Manifest rebuild — one pass covering all of:
 - [ ] **B9** — add `target_only_fraction`; let `target_activity_ratio` vary.
