@@ -100,7 +100,9 @@ this is checkable rather than assumed.
 | `scripts/build_vad_index.py` | One cached pass of the detector over all 137,876 indexed utterances |
 | `scripts/build_manifest.py` | One row per trial: who speaks, when, how loud, in what room. Reads file headers only, never audio |
 | `scripts/check_manifest_parity.py` | Proves a refactor changed no draw, by rebuilding and diffing against the previous manifest |
+| `scripts/screen_noise_speech.py` | Detects speech hiding in the WHAM! noise beds and measures what rejecting it would cost. Measures only — the rule is chosen from its report |
 | `scripts/measure_vad_impact.py` | The measurement behind the B2 decision — re-runnable, writes to `experiments/results/` |
+| `src/run_log.py` | Appends each slow job's wall time to `docs/run_times.md` |
 
 ### Why there is a voice-activity pass at all
 

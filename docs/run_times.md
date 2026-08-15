@@ -27,7 +27,7 @@ one of these as a measured figure.**
 |---|---|---|---|
 | `build_vad_index.py` | 137,876 utts / 475 h | ~2.5 h | 189x realtime, 8 workers |
 | `measure_vad_impact.py` | 2,000 utts + 400 trials | ~20 min | 8 settings x 2,000 decodes |
-| WHAM! speech screen | 28,000 clips / 81.7 h | ~26 min | same 189x rate |
+| `screen_noise_speech.py` | 28,000 clips / 81.7 h | ~30 min | 189x rate + 2,000-clip sensitivity subsample |
 | `render_trials.py` | ~21,200 trials | **unknown** | 2 RIRs/trial, cost unmeasured |
 
 Move a row up to the table above once it has actually run — the script does that
