@@ -112,9 +112,29 @@ Still unimplemented from `data-construction-parameters.md`:
       noise bed enters as an unlabelled third talker and the metric scores those
       words as hallucination. Needs audio, so it lands in the renderer
 - [ ] **B2 — voice-activity detection pass over the corpus**, cached alongside the
-      utterance index, so overlap is measured from where speech actually is. Name the
-      detector in the PR. Changes every overlap figure, so it belongs *before* the
+      utterance index, so overlap is measured from where speech actually is. Detector:
+      Silero VAD, `silero-vad` 6.2.1, pinned. Measured 2026-08-15: files are 86.0 %
+      speech, overlap overstated ~25 %, per-trial error up to 0.274 so no correction
+      factor can fix it. Changes every overlap figure, so it belongs *before* the
       rebuild, not after
+  - [X] ~~**PR1** — `src/data/vad.py`, `scripts/build_vad_index.py`, `vad:` config
+        block, 30 unit tests, and `scripts/measure_vad_impact.py` with its result in
+        `experiments/results/2026-08-15-vad-impact/`. `build_manifest.py` untouched~~
+  - [ ] **Run the index**: `scripts/build_vad_index.py`, ~2.2 h once, resumable
+  - [ ] **PR2** — wire into `build_manifest.py` (`spans`, `pick_run`, `best_onset`,
+        `is_interrupted`), then rebuild all six manifests and re-run the leak
+        scoreboard. Note: `check_manifest_parity.py` cannot gate this one — the whole
+        point is that the numbers change
+  - [ ] **`target_activity_ratio` ceiling.** 0.85 of *speech* needs 0.988 of the
+        window filled with audio; realised footprint tops out at 0.946 today, so the
+        top of the band becomes unreachable and the practical ceiling is ~0.78-0.80.
+        The REAL-TSE anchor of ~0.75 still sits inside. Adjust with a decisions.md
+        entry, never a silent config edit
+  - [ ] **PR3 (optional)** — enrollment offset. `enroll_offset` is drawn uniformly
+        anywhere in the file and `long_enough` filters on file duration, so a 5.2 s
+        file with 1.2 s of leading silence yields a "5 s enrollment" holding 4 s of
+        voice, against B10/A1's >=5 s. Separate PR: it changes enrollment quality,
+        not overlap measurement
 - [ ] `length_mode`
 
 Renderer (unblocked 2026-08-13):

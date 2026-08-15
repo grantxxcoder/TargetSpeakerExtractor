@@ -20,6 +20,44 @@ paths:
   wham_noise: data/wham_noise_16k
   splits: experiments/configs/splits.yaml
 
+# B2: where speech actually is inside each recording. Not a per-trial parameter --
+# it is one cached pass over the corpus (scripts/build_vad_index.py), and every
+# overlap and activity figure is measured against its output.
+#
+# THIS BLOCK DEFINES WHAT "OVERLAP" MEANS. Quote min_silence_duration_ms wherever
+# an overlap number is quoted. Changing anything here invalidates the VAD index and
+# every manifest built from it. decisions.md 2026-08-15.
+vad:
+  # How long a pause must be before it counts as "stopped talking". THE knob.
+  # At 100 ms (Silero's default) a sentence shreds into near-word fragments and
+  # "overlap" comes to mean simultaneous phonation. At 500 ms it over-merges --
+  # trailing silence collapses to 0.017 s, i.e. end-of-file silence gets absorbed
+  # into speech. 250 ms gives phrase-level turns: both people mid-utterance, which
+  # is what a listener calls talking over someone.
+  # Measured 2026-08-15 over 2,000 utterances: the whole 100-500 ms range moves
+  # speech/duration only 0.849 -> 0.897, so the headline is robust to this choice.
+  # That robustness is the reason to be comfortable with it, not the value itself.
+  min_silence_duration_ms: 250
+
+  # Speech probability above which a frame counts as speech. Silero's default.
+  # Sensitivity at 250 ms: 0.872 at thr 0.3, 0.860 at 0.5, 0.853 at 0.7 -- so this
+  # matters even less than the pause length.
+  threshold: 0.5
+
+  # Discard speech bursts shorter than this. Below Silero's 250 ms default on
+  # purpose: 250 would drop genuine short words ("yes", "no") and undercount real
+  # speech, which is the opposite of what this whole exercise is correcting.
+  min_speech_duration_ms: 100
+
+  # Padding added to each end of every detected segment, to avoid clipping the
+  # onset of a plosive or the tail of a fricative. Silero's default.
+  speech_pad_ms: 30
+
+  # Fail loudly if the installed weights are not the ones these numbers came from.
+  # Same discipline as pinning the judge model id: an unnoticed upgrade would move
+  # every overlap figure in the thesis without touching a tracked file.
+  expected_model_version: 6.2.1
+
 defaults:
   # How long each generated clip is, start to finish.
   # Typical: ~17.5 s. Chosen to sit near REAL-TSE's clip length.

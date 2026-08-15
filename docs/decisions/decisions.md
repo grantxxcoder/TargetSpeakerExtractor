@@ -1251,3 +1251,127 @@ Evidence that the live judge's content-fidelity score is dominated by hallucinat
 interferer speech, or a supervisor requirement for multi-party. Reopening means a
 fifth condition and one rebuild — cheap while no audio exists, and progressively more
 expensive once eval audio is rendered and judged.
+
+## 2026-08-15 — B2 evidence: LibriSpeech is 86 % speech; overlap is overstated by 25 %
+
+Measurement only. No code changed, no manifest rebuilt. This entry is the evidence
+the B2 implementation rests on, recorded before it is written.
+
+**Detector:** `silero-vad` 6.2.1 (Silero Team, 2021, `snakers4/silero-vad`), pip
+package so the weights are local and pinned — `torch.hub` would refetch at runtime and
+could silently change every number below. Settings `threshold=0.5`,
+`min_speech_duration_ms=100`, `speech_pad_ms=30`, and `min_silence_duration_ms` swept.
+
+**Measured against** `data/manifests/` as built at commit `110e64e` (PR3), seed 42.
+Part 1: 2,000 utterances sampled from the 137,876 in `data/index/` (6.92 h).
+Part 2: 400 `both` trials from `train.csv` (864 distinct utterances).
+
+### Part 1 — how much of an utterance file is speech
+
+| `min_silence_ms` | speech/dur | median | p10 | p90 | segments | lead_s | trail_s |
+|---|---|---|---|---|---|---|---|
+| 100 (silero default) | 0.849 | 0.859 | 0.753 | 0.934 | 3.76 | 0.331 | 0.166 |
+| 200 | 0.857 | 0.867 | 0.759 | 0.941 | 3.24 | 0.331 | 0.142 |
+| **250 (chosen)** | **0.860** | **0.872** | **0.761** | **0.944** | **3.09** | **0.331** | **0.129** |
+| 300 | 0.868 | 0.881 | 0.771 | 0.953 | 2.79 | 0.331 | 0.111 |
+| 500 | 0.897 | 0.909 | 0.805 | 0.978 | 2.08 | 0.331 | 0.017 |
+
+Threshold sensitivity at 250 ms: 0.872 at 0.3, 0.860 at 0.5, 0.853 at 0.7.
+
+**`min_silence_duration_ms` = 250 ms**, recorded in `generator.yaml`. The whole
+100–500 ms range spans only 0.849–0.897, so the headline is robust to the choice —
+that is the main reason to be comfortable with it. 500 ms is rejected: trailing
+silence collapses to 0.017 s, i.e. it absorbs end-of-file silence into speech.
+
+**Two systematic offsets, and they are the cause of everything in Part 2:**
+
+- **Leading silence 0.331 s per utterance**, near-identical at every setting
+  (0.318–0.342 across the threshold sweep). Every LibriSpeech utterance begins about
+  a third of a second after its file does.
+- **Trailing silence 0.129 s** at the chosen setting.
+
+These are biases, not noise, and they compound: a target and an interferer placed
+adjacent are each offset inward, so the generator systematically believes they
+coincide more than they do. Carry these figures wherever an overlap number is quoted.
+
+### Part 2 — the label error in the manifests as they stand
+
+Onsets held **unchanged**; only the measurement differs. Sanity check: recomputing
+overlap the old way from the recorded onsets reproduces the stored
+`overlap_achieved` to max |diff| 0.00006, so the placement code is being read
+correctly.
+
+| quantity | file-boundary | VAD | change |
+|---|---|---|---|
+| `overlap_achieved` (mean) | 0.285 | **0.214** | **−24.9 %** |
+| `overlap_achieved` (median) | 0.264 | 0.195 | −26.3 % |
+| `target_activity` (mean) | 0.642 | 0.554 | −13.7 % |
+| `interferer_activity` (mean) | 0.467 | 0.406 | −13.1 % |
+| `interrupted` (rate) | 0.570 | 0.725 | +27.2 % |
+
+Per-trial |file − VAD| overlap: mean 0.071, p90 0.151, max 0.274.
+
+**The per-trial spread is the reason this cannot be patched with a correction
+factor.** A uniform −25 % would leave the B13 overlap strata intact; an error that
+varies from 0 to 0.274 per trial puts individual trials in the wrong bucket, and the
+per-condition table is the thesis's central artefact.
+
+**Overlap collapsing to zero: 11/400 (2.8 %).** Both speakers are talking, but never
+simultaneously — the shared interval falls entirely inside one speaker's leading
+silence and the other's trailing silence. Turn-taking recorded as talking over each
+other. That this is *small* is the reassuring part: the overlap in the data is mostly
+genuine, just consistently overstated.
+
+### Three consequences for the implementation
+
+**1. `interrupted` rose rather than fell, and the cause is definitional.** The old
+test checks one moment per interferer utterance (its file onset); a VAD test checks
+every speech-segment onset, ~3 per utterance, so an interferer *resuming after their
+own pause* mid-target-sentence now counts. **Open question — must be decided before
+the rebuild:** count only the interferer's first speech onset ("began talking while
+you were mid-sentence", closest to the 2026-08-14 definition), or any speech onset.
+The two readings put the rate somewhere between roughly 0.50 and 0.725, on a B13
+reporting condition. Measure both, decide on numbers.
+
+**2. The "69 % outside `overlap_tolerance`" figure is NOT a rejection rate.** It was
+labelled that in the spike; that label is wrong. It measures trials whose overlap
+drifts outside tolerance *with placement held fixed*, and the implementation re-runs
+`best_onset` against the new measurement, which re-places most of them. It is
+therefore a measure of how far placement must move, and an upper bound on rejections.
+The true rate cannot be estimated without building it.
+
+**3. The top of `target_activity_ratio` becomes unreachable.** Realised footprint
+activity already reaches p99 0.910 and max 0.946 (`activity_tolerance: 0.1` carries it
+past the 0.85 config ceiling). Achieving 0.85 of *speech* would need 0.85/0.86 = 0.988
+of the window filled with audio, beyond anything currently achieved and leaving no room
+for the gaps `lay_out` requires. The practical ceiling lands near 0.78–0.80. The
+REAL-TSE anchor of ~0.75 still sits inside that, so the band needs adjusting rather
+than abandoning — but it is a recorded decision, not a silent config edit.
+
+### Why this is done before the renderer, not after
+
+The audio is unaffected — mixtures still contain the pauses, which is what real speech
+sounds like. Only the labels and the placement change. But every overlap and activity
+column in all six manifests moves, so it forces a rebuild, and a rebuild is cheap only
+while no audio exists. `milestones.md` already places B2 before the rebuild for this
+reason.
+
+### Precision footnote
+
+These numbers were first measured with Silero's `return_seconds=True`, which also
+rounds boundaries to `time_resolution` decimal places — defaulting to **one**, i.e.
+0.1 s. Re-measured on 600 utterances with sample-accurate boundaries, mean
+speech/duration moves only 0.8655 -> 0.8668 and leading silence 0.321 -> 0.317, so
+the figures above stand. Individual utterances move by up to 0.042 though, and
+per-trial precision is exactly what overlap bucketing needs, so `src/data/vad.py`
+takes sample indices and divides itself rather than using `return_seconds`.
+
+### Reproduction
+
+Promoted from a throwaway spike to `scripts/measure_vad_impact.py`, so a supervisor
+can re-derive every figure rather than take them on trust:
+
+    ../tse_venv/bin/python scripts/measure_vad_impact.py
+
+Output, with commit hash, seed, detector version and the manifest's own build
+commit, is in `experiments/results/2026-08-15-vad-impact/`.
