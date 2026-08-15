@@ -28,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.data.sampling import (  # noqa: E402
     draw, draw_regime, resolve, split_config,
 )
+from src.run_log import timed  # noqa: E402
 
 COLUMNS = [
     "trial_id", "split",
@@ -603,14 +604,17 @@ def main():
         chapters_of[spk].append((spk, chapter))
 
     rows, failed_ids = [], []
-    for i in range(cfg["n_trials"]):
-        trial_id = f"{args.split}-{config['seed']}-{i:06d}"
-        row = build_trial(trial_id, args.split, sampling_cfg, speakers, sex, book,
-                          by_speaker, by_chapter, chapters_of, noise)
-        if row is None:
-            failed_ids.append(trial_id)
-        else:
-            rows.append(row)
+    with timed(f"scripts/build_manifest.py --split {args.split}",
+               scope=lambda: f"{len(rows):,} trials",
+               rate="headers only, no audio"):
+        for i in range(cfg["n_trials"]):
+            trial_id = f"{args.split}-{config['seed']}-{i:06d}"
+            row = build_trial(trial_id, args.split, sampling_cfg, speakers, sex,
+                              book, by_speaker, by_chapter, chapters_of, noise)
+            if row is None:
+                failed_ids.append(trial_id)
+            else:
+                rows.append(row)
     failed = len(failed_ids)
 
     out_dir = Path(args.out_dir)

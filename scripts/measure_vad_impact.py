@@ -47,6 +47,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.data import vad  # noqa: E402
+from src.run_log import timed  # noqa: E402
 
 # (label, threshold, min_silence_ms, min_speech_ms, speech_pad_ms)
 GRID = [
@@ -337,12 +338,16 @@ def main():
                 if manifest_meta.exists() else {})
 
     buf = io.StringIO()
-    with redirect_stdout(buf):
-        rng = np.random.default_rng(args.seed)
-        t1 = part1(rng, Path(args.index_dir), sr, ls_root, subset,
-                   args.n_utterances, args.workers)
-        t2 = part2(rng, Path(args.manifest), sr, ls_root, subset,
-                   args.n_trials, args.workers, tolerance)
+    with timed("scripts/measure_vad_impact.py",
+               scope=f"{args.n_utterances:,} utts x {len(GRID)} settings "
+                     f"+ {args.n_trials} trials",
+               rate=f"{args.workers} workers"):
+        with redirect_stdout(buf):
+            rng = np.random.default_rng(args.seed)
+            t1 = part1(rng, Path(args.index_dir), sr, ls_root, subset,
+                       args.n_utterances, args.workers)
+            t2 = part2(rng, Path(args.manifest), sr, ls_root, subset,
+                       args.n_trials, args.workers, tolerance)
     report = buf.getvalue()
     print(report)
 

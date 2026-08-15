@@ -41,6 +41,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.data import vad  # noqa: E402
+from src.run_log import timed  # noqa: E402
 
 COLUMNS = ["utt", "duration", "speech_s", "segments"]
 
@@ -158,27 +159,37 @@ def main():
 
     rows = [done[u] for u in wanted if u in done]
     failed = []
+    audio_s = [0.0]
     if todo:
         t0 = time.time()
-        with out_path.open("w", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=COLUMNS)
-            w.writeheader()
-            w.writerows(rows)
-            with Pool(args.workers, initializer=_init,
-                      initargs=(cfg, sr, str(ls_root), subset)) as pool:
-                for i, row in enumerate(pool.imap(_work, todo, chunksize=16), 1):
-                    if row is None:
-                        failed.append(i)
-                    else:
-                        rows.append(row)
-                        w.writerow(row)
-                    if i % 200 == 0 or i == len(todo):
-                        f.flush()       # survive a kill without losing the pass
-                        el = time.time() - t0
-                        print(f"\r  {i}/{len(todo)}  [{el/60:5.1f} min elapsed, "
-                              f"~{el/i*(len(todo)-i)/60:5.1f} min left]   ",
-                              end="", file=sys.stderr, flush=True)
-        print(file=sys.stderr)
+        # Logged as the work ACTUALLY done, not the whole corpus: a resumed run
+        # that finishes the last 10 % must not leave a row implying it did all
+        # of it. `rate` is the honest x-realtime for this invocation.
+        with timed("scripts/build_vad_index.py",
+                   scope=lambda: f"{len(todo):,} utts / {audio_s[0]/3600:.0f} h"
+                                 + (f" (resumed, {len(done):,} cached)" if done else ""),
+                   rate=lambda: f"{audio_s[0]/max(time.time()-t0, 1e-9):.0f}x realtime, "
+                                f"{args.workers} workers"):
+            with out_path.open("w", newline="") as f:
+                w = csv.DictWriter(f, fieldnames=COLUMNS)
+                w.writeheader()
+                w.writerows(rows)
+                with Pool(args.workers, initializer=_init,
+                          initargs=(cfg, sr, str(ls_root), subset)) as pool:
+                    for i, row in enumerate(pool.imap(_work, todo, chunksize=16), 1):
+                        if row is None:
+                            failed.append(i)
+                        else:
+                            rows.append(row)
+                            w.writerow(row)
+                            audio_s[0] += float(row["duration"])
+                        if i % 200 == 0 or i == len(todo):
+                            f.flush()   # survive a kill without losing the pass
+                            el = time.time() - t0
+                            print(f"\r  {i}/{len(todo)}  [{el/60:5.1f} min elapsed, "
+                                  f"~{el/i*(len(todo)-i)/60:5.1f} min left]   ",
+                                  end="", file=sys.stderr, flush=True)
+            print(file=sys.stderr)
 
     dur = np.array([float(r["duration"]) for r in rows])
     speech = np.array([float(r["speech_s"]) for r in rows])
