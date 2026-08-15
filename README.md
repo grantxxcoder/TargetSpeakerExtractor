@@ -86,10 +86,17 @@ including the settings sweep that chose 250 ms, is in
 
 ### Running any of it
 
-There is no `requirements.txt` yet. The environment is a virtualenv beside the
-repo:
+The environment is a virtualenv beside the repo, not inside it:
 
 ```bash
+python3 -m venv ../tse_venv
+../tse_venv/bin/pip install -r requirements.txt
+
 ../tse_venv/bin/python scripts/build_vad_index.py
 ../tse_venv/bin/python -m pytest tests/ -q
 ```
+
+Versions in `requirements.txt` are pinned exactly, because several of them
+define the data rather than merely produce it — the VAD weights decide what
+"overlap" means, and `pyroomacoustics` and `pyloudnorm` decide what the rendered
+audio is. A silent minor bump would move results without appearing in any diff.

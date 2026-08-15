@@ -216,11 +216,24 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
-literature/papers/
+
+# literature/papers/ was ignored here. Removed 2026-08-15: it was a trap. One PDF
+# (CARTSE-Track1) predated the rule and was tracked, so the folder looked backed
+# up while six others -- including the REAL-TSE Challenge paper this project is
+# anchored to, and PS4 -- were silently untracked and would have been lost with
+# the working copy. 2.5 MB of PDFs the thesis cites is worth tracking.
 
 # --- Datasets and generated audio (see docs/data/data-setup.md) ---
-# Source corpora and generated mixtures live on disk, never in git.
-# ~36 GB steady state. Manifests and configs ARE tracked; audio is not.
+# Source corpora, indexes, manifests and generated mixtures all live on disk,
+# never in git. ~36 GB steady state.
+#
+# NOTHING under data/ is tracked, manifests included. An earlier version of this
+# comment claimed manifests were tracked; they never have been, because /data/
+# covers them. Reproducibility comes from the .meta.yaml sidecar written beside
+# every generated file, recording the config, its md5, the git commit, the seed
+# and the date -- those sidecars are the only travelling record of how the data
+# was made. Configs themselves are tracked, in experiments/configs/.
+#
 # Anchored with a leading slash: an unanchored `data/` also matches docs/data/,
 # which silently untracked every file in it (including metric-definitions.md).
 /data/

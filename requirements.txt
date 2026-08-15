@@ -1,0 +1,38 @@
+# Python 3.12.3, virtualenv beside the repo (`../tse_venv`).
+#
+#     python3 -m venv ../tse_venv
+#     ../tse_venv/bin/pip install -r requirements.txt
+#
+# Pinned exactly, not loosely. Every number this project reports depends on
+# these versions: the VAD weights define what "overlap" means, and the RIR and
+# loudness libraries define what the audio is. A silent minor-version bump would
+# move results without appearing in any diff.
+#
+# Versions below are what the M0 data was actually built with, captured
+# 2026-08-15. See docs/decisions/decisions.md for what depends on which.
+
+# --- manifest generation -------------------------------------------------
+numpy==2.5.2
+scipy==1.18.0                 # truncated-normal sampling in src/data/sampling.py
+PyYAML==6.0.3
+soundfile==0.14.0             # file headers when indexing, audio when rendering
+
+# --- voice activity detection (B2) --------------------------------------
+# Silero Team (2021), https://github.com/snakers4/silero-vad. Weights ship with
+# the package, NOT fetched via torch.hub at call time -- hub would refetch and
+# could silently change every overlap figure. experiments/configs/generator.yaml
+# carries `expected_model_version` and fails loudly if this pin drifts.
+silero-vad==6.2.1
+torch==2.13.0                 # silero's runtime; CPU is sufficient for the VAD pass
+
+# --- rendering (M0 renderer, not yet built) ------------------------------
+pyroomacoustics==0.10.1       # shoebox RIRs, Sabine T60 feasibility check
+pyloudnorm==0.2.0             # BS.1770 integrated loudness (decisions.md 2026-08-12)
+
+# --- analysis notebook (src/exploratory/data_setup.ipynb) ----------------
+pandas==3.0.5
+matplotlib==3.11.1
+seaborn==0.13.2
+
+# --- tests ---------------------------------------------------------------
+pytest==9.1.1
