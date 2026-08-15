@@ -24,11 +24,18 @@ LibriMix/              read-only reference clone
 
 ## What we are building, in one paragraph
 
-One generator, two consumers. Training mixtures are synthesised **on the fly**
-from LibriSpeech speech + WHAM! noise + a seeded synthetic RIR, so the training
-set costs no disk and never repeats. Val and eval are generated once from the
-same code and **frozen to disk as fixed audio files**, because the eval set must
-be byte-stable for the judge. Byte-stability is *implied* by the pin-and-date
+One generator, one consumer. **Every split is rendered to disk from the same
+code** — LibriSpeech speech + WHAM! noise + a seeded synthetic RIR — and frozen
+as fixed audio files. Eval must be byte-stable for the judge; training is
+rendered too because with B7 off its draws are fixed anyway.
+
+> **Changed 2026-08-15.** Training mixtures were previously synthesised on the
+> fly, on the grounds that the set would "cost no disk and never repeat". B7
+> turned the repetition off the same day, so on-the-fly regeneration produced
+> byte-identical audio every epoch — recomputation, not variety — while risking
+> a CPU-bound dataloader starving the GPU on a 4-vCPU Kaggle instance. It also
+> moves *more* data, not less: a rendered trial needs no corpora on the training
+> machine. See `docs/decisions/decisions.md` 2026-08-15. Byte-stability is *implied* by the pin-and-date
 rule at `docs/data/metric-definitions.md:209` and the private-split requirement at
 `:198-200`, but is nowhere stated outright — add it explicitly to
 `metric-definitions.md` §4. Everything is speaker-disjoint.
@@ -437,9 +444,11 @@ corpora, which is exactly the file you cannot regenerate identically. Exclude
 the corpus subdirectories by name instead. `.venv/` is excluded because a
 virtualenv built on your laptop is broken anywhere else — rebuild it there.
 
-This is exactly why training mixtures are generated on the fly: there is no
-70 GB training set to move, only ~36 GB of public corpora that either machine
-can fetch for itself.
+**Since 2026-08-15 the rendered training audio is what you move, and the corpora
+are what you leave behind.** A rendered trial is self-contained, so the training
+machine needs no LibriSpeech and no WHAM! at all — ship ~26 GB of rendered audio
+instead of ~36 GB of corpora. Exclude `data/librispeech/`, `data/wham_noise_16k/`
+and `data/raw/` by name; include `data/rendered/` and `data/manifests/`.
 
 ### The one thing that makes this painless
 
@@ -494,18 +503,20 @@ setup is the one to look at first. *(Unverified as of 2026-08-10.)*
 | Peak, step 3d (WHAM 6 + 360 tar + extract) | ~58 GB |
 | **Steady state, sources ready** | **~36 GB** |
 | Frozen val + eval audio, added later | ~2–5 GB |
-| Training mixtures | 0 GB, generated on the fly |
+| Training mixtures, rendered once | ~26 GB (decisions.md 2026-08-15) |
 
-Global peak ~58 GB, so 70 GB free leaves ~12 GB of headroom. Enough, but do not
-run this on a nearly full disk. The earlier 150 GB estimate assumed archives
-were kept and training mixtures materialised; neither is necessary.
+Global peak ~58 GB during setup, then ~67 GB steady state once training audio is
+rendered. **Budget ~90 GB free**, not the 70 GB this section previously assumed —
+that figure predated the 2026-08-15 decision to render training audio to disk.
 
 ## Do not delete the source corpora afterwards
 
-Tempting, but it breaks the project. On-the-fly training generation means the
-sources *are* the training set — and `CLAUDE.md` requires that a config plus a
-seed reproduces a run, which is only true while LibriSpeech and WHAM! still
-exist. Delete them and the seed reconstructs nothing.
+Tempting once the audio is rendered, but it breaks the project. `CLAUDE.md`
+requires that a config plus a seed reproduces a run, and the rendered audio is
+downstream of the corpora, not a replacement for them: **any manifest rebuild
+invalidates every rendered file and needs the sources to re-render.** B2's
+rebuild is one such, and it will not be the last. Delete them and the seed
+reconstructs nothing.
 
 Safe to delete: every archive after checksum verification, and the 32-bit float
 WHAM! originals after conversion. Nothing else.

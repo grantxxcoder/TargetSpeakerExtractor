@@ -1375,3 +1375,70 @@ can re-derive every figure rather than take them on trust:
 
 Output, with commit hash, seed, detector version and the manifest's own build
 commit, is in `experiments/results/2026-08-15-vad-impact/`.
+
+## 2026-08-15 — Training audio is pre-rendered to disk, not generated on the fly
+
+**Decision (GB, 2026-08-15): render the training mixtures to disk once, the same
+way `val` and the two eval splits already are. On-the-fly generation is removed
+from the plan and kept only as the mechanism B7 would need if it were ever
+switched on.**
+
+Supersedes `docs/data/data-setup.md` and `docs/data/data-map.md`, both of which
+asserted "0 GB, generated on the fly, never stored" as settled fact.
+
+### Why the original reason no longer holds
+
+`data-setup.md` justified on-the-fly generation because the training set would
+then "cost no disk and **never repeat**". B7, decided the same day, turned the
+repetition off:
+
+> Rebuilding mixtures with fresh loudness and room draws every epoch gives the
+> model more variety, but the run can then no longer be reproduced from the
+> manifest alone. **Decision: off for the main run.**
+
+With B7 off every draw is fixed in the manifest, so on-the-fly rendering produces
+byte-identical audio on every epoch. It repeats exactly. The variety argument
+therefore justifies nothing, and what remains is recomputing the same 20,000
+mixtures for the lifetime of every training run.
+
+### The other two arguments, checked rather than assumed
+
+**Disk.** 251 GB free. The rendered training set is ~26 GB as 16-bit PCM at
+16 kHz (20,000 trials x ~40.8 s of audio each: mixture ~17.9 s including the A5
+tail, clean target ~17.9 s, enrollment 5 s), ~16-18 GB as FLAC. Not binding.
+
+**Portability, and this one inverts.** `data-setup.md:440` argued on-the-fly
+meant "no 70 GB training set to move, only ~36 GB of public corpora". But a
+rendered trial is self-contained: shipping it needs **no LibriSpeech and no
+WHAM!** on the training machine. Pre-rendering moves ~26 GB; on-the-fly requires
+the full ~36 GB of corpora present wherever training runs. Pre-rendering moves
+*less*.
+
+### The risk this actually removes
+
+Each trial needs two RIRs (target and interferer), image-source method, `t60_s`
+up to 0.6 s. Generated on the fly that cost is paid every epoch by the dataloader,
+competing with feeding the GPU. On a 4-vCPU Kaggle instance a CPU-bound loader
+starves the GPU and burns session hours — the failure `milestones.md` M1 already
+guards against when it says discovering a problem at hour 11 of a 12-hour session
+costs a week. Pre-rendering makes the training step a disk read.
+
+**Taken without the RIR benchmark.** The argument above does not depend on the
+per-trial RIR cost, so the decision did not wait for it. That number is still
+needed to *size* the render job, not to choose it.
+
+### What this concedes
+
+- **No augmentation variety**, but B7 already conceded that deliberately.
+- **Every manifest rebuild invalidates the audio.** Sequencing consequence: render
+  *after* B2's rebuild lands, never before. Rendering ~21,200 trials and then
+  rebuilding would waste the whole pass.
+- **~26 GB.** Cheap at 251 GB free, and it should be excluded from any `rsync` to a
+  cluster by name, the same way the corpora already are.
+
+### What stays
+
+`render_trial(row, cfg) -> stems in memory` remains a pure function with the
+writer as a thin caller, so a PyTorch `Dataset` can call it directly if B7 is ever
+switched on as the ablation it was reserved as. The decision changes how the
+renderer is *invoked*, not what it is.

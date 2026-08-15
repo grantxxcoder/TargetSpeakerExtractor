@@ -48,10 +48,13 @@ What is left is implementation: B12's two PRs, then one manifest rebuild, then t
 renderer.
 
 **Schedule reality check.** The target is Aug 20 and no code is written yet. What
-makes it survivable is that manifest rebuilds take 58 s and training audio is
-generated on the fly, so only `val` and the two eval splits (~1,200 trials) need
-rendering to disk. The pilot calibration below is the item most likely to slip, and
-it depends on C2.
+makes it survivable is that manifest rebuilds take 58 s. **Superseded 2026-08-15:**
+this paragraph assumed training audio was generated on the fly, so only `val` and
+the two eval splits (~1,200 trials) needed rendering. All ~21,200 trials are now
+rendered to disk (~26 GB) — B7 had already turned off the per-epoch variety that
+justified on-the-fly, so it was recomputing identical audio every epoch. Render
+*after* B2's rebuild, never before. The pilot calibration below is still the item
+most likely to slip, and it depends on C2.
 
 Done:
 - [X] ~~Speaker-disjoint train / val / eval splits~~
