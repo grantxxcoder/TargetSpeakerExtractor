@@ -54,6 +54,10 @@ real conversational TSE.
 - Every experiment result gets logged in experiments/results/ with: the
   config used, the git commit hash, the metrics, and the date.
 - Set and log a random seed for every run.
+- Any script or job taking over a minute gets a row in docs/run_times.md:
+  date, command, scope, wall time. One line, no prose. Never estimate a
+  runtime in conversation without checking that file first, and never
+  report a projection as if it were measured.
 - When implementing something from a paper, cite it (author, year) in a
   code comment at the top of the file/function.
 - After any nontrivial change, explain in plain language what the code
