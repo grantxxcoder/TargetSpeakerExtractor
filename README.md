@@ -47,12 +47,48 @@ Run in this order. Each step caches its output, so re-running is cheap.
 | 1 | `scripts/make_splits.py` | LibriSpeech `SPEAKERS.TXT` | `experiments/configs/splits.yaml` | seconds |
 | 2 | `scripts/build_vad_index.py` | LibriSpeech audio | `data/index/vad_segments.csv` | **~2.2 h, once** |
 | 3 | `scripts/build_manifest.py --split X` | the two indexes above | `data/manifests/X.csv` | ~1 min per split |
-| 4 | the renderer | manifests + audio | trial audio on disk | not built yet |
+| 4 | `scripts/render_trials.py --split X` | manifest + corpora | `data/rendered/X/` | not built yet |
+
+Each stage is a **separate script** on purpose: they have wildly different costs
+(seconds, hours, minutes, hours) and different failure modes, and you re-run them
+at different times. Nothing is chained automatically.
 
 `data/` is not in git (`.gitignore:/data/`), so every generated file carries a
 `.meta.yaml` sidecar recording the config, its md5, the git commit, the seed and
 the date. **Those sidecars are the only travelling record of how the data was
 made** — when reproducing a result, check them first.
+
+### Which stage invalidates which
+
+Each stage depends on the one above it. **Changing a stage invalidates everything
+below it**, and nothing warns you automatically — the sidecars are what let you
+check.
+
+```
+splits.yaml            change it -> rebuild the VAD index (new speakers), manifests, audio
+   |
+vad_segments.csv       change the vad: config -> rebuild every manifest, re-render all audio
+   |
+manifests/X.csv        rebuild it -> RE-RENDER THAT SPLIT'S AUDIO. Always.
+   |
+rendered/X/            the training and eval data
+```
+
+**A manifest rebuild always means re-rendering that split's audio.** The manifest
+decides who speaks, when, how loud and in what room; the audio is that decision
+made real. Rebuild one without the other and your audio no longer matches its own
+labels, and *every downstream number is quietly wrong* — nothing crashes.
+
+This is why the render step goes **last, and only once the manifests are settled**.
+Rendering ~21,200 trials is a multi-hour job; doing it before a known-pending
+rebuild throws that time away. B2's rebuild is one such, and it will not be the
+last.
+
+**How to tell if your audio is stale:** compare `config_md5` and `git_commit` in
+`data/rendered/X/meta.yaml` against `data/manifests/X.meta.yaml`. If they differ,
+the audio was rendered from a different manifest than the one on disk. The
+renderer writes its source manifest's identity into its own sidecar precisely so
+this is checkable rather than assumed.
 
 ### What each source file is for
 
