@@ -32,10 +32,16 @@ defaults:
   # An ordinary meeting overlaps far less (~0.10-0.15), so the set is already
   # harder than daily conversation BY DESIGN. Do not "fix" that without deciding
   # to diverge from the anchor.
-  # Separately: the FLOOR of 0.2 is a problem regardless, because no present
-  # trial can have zero overlap, which is what makes silent-target trials
-  # detectable without listening. See decisions-pending B9.
-  overlap_ratio: [0.2, 0.7]
+  # FLOOR LOWERED 0.2 -> 0.0 (PR3, B9). The old floor meant no present trial
+  # could have zero overlap, so "did two voices overlap?" answered "is the
+  # target absent?" on every row. B9's fix needs genuine turn-taking trials
+  # with no overlap at all to exist on the PRESENT side of that pool.
+  # This is NOT the ceiling narrowing 0.7 -> 0.45 that difficulty-dial.md
+  # section 3 defers to supervisor agreement -- the ceiling is untouched, so
+  # the deliberate match to REAL-TSE still holds.
+  # The band is clipped per trial to target_activity_ratio, because a speaker
+  # cannot overlap more of the window than they speak in.
+  overlap_ratio: [0.0, 0.7]
 
   # How close the achieved overlap must land to the requested one, or the trial
   # is thrown away and redrawn. Smaller = stricter = more rejected trials.
@@ -46,10 +52,13 @@ defaults:
   # Typical: REAL-TSE is ~0.75, so this matches the anchor exactly. An ordinary
   # two-person conversation is ~0.4-0.5, so again: harder than daily speech by
   # design, matched to the benchmark.
-  # The problem is that it is FIXED rather than varied — every target is equally
-  # talkative, which forces high overlap and removes the short-utterance case
-  # entirely. See decisions-pending B9.
-  target_activity_ratio: 0.75
+  # NOW VARIES (PR3, B9). Pinned at 0.75 it forced high overlap and removed the
+  # short-utterance case entirely: the target spoke a mean of 1.1 utterances,
+  # one unbroken ~14 s monologue. Varying it is what creates genuine
+  # turn-taking, and it is the binding constraint on overlap -- you cannot
+  # overlap more of the window than you speak in.
+  # This band is `hard`; `base` narrows it to [0.45, 0.85] below.
+  target_activity_ratio: [0.15, 0.85]
 
   # How far the achieved talking time may drift from the ratio above.
   activity_tolerance: 0.1
@@ -144,7 +153,29 @@ defaults:
   # Chance the two speakers are the same gender. Same-gender pairs are the hard
   # case and must be reportable separately.
   # Typical: ~0.5 for randomly paired people.
+  # Only meaningful when there IS an interferer, so it is blank on target_only
+  # and noise_only rows.
   same_gender_fraction: 0.5
+
+  # B9's four trial types, drawn once per trial. Replaces
+  # target_absent_fraction, which is now DERIVED from this
+  # (interferer_only + noise_only) so the two can never disagree.
+  #
+  # The two zero-overlap types are deliberately the same size, which puts
+  # P(target absent | no overlap) at exactly 0.50 -- a coin flip, so the
+  # shortcut carries no information. Any other ratio leaves it partly
+  # predictive. decisions.md 2026-08-13 (B9).
+  #
+  #   both             both speak, overlapping
+  #   target_only      the target speaks, nobody interrupts. The most common
+  #                    real condition, and it appeared in ZERO trials before
+  #   interferer_only  the target is silent, one other voice
+  #   noise_only       nobody speaks at all, noise bed only
+  composition:
+    both: 0.50
+    target_only: 0.25
+    interferer_only: 0.20
+    noise_only: 0.05
 
 # One regime is drawn per trial; every regime-scoped parameter for that trial
 # then comes from that regime's bands. Drawn once per trial rather than once per
@@ -172,15 +203,25 @@ regimes:
     # Ceiling only. The 0.25 floor is already the global floor.
     t60_s: [0.25, 0.5]
     source_distance_m: [0.1, 2.0]
+    # B9 gives this a real band. `base` keeps the target reasonably talkative;
+    # `hard` reaches down to 0.15, where the target says very little and there
+    # is far less of it to anchor on.
+    target_activity_ratio: [0.45, 0.85]
     # NOT narrowed here, deliberately:
     #   overlap_ratio        -- its 0.7 ceiling is matched to REAL-TSE on
     #                           purpose. difficulty-dial.md section 3 puts this
     #                           LAST and requires supervisor agreement plus a
     #                           decisions.md entry, not a config edit.
-    #   target_activity_ratio -- regime-scoped in the schema but identical in
-    #                           both regimes until B9 decides what varying it
-    #                           means (decisions.md 2026-08-13).
+    #   (target_activity_ratio was listed here until PR3. B9 has now decided
+    #    what varying it means, so it is narrowed above.)
+    #   source_distance_m is no longer narrowed either: the band was widened to
+    #    0.1 m to cover hearables, and `base` follows it.
 
+# B4: the eval splits carry the same composition as train, so the strata stay
+# comparable between what the model saw and what it is judged on. They no
+# longer set target_absent_fraction: 0.0 -- and they need target_only trials
+# for the same reason train does, or "no overlap -> absent" becomes perfectly
+# predictive again inside eval. decisions.md 2026-08-13 (B4, B9).
 splits:
   # n_trials: how many to generate. noise_split: which WHAM! noise pool to draw
   # from, never crossed between training and evaluation.
@@ -192,13 +233,13 @@ splits:
   # 2026-08-13.
   # target_absent_fraction: share of trials where the target never speaks at all,
   # which is what teaches the model to stay silent rather than invent words.
-  train:        {n_trials: 20000, noise_split: tr, target_absent_fraction: 0.35}
+  train:        {n_trials: 20000, noise_split: tr}
   # val matches train's absent fraction so validation can exercise the
   # push-to-silence half of the loss.
-  val:          {n_trials: 200,   noise_split: cv, target_absent_fraction: 0.35}
+  val:          {n_trials: 200,   noise_split: cv}
   # Supervisor decided 2026-08-12 that eval must carry silent-target trials too;
   # the fraction and the scoring rule are still open. See decisions-pending B4.
-  eval_public:  {n_trials: 500,   noise_split: tt, target_absent_fraction: 0.0, regimes: null}
-  eval_private: {n_trials: 500,   noise_split: tt, target_absent_fraction: 0.0, regimes: null}
-  smoke_train:  {n_trials: 50,    noise_split: tr, target_absent_fraction: 0.35}
-  smoke_val:    {n_trials: 20,    noise_split: cv, target_absent_fraction: 0.35}
+  eval_public:  {n_trials: 500,   noise_split: tt, regimes: null}
+  eval_private: {n_trials: 500,   noise_split: tt, regimes: null}
+  smoke_train:  {n_trials: 50,    noise_split: tr}
+  smoke_val:    {n_trials: 20,    noise_split: cv}

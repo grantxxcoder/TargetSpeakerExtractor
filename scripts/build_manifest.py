@@ -36,6 +36,8 @@ COLUMNS = [
     "interferer_speaker", "interferer_chapter", "interferer_utts",
     "interferer_onsets_s", "interferer_speech_s", "interferer_activity",
     "enrollment_utt", "enrollment_offset_s", "enrollment_length_s", "enrollment_eq",
+    # B10: which of the three guard tiers supplied the enrollment clip.
+    "enrollment_guard",
     "noise_clip", "noise_offset_s",
     "mixture_length_s", "sir_db", "snr_db", "target_loudness_lufs",
     "overlap_requested", "overlap_achieved",
@@ -43,10 +45,14 @@ COLUMNS = [
     "mic_x", "mic_y", "mic_z",
     "target_x", "target_y", "target_z",
     "interferer_x", "interferer_y", "interferer_z",
-    "target_absent", "same_gender",
-    # Appended, not inserted, so every column a reader already indexes keeps its
-    # position. Provenance of the bands this trial was drawn from, never a
-    # reporting stratum -- decisions.md 2026-08-13 (B12).
+    # B9: which of the four trial types this is. `target_absent` is kept as a
+    # derived convenience -- it is true for interferer_only and noise_only.
+    "target_absent", "condition",
+    "same_gender",
+    # B13's interruption condition, derived from the onsets (decisions.md
+    # 2026-08-14).
+    "interrupted",
+    # B12: provenance of the bands this trial was drawn from, never a stratum.
     "regime",
 ]
 
@@ -90,7 +96,18 @@ def index_utterances(root, speakers, subset_of, cache):
     """One row per LibriSpeech utterance: id, speaker, chapter, duration, text."""
     if cache.exists():
         with cache.open() as f:
-            return list(csv.DictReader(f))
+            rows = list(csv.DictReader(f))
+        # The cache is keyed only by split NAME, so a splits.yaml change (B10
+        # redrew the eval pools) leaves a cache describing the previous set of
+        # speakers. Reading it would silently build the manifest from the wrong
+        # people and every disjointness check downstream would still pass,
+        # because they all read this same file. Verify and rebuild instead.
+        cached = {r["speaker"] for r in rows}
+        if cached == set(speakers):
+            return rows
+        print(f"  {cache.name}: cached speakers do not match splits.yaml "
+              f"({len(cached)} vs {len(set(speakers))}); rebuilding index",
+              file=sys.stderr)
 
     rows = []
     for i, sid in enumerate(speakers, 1):
@@ -228,6 +245,99 @@ def best_onset(target_spans, block_s, length, wanted_s):
     return float(candidates[i]), overlaps[i]
 
 
+# B9's four trial types. Order is fixed: the cumulative walk below maps one
+# uniform onto it, so reordering would silently change every trial's type.
+#
+#   both            target and interferer, overlapping           50 %
+#   target_only     target speaks, nobody interrupts             25 %
+#   interferer_only target silent, one other voice               20 %
+#   noise_only      nobody speaks, noise bed only                 5 %
+#
+# The two zero-overlap types are deliberately equal in size (25 % present,
+# 25 % absent), which puts P(target absent | no overlap) at exactly 0.50 so
+# "did two voices overlap?" carries no information about absence.
+# decisions.md 2026-08-13 (B9).
+CONDITIONS = ("both", "target_only", "interferer_only", "noise_only")
+
+
+def draw_condition(rng, comp):
+    """Which of B9's four types this trial is. Consumes exactly one uniform."""
+    total = sum(float(comp[c]) for c in CONDITIONS)
+    if not 0.999 <= total <= 1.001:
+        raise ValueError(f"composition must sum to 1.0, got {total}: {comp}")
+    u = rng.random() * total
+    acc = 0.0
+    for name in CONDITIONS:
+        acc += float(comp[name])
+        if u < acc:
+            return name
+    return CONDITIONS[-1]
+
+
+def utt_index(utt_id):
+    """The trailing sequence number of a LibriSpeech utterance id."""
+    return int(utt_id.rsplit("-", 1)[1])
+
+
+def pick_enrollment(rng, candidates, target_chapter, used_utts, book):
+    """B10: the enrollment clip, and which guard tier supplied it.
+
+    Falls back book -> chapter -> utterance, taking the first tier with any
+    candidate, and records which one fired. B8 required `book` with no
+    fallback, which meant a speaker who read only one book could never be a
+    present target -- 60.2 % of `train` speakers, and an AUC 0.795 label leak
+    (decisions.md 2026-08-13, B10). Falling back keeps every speaker and makes
+    the content-leak cost measurable instead of assumed.
+
+    Returns (tier, utterance) or None if even the weakest tier is empty.
+    """
+    if target_chapter is None:
+        # No mixture content exists to leak from, so no tier is being applied.
+        # Record the strongest tier this speaker COULD support rather than a
+        # sentinel: a value that appeared only on absent trials would itself
+        # separate absent from present, which is the class of giveaway this
+        # whole decision exists to remove.
+        books = {book[u["chapter"]] for u in candidates}
+        chapters = {u["chapter"] for u in candidates}
+        tier = "book" if len(books) > 1 else "chapter" if len(chapters) > 1 else "utterance"
+        return tier, candidates[rng.integers(len(candidates))]
+
+    target_book = book[target_chapter[1]]
+    by_tier = [
+        ("book", [u for u in candidates if book[u["chapter"]] != target_book]),
+        ("chapter", [u for u in candidates
+                     if book[u["chapter"]] == target_book
+                     and u["chapter"] != target_chapter[1]]),
+        ("utterance", [u for u in candidates
+                       if u["chapter"] == target_chapter[1]
+                       and u["utt"] not in used_utts]),
+    ]
+    for tier, pool in by_tier:
+        if not pool:
+            continue
+        if tier == "utterance":
+            # Same chapter is the weakest case, so take the utterances
+            # furthest in index from the ones the mixture used. LibriSpeech
+            # numbers utterances sequentially within a chapter, so distance in
+            # index is a free proxy for distance in the narrative (B10).
+            used = [utt_index(u) for u in used_utts]
+            pool = sorted(pool, key=lambda u: (-min(abs(utt_index(u["utt"]) - i)
+                                                    for i in used), u["utt"]))
+            return tier, pool[0]
+        return tier, pool[rng.integers(len(pool))]
+    return None
+
+
+def is_interrupted(target_spans, interferer_onsets):
+    """B13's interruption condition: the interferer starts talking while a
+    target utterance is already running.
+
+    Strictly inside, so an interferer beginning exactly as the target stops is
+    turn-taking rather than an interruption. Derived from onsets that were
+    already recorded, so it costs no extra draw. decisions.md 2026-08-14."""
+    return any(t0 < o < t1 for o in interferer_onsets for t0, t1 in target_spans)
+
+
 def build_trial(trial_id, split, sampling_cfg, speakers, sex, book, by_speaker,
                 by_chapter, chapters_of, noise):
     # `reg` is a fifth, dedicated stream: SeedSequence.spawn(5) yields the same
@@ -241,69 +351,76 @@ def build_trial(trial_id, split, sampling_cfg, speakers, sex, book, by_speaker,
     regime = draw_regime(reg, sampling_cfg)
     cfg = resolve(sampling_cfg, regime)
 
+    condition = draw_condition(aug, cfg["composition"])
+    has_target = condition in ("both", "target_only")
+    has_interferer = condition in ("both", "interferer_only")
+    absent = not has_target
+
     length = draw(level, cfg["mixture_length_s"])
-    absent = aug.random() < cfg["target_absent_fraction"]
     enroll_len = draw(level, cfg["enrollment_length_s"])
     same_gender = pick.random() < cfg["same_gender_fraction"]
-    overlap_requested = 0.0 if absent else draw(level, cfg["overlap_ratio"])
+
+    # target_activity_ratio now varies instead of sitting at 0.75 (B9). It is
+    # the binding constraint on overlap: you cannot overlap more of the window
+    # than you speak in, so the overlap band is clipped to it below rather than
+    # left to fail the tolerance check and reject the trial.
+    t_act_wanted = draw(level, cfg["target_activity_ratio"])
+    o_lo, o_hi = cfg["overlap_ratio"]
+    o_hi = min(o_hi, t_act_wanted)
+    o_lo = min(o_lo, o_hi)
+    overlap_requested = draw(level, [o_lo, o_hi]) if condition == "both" else 0.0
     max_n = cfg["max_utterances_per_source"]
+
+    target_chapter, target_run, target_speech = None, [], 0.0
+    target_spans, target_onsets = [], []
+    interferer_chapter, interferer_run, interferer_speech = None, [], 0.0
+    interferer_onsets, i0, overlap_achieved = [], 0.0, 0.0
+    interferer = None
+    enrollment, guard = None, ""
 
     for _ in range(20):
         target = str(pick.choice(speakers))
-        pool = [s for s in speakers
-                if s != target and (sex[s] == sex[target]) == same_gender]
-        if not pool:
-            continue
-        interferer = str(pick.choice(pool))
+
+        if has_interferer:
+            pool = [s for s in speakers
+                    if s != target and (sex[s] == sex[target]) == same_gender]
+            if not pool:
+                continue
+            interferer = str(pick.choice(pool))
+        else:
+            interferer = None
 
         long_enough = [u for u in by_speaker[target]
                        if float(u["duration"]) >= enroll_len]
         if not long_enough:
             continue
 
-        if absent:
-            target_chapter, target_run, target_speech = None, [], 0.0
-            target_spans = []
-            target_onsets = []
-            enrollment = long_enough[pick.integers(len(long_enough))]
-
-            # The interferer's activity is drawn from the same distribution a
-            # present trial would have produced. Pinning it at
-            # target_activity_ratio (the previous behaviour) made absent trials
-            # identifiable without listening: their interferer always talked
-            # 0.75-0.85 of the window, where present-trial interferers span
-            # roughly 0.2-0.9. A model could then emit silence whenever one
-            # voice talks near-continuously and never consult the enrollment --
-            # the exact shortcut target-absent trials exist to prevent.
-            # decisions.md 2026-08-11.
-            shadow_overlap = draw(level, cfg["overlap_ratio"])
-            shadow_t_act = cfg["target_activity_ratio"] + level.uniform(
-                0.0, cfg["activity_tolerance"])
-            i_act = level.uniform(shadow_overlap,
-                                  min(1.0, 1.0 - shadow_t_act + shadow_overlap))
-        else:
-            t_wanted = cfg["target_activity_ratio"] * length
+        if has_target:
+            t_wanted = t_act_wanted * length
             found = pick_run(pick, chapters_of[target], by_chapter, t_wanted,
                              t_wanted + cfg["activity_tolerance"] * length, max_n)
             if found is None:
                 continue
             target_chapter, target_run, target_speech = found
-
-            # The same guard the interferer gets: a different *book*, not merely a
-            # different chapter. A LibriSpeech speaker usually reads consecutive
-            # chapters of one book, so a different chapter of the same book still
-            # shares narrative, characters, proper nouns and register -- enough
-            # for the model to match enrollment to target on content rather than
-            # on voice. decisions.md 2026-08-11 (was decisions-pending B8).
-            other_book = [u for u in long_enough
-                          if book[u["chapter"]] != book[target_chapter[1]]]
-            if not other_book:
-                continue
-            enrollment = other_book[pick.integers(len(other_book))]
-
             target_onsets = lay_out(level, target_run, length)
             target_spans = spans(target_run, target_onsets)
+            used_utts = {u["utt"] for u in target_run}
+        else:
+            target_chapter, target_run, target_speech = None, [], 0.0
+            target_onsets, target_spans, used_utts = [], [], set()
 
+        # B10's three-tier guard, in place of B8's book-or-redraw.
+        chosen = pick_enrollment(pick, long_enough, target_chapter, used_utts, book)
+        if chosen is None:
+            continue
+        guard, enrollment = chosen
+
+        if not has_interferer:
+            interferer_chapter, interferer_run, interferer_speech = None, [], 0.0
+            interferer_onsets, i0, overlap_achieved = [], 0.0, 0.0
+            break
+
+        if has_target:
             # The interferer must talk for at least the requested overlap, and
             # not so much that the two cannot avoid each other. Both bounds
             # follow from  max(0, t + i - 1) <= overlap <= min(t, i).
@@ -312,6 +429,21 @@ def build_trial(trial_id, split, sampling_cfg, speakers, sex, book, by_speaker,
             if lo > hi:
                 continue
             i_act = level.uniform(lo, hi)
+        else:
+            # The interferer's activity is drawn from the same distribution a
+            # present trial would have produced. Pinning it made absent trials
+            # identifiable without listening: their interferer always talked
+            # 0.75-0.85 of the window, where present-trial interferers span
+            # roughly 0.2-0.9. decisions.md 2026-08-11. The shadow target
+            # activity now comes from the same varying band as a real one (B9).
+            shadow_t_act = draw(level, cfg["target_activity_ratio"])
+            s_lo, s_hi = cfg["overlap_ratio"]
+            s_hi = min(s_hi, shadow_t_act)
+            s_lo = min(s_lo, s_hi)
+            shadow_overlap = draw(level, [s_lo, s_hi])
+            shadow_t_act += level.uniform(0.0, cfg["activity_tolerance"])
+            i_act = level.uniform(shadow_overlap,
+                                  min(1.0, 1.0 - shadow_t_act + shadow_overlap))
 
         i_chapters = [c for c in chapters_of[interferer]
                       if target_chapter is None or book[c[1]] != book[target_chapter[1]]]
@@ -326,7 +458,7 @@ def build_trial(trial_id, split, sampling_cfg, speakers, sex, book, by_speaker,
 
         # One contiguous block, so sliding it is the single free variable that
         # sets the overlap.
-        if absent:
+        if not has_target:
             i0, overlap_achieved = level.uniform(0, length - interferer_speech), 0.0
         else:
             i0, shared = best_onset(target_spans, interferer_speech, length,
@@ -348,32 +480,40 @@ def build_trial(trial_id, split, sampling_cfg, speakers, sex, book, by_speaker,
 
     dims, t60, mic = sample_room(room, cfg)
     target_pos = place_source(room, cfg, dims, mic)
+    # A position is drawn for the interferer even when it does not speak, for
+    # the same reason an absent trial keeps a target position: a trial is a
+    # whole trial, and the renderer should never have to special-case a
+    # missing coordinate.
     interferer_pos = place_source(room, cfg, dims, mic)
 
     enroll_offset = pick.uniform(0, float(enrollment["duration"]) - enroll_len)
 
-    assert target != interferer
+    assert interferer is None or target != interferer
     assert enrollment["speaker"] == target
     assert float(enrollment["duration"]) >= enroll_len >= 5.0
     assert target_onsets == sorted(target_onsets)
-    assert all(0 <= o for o in target_onsets + interferer_onsets)
-    assert interferer_onsets[-1] + float(interferer_run[-1]["duration"]) <= length + 1e-6
+    assert all(o >= 0 for o in target_onsets + interferer_onsets)
+    # B10 requires this explicitly: in the first two tiers it is automatic, in
+    # the third it is the only thing separating enrollment from mixture.
+    assert enrollment["utt"] not in {u["utt"] for u in target_run}
+    if interferer_run:
+        assert interferer_onsets[-1] + float(interferer_run[-1]["duration"]) <= length + 1e-6
     if target_chapter is not None:
-        assert book[enrollment["chapter"]] != book[target_chapter[1]]
-        assert book[interferer_chapter[1]] != book[target_chapter[1]]
+        assert book[interferer_chapter[1]] != book[target_chapter[1]] \
+            if interferer_chapter else True
         assert target_onsets[-1] + float(target_run[-1]["duration"]) <= length + 1e-6
 
     return {
         "trial_id": trial_id,
         "split": split,
         "target_speaker": target,
-        "target_chapter": "" if absent else target_chapter[1],
+        "target_chapter": "" if not has_target else target_chapter[1],
         "target_utts": "|".join(u["utt"] for u in target_run),
         "target_onsets_s": "|".join(f"{o:.4f}" for o in target_onsets),
         "target_speech_s": round(target_speech, 3),
         "target_activity": round(target_speech / length, 4),
-        "interferer_speaker": interferer,
-        "interferer_chapter": interferer_chapter[1],
+        "interferer_speaker": interferer or "",
+        "interferer_chapter": interferer_chapter[1] if interferer_chapter else "",
         "interferer_utts": "|".join(u["utt"] for u in interferer_run),
         "interferer_onsets_s": "|".join(f"{o:.4f}" for o in interferer_onsets),
         "interferer_speech_s": round(interferer_speech, 3),
@@ -382,10 +522,13 @@ def build_trial(trial_id, split, sampling_cfg, speakers, sex, book, by_speaker,
         "enrollment_offset_s": round(enroll_offset, 4),
         "enrollment_length_s": round(enroll_len, 3),
         "enrollment_eq": int(aug.random() < cfg["enrollment_eq_prob"]),
+        "enrollment_guard": guard,
         "noise_clip": clip["clip"],
         "noise_offset_s": round(noise_offset, 4),
         "mixture_length_s": round(length, 3),
-        "sir_db": "" if absent else round(draw(level, cfg["sir_db"]), 2),
+        # SIR is the target-to-interferer ratio, so it only exists when both
+        # of them do -- not merely when the target does.
+        "sir_db": round(draw(level, cfg["sir_db"]), 2) if condition == "both" else "",
         "snr_db": round(draw(level, cfg["snr_db"]), 2),
         "target_loudness_lufs": round(draw(level, cfg["target_loudness_lufs"]), 2),
         "overlap_requested": round(overlap_requested, 4),
@@ -399,7 +542,9 @@ def build_trial(trial_id, split, sampling_cfg, speakers, sex, book, by_speaker,
         "interferer_y": round(interferer_pos[1], 3),
         "interferer_z": round(interferer_pos[2], 3),
         "target_absent": int(absent),
-        "same_gender": int(sex[interferer] == sex[target]),
+        "condition": condition,
+        "same_gender": "" if interferer is None else int(sex[interferer] == sex[target]),
+        "interrupted": int(is_interrupted(target_spans, interferer_onsets)),
         "regime": regime or "none",
     }
 
@@ -507,13 +652,31 @@ def main():
 
     print(f"Wrote {out}  ({len(rows)} trials, {failed} unsatisfiable)")
     absent = sum(r["target_absent"] for r in rows)
-    same = sum(r["same_gender"] for r in rows)
     present = [r for r in rows if not r["target_absent"]]
-    print(f"  target absent  {absent / len(rows):.2f}")
+    paired = [r for r in rows if r["condition"] == "both"]
+    for name in CONDITIONS:
+        share = sum(1 for r in rows if r["condition"] == name) / len(rows)
+        want = cfg["composition"][name]
+        print(f"  condition {name:<16} {share:.3f}  (asked {want:.2f})")
+    print(f"  target absent  {absent / len(rows):.3f}  "
+          f"(asked {cfg['target_absent_fraction']:.2f})")
     for r in sorted({x["regime"] for x in rows}):
         share = sum(1 for x in rows if x["regime"] == r) / len(rows)
         print(f"  regime {r:<8} {share:.2f}")
-    print(f"  same gender    {same / len(rows):.2f}")
+    # same_gender and interruption only exist where there is an interferer to
+    # compare against or be interrupted by.
+    if paired:
+        print(f"  same gender    {sum(r['same_gender'] for r in paired) / len(paired):.2f}"
+              f"  (of the {len(paired)} paired trials)")
+        print(f"  interrupted    {sum(r['interrupted'] for r in paired) / len(paired):.2f}"
+              f"  (of the {len(paired)} paired trials)")
+    # The shortcut B9 exists to close: given no overlap at all, how often is
+    # the target actually absent? 0.50 is a coin flip and therefore useless.
+    quiet = [r for r in rows if r["overlap_achieved"] == 0.0]
+    if quiet:
+        p = sum(r["target_absent"] for r in quiet) / len(quiet)
+        print(f"  P(absent | no overlap)  {p:.3f}   over {len(quiet)} trials "
+              f"(0.50 = no information)")
     for name in ("overlap_requested", "overlap_achieved", "target_activity",
                  "interferer_activity"):
         v = [r[name] for r in present]

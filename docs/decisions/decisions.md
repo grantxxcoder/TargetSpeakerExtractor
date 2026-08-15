@@ -1105,3 +1105,149 @@ is pinned by a named unit test instead.
 `t60_s` floor 0.15 → 0.25 as intended; regime mix 0.60 / 0.40 exactly. In the eval
 splits only the room columns moved, because `t60_s` is drawn from the `room` stream —
 speech, levels, enrollment and noise are bit-identical to before.
+
+## 2026-08-14 — PR3: B9, B10 and B4 implemented; both label leaks closed
+
+Implements B9, B10 and B4 in one rebuild, as the milestone requires. Measured on
+`train` (19,950 trials), before against after:
+
+| leak | before | after |
+|---|---|---|
+| enrolled-speaker identity predicts absence | **0.795** | **0.508** |
+| `overlap_achieved` predicts absence | **0.000** (perfect) | 0.169 |
+| P(target absent \| no overlap at all) | 1.000 | **0.500** |
+| distinct speakers that ever appear as a present target | 467 of 1,172 | **1,172** |
+| unsatisfiable trials | 431 | **50** |
+
+**B10 is fully closed.** The three-tier guard keeps every speaker, so speaker
+identity is at chance. Guard tiers on present `train` trials: `chapter` 6,040,
+`book` 5,866, `utterance` 2,992.
+
+**B9 hits its stated target exactly.** P(absent | no overlap) is 0.500 over 10,102
+trials, and 0.497 / 0.505 within `base` / `hard` separately, as B12 requires.
+
+### Two decisions taken inside PR3
+
+**The `overlap_ratio` floor drops 0.2 → 0.0.** B9's fix needs zero-overlap trials on
+the *present* side, which the old floor forbade. This is **not** the ceiling
+narrowing 0.7 → 0.45 that `difficulty-dial.md` §3 defers to supervisor agreement —
+the ceiling is untouched, so the deliberate match to REAL-TSE still holds. The band
+is clipped per trial to `target_activity_ratio`, because a speaker cannot overlap
+more of the window than they speak in.
+
+**Absent trials record the strongest guard tier their speaker could support**, rather
+than a `n/a` sentinel. A value appearing only on absent rows would itself separate
+absent from present — the exact class of giveaway B10 exists to remove.
+
+### What PR3 did NOT fix, stated plainly
+
+The composition balances the *overlap* shortcut perfectly but cannot balance every
+shortcut at once. What a listener can infer without identifying whose voice it is:
+
+| voices heard | share | P(target absent) |
+|---|---|---|
+| 2 | 49.4 % | **0.000** |
+| 1 | 45.7 % | 0.447 |
+| 0 | 4.9 % | **1.000** |
+
+- **Two voices ⇒ target present, always.** Unavoidable while every absent trial has
+  exactly one interferer; removing it needs a two-interferer condition, which B9 did
+  not specify. The model must still consult the enrollment to know *which* voice to
+  keep, so this shortens the silence decision without answering the extraction one.
+- **No voices ⇒ absent, always.** Benign: when nobody speaks at all, emitting silence
+  is the correct behaviour, so the shortcut and the right answer coincide.
+- **`interferer_activity` rose 0.614 → 0.648**, against B9's expectation that it would
+  fall. Cause: `target_only` trials have no interferer at all, so their
+  `interferer_activity` is 0 on the *present* side, widening the gap rather than
+  closing it. It is a consequence of the four-way composition, not of the shadow-draw
+  logic B9 blamed.
+
+The algebra is forced: with `t` = target_only and `n` = noise_only, requiring both
+P(absent | no overlap) = 0.5 and P(absent | one voice) = 0.5 gives `n = 0`. B9 chose
+to balance the overlap shortcut, and 0.05 of noise-only trials is the price.
+
+### Other changes
+
+- `make_splits.py` stratifies the eval halves by guard tier as well as sex. Weakest
+  tier was 8/20 vs 3/20; it is now 6 vs 5, every tier within 1. The old single
+  running counter could not balance two axes at once, so the halves are now chosen by
+  a deterministic search over which side each stratum starts on.
+- `index_utterances` verifies its cache against `splits.yaml`. Redrawing the eval
+  pools left caches describing the previous speakers, and every downstream
+  disjointness check reads that same file, so a stale cache would have passed silently.
+- **New columns:** `condition` (B9's four types), `enrollment_guard` (B10),
+  `interrupted` (B13's deferred condition — an interferer onset strictly inside a
+  target utterance; 53.2 % of both-speaking trials).
+- `target_absent_fraction` is now **derived** from `composition` in `split_config`,
+  so the stated and drawn rates cannot drift apart.
+
+## 2026-08-14 — Scope: the task is two-person conversation. At most one interferer
+
+**Decision (GB, 2026-08-14): the constructed set models a conversation between two
+people. A trial contains the target, at most one other speaker, and noise. Two
+simultaneous non-target speakers never occur, and that is a declared boundary of the
+task rather than a gap in the data.**
+
+Taken in response to the PR3 measurement below, having seen the cost. The
+alternative — a fifth `two_interferers` condition — was considered and rejected.
+
+### Why
+
+- **It is a scope boundary, so declare it rather than approximate it.** A system
+  evaluated on two-speaker mixtures and reported as a two-speaker system is honest. A
+  system given a token 10 % of three-speaker trials would be neither properly trained
+  for multi-party nor properly scoped, and the headline number would quietly claim
+  more than the data supports.
+- **It matches the anchor.** Libri2Mix and the REAL-TSE two-speaker framing are both
+  two-talker constructions, and `overlap_ratio` and `target_activity_ratio` are
+  already tuned to that anchor. Adding a third talker diverges from it on a second
+  axis, without the supervisor agreement that `difficulty-dial.md` §3 requires for the
+  first.
+- **The interference model stays interpretable.** `sir_db` is defined as a ratio
+  between two voices. With two interferers it becomes a ratio to a sum, and every SIR
+  figure in every table would silently change meaning.
+
+### Consequences — all of these must be carried, not forgotten
+
+**1. "Two overlapping voices" proves the target is present, permanently.** Measured on
+`train` (19,950 trials): 9,858 trials have two voices, and `P(target absent | two
+voices) = 0.000`. This is now a property of the task definition, not a defect.
+
+**2. Our own benchmark cannot detect a model that exploits it.** The eval splits carry
+the same composition, so a system that learns *"two voices → produce output"* scores
+normally. **No number this project reports will reveal this behaviour.** That is the
+price of the decision and it must be stated wherever the results are.
+
+**3. Every claim must be scoped in words, not just in the appendix.** Results are
+about *target speaker extraction from two-speaker mixtures*. They must never be
+written as though they generalise to meetings, multi-party audio, or "conversation" in
+general.
+
+**4. The AMI secondary check changes meaning.** AMI is multi-party, so it contains
+exactly the condition this decision excludes. Two options, and one must be chosen
+before that check is run:
+   - restrict the AMI trial set to segments where at most two speakers are active, so
+     it tests transfer to real audio within the declared scope; or
+   - keep AMI as-is and report it explicitly as an **out-of-scope generalisation
+     probe**, where a poor result is expected and is not evidence of a bad extractor.
+   The first is the honest transfer check; the second measures something else. Do not
+   run it without deciding which.
+
+**5. Hallucination on unseen multi-party audio is an untested failure mode.** A model
+may emit an interferer's words as the target's when two non-target voices overlap.
+Under the content-fidelity metric that is the most damaging error class there is, and
+nothing in this project measures it. It belongs in the thesis limitations section as
+a named, quantified gap — not as a caveat sentence.
+
+**6. `noise_only` and one-voice trials are unaffected.** For completeness, the other
+two composition residuals are benign and stay as they are: *no voices → absent* is
+correct behaviour rather than a shortcut (silence is the right output when nobody
+speaks), and *one voice → 44.7 % absent* is close enough to a coin flip to carry
+almost no information.
+
+### What would reopen this
+
+Evidence that the live judge's content-fidelity score is dominated by hallucinated
+interferer speech, or a supervisor requirement for multi-party. Reopening means a
+fifth condition and one rebuild — cheap while no audio exists, and progressively more
+expensive once eval audio is rendered and judged.

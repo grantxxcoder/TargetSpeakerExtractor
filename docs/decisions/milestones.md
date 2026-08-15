@@ -89,20 +89,23 @@ B12 implementation, before the rebuild:
       overdue: PR2 changed the schema. `.gitignore:222` claims manifests are
       tracked, `/data/` on line 223 untracks them; none are in git~~
 
-Manifest rebuild — one pass covering all of:
-- [ ] **B9** — add `target_only_fraction`; let `target_activity_ratio` vary.
-      Silent-target trials are currently detectable at AUC 1.000 without
-      listening, and a target speaking uninterrupted never occurs
-- [ ] **B10** — three-tier enrollment guard with `enrollment_guard` recorded per
-      trial; assert enrollment and mixture never share an utterance
-- [ ] **B10** — `make_splits.py`: redraw eval pools so the guard-tier mix matches
-      between `eval_public` and `eval_private` (8/20 vs 3/20 weakest tier today)
-- [ ] **B4** — apply the decided absent fraction to the eval splits (currently 0.0);
-      the fraction itself follows B9
-- [ ] Define the **interruption** condition and add it as a column (B13's one
-      deferred part)
-- [ ] Re-run the §7.5 leak scoreboard afterwards, **per regime as well as pooled**,
-      and show the AUCs dropped
+Manifest rebuild — **done 2026-08-14 (PR3)**. Speaker-identity leak 0.795 -> 0.508,
+P(absent | no overlap) 1.000 -> 0.500, all 1,172 speakers now reach the present pool:
+- [X] ~~**B9** — add `target_only_fraction`; let `target_activity_ratio` vary.
+      Silent-target trials were detectable at AUC 1.000; a target speaking
+      uninterrupted never occurred. Both fixed~~
+- [X] ~~**B10** — three-tier enrollment guard with `enrollment_guard` recorded per
+      trial; assert enrollment and mixture never share an utterance~~
+- [X] ~~**B10** — `make_splits.py`: eval pools redrawn, stratified by guard tier as
+      well as sex. Weakest tier was 8/20 vs 3/20, now 6 vs 5~~
+- [X] ~~**B4** — eval splits carry the same composition as train (absent 0.25)~~
+- [X] ~~Define the **interruption** condition and add it as a column — an interferer
+      onset strictly inside a target utterance. 53.2 % of both-speaking trials~~
+- [X] ~~Re-run the leak scoreboard **per regime as well as pooled** — done; 0.497 /
+      0.505 within base / hard~~
+- [ ] **Scope decision 2026-08-14 consequences**: decide whether the AMI check is
+      restricted to <=2 active speakers or reported as an out-of-scope probe, and
+      write the two-speaker limitation into the thesis. See `decisions.md`
 
 Still unimplemented from `data-construction-parameters.md`:
 - [ ] **`noise_speech_rejection`** — the docs call it critical. Speech in the
