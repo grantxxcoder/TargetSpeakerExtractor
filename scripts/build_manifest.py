@@ -152,6 +152,43 @@ def index_noise(root, noise_split, cache):
     return rows
 
 
+def reject_speech_clips(noise, screen_csv, max_speech_run_s):
+    """Drop noise beds holding a run of speech long enough to become words.
+
+    B2 `noise_speech_rejection`, decisions.md 2026-08-16. WHAM! was recorded in
+    real cafes and bars, so some beds contain audible background talkers. Their
+    words reach the mixture but appear in no transcript, so the metric would
+    score them as speech the model invented, and they add an unlabelled third
+    talker to a task CLAUDE.md declares two-speaker.
+
+    Rejection is by the longest UNBROKEN run of detected speech, not by the
+    total: half a second in one piece can be a word, whereas the same half
+    second spread over five 100 ms blips is a detector twitching at clatter.
+
+    The screening report is scripts/screen_noise_speech.py's output. It is
+    required, not optional -- a missing or stale report would silently let
+    contaminated beds through, which is the exact failure this prevents.
+    """
+    if not screen_csv.exists():
+        raise SystemExit(
+            f"{screen_csv} not found. Run scripts/screen_noise_speech.py first: "
+            "the noise pool cannot be filtered without it.")
+    with screen_csv.open() as f:
+        longest = {r["clip"]: float(r["max_segment_s"]) for r in csv.DictReader(f)}
+
+    missing = [c["clip"] for c in noise if c["clip"] not in longest]
+    if missing:
+        raise SystemExit(
+            f"{screen_csv} is stale: {len(missing)} clips in the pool were never "
+            f"screened (e.g. {missing[0]}). Re-run scripts/screen_noise_speech.py.")
+
+    kept = [c for c in noise if longest[c["clip"]] < max_speech_run_s]
+    if not kept:
+        raise SystemExit(f"{screen_csv}: every clip rejected at "
+                         f"max_speech_run_s={max_speech_run_s}.")
+    return kept
+
+
 # --- sampling ------------------------------------------------------------
 
 def sample_room(rng, cfg):
@@ -591,6 +628,11 @@ def main():
                                  index_dir / f"utterances_{args.split}.csv")
     noise = index_noise(Path(config["paths"]["wham_noise"]), cfg["noise_split"],
                         index_dir / f"noise_{cfg['noise_split']}.csv")
+    n_noise_screened = len(noise)
+    max_speech_run_s = config["noise_speech_rejection"]["max_speech_run_s"]
+    noise = reject_speech_clips(
+        noise, index_dir / f"noise_speech_{cfg['noise_split']}.csv",
+        max_speech_run_s)
 
     by_speaker = defaultdict(list)
     by_chapter = defaultdict(list)
@@ -649,12 +691,22 @@ def main():
         "failed_ids_file": failed_file.name if failed_ids else None,
         # Which bands produced this split, recorded here because the config can
         # change under a manifest that is not itself in git.
+        # Which noise beds this split could draw from, after B2's speech
+        # rejection. Recorded because the cutoff is a config value and the
+        # manifest is not in git. decisions.md 2026-08-16.
+        "noise_split": cfg["noise_split"],
+        "noise_clips_screened": n_noise_screened,
+        "noise_clips_kept": len(noise),
+        "noise_max_speech_run_s": max_speech_run_s,
         "regimes": sampling_cfg["regimes"],
         "regime_mix": {r: sum(1 for x in rows if x["regime"] == r)
                        for r in sorted({x["regime"] for x in rows})},
     }, sort_keys=False))
 
     print(f"Wrote {out}  ({len(rows)} trials, {failed} unsatisfiable)")
+    dropped = n_noise_screened - len(noise)
+    print(f"  noise pool     {len(noise)} clips  "
+          f"({dropped} dropped for speech >= {max_speech_run_s}s)")
     absent = sum(r["target_absent"] for r in rows)
     present = [r for r in rows if not r["target_absent"]]
     paired = [r for r in rows if r["condition"] == "both"]

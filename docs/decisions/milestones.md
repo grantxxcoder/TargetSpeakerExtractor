@@ -111,9 +111,11 @@ P(absent | no overlap) 1.000 -> 0.500, all 1,172 speakers now reach the present 
       write the two-speaker limitation into the thesis. See `decisions.md`
 
 Still unimplemented from `data-construction-parameters.md`:
-- [ ] **`noise_speech_rejection`** — the docs call it critical. Speech in the
-      noise bed enters as an unlabelled third talker and the metric scores those
-      words as hallucination. Needs audio, so it lands in the renderer
+- [X] ~~**`noise_speech_rejection`** — done 2026-08-16, and *not* in the renderer as
+      planned: the screening pass already measured every clip, and the manifest is
+      what names the noise clip, so the pool is filtered before selection. Drop any
+      clip whose longest unbroken speech run reaches 0.5 s — 4.1 % of tr, 2.0 % of
+      cv, 1.3 % of tt. Takes effect at PR2's rebuild~~
 - [ ] **B2 — voice-activity detection pass over the corpus**, cached alongside the
       utterance index, so overlap is measured from where speech actually is. Detector:
       Silero VAD, `silero-vad` 6.2.1, pinned. Measured 2026-08-15: files are 86.0 %
@@ -123,16 +125,20 @@ Still unimplemented from `data-construction-parameters.md`:
   - [X] ~~**PR1** — `src/data/vad.py`, `scripts/build_vad_index.py`, `vad:` config
         block, 30 unit tests, and `scripts/measure_vad_impact.py` with its result in
         `experiments/results/2026-08-15-vad-impact/`. `build_manifest.py` untouched~~
-  - [ ] **Run the index**: `scripts/build_vad_index.py`, ~2.2 h once, resumable
+  - [X] ~~**Run the index**: `scripts/build_vad_index.py` — done 2026-08-15, 2.1 h,
+        137,876 utterances, 0 failures, 86.4 % speech. `data/index/vad_segments.csv`.
+        `scripts/screen_noise_speech.py` ran the same day, 25 min, 28,000 clips~~
   - [ ] **PR2** — wire into `build_manifest.py` (`spans`, `pick_run`, `best_onset`,
         `is_interrupted`), then rebuild all six manifests and re-run the leak
         scoreboard. Note: `check_manifest_parity.py` cannot gate this one — the whole
         point is that the numbers change
-  - [ ] **`target_activity_ratio` ceiling.** 0.85 of *speech* needs 0.988 of the
-        window filled with audio; realised footprint tops out at 0.946 today, so the
-        top of the band becomes unreachable and the practical ceiling is ~0.78-0.80.
-        The REAL-TSE anchor of ~0.75 still sits inside. Adjust with a decisions.md
-        entry, never a silent config edit
+  - [X] ~~**`target_activity_ratio` ceiling.** Lowered 0.85 -> 0.78 on 2026-08-16 in
+        both the global band and `base`, with a decisions.md entry. 0.85 of *speech*
+        needs 0.988 of the window filled with audio and realised footprint tops out
+        at 0.946, so it was unreachable; unreachable draws are dropped silently and
+        would have thinned the talkative end of the band. REAL-TSE's ~0.75 still sits
+        inside. **0.78 is near the edge, not inside it — check PR2's `n_failed` and
+        lower again if it is material**~~
   - [ ] **PR3 (optional)** — enrollment offset. `enroll_offset` is drawn uniformly
         anywhere in the file and `long_enough` filters on file duration, so a 5.2 s
         file with 1.2 s of leading silence yields a "5 s enrollment" holding 4 s of

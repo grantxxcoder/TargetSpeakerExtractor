@@ -553,8 +553,9 @@ write-up must state this as a known limitation, not omit it.**
 
 Considered and rejected: leaving the noise in the reference too (remove only the
 competing voice). `snr_db` runs down to 0.0, where the bed is as loud as the target
-and masks words even though it contains none — `noise_speech_rejection` (not yet
-implemented) guarantees no intelligible speech in it. Non-intelligible noise cannot
+and masks words even though it contains none — `noise_speech_rejection`
+(implemented 2026-08-16) screens intelligible speech out of it, though it screens
+rather than guarantees. Non-intelligible noise cannot
 make the judge hear *wrong* words but can stop it hearing the right ones, and
 denoising needs no lookahead, so it is affordable online in a way dereverberation
 is not.
@@ -1442,3 +1443,115 @@ needed to *size* the render job, not to choose it.
 writer as a thin caller, so a PyTorch `Dataset` can call it directly if B7 is ever
 switched on as the ablation it was reserved as. The decision changes how the
 renderer is *invoked*, not what it is.
+
+## 2026-08-16 — B2: `target_activity_ratio` ceiling lowered 0.85 -> 0.78
+
+**Decision (GB, 2026-08-16): the top of `target_activity_ratio` comes down from
+0.85 to 0.78, in both the global band and `base`.** Config only; it takes effect
+at B2 PR2's rebuild, not before.
+
+### Why
+
+`target_activity_ratio` is how much of the clip the target spends talking. PR2
+changes what "talking" means: today the generator counts file length, after PR2 it
+counts detected speech.
+
+A LibriSpeech file is only ~86 % speech — the rest is the pause before the reader
+starts, the pause at the end, and the gaps between phrases. So to get 0.85 of the
+window as actual voice you would need ~0.99 of it packed with back-to-back audio.
+`lay_out` has to leave gaps between utterances, and the most it has ever achieved
+is 0.946. **0.85 is therefore not merely rare, it is impossible.**
+
+### What leaving it at 0.85 would have done
+
+Nothing visible. `build_trial` tries 20 times to find a long enough run of
+utterances, fails every time, returns `None`, and the trial is dropped into
+`failed_ids`. The build would just quietly produce fewer trials, and every trial
+lost would be from the talkative end of the band — so the realised distribution
+would stop matching the configured one. That is the same "rejection bends
+distributions" problem recorded on 2026-08-13, arriving through the back door.
+
+### Why 0.78 and not lower
+
+The REAL-TSE anchor of ~0.75 still sits inside the band, so nothing we cared about
+is given up.
+
+**Honest limit:** 0.78 is close to the edge, not comfortably inside it. Realised
+footprint reaches p99 0.910 and max 0.946, which at ~86 % speech is roughly 0.79
+and 0.82 of speech. So the top of the new band is reachable only for the best
+cases, and a small number of top-of-band trials will still fail. **The check is
+PR2's `n_failed`.** If it is material, lower again — with an entry here, not a
+silent edit.
+
+## 2026-08-16 — B2: noise beds containing speech are rejected at 0.5 s
+
+**Decision (GB, 2026-08-16): drop any WHAM! noise clip whose longest unbroken run
+of detected speech reaches 0.5 s.** Config `noise_speech_rejection.max_speech_run_s`;
+applied in `build_manifest.py` by `reject_speech_clips()`. This closes
+`noise_speech_rejection`, which `data-construction-parameters.md` has called
+critical and unimplemented since it was written.
+
+### Why
+
+WHAM! was recorded in real cafes, bars and restaurants, so some beds have audible
+background talkers. Two things go wrong when one of those lands in a trial:
+
+1. **The metric punishes the model for being right.** Those words are genuinely in
+   the mixture, but they are in no transcript. If the extractor passes them through
+   and the judge hears them, they score as words the model invented.
+2. **A third talker appears.** CLAUDE.md declares this a two-speaker task. An
+   unlabelled voice in the noise bed quietly breaks that.
+
+### Why the longest run, and why 0.5 s
+
+Rejection is on `max_segment_s`, the longest *unbroken* run, not the total. Half a
+second in one piece can be a word; the same half second spread over five 100 ms
+blips is the detector twitching at a laugh, a door or a clatter. Below ~0.5 s there
+is not enough continuous voice to become text, so rejecting there would cost pool
+for no gain.
+
+### Borrowed in intent from WHAMR!, but not the same rule
+
+`data-construction-parameters.md` took this parameter from WHAMR!'s `SNR_THRESH`
+(`noisesampler.py:45-62`), which rejects a noise segment when its speech **energy**
+exceeds −6 dB. **We diverge:** we threshold the **duration of a detected speech
+run** instead, using the Silero pass B2 already pays for. Our failure mode is words
+being *transcribed*, and a quiet but clear background talker is a transcription
+risk at an energy WHAMR!'s test would pass. We also reject whole clips rather than
+resampling the offset, so nothing has to be written back to the manifest. Cite the
+idea as borrowed; do not describe the rule as WHAMR!'s.
+
+### Cost
+
+Measured, not projected — `scripts/screen_noise_speech.py`, 2026-08-15:
+
+| pool | clips | dropped | kept |
+|---|---|---|---|
+| tr | 20,000 | 821 (4.1 %) | 19,179 |
+| cv | 5,000 | 98 (2.0 %) | 4,902 |
+| tt | 3,000 | 39 (1.3 %) | 2,961 |
+
+### Where it is applied, and why not in the renderer
+
+`milestones.md` put this in the renderer, on the assumption it needed audio. It
+does not: the screening pass already measured every clip, and the manifest is what
+*names* the noise clip for each trial. Filtering the pool before selection is
+therefore the only place it works — filter later and the manifest can still point
+at a clip that should not exist. The renderer just reads what the manifest says.
+
+### What this does not promise
+
+The cutoff is a detector output, so it inherits Silero's mistakes. A kept clip may
+still hold faint or short speech. This lowers contamination a long way; it does not
+prove it is zero, and the write-up should say "screened", not "clean".
+
+### Consequences
+
+- `data/index/noise_speech_{split}.csv` is now a **build input**, not a report. It
+  is required, and `build_manifest.py` fails loudly if it is missing or does not
+  cover the pool.
+- The `vad:` block already invalidates the manifests; it now invalidates this
+  screening index too, since the same detector settings produced it.
+- Each split's `meta.yaml` records `noise_clips_screened`, `noise_clips_kept` and
+  `noise_max_speech_run_s`, because the cutoff is a config value and manifests are
+  not in git.
