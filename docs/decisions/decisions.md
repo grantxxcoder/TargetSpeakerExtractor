@@ -1728,3 +1728,36 @@ Two smaller corrections fell out of the same pass:
 Part 2 is now a **regression check** as well as a measurement: it fails loudly if a
 future change ever lets the manifests and the detector drift apart. That is worth
 more than the one-off audit it replaced.
+
+### Result of the re-run, 2026-08-16 (14 min)
+
+`CHECK` passed at 0.00007, convention auto-detected as `speech`. Part 1's corpus
+figures are unchanged, as they must be — the detector and the corpus did not move.
+
+Part 2 against the rebuilt `train.csv`, and against the pre-PR2 report preserved in
+commit `6612414`:
+
+| | pre-PR2 | post-PR2 | reading |
+|---|---|---|---|
+| file-bound vs VAD overlap | 0.285 → 0.215 (−24.6 %) | 0.387 → 0.275 (−28.8 %) | what B2 is worth |
+| activity gap | −13.5 % | −14.3 % | tracks the 0.862 corpus ratio |
+| overlap collapses to zero | 12/400 (3.0 %) | **0/400** | |
+| outside `overlap_tolerance` | 273/400 (68.2 %) | **0/400** | |
+| per-trial \|file − VAD\| | mean 0.070, max 0.270 | mean 0.111, max 0.527 | |
+
+**Two predictions from the 2026-08-15 entry came true, and are worth recording as
+such.** That entry insisted the 273/400 figure was "NOT a rejection rate ... PR2
+re-runs `best_onset` against the new measurement and re-places most of these". It
+re-placed *all* of them: 0/400 now miss their requested overlap. And the 12 trials
+whose overlap was entirely two speakers' silences overlapping are gone, because
+placement now optimises against speech directly.
+
+**B2 is worth more after the rebuild than before it, not less.** The per-trial gap
+grew from 0.070 to 0.111 mean. Reaching a speech target takes more audio than
+reaching the same file-duration target, so the corrected manifests carry a longer
+footprint per trial — and file-boundary measurement would now be *more* wrong than
+it was on the data that motivated the fix.
+
+Part 3, on the rebuilt data: option A 0.500 (what the manifests carry), A′ 0.463,
+old file-onset reading 0.555, B 0.797. The spread is as wide as it was, so the
+requirement to state which definition produced any `interrupted` figure stands.

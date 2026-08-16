@@ -1,13 +1,13 @@
 date: '2026-08-16'
 script: scripts/measure_vad_impact.py
-git_commit: eac1a58db1e0b8b16bd5eaca3163b11cbd7156ad-dirty
+git_commit: 4d29195a64d0f3891bcdc4de526be7ec0eada0f0-dirty
 seed: 42
 config: experiments/configs/generator.yaml
 detector: silero-vad
 detector_version: 6.2.1
 manifest: data/manifests/train.csv
-manifest_built_at_commit: 42a38546305a7f5e57af50182e075bf34c16b659-dirty
-manifest_config_md5: d8bf16d40db5c6d31592bec6fa130cc3
+manifest_built_at_commit: 6612414b6a358bf929f5c792a94464413e1f8ed5-dirty
+manifest_config_md5: 72c4801d323cc327ce251f7beb952313
 n_utterances_sampled: 2000
 n_trials_sampled: 400
 part1_settings_sweep:
@@ -76,34 +76,36 @@ part1_settings_sweep:
     leading_silence_s: 0.3373
     trailing_silence_s: 0.1312
 part2_label_error:
-  sanity_max_abs_diff: 6.0e-05
+  manifest_convention: speech
+  check_reference: VAD
+  sanity_max_abs_diff: 6.6e-05
   sanity_passed: true
   summary:
     overlap_achieved (mean):
-      file_boundary: 0.2846
-      vad: 0.2146
-      change_pct: -24.59
+      file_boundary: 0.3866
+      vad: 0.2753
+      change_pct: -28.78
     overlap_achieved (median):
-      file_boundary: 0.2642
-      vad: 0.1951
-      change_pct: -26.14
+      file_boundary: 0.356
+      vad: 0.2455
+      change_pct: -31.04
     target_activity (mean):
-      file_boundary: 0.6421
-      vad: 0.5552
-      change_pct: -13.54
+      file_boundary: 0.7033
+      vad: 0.6028
+      change_pct: -14.28
     interferer_activity (mean):
-      file_boundary: 0.4672
-      vad: 0.4071
-      change_pct: -12.87
-  overlap_collapses_to_zero: 12
-  outside_overlap_tolerance: 273
+      file_boundary: 0.5384
+      vad: 0.4584
+      change_pct: -14.86
+  overlap_collapses_to_zero: 0
+  outside_overlap_tolerance: 0
   overlap_tolerance: 0.03
   per_trial_abs_error:
-    mean: 0.07
-    p90: 0.148
-    max: 0.2702
+    mean: 0.1113
+    p90: 0.2159
+    max: 0.527
   interrupted:
-    old (file onsets): 0.57
-    'A: first onset per utterance': 0.505
-    'A'': first onset per trial': 0.495
-    'B: every speech onset': 0.725
+    old (file onsets): 0.555
+    'A: first onset per utterance': 0.5
+    'A'': first onset per trial': 0.4625
+    'B: every speech onset': 0.7975
