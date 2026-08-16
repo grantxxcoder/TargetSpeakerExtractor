@@ -1678,7 +1678,53 @@ nothing.
 - The notebook (`src/exploratory/data_setup.ipynb`) still describes the old
   numbers. The scoreboard above was reproduced standalone rather than by re-running
   it; §2, §7 and the health checks are a separate milestone item.
-- **`measure_vad_impact.py` must be re-run** — its Part 2 measures label error in
-  manifests that no longer exist in that form. Its Part 1 corpus figures are
-  unaffected.
+- **`measure_vad_impact.py` Part 2 was rewritten the same day** — see the entry
+  below. Re-running it is now worthwhile rather than fatal.
 - PR3 (enrollment offset) is untouched and still optional.
+
+## 2026-08-16 — `measure_vad_impact.py` Part 2 detects which manifest it is given
+
+**Problem: PR2 broke the measurement script that justified PR2.** Part 2's sanity
+check recomputed overlap the file-boundary way and asserted it reproduced the
+stored `overlap_achieved`. That held while the column *was* file-boundary overlap.
+After the rebuild the column is speech overlap, so the check compared two
+deliberately different quantities, measured `max|diff| = 0.553` against a 0.001
+threshold, and exited with "results are void".
+
+Caught before the re-run finished, not after acting on a bad number.
+
+**Fix: detect the convention instead of assuming it.** PR2 added
+`target_footprint_s` at the same time as it changed what `overlap_achieved` means,
+so the column's presence identifies the manifest's generation. Part 2 branches on it:
+
+| manifest | check asserts | what the file-vs-VAD gap means |
+|---|---|---|
+| pre-PR2 | file-boundary recompute == stored column | **live label error** — the measurement B2 was argued from |
+| post-PR2 | VAD recompute == stored column | **what B2 is worth** — how wrong these labels would be without it |
+
+Verified both ways. Against the backed-up pre-PR2 manifests the check still passes
+at 0.00006 and still reproduces the recorded ~25 % overstatement; against the
+rebuilt ones it passes at 0.00005.
+
+**Why detect rather than delete Part 2.** Deleting it would have made the numbers
+in the 2026-08-15 entry unre-derivable — a recorded figure nobody can reproduce is
+a claim, not a measurement. Keeping both paths means a supervisor can re-derive the
+before *and* the after from one script.
+
+Two smaller corrections fell out of the same pass:
+
+- **The activity rows were degenerate on a post-PR2 manifest.** They read
+  `target_activity` as the "file-bound" value, which is now the speech figure, so
+  the table printed a 0.0 % change under a heading that said otherwise. Activity is
+  now recomputed from `target_footprint_s` and the row reads −14.2 %, matching the
+  corpus speech/footprint ratio.
+- **"outside `overlap_tolerance`"** meant "how far placement must move" before the
+  rebuild and now means "trials that missed the overlap they requested". It should
+  be ~0 post-PR2, and measures 0/60 on the sample. Same number, opposite reading,
+  so the printed explanation switches with the branch.
+
+### Standing consequence
+
+Part 2 is now a **regression check** as well as a measurement: it fails loudly if a
+future change ever lets the manifests and the detector drift apart. That is worth
+more than the one-off audit it replaced.

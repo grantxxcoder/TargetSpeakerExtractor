@@ -13,17 +13,29 @@ the numbers can be re-derived rather than trusted.
           250 ms is visibly a decision and not a default.
 
   PART 2  Taking real manifest rows with their recorded onsets UNCHANGED, how
-          much of the recorded `overlap_achieved` survives when overlap is
-          measured from detected speech? This isolates pure label error: it is
-          how wrong the manifests are today, with placement held fixed.
+          far apart are file-boundary overlap and speech overlap? What that
+          means depends on which manifest you point it at, and the script
+          detects which by looking for PR2's `target_footprint_s` column:
+
+            pre-PR2 manifest   the gap IS the label error, because the stored
+                               column is file-boundary overlap. This is the
+                               measurement B2 was argued from.
+            post-PR2 manifest  the stored column is already speech overlap, so
+                               the gap is what B2 is worth -- how wrong these
+                               labels would be had it not been done.
 
   PART 3  The three candidate definitions of `interrupted`, measured side by
-          side. Option A was chosen 2026-08-15; this is what it was chosen over.
+          side. Option A was chosen 2026-08-15; this is what it was chosen over,
+          and post-PR2 it is what the manifests carry.
 
-Part 2's SANITY line prints first and must pass. It recomputes overlap the OLD
-way from the recorded onsets and checks it reproduces the stored column. If it
-does not, this script is misreading build_manifest.py's placement and every
-number below it is meaningless.
+Part 2's CHECK line prints first and must pass. It recomputes overlap the way
+the manifest's own generation measured it and confirms that reproduces the
+stored column. If it does not, this script is misreading build_manifest.py's
+placement and every number below it is meaningless.
+
+Pointing it at the pre-PR2 manifests still works and still reproduces the
+2026-08-16 "before" figures, which is the point of detecting rather than
+assuming: a recorded number nobody can re-derive is a claim, not a measurement.
 
 Nothing is written outside --out. No manifest is rebuilt.
 """
@@ -195,13 +207,21 @@ def part2(rng, manifest, sr, ls_root, subset, n, workers, tolerance):
     rows = [r for r in csv.DictReader(manifest.open()) if r["condition"] == "both"]
     sample = [rows[i] for i in rng.choice(len(rows), n, replace=False)]
 
+    # PR2 added *_footprint_s at the same time as it changed what *_speech_s and
+    # overlap_achieved mean, so the column's presence identifies the generation
+    # of the manifest. Detected rather than assumed, so the pre-PR2 numbers in
+    # decisions.md 2026-08-16 stay re-derivable from the backed-up manifests.
+    speech_based = "target_footprint_s" in rows[0]
+
     need = set()
     for r in sample:
         need |= set(r["target_utts"].split("|")) | set(r["interferer_utts"].split("|"))
     need = sorted(need)
 
     print("\n\n" + "=" * 86)
-    print(f"PART 2  --  label error in {manifest}, onsets UNCHANGED")
+    headline = ("agreement between the manifest and the detector"
+                if speech_based else "label error")
+    print(f"PART 2  --  {headline} in {manifest}, onsets UNCHANGED")
     print(f"            {n} `both` trials, {len(need)} distinct utterances, "
           f"setting: {CHOSEN}")
     print("=" * 86, flush=True)
@@ -230,8 +250,17 @@ def part2(rng, manifest, sr, ls_root, subset, n, workers, tolerance):
         rec.append(float(r["overlap_achieved"]))
         old.append(vad.shared_seconds(ts_file, is_file) / L)
         new.append(vad.shared_seconds(ts_vad, is_vad) / L)
-        t_old.append(float(r["target_activity"]))
-        i_old.append(float(r["interferer_activity"]))
+        # The file-boundary activity has to be recomputed on a post-PR2 manifest:
+        # its `target_activity` column is already the speech figure, so reading it
+        # here would compare the VAD number against itself and print 0.0 % change
+        # under a heading that says "file-bound". Pre-PR2 the column IS the
+        # file-boundary figure, so it is read directly.
+        if speech_based:
+            t_old.append(float(r["target_footprint_s"]) / L)
+            i_old.append(float(r["interferer_footprint_s"]) / L)
+        else:
+            t_old.append(float(r["target_activity"]))
+            i_old.append(float(r["interferer_activity"]))
         t_new.append(vad.total_speech(ts_vad) / L)
         i_new.append(vad.total_speech(is_vad) / L)
 
@@ -245,11 +274,24 @@ def part2(rng, manifest, sr, ls_root, subset, n, workers, tolerance):
         interr["B: every speech onset"].append(vad.is_interrupted(ts_vad, every))
 
     rec, old, new = map(np.array, (rec, old, new))
-    d = float(np.abs(old - rec).max())
+
+    # Which convention built this manifest decides what the check asserts.
+    # Pre-PR2 the stored column was file-boundary overlap, so `old` must
+    # reproduce it. Post-PR2 it is speech overlap, so `new` must. Asserting the
+    # wrong one is not a near miss -- the two differ by ~0.1 on every row.
+    reference, ref_name = ((new, "VAD") if speech_based
+                           else (old, "file-boundary"))
+    d = float(np.abs(reference - rec).max())
     ok = d < 1e-3
-    print(f"\n  SANITY  file-boundary overlap recomputed from the recorded onsets "
-          f"vs the stored\n          `overlap_achieved` column: max|diff| = {d:.5f}"
+    print(f"\n  CHECK   {ref_name} overlap recomputed from the recorded onsets vs the "
+          f"stored\n          `overlap_achieved` column: max|diff| = {d:.5f}"
           f"   {'OK' if ok else '*** MISMATCH -- everything below is void ***'}")
+    if speech_based:
+        print("          Post-PR2 manifest: the column IS the speech overlap, so this")
+        print("          is a regression check that the two have not drifted apart.")
+    else:
+        print("          Pre-PR2 manifest: the column is file-boundary overlap, so the")
+        print("          `change` column below is live label error, not a what-if.")
 
     print(f"\n  {'quantity':<32} {'file-bound':>11} {'VAD':>9} {'change':>9}")
     print("  " + "-" * 64)
@@ -265,22 +307,30 @@ def part2(rng, manifest, sr, ls_root, subset, n, workers, tolerance):
         print(f"  {name:<32} {a:>11.3f} {b:>9.3f} {100*(b/a-1):>8.1f}%")
 
     zero = int((new < 1e-6).sum())
-    moved = int(sum(abs(x - float(r["overlap_requested"])) > tolerance
-                    for x, r in zip(new, sample)))
+    missed = int(sum(abs(x - float(r["overlap_requested"])) > tolerance
+                     for x, r in zip(reference, sample)))
     err = np.abs(old - new)
     print(f"\n  overlap collapses to ZERO:          {zero}/{len(new)} "
           f"({100*zero/len(new):.1f} %)")
     print("      both speak, never simultaneously -- the shared interval is one")
     print("      speaker's trailing silence and the other's leading silence")
-    print(f"  outside overlap_tolerance {tolerance}:      {moved}/{len(new)} "
-          f"({100*moved/len(new):.1f} %)")
-    print("      NOT a rejection rate: PR2 re-runs best_onset against the new")
-    print("      measurement and re-places most of these. It is how far placement")
-    print("      must move, and an UPPER BOUND on rejections.")
+    print(f"  outside overlap_tolerance {tolerance}:      {missed}/{len(new)} "
+          f"({100*missed/len(new):.1f} %)")
+    if speech_based:
+        print("      trials whose ACHIEVED speech overlap missed what was REQUESTED.")
+        print("      Should be ~0: best_onset optimises against this exact quantity,")
+        print("      and a trial outside tolerance is rejected and redrawn.")
+    else:
+        print("      NOT a rejection rate: it measures how far placement must move")
+        print("      once overlap is remeasured, and is an UPPER BOUND on rejections.")
     print(f"  per-trial |file - VAD| overlap:      mean {err.mean():.3f}  "
           f"p90 {pct(err, 90):.3f}  max {err.max():.3f}")
-    print("      varies per trial, so no correction factor can fix it -- this is")
-    print("      what puts trials in the wrong B13 overlap bucket")
+    if speech_based:
+        print("      what B2 is worth on this placement: how wrong these labels")
+        print("      WOULD be if overlap were still read off file boundaries")
+    else:
+        print("      varies per trial, so no correction factor can fix it -- this is")
+        print("      what puts trials in the wrong B13 overlap bucket")
 
     print("\n\n" + "=" * 86)
     print("PART 3  --  candidate definitions of `interrupted`")
@@ -288,8 +338,11 @@ def part2(rng, manifest, sr, ls_root, subset, n, workers, tolerance):
     print(f"\n  {'definition':<32} {'rate':>8}   note")
     print("  " + "-" * 74)
     notes = {
-        "old (file onsets)": "what the manifests carry today",
-        "A: first onset per utterance": "CHOSEN 2026-08-15 -- minimal correction",
+        "old (file onsets)": ("the pre-PR2 reading, kept for contrast"
+                              if speech_based else "what the manifests carry today"),
+        "A: first onset per utterance": ("CHOSEN 2026-08-15 -- what the manifests "
+                                         "carry" if speech_based else
+                                         "CHOSEN 2026-08-15 -- minimal correction"),
         "A': first onset per trial": "only the interferer's very first word",
         "B: every speech onset": "a breath pause counts as a new turn",
     }
@@ -301,11 +354,13 @@ def part2(rng, manifest, sr, ls_root, subset, n, workers, tolerance):
     print("  project will report, which is why it is pinned in decisions.md.")
 
     return {
+        "manifest_convention": "speech" if speech_based else "file_boundary",
+        "check_reference": ref_name,
         "sanity_max_abs_diff": round(d, 6),
         "sanity_passed": ok,
         "summary": summary,
         "overlap_collapses_to_zero": zero,
-        "outside_overlap_tolerance": moved,
+        "outside_overlap_tolerance": missed,
         "overlap_tolerance": tolerance,
         "per_trial_abs_error": {"mean": round(float(err.mean()), 4),
                                 "p90": round(pct(err, 90), 4),
