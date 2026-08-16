@@ -48,10 +48,13 @@ What is left is implementation: B12's two PRs, then one manifest rebuild, then t
 renderer.
 
 **Schedule reality check.** The target is Aug 20 and no code is written yet. What
-makes it survivable is that manifest rebuilds take 58 s and training audio is
-generated on the fly, so only `val` and the two eval splits (~1,200 trials) need
-rendering to disk. The pilot calibration below is the item most likely to slip, and
-it depends on C2.
+makes it survivable is that manifest rebuilds take 58 s. **Superseded 2026-08-15:**
+this paragraph assumed training audio was generated on the fly, so only `val` and
+the two eval splits (~1,200 trials) needed rendering. All ~21,200 trials are now
+rendered to disk (~26 GB) — B7 had already turned off the per-epoch variety that
+justified on-the-fly, so it was recomputing identical audio every epoch. Render
+*after* B2's rebuild, never before. The pilot calibration below is still the item
+most likely to slip, and it depends on C2.
 
 Done:
 - [X] ~~Speaker-disjoint train / val / eval splits~~
@@ -89,29 +92,63 @@ B12 implementation, before the rebuild:
       overdue: PR2 changed the schema. `.gitignore:222` claims manifests are
       tracked, `/data/` on line 223 untracks them; none are in git~~
 
-Manifest rebuild — one pass covering all of:
-- [ ] **B9** — add `target_only_fraction`; let `target_activity_ratio` vary.
-      Silent-target trials are currently detectable at AUC 1.000 without
-      listening, and a target speaking uninterrupted never occurs
-- [ ] **B10** — three-tier enrollment guard with `enrollment_guard` recorded per
-      trial; assert enrollment and mixture never share an utterance
-- [ ] **B10** — `make_splits.py`: redraw eval pools so the guard-tier mix matches
-      between `eval_public` and `eval_private` (8/20 vs 3/20 weakest tier today)
-- [ ] **B4** — apply the decided absent fraction to the eval splits (currently 0.0);
-      the fraction itself follows B9
-- [ ] Define the **interruption** condition and add it as a column (B13's one
-      deferred part)
-- [ ] Re-run the §7.5 leak scoreboard afterwards, **per regime as well as pooled**,
-      and show the AUCs dropped
+Manifest rebuild — **done 2026-08-14 (PR3)**. Speaker-identity leak 0.795 -> 0.508,
+P(absent | no overlap) 1.000 -> 0.500, all 1,172 speakers now reach the present pool:
+- [X] ~~**B9** — add `target_only_fraction`; let `target_activity_ratio` vary.
+      Silent-target trials were detectable at AUC 1.000; a target speaking
+      uninterrupted never occurred. Both fixed~~
+- [X] ~~**B10** — three-tier enrollment guard with `enrollment_guard` recorded per
+      trial; assert enrollment and mixture never share an utterance~~
+- [X] ~~**B10** — `make_splits.py`: eval pools redrawn, stratified by guard tier as
+      well as sex. Weakest tier was 8/20 vs 3/20, now 6 vs 5~~
+- [X] ~~**B4** — eval splits carry the same composition as train (absent 0.25)~~
+- [X] ~~Define the **interruption** condition and add it as a column — an interferer
+      onset strictly inside a target utterance. 53.2 % of both-speaking trials~~
+- [X] ~~Re-run the leak scoreboard **per regime as well as pooled** — done; 0.497 /
+      0.505 within base / hard~~
+- [ ] **Scope decision 2026-08-14 consequences**: decide whether the AMI check is
+      restricted to <=2 active speakers or reported as an out-of-scope probe, and
+      write the two-speaker limitation into the thesis. See `decisions.md`
 
 Still unimplemented from `data-construction-parameters.md`:
-- [ ] **`noise_speech_rejection`** — the docs call it critical. Speech in the
-      noise bed enters as an unlabelled third talker and the metric scores those
-      words as hallucination. Needs audio, so it lands in the renderer
-- [ ] **B2 — voice-activity detection pass over the corpus**, cached alongside the
-      utterance index, so overlap is measured from where speech actually is. Name the
-      detector in the PR. Changes every overlap figure, so it belongs *before* the
-      rebuild, not after
+- [X] ~~**`noise_speech_rejection`** — done 2026-08-16, and *not* in the renderer as
+      planned: the screening pass already measured every clip, and the manifest is
+      what names the noise clip, so the pool is filtered before selection. Drop any
+      clip whose longest unbroken speech run reaches 0.5 s — 4.1 % of tr, 2.0 % of
+      cv, 1.3 % of tt. Takes effect at PR2's rebuild~~
+- [X] **B2 — voice-activity detection pass over the corpus** — **closed 2026-08-16**
+      except the optional PR3 below. Cached alongside the
+      utterance index, so overlap is measured from where speech actually is. Detector:
+      Silero VAD, `silero-vad` 6.2.1, pinned. Measured, reproducibly, 2026-08-16:
+      files are 86.2 % speech, overlap overstated ~25 %, per-trial error up to 0.270
+      so no correction factor can fix it. Changes every overlap figure, so it belongs
+      *before* the rebuild, not after
+  - [X] ~~**PR1** — `src/data/vad.py`, `scripts/build_vad_index.py`, `vad:` config
+        block, 30 unit tests, and `scripts/measure_vad_impact.py`. Result written
+        2026-08-16 (16 min, sanity passed) to
+        `experiments/results/2026-08-15-vad-impact/`. `build_manifest.py` untouched~~
+  - [X] ~~**Run the index**: `scripts/build_vad_index.py` — done 2026-08-15, 2.1 h,
+        137,876 utterances, 0 failures, 86.4 % speech. `data/index/vad_segments.csv`.
+        `scripts/screen_noise_speech.py` ran the same day, 25 min, 28,000 clips~~
+  - [X] ~~**PR2** — done 2026-08-16, branch `m0-b2-pr2-vad-wire`. Wired into
+        `build_manifest.py`; all six manifests rebuilt (train 2 min). Overlap labels
+        were wrong on 95.5 % of both-trials (mean 0.073, max 0.485) and are now exact.
+        Real speech overlap rose 0.212 -> 0.275 because `best_onset` finally hits the
+        requested amount. Leak scoreboard unchanged (AUC 0.648 -> 0.651, speaker prior
+        0.508 -> 0.503). `n_failed` 50 -> 62 of 20,000, so the 0.78 ceiling stands.
+        `check_manifest_parity.py` fails on all six, as designed~~
+  - [X] ~~**`target_activity_ratio` ceiling.** Lowered 0.85 -> 0.78 on 2026-08-16 in
+        both the global band and `base`, with a decisions.md entry. 0.85 of *speech*
+        needs 0.988 of the window filled with audio and realised footprint tops out
+        at 0.946, so it was unreachable; unreachable draws are dropped silently and
+        would have thinned the talkative end of the band. REAL-TSE's ~0.75 still sits
+        inside. **0.78 is near the edge, not inside it — check PR2's `n_failed` and
+        lower again if it is material**~~
+  - [ ] **PR3 (optional)** — enrollment offset. `enroll_offset` is drawn uniformly
+        anywhere in the file and `long_enough` filters on file duration, so a 5.2 s
+        file with 1.2 s of leading silence yields a "5 s enrollment" holding 4 s of
+        voice, against B10/A1's >=5 s. Separate PR: it changes enrollment quality,
+        not overlap measurement
 - [ ] `length_mode`
 
 Renderer (unblocked 2026-08-13):
@@ -129,7 +166,10 @@ Renderer (unblocked 2026-08-13):
 - [ ] Transcripts cut to match any audio truncation
 
 Notebook and verification:
-- [ ] §7.5 — leak scoreboard, **before** the rebuild so it is a before/after
+- [X] ~~§7.5 — leak scoreboard, **before** the rebuild so it is a before/after — done
+      2026-08-16 for B2 PR2, but run standalone against the backed-up pre-rebuild
+      manifests rather than in the notebook. Numbers in `decisions.md`. The notebook
+      cells themselves still print the old figures~~
 - [ ] §8 — `enrollment_eq` rate vs config, `same_gender` rate vs config
 - [ ] **EDA per parameter** — plot each parameter's realised distribution against
       the intended one (raised 2026-08-12, needed to verify B12)
@@ -141,8 +181,9 @@ Pilot calibration, before freezing any range:
 - [ ] Confirm conditions separate — bin by SIR and by overlap
 
 Housekeeping:
-- [ ] `requirements.txt` / `pyproject.toml` — none exists, and `pyloudnorm` is
-      now a real dependency
+- [X] ~~`requirements.txt` — added 2026-08-15 (`e1e2436`), 38 lines, versions pinned
+      exactly rather than loosely, since the VAD weights define what "overlap" means.
+      No `pyproject.toml`; not needed while this is a scripts-and-modules repo~~
 - [X] ~~`.gitignore`: `data/` was unanchored and matched `docs/data/` too, so all 8
       files there were untracked. Anchored to `/data/` 2026-08-13~~
 

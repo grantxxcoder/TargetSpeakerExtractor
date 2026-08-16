@@ -116,13 +116,20 @@ Different speakers in every column. Speaker-disjoint, enforced by
 |---|---|---|
 | LibriSpeech | ~30 GB | yes, permanently |
 | WHAM! noise, converted | ~6 GB | yes, permanently |
-| Training mixtures | 0 GB | generated on the fly, never stored |
+| Training mixtures | ~26 GB | yes, rendered once (decisions.md 2026-08-15) |
 | Val + eval mixtures | ~2–5 GB | yes, frozen |
 | AMI subset | ~10–80 GB | later, optional |
 
-Do not delete LibriSpeech or WHAM! after generating. On-the-fly training
-means those corpora *are* the training set, and a logged seed only
-reproduces a run while they still exist.
+**Changed 2026-08-15**: training mixtures were previously "0 GB, generated on
+the fly, never stored". They are now rendered to disk like every other split.
+The on-the-fly plan rested on the training set "never repeating", which B7
+turned off the same day — with fixed draws it repeats byte-for-byte, so
+regenerating each epoch bought nothing and risked a CPU-bound dataloader
+starving the GPU. See `docs/decisions/decisions.md` 2026-08-15.
+
+Do not delete LibriSpeech or WHAM! after rendering. They are still needed to
+re-render after any manifest rebuild, and a logged seed only reproduces a run
+while they exist.
 
 ## See also
 

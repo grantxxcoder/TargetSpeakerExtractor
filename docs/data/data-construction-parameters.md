@@ -247,16 +247,23 @@ in the metric.
 **WHAM! tr → train, cv → val, tt → eval. Never cross.**
 A noise clip heard in training must not appear in eval.
 
-### `noise_speech_rejection` — **not yet implemented**
-**Reject any noise segment whose own speech content exceeds −6 dB. Resample.**
-*Status: `build_manifest.py` picks a clip and offset at random with no speech
-check. Implementing it needs audio, so it belongs in the renderer or in a
-manifest post-pass, and the accepted offset must be written back to the
-manifest to stay reproducible.*
+### `noise_speech_rejection` — **implemented 2026-08-16**
+**Drop any WHAM! clip whose longest unbroken run of detected speech reaches
+0.5 s.** Config `noise_speech_rejection.max_speech_run_s`; applied by
+`reject_speech_clips()` in `build_manifest.py`, which filters the pool *before*
+a clip is drawn. Costs 4.1 % of tr, 2.0 % of cv, 1.3 % of tt.
 Critical for this project specifically: intelligible speech in the noise bed
 enters as an unlabelled third talker, and the metric would score those words as
 hallucination when the extractor faithfully passed through what was there.
-*WHAMR! `SNR_THRESH` (`noisesampler.py:45-62`).*
+
+*Borrowed in intent from WHAMR! `SNR_THRESH` (`noisesampler.py:45-62`), but the
+rule diverges and must not be described as theirs.* WHAMR! thresholds the noise
+segment's speech **energy** at −6 dB; we threshold the **duration of a detected
+speech run** using the Silero pass B2 already pays for. Reason: our failure mode
+is words being transcribed, and a quiet-but-clear background talker is a
+transcription risk at an energy WHAMR!'s test would pass. Whole clips are
+rejected rather than offsets resampled, so nothing has to be written back to the
+manifest. decisions.md 2026-08-16.
 
 ---
 

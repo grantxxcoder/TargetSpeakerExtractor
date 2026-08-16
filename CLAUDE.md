@@ -33,6 +33,14 @@ Working setup:
    measured as a *reference condition* in the benchmark (extractor →
    off-the-shelf ASR → text → judge), never optimised for and never built.
    See docs/decisions/decisions.md and docs/data/metric-definitions.md §3.5.
+6. **Two speakers, not multi-party.** A trial is the target, at most one
+   other speaker, and noise. Two simultaneous non-target speakers never
+   occur — a declared boundary of the task, decided 2026-08-14, not a gap to
+   be filled. Do not propose adding a third talker; that decision was taken
+   with the cost measured. Consequence to carry: "two overlapping voices"
+   proves the target is present in our data, our own eval cannot detect a
+   model exploiting that, and every claim must say *two-speaker mixtures*,
+   never "conversation". See docs/decisions/decisions.md 2026-08-14.
 
 We are NOT replicating the REAL-TSE Challenge baselines or its eval
 pipeline (spec note 8). We borrow ideas, data-construction methods and
@@ -46,6 +54,10 @@ real conversational TSE.
 - Every experiment result gets logged in experiments/results/ with: the
   config used, the git commit hash, the metrics, and the date.
 - Set and log a random seed for every run.
+- Any script or job taking over a minute gets a row in docs/run_times.md:
+  date, command, scope, wall time. One line, no prose. Never estimate a
+  runtime in conversation without checking that file first, and never
+  report a projection as if it were measured.
 - When implementing something from a paper, cite it (author, year) in a
   code comment at the top of the file/function.
 - After any nontrivial change, explain in plain language what the code

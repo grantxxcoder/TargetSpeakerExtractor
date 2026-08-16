@@ -85,34 +85,109 @@ def parse_speakers(speakers_txt: Path) -> list[dict]:
     return rows
 
 
-def stratified_halves(speakers: list[dict], seed: int) -> tuple[list[str], list[str]]:
-    """Split speakers into two halves, balanced by sex, deterministically.
+def parse_chapters(chapters_txt: Path) -> dict[str, tuple[str, str]]:
+    """{chapter_id: (speaker_id, book_id)} from LibriSpeech CHAPTERS.TXT."""
+    out = {}
+    for line in chapters_txt.read_text(encoding="utf-8", errors="replace").splitlines():
+        if not line.strip() or line.lstrip().startswith(";"):
+            continue
+        parts = [p.strip() for p in line.split("|")]
+        if len(parts) < 6:
+            continue
+        out[parts[0]] = (parts[1], parts[5])
+    return out
 
-    Deterministic without importing `random`: speakers are ordered by a hash
-    of (seed, speaker id), then alternately dealt into the two halves within
-    each sex group. Same inputs always give the same output, on any machine,
-    on any Python version — which `random.shuffle` does not guarantee across
-    versions.
+
+def guard_tier(speaker_id: str, chapters: dict[str, tuple[str, str]]) -> str:
+    """The strongest B10 enrollment-guard tier this speaker can support.
+
+        book      2+ books      -> enrollment from a different book
+        chapter   1 book, 2+ chapters -> only a same-book chapter is free
+        utterance a single chapter     -> only another utterance of it is free
+
+    decisions.md 2026-08-13 (B10). Computed from CHAPTERS.TXT rather than from
+    the utterance index, because the split assignment is pinned before any
+    index exists.
     """
-    by_sex: dict[str, list[str]] = defaultdict(list)
-    for s in speakers:
-        by_sex[s["sex"]].append(s["id"])
+    books = {b for spk, b in chapters.values() if spk == speaker_id}
+    n_chapters = sum(1 for spk, _ in chapters.values() if spk == speaker_id)
+    if len(books) >= 2:
+        return "book"
+    return "chapter" if n_chapters >= 2 else "utterance"
 
-    a: list[str] = []
-    b: list[str] = []
-    # The counter runs ACROSS sex groups, not within them. If it reset per
-    # group, every odd-sized group would hand its extra speaker to `a`, and
-    # two odd groups would give a 21/19 split instead of 20/20.
-    n = 0
-    for sex in sorted(by_sex):
-        ordered = sorted(
-            by_sex[sex],
-            key=lambda sid: hashlib.sha256(f"{seed}:{sid}".encode()).hexdigest(),
-        )
-        for sid in ordered:
-            (a if n % 2 == 0 else b).append(sid)
-            n += 1
-    return sorted(a, key=int), sorted(b, key=int)
+
+def stratified_halves(speakers: list[dict], seed: int,
+                      tier_of: dict[str, str] | None = None
+                      ) -> tuple[list[str], list[str]]:
+    """Split speakers into two halves, balanced by sex AND enrollment-guard
+    tier, deterministically.
+
+    Tier balancing added for B10. The three tiers are unevenly spread across
+    test-clean: dealing on sex alone gave `eval_public` 8 of 20 speakers in the
+    weakest tier against `eval_private`'s 3 of 20, which would have made
+    eval_public systematically the easier set — a confound between the two eval
+    sets before any system is measured.
+
+    Deterministic without importing `random`: speakers are ordered by a hash of
+    (seed, speaker id), then alternately dealt into the two halves within each
+    stratum. Same inputs always give the same output, on any machine and any
+    Python version — which `random.shuffle` does not guarantee across versions.
+    """
+    by_stratum: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for s in speakers:
+        tier = tier_of.get(s["id"], "") if tier_of else ""
+        by_stratum[(s["sex"], tier)].append(s["id"])
+
+    strata = sorted(by_stratum)
+    ordered = {
+        k: sorted(by_stratum[k],
+                  key=lambda sid: hashlib.sha256(f"{seed}:{sid}".encode()).hexdigest())
+        for k in strata
+    }
+    sexes = sorted({k[0] for k in strata})
+    tiers = sorted({k[1] for k in strata})
+
+    def deal(mask: int) -> tuple[list[str], list[str]]:
+        """Alternate within each stratum; bit i of `mask` says which half that
+        stratum starts with."""
+        a: list[str] = []
+        b: list[str] = []
+        for i, k in enumerate(strata):
+            first = (mask >> i) & 1
+            for j, sid in enumerate(ordered[k]):
+                (b if (j + first) % 2 else a).append(sid)
+        return a, b
+
+    def balanced(a: list[str], b: list[str]) -> bool:
+        if len(a) != len(b):
+            return False
+        sex_of = {s["id"]: s["sex"] for s in speakers}
+        for sex in sexes:
+            if abs(sum(sex_of[s] == sex for s in a)
+                   - sum(sex_of[s] == sex for s in b)) > 1:
+                return False
+        if tier_of:
+            for tier in tiers:
+                if abs(sum(tier_of[s] == tier for s in a)
+                       - sum(tier_of[s] == tier for s in b)) > 1:
+                    return False
+        return True
+
+    # Alternating within a stratum keeps that stratum balanced, but the leftover
+    # from each odd-sized stratum has to be steered, or the extras all land on
+    # the same side and one axis goes out of balance (dealing with a single
+    # counter across strata gave 7 vs 5 on the `book` tier). Which side each
+    # stratum starts on is the only free choice, so enumerate those choices in a
+    # fixed order and take the first that balances every axis at once. At most
+    # 2^6 combinations for six strata, and the lowest satisfying mask is
+    # deterministic, so this reproduces exactly on any machine.
+    for mask in range(1 << len(strata)):
+        a, b = deal(mask)
+        if balanced(a, b):
+            return sorted(a, key=int), sorted(b, key=int)
+    raise RuntimeError(
+        f"no split balances sex and guard tier across {len(strata)} strata: "
+        f"{ {k: len(v) for k, v in by_stratum.items()} }")
 
 
 def deterministic_sample(ids: list[str], n: int, seed: int, tag: str) -> list[str]:
@@ -176,7 +251,15 @@ def main() -> None:
     train = sorted((r["id"] for r in in_subsets(TRAIN_SUBSETS)), key=int)
     val = sorted((r["id"] for r in in_subsets(VAL_SUBSETS)), key=int)
     eval_rows = in_subsets(EVAL_SUBSETS)
-    eval_public, eval_private = stratified_halves(eval_rows, args.seed)
+
+    # B10: the eval halves are stratified by enrollment-guard tier as well as
+    # by sex, so neither set is systematically the easier one.
+    chapters_txt = Path(args.librispeech_root) / "CHAPTERS.TXT"
+    if not chapters_txt.exists():
+        sys.exit(f"ERROR: {chapters_txt} not found. Needed for B10 tier balancing.")
+    chapters = parse_chapters(chapters_txt)
+    tier_of = {r["id"]: guard_tier(r["id"], chapters) for r in eval_rows}
+    eval_public, eval_private = stratified_halves(eval_rows, args.seed, tier_of)
 
     smoke_train = deterministic_sample(train, SMOKE_TRAIN_SPEAKERS, args.seed, "smoke_train")
     smoke_val = deterministic_sample(val, SMOKE_VAL_SPEAKERS, args.seed, "smoke_val")
@@ -211,6 +294,14 @@ def main() -> None:
         n_pub = sum(1 for s in eval_public if sex_of[s] == sex)
         n_prv = sum(1 for s in eval_private if sex_of[s] == sex)
         assert abs(n_pub - n_prv) <= 1, f"sex {sex} unbalanced: {n_pub} vs {n_prv}"
+
+    # B10: and the same for guard tier. Without this the two eval sets differ
+    # in difficulty before any system is measured.
+    for tier in sorted(set(tier_of.values())):
+        n_pub = sum(1 for s in eval_public if tier_of[s] == tier)
+        n_prv = sum(1 for s in eval_private if tier_of[s] == tier)
+        assert abs(n_pub - n_prv) <= 1, (
+            f"guard tier {tier} unbalanced: {n_pub} vs {n_prv}")
 
     # SPEAKERS.TXT lists all 2,484 LibriSpeech speakers regardless of which
     # archives you extracted, so this can only catch a corrupted or edited
@@ -306,6 +397,10 @@ smoke_val:
     print(f"Wrote {out}")
     for k, v in actual.items():
         print(f"  {k:<13} {v:>5} speakers")
+    for half, name in ((eval_public, "eval_public"), (eval_private, "eval_private")):
+        mix = {t: sum(1 for s in half if tier_of[s] == t)
+               for t in sorted(set(tier_of.values()))}
+        print(f"  {name:<13} guard tiers {mix}")
     print(f"  smoke_train   {len(smoke_train):>5} speakers (subset of train)")
     print(f"  smoke_val     {len(smoke_val):>5} speakers (subset of val)")
     print(f"  seed={args.seed}  commit={commit}")

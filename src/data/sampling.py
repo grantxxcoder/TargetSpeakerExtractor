@@ -113,6 +113,15 @@ def split_config(config, split):
     split_cfg = dict(config["splits"][split])
     regimes = split_cfg.pop("regimes", config.get("regimes"))
     cfg = {**config["defaults"], **split_cfg}
+
+    # B9 replaced `target_absent_fraction` with a four-way composition. It is
+    # derived here rather than configured, so the two can never disagree: a
+    # config carrying both would let the stated absent rate drift away from the
+    # rate actually drawn, and nothing would report the difference.
+    comp = cfg.get("composition")
+    if comp:
+        cfg["target_absent_fraction"] = (float(comp["interferer_only"])
+                                         + float(comp["noise_only"]))
     return {"defaults": cfg, "regimes": regimes}, cfg
 
 

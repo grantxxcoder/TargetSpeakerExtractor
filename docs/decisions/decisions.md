@@ -553,8 +553,9 @@ write-up must state this as a known limitation, not omit it.**
 
 Considered and rejected: leaving the noise in the reference too (remove only the
 competing voice). `snr_db` runs down to 0.0, where the bed is as loud as the target
-and masks words even though it contains none — `noise_speech_rejection` (not yet
-implemented) guarantees no intelligible speech in it. Non-intelligible noise cannot
+and masks words even though it contains none — `noise_speech_rejection`
+(implemented 2026-08-16) screens intelligible speech out of it, though it screens
+rather than guarantees. Non-intelligible noise cannot
 make the judge hear *wrong* words but can stop it hearing the right ones, and
 denoising needs no lookahead, so it is affordable online in a way dereverberation
 is not.
@@ -1105,3 +1106,625 @@ is pinned by a named unit test instead.
 `t60_s` floor 0.15 → 0.25 as intended; regime mix 0.60 / 0.40 exactly. In the eval
 splits only the room columns moved, because `t60_s` is drawn from the `room` stream —
 speech, levels, enrollment and noise are bit-identical to before.
+
+## 2026-08-14 — PR3: B9, B10 and B4 implemented; both label leaks closed
+
+Implements B9, B10 and B4 in one rebuild, as the milestone requires. Measured on
+`train` (19,950 trials), before against after:
+
+| leak | before | after |
+|---|---|---|
+| enrolled-speaker identity predicts absence | **0.795** | **0.508** |
+| `overlap_achieved` predicts absence | **0.000** (perfect) | 0.169 |
+| P(target absent \| no overlap at all) | 1.000 | **0.500** |
+| distinct speakers that ever appear as a present target | 467 of 1,172 | **1,172** |
+| unsatisfiable trials | 431 | **50** |
+
+**B10 is fully closed.** The three-tier guard keeps every speaker, so speaker
+identity is at chance. Guard tiers on present `train` trials: `chapter` 6,040,
+`book` 5,866, `utterance` 2,992.
+
+**B9 hits its stated target exactly.** P(absent | no overlap) is 0.500 over 10,102
+trials, and 0.497 / 0.505 within `base` / `hard` separately, as B12 requires.
+
+### Two decisions taken inside PR3
+
+**The `overlap_ratio` floor drops 0.2 → 0.0.** B9's fix needs zero-overlap trials on
+the *present* side, which the old floor forbade. This is **not** the ceiling
+narrowing 0.7 → 0.45 that `difficulty-dial.md` §3 defers to supervisor agreement —
+the ceiling is untouched, so the deliberate match to REAL-TSE still holds. The band
+is clipped per trial to `target_activity_ratio`, because a speaker cannot overlap
+more of the window than they speak in.
+
+**Absent trials record the strongest guard tier their speaker could support**, rather
+than a `n/a` sentinel. A value appearing only on absent rows would itself separate
+absent from present — the exact class of giveaway B10 exists to remove.
+
+### What PR3 did NOT fix, stated plainly
+
+The composition balances the *overlap* shortcut perfectly but cannot balance every
+shortcut at once. What a listener can infer without identifying whose voice it is:
+
+| voices heard | share | P(target absent) |
+|---|---|---|
+| 2 | 49.4 % | **0.000** |
+| 1 | 45.7 % | 0.447 |
+| 0 | 4.9 % | **1.000** |
+
+- **Two voices ⇒ target present, always.** Unavoidable while every absent trial has
+  exactly one interferer; removing it needs a two-interferer condition, which B9 did
+  not specify. The model must still consult the enrollment to know *which* voice to
+  keep, so this shortens the silence decision without answering the extraction one.
+- **No voices ⇒ absent, always.** Benign: when nobody speaks at all, emitting silence
+  is the correct behaviour, so the shortcut and the right answer coincide.
+- **`interferer_activity` rose 0.614 → 0.648**, against B9's expectation that it would
+  fall. Cause: `target_only` trials have no interferer at all, so their
+  `interferer_activity` is 0 on the *present* side, widening the gap rather than
+  closing it. It is a consequence of the four-way composition, not of the shadow-draw
+  logic B9 blamed.
+
+The algebra is forced: with `t` = target_only and `n` = noise_only, requiring both
+P(absent | no overlap) = 0.5 and P(absent | one voice) = 0.5 gives `n = 0`. B9 chose
+to balance the overlap shortcut, and 0.05 of noise-only trials is the price.
+
+### Other changes
+
+- `make_splits.py` stratifies the eval halves by guard tier as well as sex. Weakest
+  tier was 8/20 vs 3/20; it is now 6 vs 5, every tier within 1. The old single
+  running counter could not balance two axes at once, so the halves are now chosen by
+  a deterministic search over which side each stratum starts on.
+- `index_utterances` verifies its cache against `splits.yaml`. Redrawing the eval
+  pools left caches describing the previous speakers, and every downstream
+  disjointness check reads that same file, so a stale cache would have passed silently.
+- **New columns:** `condition` (B9's four types), `enrollment_guard` (B10),
+  `interrupted` (B13's deferred condition — an interferer onset strictly inside a
+  target utterance; 53.2 % of both-speaking trials).
+- `target_absent_fraction` is now **derived** from `composition` in `split_config`,
+  so the stated and drawn rates cannot drift apart.
+
+## 2026-08-14 — Scope: the task is two-person conversation. At most one interferer
+
+**Decision (GB, 2026-08-14): the constructed set models a conversation between two
+people. A trial contains the target, at most one other speaker, and noise. Two
+simultaneous non-target speakers never occur, and that is a declared boundary of the
+task rather than a gap in the data.**
+
+Taken in response to the PR3 measurement below, having seen the cost. The
+alternative — a fifth `two_interferers` condition — was considered and rejected.
+
+### Why
+
+- **It is a scope boundary, so declare it rather than approximate it.** A system
+  evaluated on two-speaker mixtures and reported as a two-speaker system is honest. A
+  system given a token 10 % of three-speaker trials would be neither properly trained
+  for multi-party nor properly scoped, and the headline number would quietly claim
+  more than the data supports.
+- **It matches the anchor.** Libri2Mix and the REAL-TSE two-speaker framing are both
+  two-talker constructions, and `overlap_ratio` and `target_activity_ratio` are
+  already tuned to that anchor. Adding a third talker diverges from it on a second
+  axis, without the supervisor agreement that `difficulty-dial.md` §3 requires for the
+  first.
+- **The interference model stays interpretable.** `sir_db` is defined as a ratio
+  between two voices. With two interferers it becomes a ratio to a sum, and every SIR
+  figure in every table would silently change meaning.
+
+### Consequences — all of these must be carried, not forgotten
+
+**1. "Two overlapping voices" proves the target is present, permanently.** Measured on
+`train` (19,950 trials): 9,858 trials have two voices, and `P(target absent | two
+voices) = 0.000`. This is now a property of the task definition, not a defect.
+
+**2. Our own benchmark cannot detect a model that exploits it.** The eval splits carry
+the same composition, so a system that learns *"two voices → produce output"* scores
+normally. **No number this project reports will reveal this behaviour.** That is the
+price of the decision and it must be stated wherever the results are.
+
+**3. Every claim must be scoped in words, not just in the appendix.** Results are
+about *target speaker extraction from two-speaker mixtures*. They must never be
+written as though they generalise to meetings, multi-party audio, or "conversation" in
+general.
+
+**4. The AMI secondary check changes meaning.** AMI is multi-party, so it contains
+exactly the condition this decision excludes. Two options, and one must be chosen
+before that check is run:
+   - restrict the AMI trial set to segments where at most two speakers are active, so
+     it tests transfer to real audio within the declared scope; or
+   - keep AMI as-is and report it explicitly as an **out-of-scope generalisation
+     probe**, where a poor result is expected and is not evidence of a bad extractor.
+   The first is the honest transfer check; the second measures something else. Do not
+   run it without deciding which.
+
+**5. Hallucination on unseen multi-party audio is an untested failure mode.** A model
+may emit an interferer's words as the target's when two non-target voices overlap.
+Under the content-fidelity metric that is the most damaging error class there is, and
+nothing in this project measures it. It belongs in the thesis limitations section as
+a named, quantified gap — not as a caveat sentence.
+
+**6. `noise_only` and one-voice trials are unaffected.** For completeness, the other
+two composition residuals are benign and stay as they are: *no voices → absent* is
+correct behaviour rather than a shortcut (silence is the right output when nobody
+speaks), and *one voice → 44.7 % absent* is close enough to a coin flip to carry
+almost no information.
+
+### What would reopen this
+
+Evidence that the live judge's content-fidelity score is dominated by hallucinated
+interferer speech, or a supervisor requirement for multi-party. Reopening means a
+fifth condition and one rebuild — cheap while no audio exists, and progressively more
+expensive once eval audio is rendered and judged.
+
+## 2026-08-15 — B2 evidence: LibriSpeech is 86 % speech; overlap is overstated by 25 %
+
+Measurement only. No code changed, no manifest rebuilt. This entry is the evidence
+the B2 implementation rests on, recorded before it is written.
+
+**Detector:** `silero-vad` 6.2.1 (Silero Team, 2021, `snakers4/silero-vad`), pip
+package so the weights are local and pinned — `torch.hub` would refetch at runtime and
+could silently change every number below. Settings `threshold=0.5`,
+`min_speech_duration_ms=100`, `speech_pad_ms=30`, and `min_silence_duration_ms` swept.
+
+**Measured against** `data/manifests/` as built at commit `110e64e` (PR3), seed 42.
+Part 1: 2,000 utterances sampled from the 137,876 in `data/index/` (6.92 h).
+Part 2: 400 `both` trials from `train.csv` (864 distinct utterances).
+
+### Part 1 — how much of an utterance file is speech
+
+**Numbers below are the reproducible run of 2026-08-16**, not the original spike —
+see *Reproduction* at the end of this entry. They move the spike's figures in the
+third decimal and change no conclusion.
+
+| `min_silence_ms` | speech/dur | median | p10 | p90 | segments | lead_s | trail_s |
+|---|---|---|---|---|---|---|---|
+| 100 (silero default) | 0.850 | 0.860 | 0.754 | 0.934 | 3.76 | 0.326 | 0.161 |
+| 200 | 0.858 | 0.870 | 0.760 | 0.943 | 3.24 | 0.326 | 0.135 |
+| **250 (chosen)** | **0.862** | **0.873** | **0.762** | **0.947** | **3.09** | **0.326** | **0.121** |
+| 300 | 0.870 | 0.882 | 0.772 | 0.954 | 2.79 | 0.326 | 0.102 |
+| 500 | 0.899 | 0.911 | 0.805 | 0.979 | 2.08 | 0.326 | 0.005 |
+
+Threshold sensitivity at 250 ms: 0.873 at 0.3, 0.862 at 0.5, 0.854 at 0.7.
+
+**`min_silence_duration_ms` = 250 ms**, recorded in `generator.yaml`. The whole
+100–500 ms range spans only 0.850–0.899, so the headline is robust to the choice —
+that is the main reason to be comfortable with it. 500 ms is rejected: trailing
+silence collapses to 0.005 s, i.e. it absorbs end-of-file silence into speech.
+
+**Two systematic offsets, and they are the cause of everything in Part 2:**
+
+- **Leading silence 0.326 s per utterance**, near-identical at every setting
+  (0.313–0.337 across the threshold sweep). Every LibriSpeech utterance begins about
+  a third of a second after its file does.
+- **Trailing silence 0.121 s** at the chosen setting.
+
+These are biases, not noise, and they compound: a target and an interferer placed
+adjacent are each offset inward, so the generator systematically believes they
+coincide more than they do. Carry these figures wherever an overlap number is quoted.
+
+### Part 2 — the label error in the manifests as they stand
+
+Onsets held **unchanged**; only the measurement differs. Sanity check: recomputing
+overlap the old way from the recorded onsets reproduces the stored
+`overlap_achieved` to max |diff| 0.00006, so the placement code is being read
+correctly.
+
+| quantity | file-boundary | VAD | change |
+|---|---|---|---|
+| `overlap_achieved` (mean) | 0.285 | **0.215** | **−24.6 %** |
+| `overlap_achieved` (median) | 0.264 | 0.195 | −26.1 % |
+| `target_activity` (mean) | 0.642 | 0.555 | −13.5 % |
+| `interferer_activity` (mean) | 0.467 | 0.407 | −12.9 % |
+| `interrupted` (rate) | 0.570 | **0.505** | **−11.4 %** |
+
+Per-trial |file − VAD| overlap: mean 0.070, p90 0.148, max 0.270.
+
+**The `interrupted` row was wrong until 2026-08-16** and is corrected here. It
+reported 0.725, which is definition **B** — the reading Part 3 *rejected*. Under
+the chosen definition A the rate **falls** to 0.505. Consequence 1 below was
+written against the old row and has been rewritten to match.
+
+**The per-trial spread is the reason this cannot be patched with a correction
+factor.** A uniform −25 % would leave the B13 overlap strata intact; an error that
+varies from 0 to 0.270 per trial puts individual trials in the wrong bucket, and the
+per-condition table is the thesis's central artefact.
+
+**Overlap collapsing to zero: 12/400 (3.0 %).** Both speakers are talking, but never
+simultaneously — the shared interval falls entirely inside one speaker's leading
+silence and the other's trailing silence. Turn-taking recorded as talking over each
+other. That this is *small* is the reassuring part: the overlap in the data is mostly
+genuine, just consistently overstated.
+
+### Three consequences for the implementation
+
+**1. `interrupted` moves, and the cause is definitional. RESOLVED — option A.**
+The old test checks one moment per interferer utterance (its file onset). A VAD test
+could check *every* speech-segment onset, ~3 per utterance, which makes an interferer
+*resuming after their own breath pause* mid-target-sentence count as an interruption.
+
+Measured side by side (Part 3, 400 `both` trials):
+
+| definition | rate | |
+|---|---|---|
+| old (file onsets) | 0.570 | what the manifests carry today |
+| **A: first speech onset per utterance** | **0.505** | **CHOSEN** |
+| A′: first speech onset per trial | 0.495 | only the interferer's very first word |
+| B: every speech onset | 0.725 | a breath pause starts a new turn |
+
+**Decision (GB, 2026-08-15): option A.** It is the minimal correction to the
+2026-08-14 definition — the same number of events as the old test, each moved by the
+~0.326 s of leading silence — so `interrupted` keeps meaning "began a turn while you
+were mid-sentence". B does not correct the old definition, it *widens* it, and the
+0.570 → 0.725 rise would be an artefact of that widening rather than a measurement.
+Implemented as `vad.onsets_of(..., first_only=True)`.
+
+**The spread across definitions (0.495–0.725) is wider than most effects this
+project will report**, on a B13 reporting condition. That is why it is pinned here
+rather than left to the implementation, and why any `interrupted` figure must state
+which definition produced it.
+
+**2. The "69 % outside `overlap_tolerance`" figure is NOT a rejection rate.** It was
+labelled that in the spike; that label is wrong. It measures trials whose overlap
+drifts outside tolerance *with placement held fixed*, and the implementation re-runs
+`best_onset` against the new measurement, which re-places most of them. It is
+therefore a measure of how far placement must move, and an upper bound on rejections.
+The true rate cannot be estimated without building it.
+
+**3. The top of `target_activity_ratio` becomes unreachable.** Realised footprint
+activity already reaches p99 0.910 and max 0.946 (`activity_tolerance: 0.1` carries it
+past the 0.85 config ceiling). Achieving 0.85 of *speech* would need 0.85/0.86 = 0.988
+of the window filled with audio, beyond anything currently achieved and leaving no room
+for the gaps `lay_out` requires. The practical ceiling lands near 0.78–0.80. The
+REAL-TSE anchor of ~0.75 still sits inside that, so the band needs adjusting rather
+than abandoning — but it is a recorded decision, not a silent config edit.
+**Done 2026-08-16: lowered to 0.78.** See that entry.
+
+### Why this is done before the renderer, not after
+
+The audio is unaffected — mixtures still contain the pauses, which is what real speech
+sounds like. Only the labels and the placement change. But every overlap and activity
+column in all six manifests moves, so it forces a rebuild, and a rebuild is cheap only
+while no audio exists. `milestones.md` already places B2 before the rebuild for this
+reason.
+
+### Precision footnote
+
+These numbers were first measured with Silero's `return_seconds=True`, which also
+rounds boundaries to `time_resolution` decimal places — defaulting to **one**, i.e.
+0.1 s. Re-measured on 600 utterances with sample-accurate boundaries, mean
+speech/duration moves only 0.8655 -> 0.8668 and leading silence 0.321 -> 0.317, so
+the figures above stand. Individual utterances move by up to 0.042 though, and
+per-trial precision is exactly what overlap bucketing needs, so `src/data/vad.py`
+takes sample indices and divides itself rather than using `return_seconds`.
+
+### Reproduction
+
+Promoted from a throwaway spike to `scripts/measure_vad_impact.py`, so a supervisor
+can re-derive every figure rather than take them on trust:
+
+    ../tse_venv/bin/python scripts/measure_vad_impact.py
+
+**Actually run 2026-08-16, 16 min**, against `train.csv` as built at
+`42a3854`, config md5 `d8bf16d`, seed 42. The sanity check passed at max |diff|
+0.00006. Output — `report.txt` plus `meta.yaml` with commit hash, seed, detector
+version and the manifest's own build commit — is in
+`experiments/results/2026-08-15-vad-impact/`. The directory keeps the 2026-08-15
+date of the decision it supports; `meta.yaml` carries the true run date.
+
+**Every table above now comes from that run**, replacing the spike's figures. The
+differences are third-decimal and change no conclusion, with one exception: the
+spike's `interrupted` row reported definition B rather than the chosen A, and is
+corrected in Part 2. This must be re-run after PR2 rebuilds the manifests, because
+Part 2 measures label error in manifests that will no longer exist in that form.
+
+## 2026-08-15 — Training audio is pre-rendered to disk, not generated on the fly
+
+**Decision (GB, 2026-08-15): render the training mixtures to disk once, the same
+way `val` and the two eval splits already are. On-the-fly generation is removed
+from the plan and kept only as the mechanism B7 would need if it were ever
+switched on.**
+
+Supersedes `docs/data/data-setup.md` and `docs/data/data-map.md`, both of which
+asserted "0 GB, generated on the fly, never stored" as settled fact.
+
+### Why the original reason no longer holds
+
+`data-setup.md` justified on-the-fly generation because the training set would
+then "cost no disk and **never repeat**". B7, decided the same day, turned the
+repetition off:
+
+> Rebuilding mixtures with fresh loudness and room draws every epoch gives the
+> model more variety, but the run can then no longer be reproduced from the
+> manifest alone. **Decision: off for the main run.**
+
+With B7 off every draw is fixed in the manifest, so on-the-fly rendering produces
+byte-identical audio on every epoch. It repeats exactly. The variety argument
+therefore justifies nothing, and what remains is recomputing the same 20,000
+mixtures for the lifetime of every training run.
+
+### The other two arguments, checked rather than assumed
+
+**Disk.** 251 GB free. The rendered training set is ~26 GB as 16-bit PCM at
+16 kHz (20,000 trials x ~40.8 s of audio each: mixture ~17.9 s including the A5
+tail, clean target ~17.9 s, enrollment 5 s), ~16-18 GB as FLAC. Not binding.
+
+**Portability, and this one inverts.** `data-setup.md:440` argued on-the-fly
+meant "no 70 GB training set to move, only ~36 GB of public corpora". But a
+rendered trial is self-contained: shipping it needs **no LibriSpeech and no
+WHAM!** on the training machine. Pre-rendering moves ~26 GB; on-the-fly requires
+the full ~36 GB of corpora present wherever training runs. Pre-rendering moves
+*less*.
+
+### The risk this actually removes
+
+Each trial needs two RIRs (target and interferer), image-source method, `t60_s`
+up to 0.6 s. Generated on the fly that cost is paid every epoch by the dataloader,
+competing with feeding the GPU. On a 4-vCPU Kaggle instance a CPU-bound loader
+starves the GPU and burns session hours — the failure `milestones.md` M1 already
+guards against when it says discovering a problem at hour 11 of a 12-hour session
+costs a week. Pre-rendering makes the training step a disk read.
+
+**Taken without the RIR benchmark.** The argument above does not depend on the
+per-trial RIR cost, so the decision did not wait for it. That number is still
+needed to *size* the render job, not to choose it.
+
+### What this concedes
+
+- **No augmentation variety**, but B7 already conceded that deliberately.
+- **Every manifest rebuild invalidates the audio.** Sequencing consequence: render
+  *after* B2's rebuild lands, never before. Rendering ~21,200 trials and then
+  rebuilding would waste the whole pass.
+- **~26 GB.** Cheap at 251 GB free, and it should be excluded from any `rsync` to a
+  cluster by name, the same way the corpora already are.
+
+### What stays
+
+`render_trial(row, cfg) -> stems in memory` remains a pure function with the
+writer as a thin caller, so a PyTorch `Dataset` can call it directly if B7 is ever
+switched on as the ablation it was reserved as. The decision changes how the
+renderer is *invoked*, not what it is.
+
+## 2026-08-16 — B2: `target_activity_ratio` ceiling lowered 0.85 -> 0.78
+
+**Decision (GB, 2026-08-16): the top of `target_activity_ratio` comes down from
+0.85 to 0.78, in both the global band and `base`.** Config only; it takes effect
+at B2 PR2's rebuild, not before.
+
+### Why
+
+`target_activity_ratio` is how much of the clip the target spends talking. PR2
+changes what "talking" means: today the generator counts file length, after PR2 it
+counts detected speech.
+
+A LibriSpeech file is only ~86 % speech — the rest is the pause before the reader
+starts, the pause at the end, and the gaps between phrases. So to get 0.85 of the
+window as actual voice you would need ~0.99 of it packed with back-to-back audio.
+`lay_out` has to leave gaps between utterances, and the most it has ever achieved
+is 0.946. **0.85 is therefore not merely rare, it is impossible.**
+
+### What leaving it at 0.85 would have done
+
+Nothing visible. `build_trial` tries 20 times to find a long enough run of
+utterances, fails every time, returns `None`, and the trial is dropped into
+`failed_ids`. The build would just quietly produce fewer trials, and every trial
+lost would be from the talkative end of the band — so the realised distribution
+would stop matching the configured one. That is the same "rejection bends
+distributions" problem recorded on 2026-08-13, arriving through the back door.
+
+### Why 0.78 and not lower
+
+The REAL-TSE anchor of ~0.75 still sits inside the band, so nothing we cared about
+is given up.
+
+**Honest limit:** 0.78 is close to the edge, not comfortably inside it. Realised
+footprint reaches p99 0.910 and max 0.946, which at ~86 % speech is roughly 0.79
+and 0.82 of speech. So the top of the new band is reachable only for the best
+cases, and a small number of top-of-band trials will still fail. **The check is
+PR2's `n_failed`.** If it is material, lower again — with an entry here, not a
+silent edit.
+
+## 2026-08-16 — B2: noise beds containing speech are rejected at 0.5 s
+
+**Decision (GB, 2026-08-16): drop any WHAM! noise clip whose longest unbroken run
+of detected speech reaches 0.5 s.** Config `noise_speech_rejection.max_speech_run_s`;
+applied in `build_manifest.py` by `reject_speech_clips()`. This closes
+`noise_speech_rejection`, which `data-construction-parameters.md` has called
+critical and unimplemented since it was written.
+
+### Why
+
+WHAM! was recorded in real cafes, bars and restaurants, so some beds have audible
+background talkers. Two things go wrong when one of those lands in a trial:
+
+1. **The metric punishes the model for being right.** Those words are genuinely in
+   the mixture, but they are in no transcript. If the extractor passes them through
+   and the judge hears them, they score as words the model invented.
+2. **A third talker appears.** CLAUDE.md declares this a two-speaker task. An
+   unlabelled voice in the noise bed quietly breaks that.
+
+### Why the longest run, and why 0.5 s
+
+Rejection is on `max_segment_s`, the longest *unbroken* run, not the total. Half a
+second in one piece can be a word; the same half second spread over five 100 ms
+blips is the detector twitching at a laugh, a door or a clatter. Below ~0.5 s there
+is not enough continuous voice to become text, so rejecting there would cost pool
+for no gain.
+
+### Borrowed in intent from WHAMR!, but not the same rule
+
+`data-construction-parameters.md` took this parameter from WHAMR!'s `SNR_THRESH`
+(`noisesampler.py:45-62`), which rejects a noise segment when its speech **energy**
+exceeds −6 dB. **We diverge:** we threshold the **duration of a detected speech
+run** instead, using the Silero pass B2 already pays for. Our failure mode is words
+being *transcribed*, and a quiet but clear background talker is a transcription
+risk at an energy WHAMR!'s test would pass. We also reject whole clips rather than
+resampling the offset, so nothing has to be written back to the manifest. Cite the
+idea as borrowed; do not describe the rule as WHAMR!'s.
+
+### Cost
+
+Measured, not projected — `scripts/screen_noise_speech.py`, 2026-08-15:
+
+| pool | clips | dropped | kept |
+|---|---|---|---|
+| tr | 20,000 | 821 (4.1 %) | 19,179 |
+| cv | 5,000 | 98 (2.0 %) | 4,902 |
+| tt | 3,000 | 39 (1.3 %) | 2,961 |
+
+### Where it is applied, and why not in the renderer
+
+`milestones.md` put this in the renderer, on the assumption it needed audio. It
+does not: the screening pass already measured every clip, and the manifest is what
+*names* the noise clip for each trial. Filtering the pool before selection is
+therefore the only place it works — filter later and the manifest can still point
+at a clip that should not exist. The renderer just reads what the manifest says.
+
+### What this does not promise
+
+The cutoff is a detector output, so it inherits Silero's mistakes. A kept clip may
+still hold faint or short speech. This lowers contamination a long way; it does not
+prove it is zero, and the write-up should say "screened", not "clean".
+
+### Consequences
+
+- `data/index/noise_speech_{split}.csv` is now a **build input**, not a report. It
+  is required, and `build_manifest.py` fails loudly if it is missing or does not
+  cover the pool.
+- The `vad:` block already invalidates the manifests; it now invalidates this
+  screening index too, since the same detector settings produced it.
+- Each split's `meta.yaml` records `noise_clips_screened`, `noise_clips_kept` and
+  `noise_max_speech_run_s`, because the cutoff is a config value and manifests are
+  not in git.
+
+## 2026-08-16 — B2 PR2: the generator measures speech, not file boundaries
+
+**Implemented (GB, 2026-08-16): `build_manifest.py` now measures activity, overlap
+and interruption from `data/index/vad_segments.csv` instead of from file
+durations, and all six manifests are rebuilt.** This is the implementation of the
+evidence entry above. Branch `m0-b2-pr2-vad-wire`.
+
+### The one distinction the code now makes
+
+One quantity became two, and confusing them is the way to break this file:
+
+| | what it is | what it drives |
+|---|---|---|
+| **footprint** | timeline the audio occupies, silence included | `lay_out`, `best_onset`'s slide range, the "does it fit" assertions |
+| **speech** | detected voice inside that audio | `target_activity`, `interferer_activity`, `overlap_achieved`, `interrupted` |
+
+They differ by a measured factor of **0.8622** on the rebuilt train split, matching
+the 0.862 corpus figure. Recorded per trial as the new `target_footprint_s` and
+`interferer_footprint_s` columns, so the distinction is visible in the data and not
+only in the code.
+
+### What was wrong, in one number
+
+Recomputing true speech overlap from the *old* manifests' own recorded onsets:
+
+| | overlap label | true speech overlap | rows whose label was wrong by >0.01 |
+|---|---|---|---|
+| before | 0.2843 | 0.2118 | **9,419 / 9,858 (95.5 %)** |
+| after | 0.2750 | 0.2750 | **0 / 9,846 (0.0 %)** |
+
+Mean label error was 0.0725 and reached **0.485** on individual trials. After the
+rebuild the maximum disagreement is 0.0001, which is the rounding in the column.
+
+**The audio changed too, not just the labels.** Real speech overlap in `both`
+trials rose 0.212 → 0.275, because `best_onset` now slides the interferer to hit
+the *requested* overlap measured in speech. The requested distribution is
+unchanged; the generator simply now delivers what it was always asking for.
+
+### Changes
+
+- `pick_run` accumulates speech, and gained a **footprint cap**. Selecting on speech
+  lets a run reach the wanted amount while its audio overruns the window; `lay_out`
+  would then scatter negative gaps. New failure mode, new guard.
+- `lay_out` deliberately **unchanged** — a file occupies its whole duration whether
+  or not anyone is speaking in it.
+- `spans` / `shared_seconds` / `is_interrupted` deleted in favour of `src/data/vad.py`.
+  `tests/test_vad.py` now asserts they do not come back.
+- `best_onset` slides the interferer's real speech spans rather than one solid
+  rectangle, so gaps inside the interferer count as not-talking.
+- `interrupted` uses option A (`vad.onsets_of(..., first_only=True)`), verified
+  against all four candidate definitions on the rebuilt data.
+- One utterance of 137,876 has no detected speech; it is dropped from the pools.
+- Each manifest's `meta.yaml` records the `vad:` settings, the index build date and
+  the detector version — an overlap figure means nothing without them.
+
+### Results of the rebuild
+
+| split | rows before → after | `interrupted` before → after |
+|---|---|---|
+| train | 19,950 → 19,938 | 0.532 → 0.523 |
+| val | 200 → 200 | 0.694 → 0.667 |
+| eval_public | 500 → 500 | 0.600 → 0.661 |
+| eval_private | 499 → 500 | 0.645 → 0.679 |
+
+**The 0.78 ceiling holds.** Unsatisfiable trials on train went 50 → 62 of 20,000
+(0.25 % → 0.31 %). The 2026-08-16 entry set the check as "watch `n_failed`, lower
+again if it is material"; +12 trials is not material, so 0.78 stands.
+
+**The leak scoreboard is unchanged**, which is the point — B9 and B10's properties
+had to survive this. On train: `interferer_activity` AUC 0.648 → 0.651,
+speaker-identity prior 0.508 → 0.503, P(absent | no overlap) 0.500 → 0.500, per
+regime 0.649 `base` / 0.653 `hard`. The pre-existing `interferer_activity` leak is
+the one the notebook already examined and accepted; it is neither worsened nor
+fixed here. `interferer_footprint_s` carries the same 0.651 — a new column exposing
+a known leak, not a new leak.
+
+**`check_manifest_parity.py` fails on all six splits, as designed.** Every overlap
+and activity number was supposed to move. Parity passing would have meant PR2 did
+nothing.
+
+### Still outstanding
+
+- The notebook (`src/exploratory/data_setup.ipynb`) still describes the old
+  numbers. The scoreboard above was reproduced standalone rather than by re-running
+  it; §2, §7 and the health checks are a separate milestone item.
+- **`measure_vad_impact.py` Part 2 was rewritten the same day** — see the entry
+  below. Re-running it is now worthwhile rather than fatal.
+- PR3 (enrollment offset) is untouched and still optional.
+
+## 2026-08-16 — `measure_vad_impact.py` Part 2 detects which manifest it is given
+
+**Problem: PR2 broke the measurement script that justified PR2.** Part 2's sanity
+check recomputed overlap the file-boundary way and asserted it reproduced the
+stored `overlap_achieved`. That held while the column *was* file-boundary overlap.
+After the rebuild the column is speech overlap, so the check compared two
+deliberately different quantities, measured `max|diff| = 0.553` against a 0.001
+threshold, and exited with "results are void".
+
+Caught before the re-run finished, not after acting on a bad number.
+
+**Fix: detect the convention instead of assuming it.** PR2 added
+`target_footprint_s` at the same time as it changed what `overlap_achieved` means,
+so the column's presence identifies the manifest's generation. Part 2 branches on it:
+
+| manifest | check asserts | what the file-vs-VAD gap means |
+|---|---|---|
+| pre-PR2 | file-boundary recompute == stored column | **live label error** — the measurement B2 was argued from |
+| post-PR2 | VAD recompute == stored column | **what B2 is worth** — how wrong these labels would be without it |
+
+Verified both ways. Against the backed-up pre-PR2 manifests the check still passes
+at 0.00006 and still reproduces the recorded ~25 % overstatement; against the
+rebuilt ones it passes at 0.00005.
+
+**Why detect rather than delete Part 2.** Deleting it would have made the numbers
+in the 2026-08-15 entry unre-derivable — a recorded figure nobody can reproduce is
+a claim, not a measurement. Keeping both paths means a supervisor can re-derive the
+before *and* the after from one script.
+
+Two smaller corrections fell out of the same pass:
+
+- **The activity rows were degenerate on a post-PR2 manifest.** They read
+  `target_activity` as the "file-bound" value, which is now the speech figure, so
+  the table printed a 0.0 % change under a heading that said otherwise. Activity is
+  now recomputed from `target_footprint_s` and the row reads −14.2 %, matching the
+  corpus speech/footprint ratio.
+- **"outside `overlap_tolerance`"** meant "how far placement must move" before the
+  rebuild and now means "trials that missed the overlap they requested". It should
+  be ~0 post-PR2, and measures 0/60 on the sample. Same number, opposite reading,
+  so the printed explanation switches with the branch.
+
+### Standing consequence
+
+Part 2 is now a **regression check** as well as a measurement: it fails loudly if a
+future change ever lets the manifests and the detector drift apart. That is worth
+more than the one-off audit it replaced.
