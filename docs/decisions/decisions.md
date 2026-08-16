@@ -1761,3 +1761,100 @@ it was on the data that motivated the fix.
 Part 3, on the rebuilt data: option A 0.500 (what the manifests carry), A′ 0.463,
 old file-onset reading 0.555, B 0.797. The spread is as wide as it was, so the
 requirement to state which definition produced any `interrupted` figure stands.
+
+## 2026-08-16 — The renderer: manifest row to audio
+
+**Implemented (GB, 2026-08-16): `src/data/render.py` (pure) plus
+`scripts/render_trials.py` (writer).** The last M0 code item. Nothing rendered to
+`data/rendered/` yet beyond timing batches — this entry records the design and the
+measurement, not a completed render.
+
+### Measured, so the M0 date stops being a guess
+
+`render_trials.py` was the only row in `run_times.md` marked **unknown**.
+100 train trials, 8 workers: **23.4 s**, 126 MB.
+
+| | measured | full set |
+|---|---|---|
+| rate | 100 trials / 23.4 s | **~83 min** for all 21,208 |
+| size | 1.26 MB / trial | **~27 GB** |
+
+27 GB lands on the ~26 GB the docs already budget, so `data-map.md` and
+`data-setup.md` need no revision. `milestones.md` feared an overnight job; it is
+an hour and a half, and it is resumable, so the renderer is no longer the schedule
+risk it was written up as.
+
+### Format: 16-bit WAV at 16 kHz
+
+Decision (GB, 2026-08-16). FLAC would roughly halve the transfer to a cluster, and
+that was weighed. WAV wins because decode-free is the whole point of pre-rendering
+(2026-08-15): a training step becomes a pure disk read, and on a 4-vCPU box a
+CPU-bound loader starves the GPU — the exact failure that decision existed to
+avoid. Disk is not scarce at 251 GB free.
+
+### What each trial gets
+
+    data/rendered/<split>/<trial_id>/
+        mixture.wav      what the model hears
+        target.wav       A1's reference: the target through its own room, alone
+        enrollment.wav   dry, no room (A4)
+        meta.json        both transcripts, every gain applied, the EQ curve
+
+`meta.json` carries `target_text` and `interferer_text` verbatim. `d` in
+`metric-definitions.md` §2 requires the interferer's words too, and adding them
+later would cost a full re-render.
+
+### Three things the specification did not settle
+
+Called out rather than silently chosen. None is contradicted by an existing entry,
+but none was decided either.
+
+**1. The noise bed covers A5's tail as well as the window.** A2 (2026-08-11) says
+the renderer reads `mixture_length_s` of noise; A5 (2026-08-13) later made the
+output `mixture_length_s + t60_s` long. Taken literally together, the last `t60_s`
+would hold reverb over silence — an audible edge, and a free cue for where the
+speech ended. Noise runs the full padded length.
+
+**2. `noise_only` trials place the noise where an anchor would have put it.**
+Nobody speaks, so there is no signal to anchor to, but `target_loudness_lufs` and
+`snr_db` are still recorded. The noise sits at `target_loudness_lufs - snr_db`, the
+level it would have had if someone had spoken. Same reasoning as the 2026-08-11
+anchor decision: the condition must not be identifiable by loudness alone.
+
+**3. The enrollment is levelled to `target_loudness_lufs`.** No decision covers the
+enrollment's level. Leaving it at LibriSpeech's native level would put a spread of
+loudness on the conditioning path for no reason, and level is a cue closed
+everywhere else.
+
+**Also interpreted: the EQ curve itself.** `enrollment_eq_augmentation` specifies
+"random RMS-preserving EQ curves" (CARTSE channel-gap, Li & Seki 2026) without
+fixing them. Three peaking biquads, log-uniform 120 Hz–6.4 kHz, ±6 dB, Q=1.0, RMS
+restored after filtering. The drawn bands are written into each trial's
+`meta.json`, so the filter is reproducible and reportable rather than an
+undocumented default. Seeded from a SHA-1 of the trial id, not Python's `hash()`,
+which is salted per process and would change the audio between runs.
+
+### Verification
+
+Not "it ran" — the renderer's failure mode is audio that is wrong but plays fine.
+Checked on 150 trials across all four conditions:
+
+| property | result |
+|---|---|
+| output length == `mixture_length_s + t60_s` (A5) | exact, 0 samples error |
+| target stem at `target_loudness_lufs` (A3) | max error 0.066 LU |
+| SNR, measured as `mixture − target` on `target_only` trials | max error 0.0002 LU |
+| SIR, recomputed through the render chain | max error 0.051 dB |
+| nothing exceeds the 0.95 ceiling (A6) | max peak 0.71, 0 trials rescaled |
+| target stem silent **iff** `target_absent` (A1) | holds on all 150 |
+| both transcripts present and non-empty when the speaker talks | holds on all 150 |
+
+18 unit tests in `tests/test_render.py` pin each decision to a property, including
+that BS.1770 stays gated (A3's whole argument over RMS), that a silent stem raises
+rather than returning infinite gain, and that the RIRs are deterministic.
+
+### Sequencing, unchanged
+
+The audio is invalidated by any manifest rebuild. `render_trials.py` records the
+manifest's `config_md5` and refuses to extend a directory built from a different
+one without `--force`, so the two cannot silently drift apart.

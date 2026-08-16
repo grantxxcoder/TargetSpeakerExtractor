@@ -31,7 +31,8 @@ one of these as a measured figure.**
 
 | command | scope | projected | basis |
 |---|---|---|---|
-| `render_trials.py` | ~21,200 trials | **unknown** | 2 RIRs/trial, cost unmeasured |
+| `render_trials.py --split train` | 19,938 trials | ~78 min | 100 trials measured at 23.4 s, 8 workers |
+| `render_trials.py`, all six splits | 21,208 trials / ~27 GB | ~83 min | same rate, 1.26 MB per trial measured |
 
 Move a row up to the table above once it has actually run — the script does that
 for itself; delete the projection by hand.
