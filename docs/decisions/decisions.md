@@ -1269,27 +1269,31 @@ Part 2: 400 `both` trials from `train.csv` (864 distinct utterances).
 
 ### Part 1 — how much of an utterance file is speech
 
+**Numbers below are the reproducible run of 2026-08-16**, not the original spike —
+see *Reproduction* at the end of this entry. They move the spike's figures in the
+third decimal and change no conclusion.
+
 | `min_silence_ms` | speech/dur | median | p10 | p90 | segments | lead_s | trail_s |
 |---|---|---|---|---|---|---|---|
-| 100 (silero default) | 0.849 | 0.859 | 0.753 | 0.934 | 3.76 | 0.331 | 0.166 |
-| 200 | 0.857 | 0.867 | 0.759 | 0.941 | 3.24 | 0.331 | 0.142 |
-| **250 (chosen)** | **0.860** | **0.872** | **0.761** | **0.944** | **3.09** | **0.331** | **0.129** |
-| 300 | 0.868 | 0.881 | 0.771 | 0.953 | 2.79 | 0.331 | 0.111 |
-| 500 | 0.897 | 0.909 | 0.805 | 0.978 | 2.08 | 0.331 | 0.017 |
+| 100 (silero default) | 0.850 | 0.860 | 0.754 | 0.934 | 3.76 | 0.326 | 0.161 |
+| 200 | 0.858 | 0.870 | 0.760 | 0.943 | 3.24 | 0.326 | 0.135 |
+| **250 (chosen)** | **0.862** | **0.873** | **0.762** | **0.947** | **3.09** | **0.326** | **0.121** |
+| 300 | 0.870 | 0.882 | 0.772 | 0.954 | 2.79 | 0.326 | 0.102 |
+| 500 | 0.899 | 0.911 | 0.805 | 0.979 | 2.08 | 0.326 | 0.005 |
 
-Threshold sensitivity at 250 ms: 0.872 at 0.3, 0.860 at 0.5, 0.853 at 0.7.
+Threshold sensitivity at 250 ms: 0.873 at 0.3, 0.862 at 0.5, 0.854 at 0.7.
 
 **`min_silence_duration_ms` = 250 ms**, recorded in `generator.yaml`. The whole
-100–500 ms range spans only 0.849–0.897, so the headline is robust to the choice —
+100–500 ms range spans only 0.850–0.899, so the headline is robust to the choice —
 that is the main reason to be comfortable with it. 500 ms is rejected: trailing
-silence collapses to 0.017 s, i.e. it absorbs end-of-file silence into speech.
+silence collapses to 0.005 s, i.e. it absorbs end-of-file silence into speech.
 
 **Two systematic offsets, and they are the cause of everything in Part 2:**
 
-- **Leading silence 0.331 s per utterance**, near-identical at every setting
-  (0.318–0.342 across the threshold sweep). Every LibriSpeech utterance begins about
+- **Leading silence 0.326 s per utterance**, near-identical at every setting
+  (0.313–0.337 across the threshold sweep). Every LibriSpeech utterance begins about
   a third of a second after its file does.
-- **Trailing silence 0.129 s** at the chosen setting.
+- **Trailing silence 0.121 s** at the chosen setting.
 
 These are biases, not noise, and they compound: a target and an interferer placed
 adjacent are each offset inward, so the generator systematically believes they
@@ -1304,20 +1308,25 @@ correctly.
 
 | quantity | file-boundary | VAD | change |
 |---|---|---|---|
-| `overlap_achieved` (mean) | 0.285 | **0.214** | **−24.9 %** |
-| `overlap_achieved` (median) | 0.264 | 0.195 | −26.3 % |
-| `target_activity` (mean) | 0.642 | 0.554 | −13.7 % |
-| `interferer_activity` (mean) | 0.467 | 0.406 | −13.1 % |
-| `interrupted` (rate) | 0.570 | 0.725 | +27.2 % |
+| `overlap_achieved` (mean) | 0.285 | **0.215** | **−24.6 %** |
+| `overlap_achieved` (median) | 0.264 | 0.195 | −26.1 % |
+| `target_activity` (mean) | 0.642 | 0.555 | −13.5 % |
+| `interferer_activity` (mean) | 0.467 | 0.407 | −12.9 % |
+| `interrupted` (rate) | 0.570 | **0.505** | **−11.4 %** |
 
-Per-trial |file − VAD| overlap: mean 0.071, p90 0.151, max 0.274.
+Per-trial |file − VAD| overlap: mean 0.070, p90 0.148, max 0.270.
+
+**The `interrupted` row was wrong until 2026-08-16** and is corrected here. It
+reported 0.725, which is definition **B** — the reading Part 3 *rejected*. Under
+the chosen definition A the rate **falls** to 0.505. Consequence 1 below was
+written against the old row and has been rewritten to match.
 
 **The per-trial spread is the reason this cannot be patched with a correction
 factor.** A uniform −25 % would leave the B13 overlap strata intact; an error that
-varies from 0 to 0.274 per trial puts individual trials in the wrong bucket, and the
+varies from 0 to 0.270 per trial puts individual trials in the wrong bucket, and the
 per-condition table is the thesis's central artefact.
 
-**Overlap collapsing to zero: 11/400 (2.8 %).** Both speakers are talking, but never
+**Overlap collapsing to zero: 12/400 (3.0 %).** Both speakers are talking, but never
 simultaneously — the shared interval falls entirely inside one speaker's leading
 silence and the other's trailing silence. Turn-taking recorded as talking over each
 other. That this is *small* is the reassuring part: the overlap in the data is mostly
@@ -1325,14 +1334,31 @@ genuine, just consistently overstated.
 
 ### Three consequences for the implementation
 
-**1. `interrupted` rose rather than fell, and the cause is definitional.** The old
-test checks one moment per interferer utterance (its file onset); a VAD test checks
-every speech-segment onset, ~3 per utterance, so an interferer *resuming after their
-own pause* mid-target-sentence now counts. **Open question — must be decided before
-the rebuild:** count only the interferer's first speech onset ("began talking while
-you were mid-sentence", closest to the 2026-08-14 definition), or any speech onset.
-The two readings put the rate somewhere between roughly 0.50 and 0.725, on a B13
-reporting condition. Measure both, decide on numbers.
+**1. `interrupted` moves, and the cause is definitional. RESOLVED — option A.**
+The old test checks one moment per interferer utterance (its file onset). A VAD test
+could check *every* speech-segment onset, ~3 per utterance, which makes an interferer
+*resuming after their own breath pause* mid-target-sentence count as an interruption.
+
+Measured side by side (Part 3, 400 `both` trials):
+
+| definition | rate | |
+|---|---|---|
+| old (file onsets) | 0.570 | what the manifests carry today |
+| **A: first speech onset per utterance** | **0.505** | **CHOSEN** |
+| A′: first speech onset per trial | 0.495 | only the interferer's very first word |
+| B: every speech onset | 0.725 | a breath pause starts a new turn |
+
+**Decision (GB, 2026-08-15): option A.** It is the minimal correction to the
+2026-08-14 definition — the same number of events as the old test, each moved by the
+~0.326 s of leading silence — so `interrupted` keeps meaning "began a turn while you
+were mid-sentence". B does not correct the old definition, it *widens* it, and the
+0.570 → 0.725 rise would be an artefact of that widening rather than a measurement.
+Implemented as `vad.onsets_of(..., first_only=True)`.
+
+**The spread across definitions (0.495–0.725) is wider than most effects this
+project will report**, on a B13 reporting condition. That is why it is pinned here
+rather than left to the implementation, and why any `interrupted` figure must state
+which definition produced it.
 
 **2. The "69 % outside `overlap_tolerance`" figure is NOT a rejection rate.** It was
 labelled that in the spike; that label is wrong. It measures trials whose overlap
@@ -1348,6 +1374,7 @@ of the window filled with audio, beyond anything currently achieved and leaving 
 for the gaps `lay_out` requires. The practical ceiling lands near 0.78–0.80. The
 REAL-TSE anchor of ~0.75 still sits inside that, so the band needs adjusting rather
 than abandoning — but it is a recorded decision, not a silent config edit.
+**Done 2026-08-16: lowered to 0.78.** See that entry.
 
 ### Why this is done before the renderer, not after
 
@@ -1374,8 +1401,18 @@ can re-derive every figure rather than take them on trust:
 
     ../tse_venv/bin/python scripts/measure_vad_impact.py
 
-Output, with commit hash, seed, detector version and the manifest's own build
-commit, is in `experiments/results/2026-08-15-vad-impact/`.
+**Actually run 2026-08-16, 16 min**, against `train.csv` as built at
+`42a3854`, config md5 `d8bf16d`, seed 42. The sanity check passed at max |diff|
+0.00006. Output — `report.txt` plus `meta.yaml` with commit hash, seed, detector
+version and the manifest's own build commit — is in
+`experiments/results/2026-08-15-vad-impact/`. The directory keeps the 2026-08-15
+date of the decision it supports; `meta.yaml` carries the true run date.
+
+**Every table above now comes from that run**, replacing the spike's figures. The
+differences are third-decimal and change no conclusion, with one exception: the
+spike's `interrupted` row reported definition B rather than the chosen A, and is
+corrected in Part 2. This must be re-run after PR2 rebuilds the manifests, because
+Part 2 measures label error in manifests that will no longer exist in that form.
 
 ## 2026-08-15 — Training audio is pre-rendered to disk, not generated on the fly
 

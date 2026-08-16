@@ -1,0 +1,64 @@
+======================================================================================
+PART 1  --  how much of an utterance file is speech
+            2000 utterances sampled from 137876 indexed (6.92 h)
+======================================================================================
+
+setting                  speech/dur   median     p10     p90   segs  lead_s  trail_s
+--------------------------------------------------------------------------------------
+silero defaults               0.850    0.860   0.754   0.934   3.75   0.327    0.161
+min_sil 100                   0.850    0.860   0.754   0.934   3.76   0.326    0.161
+min_sil 200                   0.858    0.870   0.760   0.943   3.24   0.326    0.135
+min_sil 250 (CHOSEN)          0.862    0.873   0.762   0.947   3.09   0.326    0.121
+min_sil 300                   0.870    0.882   0.772   0.954   2.79   0.326    0.102
+min_sil 500                   0.899    0.911   0.805   0.979   2.08   0.326    0.005
+min_sil 250 thr 0.3           0.873    0.884   0.775   0.957   2.87   0.313    0.109
+min_sil 250 thr 0.7           0.854    0.865   0.754   0.940   3.23   0.337    0.131
+
+  speech/dur = fraction of the FILE that is detected speech
+  segs       = speech segments per utterance (1.0 = no internal pause)
+  lead/trail = mean silence before the first / after the last word
+
+  The whole 100-500 ms range spans only 0.850-0.899, so the headline is
+  robust to this setting. That robustness is why 250 ms is defensible.
+
+
+======================================================================================
+PART 2  --  label error in data/manifests/train.csv, onsets UNCHANGED
+            400 `both` trials, 864 distinct utterances, setting: min_sil 250 (CHOSEN)
+======================================================================================
+
+  SANITY  file-boundary overlap recomputed from the recorded onsets vs the stored
+          `overlap_achieved` column: max|diff| = 0.00006   OK
+
+  quantity                          file-bound       VAD    change
+  ----------------------------------------------------------------
+  overlap_achieved (mean)                0.285     0.215    -24.6%
+  overlap_achieved (median)              0.264     0.195    -26.1%
+  target_activity (mean)                 0.642     0.555    -13.5%
+  interferer_activity (mean)             0.467     0.407    -12.9%
+
+  overlap collapses to ZERO:          12/400 (3.0 %)
+      both speak, never simultaneously -- the shared interval is one
+      speaker's trailing silence and the other's leading silence
+  outside overlap_tolerance 0.03:      273/400 (68.2 %)
+      NOT a rejection rate: PR2 re-runs best_onset against the new
+      measurement and re-places most of these. It is how far placement
+      must move, and an UPPER BOUND on rejections.
+  per-trial |file - VAD| overlap:      mean 0.070  p90 0.148  max 0.270
+      varies per trial, so no correction factor can fix it -- this is
+      what puts trials in the wrong B13 overlap bucket
+
+
+======================================================================================
+PART 3  --  candidate definitions of `interrupted`
+======================================================================================
+
+  definition                           rate   note
+  --------------------------------------------------------------------------
+  old (file onsets)                   0.570   what the manifests carry today
+  A: first onset per utterance        0.505   CHOSEN 2026-08-15 -- minimal correction
+  A': first onset per trial           0.495   only the interferer's very first word
+  B: every speech onset               0.725   a breath pause counts as a new turn
+
+  The spread across definitions is larger than most effects this
+  project will report, which is why it is pinned in decisions.md.

@@ -15,6 +15,7 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
 <!-- rows appended below by src/run_log.py -->
+| 2026-08-16 | `scripts/measure_vad_impact.py` | 2,000 utts x 8 settings + 400 trials | 16 min | 8 workers |
 | 2026-08-15 | `scripts/screen_noise_speech.py` | 28,000 clips / 82 h | 25 min | 193x realtime, 8 workers |
 | 2026-08-15 | `build_vad_index.py` | 137,876 utts / 475 h | 2.1 h | 222x realtime, 8 workers |
 | 2026-08-14 | `build_manifest.py --split train` | 20,000 trials | 58 s | headers only, no audio |
@@ -27,8 +28,6 @@ one of these as a measured figure.**
 
 | command | scope | projected | basis |
 |---|---|---|---|
-| `measure_vad_impact.py` | 2,000 utts + 400 trials | ~20 min | 8 settings x 2,000 decodes |
-| `screen_noise_speech.py` | 28,000 clips / 81.7 h | ~25 min | 222x measured rate + sensitivity subsample |
 | `render_trials.py` | ~21,200 trials | **unknown** | 2 RIRs/trial, cost unmeasured |
 
 Move a row up to the table above once it has actually run — the script does that

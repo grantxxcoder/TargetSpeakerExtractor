@@ -118,12 +118,13 @@ Still unimplemented from `data-construction-parameters.md`:
       cv, 1.3 % of tt. Takes effect at PR2's rebuild~~
 - [ ] **B2 — voice-activity detection pass over the corpus**, cached alongside the
       utterance index, so overlap is measured from where speech actually is. Detector:
-      Silero VAD, `silero-vad` 6.2.1, pinned. Measured 2026-08-15: files are 86.0 %
-      speech, overlap overstated ~25 %, per-trial error up to 0.274 so no correction
-      factor can fix it. Changes every overlap figure, so it belongs *before* the
-      rebuild, not after
+      Silero VAD, `silero-vad` 6.2.1, pinned. Measured, reproducibly, 2026-08-16:
+      files are 86.2 % speech, overlap overstated ~25 %, per-trial error up to 0.270
+      so no correction factor can fix it. Changes every overlap figure, so it belongs
+      *before* the rebuild, not after
   - [X] ~~**PR1** — `src/data/vad.py`, `scripts/build_vad_index.py`, `vad:` config
-        block, 30 unit tests, and `scripts/measure_vad_impact.py` with its result in
+        block, 30 unit tests, and `scripts/measure_vad_impact.py`. Result written
+        2026-08-16 (16 min, sanity passed) to
         `experiments/results/2026-08-15-vad-impact/`. `build_manifest.py` untouched~~
   - [X] ~~**Run the index**: `scripts/build_vad_index.py` — done 2026-08-15, 2.1 h,
         137,876 utterances, 0 failures, 86.4 % speech. `data/index/vad_segments.csv`.
