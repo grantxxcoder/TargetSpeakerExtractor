@@ -181,8 +181,9 @@ Pilot calibration, before freezing any range:
 - [ ] Confirm conditions separate — bin by SIR and by overlap
 
 Housekeeping:
-- [ ] `requirements.txt` / `pyproject.toml` — none exists, and `pyloudnorm` is
-      now a real dependency
+- [X] ~~`requirements.txt` — added 2026-08-15 (`e1e2436`), 38 lines, versions pinned
+      exactly rather than loosely, since the VAD weights define what "overlap" means.
+      No `pyproject.toml`; not needed while this is a scripts-and-modules repo~~
 - [X] ~~`.gitignore`: `data/` was unanchored and matched `docs/data/` too, so all 8
       files there were untracked. Anchored to `/data/` 2026-08-13~~
 
