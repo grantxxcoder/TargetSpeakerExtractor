@@ -1,0 +1,709 @@
+<title>M0 Data Milestone</title>
+<style>
+  :root {
+    --ground:        #f8f6f3;
+    --surface:       #ffffff;
+    --surface-sunk:  #f1eee9;
+    --line:          #ddd8d1;
+    --line-strong:   #c3bcb2;
+    --text:          #1d2128;
+    --text-soft:     #5b6470;
+    --text-faint:    #8b939d;
+    --accent:        #2f6d92;
+    --accent-soft:   #e3edf3;
+    --done:          #3d7355;
+    --done-soft:     #e3ede7;
+    --signal:        #9a6f14;
+    --signal-soft:   #f3ebd9;
+    --risk:          #a2433a;
+    --risk-soft:     #f4e4e2;
+
+    --serif: ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif;
+    --sans:  ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono:  ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:        #14161c;
+      --surface:       #1b1e26;
+      --surface-sunk:  #101218;
+      --line:          #2b3038;
+      --line-strong:   #3d434d;
+      --text:          #e8e6e2;
+      --text-soft:     #a4adb8;
+      --text-faint:    #737d89;
+      --accent:        #6aa8cd;
+      --accent-soft:   #1c2c38;
+      --done:          #6fae8a;
+      --done-soft:     #1a2620;
+      --signal:        #d3a851;
+      --signal-soft:   #2a2317;
+      --risk:          #d97f74;
+      --risk-soft:     #2c1d1b;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:        #14161c;
+    --surface:       #1b1e26;
+    --surface-sunk:  #101218;
+    --line:          #2b3038;
+    --line-strong:   #3d434d;
+    --text:          #e8e6e2;
+    --text-soft:     #a4adb8;
+    --text-faint:    #737d89;
+    --accent:        #6aa8cd;
+    --accent-soft:   #1c2c38;
+    --done:          #6fae8a;
+    --done-soft:     #1a2620;
+    --signal:        #d3a851;
+    --signal-soft:   #2a2317;
+    --risk:          #d97f74;
+    --risk-soft:     #2c1d1b;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 940px; margin: 0 auto; padding: 0 28px 96px; }
+  .prose { max-width: 68ch; }
+
+  /* ---- masthead ---- */
+  .masthead {
+    border-bottom: 2px solid var(--text);
+    padding: 56px 0 20px;
+    margin-bottom: 40px;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    margin-bottom: 22px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(34px, 5.5vw, 52px);
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+    margin: 0 0 16px;
+    text-wrap: balance;
+  }
+  .standfirst {
+    font-family: var(--serif);
+    font-size: clamp(17px, 2.2vw, 20px);
+    line-height: 1.5;
+    color: var(--text-soft);
+    max-width: 60ch;
+    margin: 0;
+  }
+
+  /* ---- verdict strip ---- */
+  .verdict {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    margin: 36px 0 56px;
+  }
+  .vcell { background: var(--surface); padding: 16px 18px; }
+  .vlabel {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-bottom: 8px;
+  }
+  .vnum {
+    font-family: var(--mono);
+    font-size: 26px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+  }
+  .vnote { font-size: 12.5px; color: var(--text-soft); margin-top: 5px; line-height: 1.4; }
+  .is-done { color: var(--done); }
+  .is-signal { color: var(--signal); }
+  .is-risk { color: var(--risk); }
+
+  /* ---- sections ---- */
+  section { margin-bottom: 60px; }
+  h2 {
+    font-family: var(--serif);
+    font-size: 27px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0 0 6px;
+    text-wrap: balance;
+  }
+  .sub {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 20px;
+  }
+  h3 {
+    font-family: var(--sans);
+    font-size: 15px;
+    font-weight: 650;
+    margin: 28px 0 8px;
+    letter-spacing: -0.005em;
+  }
+  p { margin: 0 0 14px; }
+  a { color: var(--accent); }
+  strong { font-weight: 650; }
+  code {
+    font-family: var(--mono);
+    font-size: 0.87em;
+    background: var(--surface-sunk);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 1px 4px;
+  }
+
+  /* ---- the segment-bar motif: speech spans against silence ---- */
+  .track {
+    display: flex;
+    gap: 2px;
+    height: 9px;
+    margin: 10px 0 0;
+  }
+  .seg { flex: 1; background: var(--line-strong); opacity: 0.35; border-radius: 1px; }
+  .seg.on { background: var(--done); opacity: 1; }
+  .seg.part { background: var(--signal); opacity: 1; }
+
+  /* ---- milestone ladder ---- */
+  .ladder { border-top: 1px solid var(--line); }
+  .rung {
+    display: grid;
+    grid-template-columns: 86px 1fr 150px;
+    gap: 18px;
+    padding: 15px 0;
+    border-bottom: 1px solid var(--line);
+    align-items: baseline;
+  }
+  .rung-id {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+  .rung-name { font-size: 14.5px; }
+  .rung-name em { color: var(--text-soft); font-style: normal; display: block; font-size: 13px; margin-top: 2px; }
+  .rung-when {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-soft);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  .rung.now { background: var(--accent-soft); margin: 0 -14px; padding-left: 14px; padding-right: 14px; }
+  .rung.now .rung-id { color: var(--accent); }
+
+  /* ---- tables ---- */
+  .scroll { overflow-x: auto; margin: 18px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; min-width: 460px; }
+  th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    font-weight: 500;
+    padding: 0 14px 8px 0;
+    border-bottom: 1px solid var(--line-strong);
+    white-space: nowrap;
+  }
+  td {
+    padding: 9px 14px 9px 0;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+
+  /* ---- inventory columns ---- */
+  .cols {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(258px, 1fr));
+    gap: 26px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    padding: 20px 22px 22px;
+  }
+  .card h3 { margin-top: 0; }
+  .card ul { margin: 0; padding-left: 17px; }
+  .card li { margin-bottom: 7px; font-size: 13.5px; line-height: 1.5; }
+  .card li:last-child { margin-bottom: 0; }
+  .tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    padding: 2.5px 7px;
+    border-radius: 2px;
+    vertical-align: 1.5px;
+  }
+  .t-done   { background: var(--done-soft);   color: var(--done); }
+  .t-signal { background: var(--signal-soft); color: var(--signal); }
+  .t-risk   { background: var(--risk-soft);   color: var(--risk); }
+
+  /* ---- callout ---- */
+  .note {
+    border-left: 3px solid var(--accent);
+    background: var(--surface);
+    padding: 16px 20px;
+    margin: 22px 0;
+  }
+  .note.warn { border-left-color: var(--risk); }
+  .note p:last-child { margin-bottom: 0; }
+  .note-h {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-bottom: 7px;
+  }
+
+  /* ---- ordered next steps ---- */
+  ol.steps { list-style: none; counter-reset: s; padding: 0; margin: 0; }
+  ol.steps > li {
+    counter-increment: s;
+    display: grid;
+    grid-template-columns: 34px 1fr;
+    gap: 16px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  ol.steps > li::before {
+    content: counter(s);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    border: 1px solid var(--line-strong);
+    border-radius: 50%;
+    width: 26px; height: 26px;
+    display: grid; place-items: center;
+    font-variant-numeric: tabular-nums;
+  }
+  ol.steps h3 { margin: 0 0 4px; }
+  ol.steps p { margin: 0; font-size: 13.5px; color: var(--text-soft); }
+
+  footer {
+    border-top: 1px solid var(--line);
+    padding-top: 20px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--text-faint);
+    line-height: 1.7;
+  }
+
+  @media (max-width: 620px) {
+    .rung { grid-template-columns: 62px 1fr; }
+    .rung-when { grid-column: 2; text-align: left; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow">
+      <span>Real-time Target Speaker Extraction</span>
+      <span>Status 16 Aug 2026</span>
+      <span>Phase 2 &middot; Data</span>
+    </div>
+    <h1>The data is becoming audio. The model still does not exist.</h1>
+    <p class="standfirst">The renderer is written, verified against every level decision, and
+    running now — an hour and a half, not the overnight job it was written up as. M0 lands on
+    time. What has not started is everything downstream of it.</p>
+  </header>
+
+  <div class="verdict">
+    <div class="vcell">
+      <div class="vlabel">Trials built</div>
+      <div class="vnum is-done">21,208</div>
+      <div class="vnote">103.0 h across six splits</div>
+    </div>
+    <div class="vcell">
+      <div class="vlabel">Rendering</div>
+      <div class="vnum is-signal">~83</div>
+      <div class="vnote">min for ~27 GB &middot; running</div>
+    </div>
+    <div class="vcell">
+      <div class="vlabel">Model code</div>
+      <div class="vnum is-risk">0</div>
+      <div class="vnote">lines, in any file</div>
+    </div>
+    <div class="vcell">
+      <div class="vlabel">Tests</div>
+      <div class="vnum is-done">133</div>
+      <div class="vnote">all passing</div>
+    </div>
+    <div class="vcell">
+      <div class="vlabel">To freeze</div>
+      <div class="vnum">59</div>
+      <div class="vnote">days &middot; 14 Oct</div>
+    </div>
+  </div>
+
+  <section class="prose">
+    <div class="sub">Where it stands</div>
+    <h2>M0 is essentially done. Nothing downstream of it has started.</h2>
+    <p>The project has spent its first fortnight on one thing and done it thoroughly: deciding
+    exactly what the training and evaluation data is, and building the code that produces it.
+    Forty-six decisions are logged with their reasoning, every parameter has a config entry, the
+    manifests are rebuilt on corrected measurements, and as of today the renderer turns those
+    manifests into audio.</p>
+    <p>The renderer was the schedule risk in this milestone — its cost was the one row in the
+    run-time file marked <strong>unknown</strong>, and the milestone notes braced for an overnight
+    job. Measured: <strong>100 trials in 23.4 seconds</strong>, so the full set is about
+    <strong>83 minutes and 27 GB</strong>. It is running now.</p>
+    <p>The honest counterpart has not changed. <code>src/models/</code>,
+    <code>src/eval/</code> and <code>src/live_model_metric/</code> are still empty directories. No
+    model exists, and the metric that is the thesis's primary contribution has not been
+    implemented. Those are two separate build efforts and neither has begun.</p>
+  </section>
+
+  <section>
+    <div class="sub">Inventory</div>
+    <h2>What is actually on disk</h2>
+    <div class="cols">
+      <div class="card">
+        <h3>Built and verified <span class="tag t-done">done</span></h3>
+        <ul>
+          <li><strong>6 manifests</strong> — 21,208 trials, speaker-disjoint, every draw seeded and logged</li>
+          <li><strong>VAD index</strong> — 137,876 utterances, 475 h, 0 failures, 86.2 % speech</li>
+          <li><strong>Noise screening</strong> — 28,000 WHAM! clips measured, 958 rejected for background speech</li>
+          <li><strong>The renderer</strong> — manifest row to five stems, every level verified against A1–A6. ~83 min, ~27 GB, resumable</li>
+          <li><strong>7 scripts</strong>, 2,600 lines — manifest, splits, VAD index, screening, parity, measurement, render</li>
+          <li><strong>133 tests</strong>, all passing</li>
+          <li><strong>Pinned <code>requirements.txt</code></strong> — exact versions, because the VAD weights define what "overlap" means</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Not started <span class="tag t-risk">empty</span></h3>
+        <ul>
+          <li><strong><code>src/models/</code></strong> — empty. No BSRNN, no extractor</li>
+          <li><strong><code>src/eval/</code></strong> — empty. No SI-SDR, DNSMOS or WER harness</li>
+          <li><strong><code>src/live_model_metric/</code></strong> — empty. LCF-WER, ICR and NRR are defined on paper only</li>
+          <li><strong>Judge model</strong> — not chosen, cost model unresolved. Gates all of M4</li>
+          <li><strong>Training infrastructure</strong> — no checkpointing, no resume, no GPU secured</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sub">This fortnight</div>
+    <h2>What B2 changed, and why it mattered</h2>
+    <p class="prose">The generator measured how much people talked by how long their audio files
+    were. A LibriSpeech file is only 86 % speech — mostly a third of a second of silence before
+    the reader starts — so every overlap figure in the dataset was overstated. Voice-activity
+    detection now measures from where speech actually is.</p>
+
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Measured on the train split</th>
+            <th>Before</th>
+            <th>After</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Both-speaking trials with a wrong overlap label</td>
+            <td class="num is-risk">95.5 %</td>
+            <td class="num is-done">0.0 %</td>
+          </tr>
+          <tr>
+            <td>Worst single-trial label error</td>
+            <td class="num">0.485</td>
+            <td class="num">0.0001</td>
+          </tr>
+          <tr>
+            <td>True speech overlap in the audio</td>
+            <td class="num">0.212</td>
+            <td class="num">0.275</td>
+          </tr>
+          <tr>
+            <td>Absence leak — interferer activity AUC</td>
+            <td class="num">0.648</td>
+            <td class="num">0.651</td>
+          </tr>
+          <tr>
+            <td>Absence leak — speaker identity AUC</td>
+            <td class="num">0.508</td>
+            <td class="num">0.503</td>
+          </tr>
+          <tr>
+            <td>Trials missing their requested overlap</td>
+            <td class="num is-risk">68.2 %</td>
+            <td class="num is-done">0.0 %</td>
+          </tr>
+          <tr>
+            <td>Unsatisfiable trials, of 20,000</td>
+            <td class="num">50</td>
+            <td class="num">62</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="prose">Re-measured after the rebuild, the correction is worth
+    <strong>more</strong> than it was on the data that motivated it — the per-trial gap between
+    file-boundary and speech overlap grew from 0.070 to 0.111. Reaching a speech target takes more
+    audio than reaching the same file-duration target, so each trial now carries a longer footprint
+    and file boundaries would misread it by further still.</p>
+
+    <p class="prose">The mislabelling was not uniform, which is why no correction factor could have
+    fixed it: individual trials were wrong by anywhere up to 0.485, so they sat in the wrong
+    reporting bucket. Since the per-condition breakdown is the thesis's central table, that
+    mattered more than the headline average did.</p>
+    <p class="prose">The audio changed too, not just the labels. Real overlap rose from 0.212 to
+    0.275 because the placement search now aims at speech, so the generator finally delivers the
+    overlap it was always asking for. The leak scoreboard is unchanged, which is the point — the
+    earlier fixes had to survive this.</p>
+
+    <div class="note">
+      <div class="note-h">Also closed this week</div>
+      <p>The <strong>target activity ceiling</strong> came down from 0.85 to 0.78, because 0.85 of
+      <em>speech</em> would need 99 % of the window packed with back-to-back audio and the layout
+      needs gaps. Unreachable draws were being silently dropped. <strong>Noise beds with speech
+      in them</strong> are now rejected at half a second of unbroken voice — background talkers
+      would otherwise be scored as words the model invented.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="sub">The renderer</div>
+    <h2>Checked by measurement, not by whether it ran</h2>
+    <p class="prose">A renderer's failure mode is audio that is wrong and still plays perfectly.
+    So each level decision was turned into a property and measured on 150 trials across all four
+    trial types, rather than confirmed by listening or by an exit code.</p>
+
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th>Property</th><th>Decision</th><th>Result</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Output length is <code>mixture_length_s + t60_s</code></td>
+            <td>A5</td><td class="num is-done">exact, 0 samples</td>
+          </tr>
+          <tr>
+            <td>Target stem sits at <code>target_loudness_lufs</code></td>
+            <td>A3</td><td class="num is-done">max 0.066 LU</td>
+          </tr>
+          <tr>
+            <td>Noise level, from <code>mixture − target</code></td>
+            <td>anchor rule</td><td class="num is-done">max 0.0002 LU</td>
+          </tr>
+          <tr>
+            <td>Target-to-interferer ratio</td>
+            <td>A3</td><td class="num is-done">max 0.051 dB</td>
+          </tr>
+          <tr>
+            <td>Nothing exceeds the 0.95 ceiling</td>
+            <td>A6</td><td class="num is-done">peak 0.71, none rescaled</td>
+          </tr>
+          <tr>
+            <td>Target stem is silent exactly when the target is absent</td>
+            <td>A1</td><td class="num is-done">holds, 150/150</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note warn">
+      <div class="note-h">Three points the specification left open</div>
+      <p>Interpreted rather than chosen silently, and each recorded. <strong>Noise now covers the
+      reverb tail</strong> — A2 predates A5, and read together literally the last stretch would be
+      echo over silence, marking where speech ended. <strong>Noise-only trials place the bed where
+      an anchor would have put it</strong>, so the condition is not identifiable by loudness alone.
+      <strong>The enrollment is levelled</strong>, which no decision covers. The EQ curve is also
+      the renderer's own choice; its bands are written into every trial so it stays reportable.
+      All four are worth a supervisor's glance.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="sub">Schedule</div>
+    <h2>Seven milestones, one finished</h2>
+    <div class="ladder">
+      <div class="rung now">
+        <div class="rung-id">M0</div>
+        <div class="rung-name">Data exists
+          <em>Manifests and renderer done, audio rendering now. Pilot calibration and
+          notebook revision outstanding.</em>
+          <div class="track" aria-hidden="true">
+            <span class="seg on"></span><span class="seg on"></span><span class="seg on"></span>
+            <span class="seg on"></span><span class="seg on"></span><span class="seg on"></span>
+            <span class="seg part"></span><span class="seg"></span>
+          </div>
+        </div>
+        <div class="rung-when">20 Aug &middot; 4 days</div>
+      </div>
+      <div class="rung">
+        <div class="rung-id">M1</div>
+        <div class="rung-name">BSRNN implemented, training trustworthy
+          <em>Not started. Proof is a run that is killed and resumes cleanly.</em></div>
+        <div class="rung-when">3 Sep &middot; 18 days</div>
+      </div>
+      <div class="rung">
+        <div class="rung-id">M2</div>
+        <div class="rung-name">Baseline trained
+          <em>40–70 h of GPU. No GPU currently secured.</em></div>
+        <div class="rung-when">17 Sep &middot; 32 days</div>
+      </div>
+      <div class="rung">
+        <div class="rung-id">M3</div>
+        <div class="rung-name">Baseline evaluated conventionally
+          <em>SI-SDR, DNSMOS, offline WER, latency.</em></div>
+        <div class="rung-when">24 Sep &middot; 39 days</div>
+      </div>
+      <div class="rung">
+        <div class="rung-id">M4</div>
+        <div class="rung-name">The metric is computable end to end
+          <em>The primary contribution. Judge choice gates the whole milestone.</em></div>
+        <div class="rung-when">1 Oct &middot; 46 days</div>
+      </div>
+      <div class="rung">
+        <div class="rung-id">M5</div>
+        <div class="rung-name">Second model — proxy-objective fine-tune
+          <em>Explicitly the first thing to cut.</em></div>
+        <div class="rung-when">14 Oct &middot; 59 days</div>
+      </div>
+      <div class="rung">
+        <div class="rung-id">M6</div>
+        <div class="rung-name">The comparison
+          <em>The central finding. Lands on the freeze date with no slack.</em></div>
+        <div class="rung-when">14 Oct &middot; 59 days</div>
+      </div>
+      <div class="rung">
+        <div class="rung-id">M7</div>
+        <div class="rung-name">Submitted</div>
+        <div class="rung-when">5 Nov &middot; 81 days</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="prose">
+    <div class="sub">Risk</div>
+    <h2>Three things that decide whether this lands</h2>
+
+    <h3>No GPU is secured, and M2 needs 40–70 hours of one</h3>
+    <p>The working machine is a four-core laptop with <code>torch.cuda.is_available() == False</code>.
+    Two M0 items exist specifically to defuse this — surveying public streaming-TSE checkpoints,
+    and resolving HPC access — and <strong>neither has been done</strong>. The checkpoint survey is
+    described in the milestone file as ten minutes of searching that could save weeks, because a
+    usable causal BSRNN checkpoint turns M2 from a training run into a fine-tune. It is the
+    highest-leverage unstarted task in the project.</p>
+
+    <h3>The primary contribution is scheduled last</h3>
+    <p>The metric is the deliverable that cannot be cut, and it is finished in week 8 with two
+    milestones downstream of it. Any slip in M0–M2 pushes directly into it. The mitigation is that
+    it must be <em>designed</em> on paper by the end of week 6 even though it is not implemented
+    until week 8 — that drafting has not started either.</p>
+
+    <h3>Turn-taking is rare in the data, by construction</h3>
+    <p>Searching the 108 two-speaker validation trials for the textbook interruption — target
+    speaking alone, interferer cuts in, target yields, listens, resumes — finds only
+    <strong>five</strong>. The placement search positions the interferer as one contiguous block
+    to hit an overlap target; it does not model turn-taking, so the pattern occurs by accident.
+    Not a defect, but if interruption handling matters to the argument, that is a
+    data-construction gap rather than something more of the current set will supply.</p>
+
+    <p class="prose"><em>Closed since the last revision:</em> the renderer's cost, which was the
+    third risk here and the only <strong>unknown</strong> in the run-time file. Measured at
+    ~83 minutes for the full set.</p>
+
+    <div class="note warn">
+      <div class="note-h">Open question for the supervisor</div>
+      <p><strong>C2 — how hard should the task be?</strong> Measured as word error rate on the raw
+      mixture, currently targeting a 60–80 % floor. It blocks nothing today, but it cannot be
+      settled without them, and it sets the difficulty of every trial rendered afterwards.
+      Worth resolving before the renderer runs at full scale.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="sub">Next</div>
+    <h2>The order of work from here</h2>
+    <ol class="steps">
+      <li>
+        <div>
+          <h3>Let the render finish</h3>
+          <p>Running now, ~83 minutes for all six splits. Resumable — if it dies, the same command
+          picks up where it stopped.</p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h3>Survey public streaming-TSE checkpoints, and settle HPC access</h3>
+          <p>Still the highest-leverage unstarted task, and now the only one that can still change
+          what M1 and M2 are. Ten minutes, no GPU, no code. It has been open a fortnight.</p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h3>Pilot-calibrate on the rendered audio</h3>
+          <p>Listen to 40 trials with transcripts in hand, measure floor and ceiling WER, confirm
+          the conditions separate. This is what answers C2 with evidence rather than opinion, and
+          it is the last thing standing between here and M0 being genuinely finished.</p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h3>Revise the notebook against the rebuilt data</h3>
+          <p>Sections 2 and 7 and the health checks still print pre-rebuild figures. Sections 3–6
+          survive unchanged.</p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h3>Start M1 — the causal BSRNN extractor</h3>
+          <p>Whatever the checkpoint survey turns up decides whether this is an implementation or a
+          fine-tune. Due 3 September.</p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <footer>
+    Generated 16 Aug 2026 from the working tree at branch <code>m0-renderer</code>. Source: docs/reports/m0-status.html<br>
+    Sources: docs/decisions/milestones.md, docs/decisions/decisions.md (43 entries),
+    docs/run_times.md, and the six manifest meta files. 46 decision entries.<br>
+    All figures measured, not projected. The renderer runtime is the sole exception and is
+    marked unknown throughout.
+  </footer>
+
+</div>
