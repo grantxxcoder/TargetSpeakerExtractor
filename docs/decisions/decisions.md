@@ -1592,3 +1592,93 @@ prove it is zero, and the write-up should say "screened", not "clean".
 - Each split's `meta.yaml` records `noise_clips_screened`, `noise_clips_kept` and
   `noise_max_speech_run_s`, because the cutoff is a config value and manifests are
   not in git.
+
+## 2026-08-16 — B2 PR2: the generator measures speech, not file boundaries
+
+**Implemented (GB, 2026-08-16): `build_manifest.py` now measures activity, overlap
+and interruption from `data/index/vad_segments.csv` instead of from file
+durations, and all six manifests are rebuilt.** This is the implementation of the
+evidence entry above. Branch `m0-b2-pr2-vad-wire`.
+
+### The one distinction the code now makes
+
+One quantity became two, and confusing them is the way to break this file:
+
+| | what it is | what it drives |
+|---|---|---|
+| **footprint** | timeline the audio occupies, silence included | `lay_out`, `best_onset`'s slide range, the "does it fit" assertions |
+| **speech** | detected voice inside that audio | `target_activity`, `interferer_activity`, `overlap_achieved`, `interrupted` |
+
+They differ by a measured factor of **0.8622** on the rebuilt train split, matching
+the 0.862 corpus figure. Recorded per trial as the new `target_footprint_s` and
+`interferer_footprint_s` columns, so the distinction is visible in the data and not
+only in the code.
+
+### What was wrong, in one number
+
+Recomputing true speech overlap from the *old* manifests' own recorded onsets:
+
+| | overlap label | true speech overlap | rows whose label was wrong by >0.01 |
+|---|---|---|---|
+| before | 0.2843 | 0.2118 | **9,419 / 9,858 (95.5 %)** |
+| after | 0.2750 | 0.2750 | **0 / 9,846 (0.0 %)** |
+
+Mean label error was 0.0725 and reached **0.485** on individual trials. After the
+rebuild the maximum disagreement is 0.0001, which is the rounding in the column.
+
+**The audio changed too, not just the labels.** Real speech overlap in `both`
+trials rose 0.212 → 0.275, because `best_onset` now slides the interferer to hit
+the *requested* overlap measured in speech. The requested distribution is
+unchanged; the generator simply now delivers what it was always asking for.
+
+### Changes
+
+- `pick_run` accumulates speech, and gained a **footprint cap**. Selecting on speech
+  lets a run reach the wanted amount while its audio overruns the window; `lay_out`
+  would then scatter negative gaps. New failure mode, new guard.
+- `lay_out` deliberately **unchanged** — a file occupies its whole duration whether
+  or not anyone is speaking in it.
+- `spans` / `shared_seconds` / `is_interrupted` deleted in favour of `src/data/vad.py`.
+  `tests/test_vad.py` now asserts they do not come back.
+- `best_onset` slides the interferer's real speech spans rather than one solid
+  rectangle, so gaps inside the interferer count as not-talking.
+- `interrupted` uses option A (`vad.onsets_of(..., first_only=True)`), verified
+  against all four candidate definitions on the rebuilt data.
+- One utterance of 137,876 has no detected speech; it is dropped from the pools.
+- Each manifest's `meta.yaml` records the `vad:` settings, the index build date and
+  the detector version — an overlap figure means nothing without them.
+
+### Results of the rebuild
+
+| split | rows before → after | `interrupted` before → after |
+|---|---|---|
+| train | 19,950 → 19,938 | 0.532 → 0.523 |
+| val | 200 → 200 | 0.694 → 0.667 |
+| eval_public | 500 → 500 | 0.600 → 0.661 |
+| eval_private | 499 → 500 | 0.645 → 0.679 |
+
+**The 0.78 ceiling holds.** Unsatisfiable trials on train went 50 → 62 of 20,000
+(0.25 % → 0.31 %). The 2026-08-16 entry set the check as "watch `n_failed`, lower
+again if it is material"; +12 trials is not material, so 0.78 stands.
+
+**The leak scoreboard is unchanged**, which is the point — B9 and B10's properties
+had to survive this. On train: `interferer_activity` AUC 0.648 → 0.651,
+speaker-identity prior 0.508 → 0.503, P(absent | no overlap) 0.500 → 0.500, per
+regime 0.649 `base` / 0.653 `hard`. The pre-existing `interferer_activity` leak is
+the one the notebook already examined and accepted; it is neither worsened nor
+fixed here. `interferer_footprint_s` carries the same 0.651 — a new column exposing
+a known leak, not a new leak.
+
+**`check_manifest_parity.py` fails on all six splits, as designed.** Every overlap
+and activity number was supposed to move. Parity passing would have meant PR2 did
+nothing.
+
+### Still outstanding
+
+- The notebook (`src/exploratory/data_setup.ipynb`) still describes the old
+  numbers. The scoreboard above was reproduced standalone rather than by re-running
+  it; §2, §7 and the health checks are a separate milestone item.
+- **`measure_vad_impact.py` must be re-run** — its Part 2 measures label error in
+  manifests that no longer exist in that form. Its Part 1 corpus figures are
+  unaffected.
+- PR3 (enrollment offset) is untouched and still optional.

@@ -200,14 +200,18 @@ def test_generator_yaml_vad_block_is_valid():
         "250 ms is the value decisions.md 2026-08-15 records and justifies"
 
 
-def test_shared_seconds_matches_build_manifest_copy():
-    """PR1 leaves build_manifest.py untouched, so the same function exists twice.
-    This test is the tripwire that keeps them identical until PR2 removes one."""
+def test_build_manifest_keeps_no_private_copies():
+    """PR1 duplicated shared_seconds and is_interrupted while build_manifest.py
+    was off limits, and this test kept the two copies identical. PR2 deleted the
+    copies, so it now guards the other direction: a re-introduced local version
+    would be one that measures file boundaries instead of speech, which is the
+    entire bug B2 exists to remove and would leave no trace in the manifest.
+    """
     import importlib.util
     spec = importlib.util.spec_from_file_location(
         "bm", "scripts/build_manifest.py")
     bm = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(bm)
-    a = [(0.0, 2.0), (5.0, 7.0)]
-    b = [(1.0, 6.0)]
-    assert bm.shared_seconds(a, b) == vad.shared_seconds(a, b)
+    assert not hasattr(bm, "shared_seconds"), "use vad.shared_seconds"
+    assert not hasattr(bm, "is_interrupted"), "use vad.is_interrupted"
+    assert not hasattr(bm, "spans"), "use vad.spans_of"

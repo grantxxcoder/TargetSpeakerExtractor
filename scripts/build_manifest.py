@@ -6,6 +6,21 @@ draw decided here. Reads file headers only, never audio samples.
 
 Transcripts are not copied into the manifest. They live in the utterance
 index, keyed by utterance id.
+
+B2 PR2 (decisions.md 2026-08-15) split one quantity into two, and confusing them
+is the way to break this file:
+
+  FOOTPRINT  how much of the timeline a source's audio occupies, silence
+             included. Physical. Drives placement (`lay_out`, `best_onset`'s
+             slide range) and the "does it fit in the window" assertions.
+  SPEECH     how much of that is detected voice, from `data/index/vad_segments.csv`.
+             A measurement. Drives `target_activity`, `interferer_activity`,
+             `overlap_achieved` and `interrupted`.
+
+They differ by ~14 %: a LibriSpeech file is only ~86 % speech, mostly a ~0.33 s
+pause before the reader starts. Before PR2 footprint was used for both, which
+overstated overlap by ~25 %. The audio is identical either way -- only the labels
+and the resulting placement change.
 """
 
 from __future__ import annotations
@@ -25,6 +40,7 @@ import soundfile as sf
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src.data import vad  # noqa: E402
 from src.data.sampling import (  # noqa: E402
     draw, draw_regime, resolve, split_config,
 )
@@ -33,9 +49,13 @@ from src.run_log import timed  # noqa: E402
 COLUMNS = [
     "trial_id", "split",
     "target_speaker", "target_chapter", "target_utts", "target_onsets_s",
-    "target_speech_s", "target_activity",
+    # B2 PR2: *_speech_s is DETECTED SPEECH, *_footprint_s is how much timeline
+    # the audio occupies. They differ by ~14 % and mean different things -- see
+    # the module docstring. *_activity is speech / mixture_length_s.
+    "target_speech_s", "target_footprint_s", "target_activity",
     "interferer_speaker", "interferer_chapter", "interferer_utts",
-    "interferer_onsets_s", "interferer_speech_s", "interferer_activity",
+    "interferer_onsets_s", "interferer_speech_s", "interferer_footprint_s",
+    "interferer_activity",
     "enrollment_utt", "enrollment_offset_s", "enrollment_length_s", "enrollment_eq",
     # B10: which of the three guard tiers supplied the enrollment clip.
     "enrollment_guard",
@@ -136,6 +156,49 @@ def index_utterances(root, speakers, subset_of, cache):
     return rows
 
 
+def load_vad_index(path, utterances):
+    """`{utt: [(start_s, end_s), ...]}` for every utterance in this split.
+
+    B2 PR2. Built once by `scripts/build_vad_index.py`; this only reads it. The
+    index covers the whole corpus, so it is filtered down to the split's own
+    utterances rather than held in full.
+
+    Required, not optional. Silently falling back to file boundaries is exactly
+    the ~25 % overlap overstatement B2 exists to remove, and it would leave no
+    trace in the manifest.
+    """
+    if not path.exists():
+        raise SystemExit(
+            f"{path} not found. Run scripts/build_vad_index.py first: overlap "
+            "cannot be measured from speech without it.")
+
+    wanted = {u["utt"] for u in utterances}
+    segs = {}
+    with path.open() as f:
+        for r in csv.DictReader(f):
+            if r["utt"] in wanted:
+                segs[r["utt"]] = vad.parse_segments(r["segments"])
+
+    missing = wanted - segs.keys()
+    if missing:
+        raise SystemExit(
+            f"{path} is stale: {len(missing)} utterances in this split were never "
+            f"indexed (e.g. {sorted(missing)[0]}). Re-run scripts/build_vad_index.py.")
+    return segs
+
+
+def drop_silent(utterances, segs_of):
+    """Utterances the detector found no speech in at all.
+
+    Measured 2026-08-15: exactly 1 of 137,876. It is dropped rather than
+    special-cased -- as a target it would contribute zero activity while still
+    consuming window, and as an enrollment clip it would be 5 s of silence
+    against B10/A1's >=5 s of voice.
+    """
+    kept = [u for u in utterances if segs_of[u["utt"]]]
+    return kept, len(utterances) - len(kept)
+
+
 def index_noise(root, noise_split, cache):
     """One row per WHAM! noise clip: file name and duration."""
     if cache.exists():
@@ -233,29 +296,46 @@ def place_source(rng, cfg, dims, mic):
     raise RuntimeError("no feasible source position after 50 draws")
 
 
-def pick_run(rng, chapters, by_chapter, wanted_s, cap_s, max_n):
-    """A run of consecutive utterances from one chapter, totalling between
-    wanted_s and cap_s. Consecutive and single-chapter so the joined audio is
-    continuous reading and the joined transcript is exact.
+def pick_run(rng, chapters, by_chapter, wanted_s, cap_s, max_n, segs_of,
+             footprint_cap_s):
+    """A run of consecutive utterances from one chapter whose DETECTED SPEECH
+    totals between wanted_s and cap_s. Consecutive and single-chapter so the
+    joined audio is continuous reading and the joined transcript is exact.
+
+    Returns `(chapter, run, footprint_s, speech_s)`.
+
+    B2 PR2 changed the quantity being accumulated from file duration to speech.
+    `footprint_cap_s` is new and is not the same limit: selecting on speech lets
+    a run reach the wanted amount while its audio overruns the window, because
+    the silence between and inside utterances is carried along with it. `lay_out`
+    would then be handed a negative amount of leftover time and scatter negative
+    gaps. Capping the footprint at the window length is what prevents that.
     """
     for _ in range(20):
         chapter = chapters[rng.integers(len(chapters))]
         utts = by_chapter[chapter]
-        run, total = [], 0.0
+        run, speech, footprint = [], 0.0, 0.0
         for u in utts[rng.integers(len(utts)):][:max_n]:
+            s = vad.total_speech(segs_of[u["utt"]])
             d = float(u["duration"])
-            if total + d > cap_s:
+            if speech + s > cap_s or footprint + d > footprint_cap_s:
                 break
             run.append(u)
-            total += d
-            if total >= wanted_s:
-                return chapter, run, total
+            speech += s
+            footprint += d
+            if speech >= wanted_s:
+                return chapter, run, footprint, speech
     return None
 
 
 def lay_out(rng, run, span_s):
     """Onsets for a run of utterances inside span_s, with the leftover time
-    scattered as gaps before, between and after them."""
+    scattered as gaps before, between and after them.
+
+    Deliberately still FOOTPRINT-based after B2 PR2: an audio file occupies its
+    whole duration on the timeline whether or not anyone is speaking during it.
+    Placing by speech would overlap the actual audio.
+    """
     durations = [float(u["duration"]) for u in run]
     gaps = rng.dirichlet(np.ones(len(run) + 1)) * (span_s - sum(durations))
     onsets, t = [], gaps[0]
@@ -265,20 +345,38 @@ def lay_out(rng, run, span_s):
     return onsets
 
 
-def spans(run, onsets):
-    return [(o, o + float(u["duration"])) for u, o in zip(run, onsets)]
+def segments_for(run, segs_of):
+    """The per-utterance speech segments of a run, in run order."""
+    return [segs_of[u["utt"]] for u in run]
 
 
-def shared_seconds(a, b):
-    return sum(max(0.0, min(x2, y2) - max(x1, y1)) for x1, x2 in a for y1, y2 in b)
+def block_spans(run, segs_of):
+    """Speech spans of a contiguous run laid out from time zero.
+
+    The interferer is placed as one unbroken block, so its internal geometry is
+    fixed and `best_onset` only slides it. Computing it once per candidate onset
+    instead would repeat the same work 400 times.
+    """
+    onsets, t = [], 0.0
+    for u in run:
+        onsets.append(t)
+        t += float(u["duration"])
+    return vad.spans_of(segments_for(run, segs_of), onsets)
 
 
-def best_onset(target_spans, block_s, length, wanted_s):
+def best_onset(target_spans, block, footprint_s, length, wanted_s):
     """Slide the interferer block across the window and take the onset whose
-    overlap with the target comes closest to wanted_s. Searching beats solving
-    it in closed form because the target has gaps in it."""
-    candidates = np.linspace(0.0, max(0.0, length - block_s), 400)
-    overlaps = [shared_seconds(target_spans, [(c, c + block_s)]) for c in candidates]
+    speech overlap with the target comes closest to wanted_s. Searching beats
+    solving it in closed form because both sides have gaps in them.
+
+    B2 PR2: `block` is now the interferer's speech spans at time zero rather than
+    one solid rectangle, so the gaps inside the interferer count as not-talking
+    too. `footprint_s` still bounds the slide, because it is the audio that has
+    to fit in the window.
+    """
+    candidates = np.linspace(0.0, max(0.0, length - footprint_s), 400)
+    overlaps = [vad.shared_seconds(target_spans, vad.shift(block, c))
+                for c in candidates]
     i = int(np.argmin([abs(o - wanted_s) for o in overlaps]))
     return float(candidates[i]), overlaps[i]
 
@@ -366,18 +464,16 @@ def pick_enrollment(rng, candidates, target_chapter, used_utts, book):
     return None
 
 
-def is_interrupted(target_spans, interferer_onsets):
-    """B13's interruption condition: the interferer starts talking while a
-    target utterance is already running.
-
-    Strictly inside, so an interferer beginning exactly as the target stops is
-    turn-taking rather than an interruption. Derived from onsets that were
-    already recorded, so it costs no extra draw. decisions.md 2026-08-14."""
-    return any(t0 < o < t1 for o in interferer_onsets for t0, t1 in target_spans)
+# B2 PR2 removed the local is_interrupted() and shared_seconds() in favour of
+# src/data/vad.py's, which take detected speech instead of file boundaries. The
+# interruption test itself is unchanged in form -- what changed is that both the
+# target's spans and the interferer's onsets are now real speech. Option A
+# (`first_only=True`): one onset per interferer utterance, the moment they begin
+# that turn. decisions.md 2026-08-15 Part 3.
 
 
 def build_trial(trial_id, split, sampling_cfg, speakers, sex, book, by_speaker,
-                by_chapter, chapters_of, noise):
+                by_chapter, chapters_of, noise, segs_of):
     # `reg` is a fifth, dedicated stream: SeedSequence.spawn(5) yields the same
     # first four children as spawn(4), so adding it moves no existing draw, and
     # the regime can never shift the values of the parameters it selects.
@@ -409,10 +505,13 @@ def build_trial(trial_id, split, sampling_cfg, speakers, sex, book, by_speaker,
     overlap_requested = draw(level, [o_lo, o_hi]) if condition == "both" else 0.0
     max_n = cfg["max_utterances_per_source"]
 
-    target_chapter, target_run, target_speech = None, [], 0.0
+    target_chapter, target_run = None, []
+    target_speech, target_footprint = 0.0, 0.0
     target_spans, target_onsets = [], []
-    interferer_chapter, interferer_run, interferer_speech = None, [], 0.0
+    interferer_chapter, interferer_run = None, []
+    interferer_speech, interferer_footprint = 0.0, 0.0
     interferer_onsets, i0, overlap_achieved = [], 0.0, 0.0
+    interferer_spans = []
     interferer = None
     enrollment, guard = None, ""
 
@@ -434,17 +533,22 @@ def build_trial(trial_id, split, sampling_cfg, speakers, sex, book, by_speaker,
             continue
 
         if has_target:
+            # t_wanted is now SPEECH seconds, not audio seconds. The footprint
+            # cap is what keeps the audio inside the window (see pick_run).
             t_wanted = t_act_wanted * length
             found = pick_run(pick, chapters_of[target], by_chapter, t_wanted,
-                             t_wanted + cfg["activity_tolerance"] * length, max_n)
+                             t_wanted + cfg["activity_tolerance"] * length, max_n,
+                             segs_of, length)
             if found is None:
                 continue
-            target_chapter, target_run, target_speech = found
+            target_chapter, target_run, target_footprint, target_speech = found
             target_onsets = lay_out(level, target_run, length)
-            target_spans = spans(target_run, target_onsets)
+            target_spans = vad.spans_of(segments_for(target_run, segs_of),
+                                        target_onsets)
             used_utts = {u["utt"] for u in target_run}
         else:
-            target_chapter, target_run, target_speech = None, [], 0.0
+            target_chapter, target_run = None, []
+            target_speech, target_footprint = 0.0, 0.0
             target_onsets, target_spans, used_utts = [], [], set()
 
         # B10's three-tier guard, in place of B8's book-or-redraw.
@@ -454,8 +558,10 @@ def build_trial(trial_id, split, sampling_cfg, speakers, sex, book, by_speaker,
         guard, enrollment = chosen
 
         if not has_interferer:
-            interferer_chapter, interferer_run, interferer_speech = None, [], 0.0
+            interferer_chapter, interferer_run = None, []
+            interferer_speech, interferer_footprint = 0.0, 0.0
             interferer_onsets, i0, overlap_achieved = [], 0.0, 0.0
+            interferer_spans = []
             break
 
         if has_target:
@@ -489,22 +595,27 @@ def build_trial(trial_id, split, sampling_cfg, speakers, sex, book, by_speaker,
             continue
         found = pick_run(pick, i_chapters, by_chapter, i_act * length,
                          min((i_act + cfg["activity_tolerance"]) * length, length),
-                         max_n)
+                         max_n, segs_of, length)
         if found is None:
             continue
-        interferer_chapter, interferer_run, interferer_speech = found
+        interferer_chapter, interferer_run, interferer_footprint, interferer_speech = found
 
         # One contiguous block, so sliding it is the single free variable that
-        # sets the overlap.
+        # sets the overlap. The slide range is bounded by the FOOTPRINT -- that
+        # is what has to fit -- while the overlap it achieves is measured from
+        # the speech inside it.
+        block = block_spans(interferer_run, segs_of)
         if not has_target:
-            i0, overlap_achieved = level.uniform(0, length - interferer_speech), 0.0
+            i0 = level.uniform(0, length - interferer_footprint)
+            overlap_achieved = 0.0
         else:
-            i0, shared = best_onset(target_spans, interferer_speech, length,
-                                    overlap_requested * length)
+            i0, shared = best_onset(target_spans, block, interferer_footprint,
+                                    length, overlap_requested * length)
             overlap_achieved = shared / length
         if abs(overlap_achieved - overlap_requested) > cfg["overlap_tolerance"]:
             continue
 
+        interferer_spans = vad.shift(block, i0)
         interferer_onsets, t = [], i0
         for u in interferer_run:
             interferer_onsets.append(t)
@@ -549,12 +660,14 @@ def build_trial(trial_id, split, sampling_cfg, speakers, sex, book, by_speaker,
         "target_utts": "|".join(u["utt"] for u in target_run),
         "target_onsets_s": "|".join(f"{o:.4f}" for o in target_onsets),
         "target_speech_s": round(target_speech, 3),
+        "target_footprint_s": round(target_footprint, 3),
         "target_activity": round(target_speech / length, 4),
         "interferer_speaker": interferer or "",
         "interferer_chapter": interferer_chapter[1] if interferer_chapter else "",
         "interferer_utts": "|".join(u["utt"] for u in interferer_run),
         "interferer_onsets_s": "|".join(f"{o:.4f}" for o in interferer_onsets),
         "interferer_speech_s": round(interferer_speech, 3),
+        "interferer_footprint_s": round(interferer_footprint, 3),
         "interferer_activity": round(interferer_speech / length, 4),
         "enrollment_utt": enrollment["utt"],
         "enrollment_offset_s": round(enroll_offset, 4),
@@ -582,7 +695,10 @@ def build_trial(trial_id, split, sampling_cfg, speakers, sex, book, by_speaker,
         "target_absent": int(absent),
         "condition": condition,
         "same_gender": "" if interferer is None else int(sex[interferer] == sex[target]),
-        "interrupted": int(is_interrupted(target_spans, interferer_onsets)),
+        "interrupted": int(vad.is_interrupted(
+            target_spans,
+            vad.onsets_of(segments_for(interferer_run, segs_of), interferer_onsets,
+                          first_only=True))),
         "regime": regime or "none",
     }
 
@@ -634,6 +750,15 @@ def main():
         noise, index_dir / f"noise_speech_{cfg['noise_split']}.csv",
         max_speech_run_s)
 
+    # B2 PR2: every activity and overlap figure below is measured against this.
+    segs_of = load_vad_index(index_dir / "vad_segments.csv", utterances)
+    vad_meta_path = index_dir / "vad_segments.meta.yaml"
+    vad_meta = yaml.safe_load(vad_meta_path.read_text()) if vad_meta_path.exists() else {}
+    utterances, n_silent = drop_silent(utterances, segs_of)
+    if n_silent:
+        print(f"  dropped {n_silent} utterance(s) with no detected speech",
+              file=sys.stderr)
+
     by_speaker = defaultdict(list)
     by_chapter = defaultdict(list)
     for u in utterances:
@@ -652,7 +777,8 @@ def main():
         for i in range(cfg["n_trials"]):
             trial_id = f"{args.split}-{config['seed']}-{i:06d}"
             row = build_trial(trial_id, args.split, sampling_cfg, speakers, sex,
-                              book, by_speaker, by_chapter, chapters_of, noise)
+                              book, by_speaker, by_chapter, chapters_of, noise,
+                              segs_of)
             if row is None:
                 failed_ids.append(trial_id)
             else:
@@ -698,6 +824,13 @@ def main():
         "noise_clips_screened": n_noise_screened,
         "noise_clips_kept": len(noise),
         "noise_max_speech_run_s": max_speech_run_s,
+        # B2 PR2: which detector pass defined "overlap" for this manifest. The
+        # vad: block is what these numbers mean; quoting an overlap figure
+        # without it is quoting a number whose definition is unstated.
+        "vad_settings": vad.vad_config(config),
+        "vad_index_built": vad_meta.get("generated"),
+        "vad_detector_version": vad_meta.get("detector_version"),
+        "n_utterances_silent_dropped": n_silent,
         "regimes": sampling_cfg["regimes"],
         "regime_mix": {r: sum(1 for x in rows if x["regime"] == r)
                        for r in sorted({x["regime"] for x in rows})},

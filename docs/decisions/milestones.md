@@ -116,7 +116,8 @@ Still unimplemented from `data-construction-parameters.md`:
       what names the noise clip, so the pool is filtered before selection. Drop any
       clip whose longest unbroken speech run reaches 0.5 s — 4.1 % of tr, 2.0 % of
       cv, 1.3 % of tt. Takes effect at PR2's rebuild~~
-- [ ] **B2 — voice-activity detection pass over the corpus**, cached alongside the
+- [X] **B2 — voice-activity detection pass over the corpus** — **closed 2026-08-16**
+      except the optional PR3 below. Cached alongside the
       utterance index, so overlap is measured from where speech actually is. Detector:
       Silero VAD, `silero-vad` 6.2.1, pinned. Measured, reproducibly, 2026-08-16:
       files are 86.2 % speech, overlap overstated ~25 %, per-trial error up to 0.270
@@ -129,10 +130,13 @@ Still unimplemented from `data-construction-parameters.md`:
   - [X] ~~**Run the index**: `scripts/build_vad_index.py` — done 2026-08-15, 2.1 h,
         137,876 utterances, 0 failures, 86.4 % speech. `data/index/vad_segments.csv`.
         `scripts/screen_noise_speech.py` ran the same day, 25 min, 28,000 clips~~
-  - [ ] **PR2** — wire into `build_manifest.py` (`spans`, `pick_run`, `best_onset`,
-        `is_interrupted`), then rebuild all six manifests and re-run the leak
-        scoreboard. Note: `check_manifest_parity.py` cannot gate this one — the whole
-        point is that the numbers change
+  - [X] ~~**PR2** — done 2026-08-16, branch `m0-b2-pr2-vad-wire`. Wired into
+        `build_manifest.py`; all six manifests rebuilt (train 2 min). Overlap labels
+        were wrong on 95.5 % of both-trials (mean 0.073, max 0.485) and are now exact.
+        Real speech overlap rose 0.212 -> 0.275 because `best_onset` finally hits the
+        requested amount. Leak scoreboard unchanged (AUC 0.648 -> 0.651, speaker prior
+        0.508 -> 0.503). `n_failed` 50 -> 62 of 20,000, so the 0.78 ceiling stands.
+        `check_manifest_parity.py` fails on all six, as designed~~
   - [X] ~~**`target_activity_ratio` ceiling.** Lowered 0.85 -> 0.78 on 2026-08-16 in
         both the global band and `base`, with a decisions.md entry. 0.85 of *speech*
         needs 0.988 of the window filled with audio and realised footprint tops out
@@ -162,7 +166,10 @@ Renderer (unblocked 2026-08-13):
 - [ ] Transcripts cut to match any audio truncation
 
 Notebook and verification:
-- [ ] §7.5 — leak scoreboard, **before** the rebuild so it is a before/after
+- [X] ~~§7.5 — leak scoreboard, **before** the rebuild so it is a before/after — done
+      2026-08-16 for B2 PR2, but run standalone against the backed-up pre-rebuild
+      manifests rather than in the notebook. Numbers in `decisions.md`. The notebook
+      cells themselves still print the old figures~~
 - [ ] §8 — `enrollment_eq` rate vs config, `same_gender` rate vs config
 - [ ] **EDA per parameter** — plot each parameter's realised distribution against
       the intended one (raised 2026-08-12, needed to verify B12)
