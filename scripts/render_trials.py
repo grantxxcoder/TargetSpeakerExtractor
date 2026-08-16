@@ -135,6 +135,9 @@ def main():
     ap.add_argument("--limit", type=int, default=None,
                     help="render only the first N trials -- use this to TIME the "
                          "job before committing to the full pass")
+    ap.add_argument("--trials", default=None,
+                    help="comma-separated trial ids, for inspecting one case "
+                         "without rendering the split")
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--force", action="store_true",
                     help="re-render trials that already exist")
@@ -151,6 +154,13 @@ def main():
         (Path(args.manifest_dir) / f"{args.split}.meta.yaml").read_text())
     with manifest.open() as f:
         rows = list(csv.DictReader(f))
+    if args.trials:
+        wanted = [t.strip() for t in args.trials.split(",") if t.strip()]
+        by_id = {r["trial_id"]: r for r in rows}
+        missing = [t for t in wanted if t not in by_id]
+        if missing:
+            raise SystemExit(f"not in {manifest}: {', '.join(missing)}")
+        rows = [by_id[t] for t in wanted]
     if args.limit:
         rows = rows[:args.limit]
 
@@ -210,7 +220,7 @@ def main():
         "n_rendered": counts["rendered"],
         "n_skipped": counts["skipped"],
         "n_failed": counts["failed"],
-        "partial": bool(args.limit),
+        "partial": bool(args.limit or args.trials),
         "audio_hours": round(rendered_s / 3600, 3),
     }, sort_keys=False))
 
