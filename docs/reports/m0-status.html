@@ -384,7 +384,7 @@
     <h2>M0 is essentially done. Nothing downstream of it has started.</h2>
     <p>The project has spent its first fortnight on one thing and done it thoroughly: deciding
     exactly what the training and evaluation data is, and building the code that produces it.
-    Forty-six decisions are logged with their reasoning, every parameter has a config entry, the
+    Forty-five decisions are logged with their reasoning, every parameter has a config entry, the
     manifests are rebuilt on corrected measurements, and as of today all six splits exist as
     audio on disk.</p>
     <p>The renderer was the schedule risk in this milestone — its cost was the one row in the
@@ -401,6 +401,93 @@
     <code>src/eval/</code> and <code>src/live_model_metric/</code> are still empty directories. No
     model exists, and the metric that is the thesis's primary contribution has not been
     implemented. Those are two separate build efforts and neither has begun.</p>
+  </section>
+
+  <section class="prose">
+    <div class="sub">For the supervisor</div>
+    <h2>What has been built, in plain terms</h2>
+    <p>Six items, no jargon. The task is to pull one chosen voice out of a recording that also
+    contains another person and background noise. This milestone built the data that task will be
+    learned and judged on — not the model.</p>
+
+    <div class="note">
+      <div class="note-h">Reading the codes</div>
+      <p>Labels like <strong>A1</strong>, <strong>B2</strong> or <strong>B9</strong> throughout this
+      report are individual entries in <code>docs/decisions/decisions.md</code>, each dated and
+      written up with its reasoning and what it cost. <strong>A1–A6</strong> cover how the audio
+      itself is built — what counts as the clean reference, how loudness is set, how echo tails and
+      clipping are handled. <strong>B1–B13</strong> cover the dataset and the evaluation protocol.
+      Any code in this document can be looked up there.</p>
+    </div>
+
+    <h3>1. Difficulty is a dial, not a rebuild</h3>
+    <p>Every setting that makes the task harder or easier — how loud the interrupting voice is, how
+    echoey the room is, how much the two people talk over each other, how far they sit from the
+    microphone — lives as a <em>range</em> in one configuration file, and each trial draws its own
+    value from that range. Nothing is hardcoded.</p>
+    <p>On top of that, trials are drawn from one of two regimes: <strong>base</strong> (60 % of
+    trials) and <strong>hard</strong> (40 %). Base is a narrower band sitting inside hard, and every
+    trial records which one it came from. So if the model turns out unable to learn the task, the
+    data does not need regenerating — we filter the set to the base trials and the problem gets
+    easier immediately (B12). The 3.2-hour render does not have to be repeated.</p>
+
+    <h3>2. The shape of the difficulty can be changed, not just its limits</h3>
+    <p>A range on its own says only what is possible, not what is common. Each setting can instead
+    be given a distribution shape — so the same outer limits can be kept while pulling most trials
+    toward the ordinary, average case and leaving the extremes as rare edge cases. For example,
+    switching the loudness difference between the two speakers from an even spread to one
+    concentrated around the typical value takes trials where the interrupting voice is
+    <em>louder</em> than the target from 25 % of the set down to 17 %, without changing the limits
+    at all. This is a one-line change per setting, and it is built so that altering one setting does
+    not disturb the random draws of any other — the same seed still reproduces everything else
+    exactly.</p>
+
+    <h3>3. We know where this data sits relative to real life</h3>
+    <p>Two people in an ordinary meeting talk over each other perhaps 10–15 % of the time. In our
+    built data it is <strong>27.5 %</strong>, measured. That gap is deliberate: the upper limit was
+    set with reference to the published benchmark for this task rather than to everyday
+    conversation, so the set is harder than daily speech <em>by design</em> and the decision is
+    written down rather than discovered later. (Different data, metric and protocol, so our figures
+    are never a like-for-like comparison with that benchmark's published results.) Every setting in
+    the config also carries a note of what the value would be in an ordinary room, as the reference
+    point for the average case — those notes are indicative and flagged as not yet measured; the
+    pilot confirms them.</p>
+
+    <h3>4. Harder does not always mean less realistic</h3>
+    <p>Worth a moment because it is counter-intuitive. The amount of echo in a room was allowed to
+    go as low as 0.15 seconds, which sounds like the easy end. But in a room of the size we
+    simulate, that little echo implies walls more absorbent than a professional studio — 2.1 % of
+    trials were effectively room-sized anechoic chambers. The unrealistic corner was the
+    <em>easy</em> end, not the difficult one, so raising the floor to 0.25 s made the data more
+    realistic and harder at the same time. Which settings to loosen first, and what realism each one
+    costs, is worked out in <code>docs/data/difficulty-dial.md</code>, including a table translating
+    echo times into recognisable rooms.</p>
+
+    <h3>5. The commonest real situation was missing, and now is not</h3>
+    <p>Trials are drawn as four kinds: both people talking (50 %), the target talking with nobody
+    interrupting (25 %), the target silent while someone else talks (20 %), and nobody talking at all
+    (5 %). The second of those — one person speaking uninterrupted, which is the most common thing
+    that actually happens — appeared in <strong>zero</strong> trials before this was fixed (B9). The
+    last two matter because a model must learn to stay silent rather than invent words when the
+    person it is listening for is not speaking.</p>
+
+    <h3>6. The data is built so a model cannot pass by cheating</h3>
+    <p>This is the part most easily overlooked and hardest to retrofit. Earlier, a model could have
+    scored well without listening to the target at all, because "did two voices overlap?" was
+    effectively the same question as "is the target present?". The four kinds above are now sized so
+    that, given no overlap, the target is present or absent on exactly a coin flip — the shortcut
+    carries no information. Checked by trying to exploit it: speaker identity now predicts presence
+    at chance (0.503, where 0.500 is a coin flip). One cue is <em>not</em> yet at chance — whether
+    the other person is talking still predicts the target's absence at 0.651 — and that is reported
+    openly rather than left out. Alongside this: no speaker appears in both the training and
+    evaluation sets, the noise recordings are drawn from separate pools that are never crossed
+    between training and evaluation, and a second evaluation set is held back untouched.</p>
+
+    <p>Underpinning all six: every run records its random seed, its exact configuration, and the
+    code version that produced it, and dependency versions are pinned — including the speech
+    detector, which is version-checked on every run because an unnoticed upgrade would silently move
+    every overlap figure in the thesis. Any number in this report can be traced back to the settings
+    and code that produced it.</p>
   </section>
 
   <section>
@@ -726,9 +813,10 @@
 
   <footer>
     Generated 17 Aug 2026 from the working tree at branch <code>m0-renderer</code>. Source: docs/reports/m0-status.html<br>
-    Sources: docs/decisions/milestones.md, docs/decisions/decisions.md (43 entries),
+    Sources: docs/decisions/milestones.md, docs/decisions/decisions.md (45 dated entries, covering
+    A1–A6 and B1–B13), docs/data/difficulty-dial.md, experiments/configs/generator.yaml,
     docs/run_times.md, the six manifest meta files, and the six
-    <code>data/rendered/*/render.meta.yaml</code> stamps. 46 decision entries.<br>
+    <code>data/rendered/*/render.meta.yaml</code> stamps.<br>
     All figures measured, not projected — the renderer runtime included, as of this revision. Where
     a projection is quoted it is labelled as one and shown against the measurement. The 40-trial
     by-ear pass is <strong>in progress and its result is not yet in this report</strong>; the audio
