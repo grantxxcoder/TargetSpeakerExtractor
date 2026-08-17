@@ -176,7 +176,6 @@ Notebook and verification:
       2026-08-16 for B2 PR2, but run standalone against the backed-up pre-rebuild
       manifests rather than in the notebook. Numbers in `decisions.md`. The notebook
       cells themselves still print the old figures~~
-- [ ] §8 — `enrollment_eq` rate vs config, `same_gender` rate vs config
 - [ ] **EDA per parameter** — plot each parameter's realised distribution against
       the intended one (raised 2026-08-12, needed to verify B12)
 - [ ] Revise §2, §7 and the final health checks after the rebuild; §3–§6 survive
@@ -189,7 +188,6 @@ Pilot calibration, before freezing any range:
       40 cannot be re-listened to~~
 - [ ] Floor and ceiling WER measured; aim for a 60–80 % floor. **Now the M0 blocker**
       and what C2 needs, since the listen is closed
-- [ ] Confirm conditions separate — bin by SIR and by overlap
 
 Housekeeping:
 - [X] ~~`requirements.txt` — added 2026-08-15 (`e1e2436`), 38 lines, versions pinned
