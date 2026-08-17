@@ -136,8 +136,9 @@ defaults:
   # Example: make SIR a truncated normal instead of uniform. Same bounds, mass
   # pulled toward the typical case -- an interferer louder than the target goes
   # from 25% of trials to 17%.
+  #------------------------------------------------------------------------------------- 
   #sir_db: {dist: truncnorm, lo: -5.0, hi: 15.0, mu: 5.0, sigma: 6.0}
-  #
+  #------------------------------------------------------------------------------------
   # Scope: a spec written HERE applies to `hard` (which inherits defaults) and to
   # any regime that does not name this parameter itself. It does NOT reach a
   # regime that overrides it -- `base` sets its own sir_db below, so editing this
