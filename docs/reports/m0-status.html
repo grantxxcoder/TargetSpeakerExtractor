@@ -116,7 +116,7 @@
   /* ---- verdict strip ---- */
   .verdict {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(138px, 1fr));
     gap: 1px;
     background: var(--line);
     border: 1px solid var(--line);
@@ -336,25 +336,31 @@
   <header class="masthead">
     <div class="eyebrow">
       <span>Real-time Target Speaker Extraction</span>
-      <span>Status 16 Aug 2026</span>
+      <span>Status 17 Aug 2026</span>
       <span>Phase 2 &middot; Data</span>
     </div>
-    <h1>The data is becoming audio. The model still does not exist.</h1>
-    <p class="standfirst">The renderer is written, verified against every level decision, and
-    running now — an hour and a half, not the overnight job it was written up as. M0 lands on
-    time. What has not started is everything downstream of it.</p>
+    <h1>The data is audio. The model still does not exist.</h1>
+    <p class="standfirst">All 21,208 trials are rendered — 27 GB, 105 h, nothing failed. It took
+    3.2 hours, not the 83 minutes projected from a 100-trial sample. One check remains before M0
+    is finished: 40 trials validated by ear, under way today. What has not started is everything
+    downstream of it.</p>
   </header>
 
   <div class="verdict">
     <div class="vcell">
       <div class="vlabel">Trials built</div>
       <div class="vnum is-done">21,208</div>
-      <div class="vnote">103.0 h across six splits</div>
+      <div class="vnote">103.0 h scripted, six splits</div>
     </div>
     <div class="vcell">
-      <div class="vlabel">Rendering</div>
-      <div class="vnum is-signal">~83</div>
-      <div class="vnote">min for ~27 GB &middot; running</div>
+      <div class="vlabel">Rendered</div>
+      <div class="vnum is-done">27</div>
+      <div class="vnote">GB &middot; 105.4 h &middot; 0 failed</div>
+    </div>
+    <div class="vcell">
+      <div class="vlabel">By ear</div>
+      <div class="vnum is-signal">0/40</div>
+      <div class="vnote">trials &middot; in progress</div>
     </div>
     <div class="vcell">
       <div class="vlabel">Model code</div>
@@ -368,7 +374,7 @@
     </div>
     <div class="vcell">
       <div class="vlabel">To freeze</div>
-      <div class="vnum">59</div>
+      <div class="vnum">58</div>
       <div class="vnote">days &middot; 14 Oct</div>
     </div>
   </div>
@@ -379,12 +385,18 @@
     <p>The project has spent its first fortnight on one thing and done it thoroughly: deciding
     exactly what the training and evaluation data is, and building the code that produces it.
     Forty-six decisions are logged with their reasoning, every parameter has a config entry, the
-    manifests are rebuilt on corrected measurements, and as of today the renderer turns those
-    manifests into audio.</p>
+    manifests are rebuilt on corrected measurements, and as of today all six splits exist as
+    audio on disk.</p>
     <p>The renderer was the schedule risk in this milestone — its cost was the one row in the
     run-time file marked <strong>unknown</strong>, and the milestone notes braced for an overnight
-    job. Measured: <strong>100 trials in 23.4 seconds</strong>, so the full set is about
-    <strong>83 minutes and 27 GB</strong>. It is running now.</p>
+    job. It is now measured: <strong>21,208 trials in 3.2 hours</strong>, 63,624 files, 27 GB,
+    105.4 h of audio — 2.4 h more than the 103.0 h the manifests script, which is the reverb tail
+    A5 appends to every trial — and <strong>nothing failed in any split</strong>. Not an overnight job, but
+    2.4× the 83 minutes projected from a 100-trial sample — the sample was too small and too
+    short-tailed to extrapolate from, and the projection should have been quoted with that
+    caveat. The 27 GB figure it predicted was right.</p>
+    <p>Resumability stopped being an assertion: the <code>val</code> split was already on disk
+    from the day before, and the full run skipped all 200 of its trials and left them untouched.</p>
     <p>The honest counterpart has not changed. <code>src/models/</code>,
     <code>src/eval/</code> and <code>src/live_model_metric/</code> are still empty directories. No
     model exists, and the metric that is the thesis's primary contribution has not been
@@ -401,7 +413,8 @@
           <li><strong>6 manifests</strong> — 21,208 trials, speaker-disjoint, every draw seeded and logged</li>
           <li><strong>VAD index</strong> — 137,876 utterances, 475 h, 0 failures, 86.2 % speech</li>
           <li><strong>Noise screening</strong> — 28,000 WHAM! clips measured, 958 rejected for background speech</li>
-          <li><strong>The renderer</strong> — manifest row to five stems, every level verified against A1–A6. ~83 min, ~27 GB, resumable</li>
+          <li><strong>The renderer</strong> — manifest row to three stems (<code>mixture</code>, <code>target</code>, <code>enrollment</code>), every level verified against A1–A6. Resumable, and the resume path is now exercised</li>
+          <li><strong>The audio</strong> — 21,208 trials rendered, 63,624 files, 27 GB, 105.4 h, 0 failures. 3.2 h at 8 workers, 16 kHz PCM_16</li>
           <li><strong>7 scripts</strong>, 2,600 lines — manifest, splits, VAD index, screening, parity, measurement, render</li>
           <li><strong>133 tests</strong>, all passing</li>
           <li><strong>Pinned <code>requirements.txt</code></strong> — exact versions, because the VAD weights define what "overlap" means</li>
@@ -508,6 +521,12 @@
     <p class="prose">A renderer's failure mode is audio that is wrong and still plays perfectly.
     So each level decision was turned into a property and measured on 150 trials across all four
     trial types, rather than confirmed by listening or by an exit code.</p>
+    <p class="prose">Those properties held on the full run — every split reports zero failures and
+    the file count is exact. But they only cover what was written down as a decision. A mixture can
+    satisfy all six and still be unusable: wrong speaker enrolled, an interferer that is inaudible
+    or overwhelming, a noise bed that swallows the target. That is what the <strong>40-trial
+    by-ear pass</strong> is for, and it is the open item below — measurement first, listening as
+    the check on what measurement was never told to look for.</p>
 
     <div class="scroll">
       <table>
@@ -562,56 +581,56 @@
       <div class="rung now">
         <div class="rung-id">M0</div>
         <div class="rung-name">Data exists
-          <em>Manifests and renderer done, audio rendering now. Pilot calibration and
-          notebook revision outstanding.</em>
+          <em>Manifests, renderer and audio all done. Outstanding: 40 trials by ear (under way),
+          pilot calibration, notebook revision.</em>
           <div class="track" aria-hidden="true">
             <span class="seg on"></span><span class="seg on"></span><span class="seg on"></span>
             <span class="seg on"></span><span class="seg on"></span><span class="seg on"></span>
-            <span class="seg part"></span><span class="seg"></span>
+            <span class="seg on"></span><span class="seg part"></span>
           </div>
         </div>
-        <div class="rung-when">20 Aug &middot; 4 days</div>
+        <div class="rung-when">20 Aug &middot; 3 days</div>
       </div>
       <div class="rung">
         <div class="rung-id">M1</div>
         <div class="rung-name">BSRNN implemented, training trustworthy
           <em>Not started. Proof is a run that is killed and resumes cleanly.</em></div>
-        <div class="rung-when">3 Sep &middot; 18 days</div>
+        <div class="rung-when">3 Sep &middot; 17 days</div>
       </div>
       <div class="rung">
         <div class="rung-id">M2</div>
         <div class="rung-name">Baseline trained
           <em>40–70 h of GPU. No GPU currently secured.</em></div>
-        <div class="rung-when">17 Sep &middot; 32 days</div>
+        <div class="rung-when">17 Sep &middot; 31 days</div>
       </div>
       <div class="rung">
         <div class="rung-id">M3</div>
         <div class="rung-name">Baseline evaluated conventionally
           <em>SI-SDR, DNSMOS, offline WER, latency.</em></div>
-        <div class="rung-when">24 Sep &middot; 39 days</div>
+        <div class="rung-when">24 Sep &middot; 38 days</div>
       </div>
       <div class="rung">
         <div class="rung-id">M4</div>
         <div class="rung-name">The metric is computable end to end
           <em>The primary contribution. Judge choice gates the whole milestone.</em></div>
-        <div class="rung-when">1 Oct &middot; 46 days</div>
+        <div class="rung-when">1 Oct &middot; 45 days</div>
       </div>
       <div class="rung">
         <div class="rung-id">M5</div>
         <div class="rung-name">Second model — proxy-objective fine-tune
           <em>Explicitly the first thing to cut.</em></div>
-        <div class="rung-when">14 Oct &middot; 59 days</div>
+        <div class="rung-when">14 Oct &middot; 58 days</div>
       </div>
       <div class="rung">
         <div class="rung-id">M6</div>
         <div class="rung-name">The comparison
           <em>The central finding. Lands on the freeze date with no slack.</em></div>
-        <div class="rung-when">14 Oct &middot; 59 days</div>
+        <div class="rung-when">14 Oct &middot; 58 days</div>
       </div>
       <div class="rung">
         <div class="rung-id">M7</div>
         <div class="rung-name">Submitted</div>
-        <div class="rung-when">5 Nov &middot; 81 days</div>
+        <div class="rung-when">5 Nov &middot; 80 days</div>
       </div>
     </div>
   </section>
@@ -644,14 +663,18 @@
 
     <p class="prose"><em>Closed since the last revision:</em> the renderer's cost, which was the
     third risk here and the only <strong>unknown</strong> in the run-time file. Measured at
-    ~83 minutes for the full set.</p>
+    <strong>3.2 hours</strong> for the full set — 2.4× the projection, and still comfortably
+    inside a working day.</p>
 
     <div class="note warn">
-      <div class="note-h">Open question for the supervisor</div>
+      <div class="note-h">Open question for the supervisor — now with a cost attached</div>
       <p><strong>C2 — how hard should the task be?</strong> Measured as word error rate on the raw
-      mixture, currently targeting a 60–80 % floor. It blocks nothing today, but it cannot be
-      settled without them, and it sets the difficulty of every trial rendered afterwards.
-      Worth resolving before the renderer runs at full scale.</p>
+      mixture, currently targeting a 60–80 % floor. It sets the difficulty of every trial, and the
+      trials are now rendered. So the earlier note — resolve it before the renderer runs at full
+      scale — has been overtaken: changing the answer no longer costs a decision, it costs a
+      <strong>3.2-hour re-render and 27 GB rewritten</strong>. Recoverable, but it is now the one
+      open question with a price on it, and the 40-trial listen plus the floor/ceiling WER
+      measurement are what let it be answered with evidence.</p>
     </div>
   </section>
 
@@ -661,9 +684,11 @@
     <ol class="steps">
       <li>
         <div>
-          <h3>Let the render finish</h3>
-          <p>Running now, ~83 minutes for all six splits. Resumable — if it dies, the same command
-          picks up where it stopped.</p>
+          <h3>Validate 40 rendered trials by ear <span class="tag t-signal">under way</span></h3>
+          <p>In progress today. Sampled across all four trial types: is the right speaker the
+          target, is the enrollment the same voice, is the interferer audible without burying the
+          target, does the noise bed sit where it should. The measured properties cannot catch any
+          of these, and everything downstream trusts this audio.</p>
         </div>
       </li>
       <li>
@@ -676,9 +701,10 @@
       <li>
         <div>
           <h3>Pilot-calibrate on the rendered audio</h3>
-          <p>Listen to 40 trials with transcripts in hand, measure floor and ceiling WER, confirm
-          the conditions separate. This is what answers C2 with evidence rather than opinion, and
-          it is the last thing standing between here and M0 being genuinely finished.</p>
+          <p>Floor and ceiling WER on the rendered mixtures, and confirmation that the four
+          conditions separate. Together with the listen above, this is what answers C2 with
+          evidence rather than opinion, and it is the last thing standing between here and M0 being
+          genuinely finished.</p>
         </div>
       </li>
       <li>
@@ -699,11 +725,14 @@
   </section>
 
   <footer>
-    Generated 16 Aug 2026 from the working tree at branch <code>m0-renderer</code>. Source: docs/reports/m0-status.html<br>
+    Generated 17 Aug 2026 from the working tree at branch <code>m0-renderer</code>. Source: docs/reports/m0-status.html<br>
     Sources: docs/decisions/milestones.md, docs/decisions/decisions.md (43 entries),
-    docs/run_times.md, and the six manifest meta files. 46 decision entries.<br>
-    All figures measured, not projected. The renderer runtime is the sole exception and is
-    marked unknown throughout.
+    docs/run_times.md, the six manifest meta files, and the six
+    <code>data/rendered/*/render.meta.yaml</code> stamps. 46 decision entries.<br>
+    All figures measured, not projected — the renderer runtime included, as of this revision. Where
+    a projection is quoted it is labelled as one and shown against the measurement. The 40-trial
+    by-ear pass is <strong>in progress and its result is not yet in this report</strong>; the audio
+    it validates is what every figure above describes.
   </footer>
 
 </div>
