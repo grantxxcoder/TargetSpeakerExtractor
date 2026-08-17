@@ -166,7 +166,7 @@ and it is an hour and a half, not the overnight job feared here:
 - [X] ~~Guards: stem <400 ms breaks BS.1770; assert on a silent stem~~
 - [X] ~~Transcripts cut to match any audio truncation — no truncation occurs, and
       `lay_track` raises if audio would run past the window~~
-- [ ] **Run it.** ~83 min for all six splits. Resumable; re-issue the same command
+- [X] ~~**Run it.** ~83 min for all six splits. Resumable; re-issue the same command~~
 - [ ] Three under-specified points were interpreted, not decided — noise covering
       A5's tail, the `noise_only` level anchor, and the enrollment's level. Worth a
       supervisor glance. See `decisions.md` 2026-08-16
