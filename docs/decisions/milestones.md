@@ -151,19 +151,25 @@ Still unimplemented from `data-construction-parameters.md`:
         not overlap measurement
 - [ ] `length_mode`
 
-Renderer (unblocked 2026-08-13):
-- [ ] Manifest row → audio: RIRs, levels at BS.1770, noise wrap, clip ceiling
-- [ ] Five stems per trial: mixture, clean target, enrollment, both texts
-- [ ] Clean target = target × its own RIR, no interferer, no noise (A1). Record the
-      RIR per trial so the direct+early ablation stem can be rendered later without
-      re-drawing rooms
-- [ ] Tail padding past the last speech by at least the room's decay (A5) — now
-      mandatory, since the reference contains the tail
-- [ ] Exact verbatim ground-truth text for **both** target and interferer
-      (`d` is required by `docs/data/metric-definitions.md` §2 — without it ICR is
-      not computable, and regenerating later to add it costs a week)
-- [ ] Guards: stem <400 ms breaks BS.1770; assert on a silent stem
-- [ ] Transcripts cut to match any audio truncation
+Renderer — **written 2026-08-16** (`src/data/render.py` + `scripts/render_trials.py`),
+**not yet run at full scale**. 100 trials measured at 23.4 s / 8 workers, so the
+whole set is **~83 min and ~27 GB** — the "unknown" row in `run_times.md` is closed
+and it is an hour and a half, not the overnight job feared here:
+- [X] ~~Manifest row → audio: RIRs, levels at BS.1770, noise wrap, clip ceiling~~
+- [X] ~~Five stems per trial: mixture, clean target, enrollment, both texts~~
+- [X] ~~Clean target = target × its own RIR, no interferer, no noise (A1). Room
+      columns are already per trial and the RIR is a pure function of them, so the
+      direct+early ablation stem re-renders without re-drawing rooms~~
+- [X] ~~Tail padding past the last speech by at least the room's decay (A5)~~
+- [X] ~~Exact verbatim ground-truth text for **both** target and interferer, in
+      each trial's `meta.json`~~
+- [X] ~~Guards: stem <400 ms breaks BS.1770; assert on a silent stem~~
+- [X] ~~Transcripts cut to match any audio truncation — no truncation occurs, and
+      `lay_track` raises if audio would run past the window~~
+- [ ] **Run it.** ~83 min for all six splits. Resumable; re-issue the same command
+- [ ] Three under-specified points were interpreted, not decided — noise covering
+      A5's tail, the `noise_only` level anchor, and the enrollment's level. Worth a
+      supervisor glance. See `decisions.md` 2026-08-16
 
 Notebook and verification:
 - [X] ~~§7.5 — leak scoreboard, **before** the rebuild so it is a before/after — done

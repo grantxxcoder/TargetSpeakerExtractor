@@ -23,30 +23,32 @@ min_sil 250 thr 0.7           0.854    0.865   0.754   0.940   3.23   0.337    0
 
 
 ======================================================================================
-PART 2  --  label error in data/manifests/train.csv, onsets UNCHANGED
-            400 `both` trials, 864 distinct utterances, setting: min_sil 250 (CHOSEN)
+PART 2  --  agreement between the manifest and the detector in data/manifests/train.csv, onsets UNCHANGED
+            400 `both` trials, 883 distinct utterances, setting: min_sil 250 (CHOSEN)
 ======================================================================================
 
-  SANITY  file-boundary overlap recomputed from the recorded onsets vs the stored
-          `overlap_achieved` column: max|diff| = 0.00006   OK
+  CHECK   VAD overlap recomputed from the recorded onsets vs the stored
+          `overlap_achieved` column: max|diff| = 0.00007   OK
+          Post-PR2 manifest: the column IS the speech overlap, so this
+          is a regression check that the two have not drifted apart.
 
   quantity                          file-bound       VAD    change
   ----------------------------------------------------------------
-  overlap_achieved (mean)                0.285     0.215    -24.6%
-  overlap_achieved (median)              0.264     0.195    -26.1%
-  target_activity (mean)                 0.642     0.555    -13.5%
-  interferer_activity (mean)             0.467     0.407    -12.9%
+  overlap_achieved (mean)                0.387     0.275    -28.8%
+  overlap_achieved (median)              0.356     0.246    -31.0%
+  target_activity (mean)                 0.703     0.603    -14.3%
+  interferer_activity (mean)             0.538     0.458    -14.9%
 
-  overlap collapses to ZERO:          12/400 (3.0 %)
+  overlap collapses to ZERO:          0/400 (0.0 %)
       both speak, never simultaneously -- the shared interval is one
       speaker's trailing silence and the other's leading silence
-  outside overlap_tolerance 0.03:      273/400 (68.2 %)
-      NOT a rejection rate: PR2 re-runs best_onset against the new
-      measurement and re-places most of these. It is how far placement
-      must move, and an UPPER BOUND on rejections.
-  per-trial |file - VAD| overlap:      mean 0.070  p90 0.148  max 0.270
-      varies per trial, so no correction factor can fix it -- this is
-      what puts trials in the wrong B13 overlap bucket
+  outside overlap_tolerance 0.03:      0/400 (0.0 %)
+      trials whose ACHIEVED speech overlap missed what was REQUESTED.
+      Should be ~0: best_onset optimises against this exact quantity,
+      and a trial outside tolerance is rejected and redrawn.
+  per-trial |file - VAD| overlap:      mean 0.111  p90 0.216  max 0.527
+      what B2 is worth on this placement: how wrong these labels
+      WOULD be if overlap were still read off file boundaries
 
 
 ======================================================================================
@@ -55,10 +57,10 @@ PART 3  --  candidate definitions of `interrupted`
 
   definition                           rate   note
   --------------------------------------------------------------------------
-  old (file onsets)                   0.570   what the manifests carry today
-  A: first onset per utterance        0.505   CHOSEN 2026-08-15 -- minimal correction
-  A': first onset per trial           0.495   only the interferer's very first word
-  B: every speech onset               0.725   a breath pause counts as a new turn
+  old (file onsets)                   0.555   the pre-PR2 reading, kept for contrast
+  A: first onset per utterance        0.500   CHOSEN 2026-08-15 -- what the manifests carry
+  A': first onset per trial           0.463   only the interferer's very first word
+  B: every speech onset               0.797   a breath pause counts as a new turn
 
   The spread across definitions is larger than most effects this
   project will report, which is why it is pinned in decisions.md.
