@@ -182,8 +182,13 @@ Notebook and verification:
 - [ ] Revise §2, §7 and the final health checks after the rebuild; §3–§6 survive
 
 Pilot calibration, before freezing any range:
-- [ ] Listen to 40 trials with transcripts in hand
-- [ ] Floor and ceiling WER measured; aim for a 60–80 % floor
+- [X] ~~Listen to 40 trials — done 2026-08-17, all 40 judged correct, nothing
+      re-rendered. Rules out a systematic renderer fault, which is what the measured
+      A1–A6 properties could not do. Weight it honestly: subjective, one listener,
+      40 of 21,208 trials (0.19 %), and the trial ids were not recorded, so the same
+      40 cannot be re-listened to~~
+- [ ] Floor and ceiling WER measured; aim for a 60–80 % floor. **Now the M0 blocker**
+      and what C2 needs, since the listen is closed
 - [ ] Confirm conditions separate — bin by SIR and by overlap
 
 Housekeeping:

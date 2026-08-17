@@ -340,10 +340,10 @@
       <span>Phase 2 &middot; Data</span>
     </div>
     <h1>The data is audio. The model still does not exist.</h1>
-    <p class="standfirst">All 21,208 trials are rendered — 27 GB, 105 h, nothing failed. It took
-    3.2 hours, not the 83 minutes projected from a 100-trial sample. One check remains before M0
-    is finished: 40 trials validated by ear, under way today. What has not started is everything
-    downstream of it.</p>
+    <p class="standfirst">All 21,208 trials are rendered — 27 GB, 105 h, nothing failed — and 40
+    sampled trials have now been listened to and sound correct. It took 3.2 hours, not the 83
+    minutes projected from a 100-trial sample. What is left on M0 is the WER calibration; what has
+    not started is everything downstream of it.</p>
   </header>
 
   <div class="verdict">
@@ -359,8 +359,8 @@
     </div>
     <div class="vcell">
       <div class="vlabel">By ear</div>
-      <div class="vnum is-signal">0/40</div>
-      <div class="vnote">trials &middot; in progress</div>
+      <div class="vnum is-done">40/40</div>
+      <div class="vnote">sampled trials sound correct</div>
     </div>
     <div class="vcell">
       <div class="vlabel">Model code</div>
@@ -502,6 +502,7 @@
           <li><strong>Noise screening</strong> — 28,000 WHAM! clips measured, 958 rejected for background speech</li>
           <li><strong>The renderer</strong> — manifest row to three stems (<code>mixture</code>, <code>target</code>, <code>enrollment</code>), every level verified against A1–A6. Resumable, and the resume path is now exercised</li>
           <li><strong>The audio</strong> — 21,208 trials rendered, 63,624 files, 27 GB, 105.4 h, 0 failures. 3.2 h at 8 workers, 16 kHz PCM_16</li>
+          <li><strong>By-ear check</strong> — 40 sampled trials listened to 17 Aug, all correct, nothing re-rendered. A spot check of 0.19 %, not a guarantee</li>
           <li><strong>7 scripts</strong>, 2,600 lines — manifest, splits, VAD index, screening, parity, measurement, render</li>
           <li><strong>133 tests</strong>, all passing</li>
           <li><strong>Pinned <code>requirements.txt</code></strong> — exact versions, because the VAD weights define what "overlap" means</li>
@@ -612,8 +613,14 @@
     the file count is exact. But they only cover what was written down as a decision. A mixture can
     satisfy all six and still be unusable: wrong speaker enrolled, an interferer that is inaudible
     or overwhelming, a noise bed that swallows the target. That is what the <strong>40-trial
-    by-ear pass</strong> is for, and it is the open item below — measurement first, listening as
-    the check on what measurement was never told to look for.</p>
+    by-ear pass</strong> was for — measurement first, listening as the check on what measurement was
+    never told to look for.</p>
+    <p class="prose"><strong>Done 17 Aug 2026: all 40 sounded correct.</strong> Nothing had to be
+    re-rendered. Stated at its true weight, this is a subjective spot check of 40 trials out of
+    21,208 — 0.19 % of the set, judged by one listener, not a guarantee over the remainder. It is
+    strong enough to rule out a systematic renderer fault, which is what it was for, and it is the
+    reason the audio can now be trusted downstream. The trial ids were not recorded, so the same 40
+    cannot be re-listened to later.</p>
 
     <div class="scroll">
       <table>
@@ -668,8 +675,8 @@
       <div class="rung now">
         <div class="rung-id">M0</div>
         <div class="rung-name">Data exists
-          <em>Manifests, renderer and audio all done. Outstanding: 40 trials by ear (under way),
-          pilot calibration, notebook revision.</em>
+          <em>Manifests, renderer, audio and the 40-trial listen all done. Outstanding: floor and
+          ceiling WER, condition separation, notebook revision.</em>
           <div class="track" aria-hidden="true">
             <span class="seg on"></span><span class="seg on"></span><span class="seg on"></span>
             <span class="seg on"></span><span class="seg on"></span><span class="seg on"></span>
@@ -760,8 +767,8 @@
       trials are now rendered. So the earlier note — resolve it before the renderer runs at full
       scale — has been overtaken: changing the answer no longer costs a decision, it costs a
       <strong>3.2-hour re-render and 27 GB rewritten</strong>. Recoverable, but it is now the one
-      open question with a price on it, and the 40-trial listen plus the floor/ceiling WER
-      measurement are what let it be answered with evidence.</p>
+      open question with a price on it. The 40-trial listen is done and found nothing wrong, so what
+      remains is the floor and ceiling WER measurement — that is the evidence this question needs.</p>
     </div>
   </section>
 
@@ -771,15 +778,6 @@
     <ol class="steps">
       <li>
         <div>
-          <h3>Validate 40 rendered trials by ear <span class="tag t-signal">under way</span></h3>
-          <p>In progress today. Sampled across all four trial types: is the right speaker the
-          target, is the enrollment the same voice, is the interferer audible without burying the
-          target, does the noise bed sit where it should. The measured properties cannot catch any
-          of these, and everything downstream trusts this audio.</p>
-        </div>
-      </li>
-      <li>
-        <div>
           <h3>Survey public streaming-TSE checkpoints, and settle HPC access</h3>
           <p>Still the highest-leverage unstarted task, and now the only one that can still change
           what M1 and M2 are. Ten minutes, no GPU, no code. It has been open a fortnight.</p>
@@ -787,11 +785,11 @@
       </li>
       <li>
         <div>
-          <h3>Pilot-calibrate on the rendered audio</h3>
+          <h3>Pilot-calibrate on the rendered audio <span class="tag t-signal">now the blocker</span></h3>
           <p>Floor and ceiling WER on the rendered mixtures, and confirmation that the four
-          conditions separate. Together with the listen above, this is what answers C2 with
-          evidence rather than opinion, and it is the last thing standing between here and M0 being
-          genuinely finished.</p>
+          conditions separate when binned by SIR and by overlap. With the listen now done, this is
+          the last thing standing between here and M0 being genuinely finished, and it is what
+          answers C2 with evidence rather than opinion.</p>
         </div>
       </li>
       <li>
@@ -818,9 +816,9 @@
     docs/run_times.md, the six manifest meta files, and the six
     <code>data/rendered/*/render.meta.yaml</code> stamps.<br>
     All figures measured, not projected — the renderer runtime included, as of this revision. Where
-    a projection is quoted it is labelled as one and shown against the measurement. The 40-trial
-    by-ear pass is <strong>in progress and its result is not yet in this report</strong>; the audio
-    it validates is what every figure above describes.
+    a projection is quoted it is labelled as one and shown against the measurement. The one
+    subjective figure is the 40-trial by-ear pass (17 Aug 2026, all 40 correct): one listener,
+    0.19 % of the set, trial ids not recorded.
   </footer>
 
 </div>
