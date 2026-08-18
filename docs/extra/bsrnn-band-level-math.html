@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BSRNN band-level modeling — the math</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#F3F6F4;
+    --panel:#FFFFFF;
+    --ink:#14191C;
+    --soft:#4C575C;
+    --rule:#D2DBD8;
+    --low:#0F6E56;
+    --high:#A3542B;
+    --measure:44rem;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:"Source Serif 4",Georgia,serif;
+    font-size:17.5px;
+    line-height:1.62;
+  }
+  .wrap{max-width:var(--measure);margin:0 auto;padding:3.5rem 1.5rem 6rem}
+
+  .eyebrow{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--soft);margin:0 0 .9rem;
+  }
+  h1{
+    font-family:"IBM Plex Sans",system-ui,sans-serif;
+    font-weight:600;font-size:2.05rem;line-height:1.16;
+    letter-spacing:-.015em;margin:0 0 1rem;
+  }
+  .standfirst{color:var(--soft);margin:0 0 2.4rem;font-size:1.05rem}
+
+  /* signature: the spectrum ruler */
+  .ruler{margin:0 0 2.6rem}
+  .ticks{display:flex;align-items:flex-end;gap:3px;height:44px}
+  .ticks i{flex:1;border-radius:1px;display:block}
+  .ticks i.lo{background:var(--low)}
+  .ticks i.hi{background:var(--high)}
+  .ticks i.gap{background:none;flex:0 0 14px}
+  .ruler .legend{
+    display:flex;justify-content:space-between;margin-top:.55rem;
+    font-family:"IBM Plex Mono",monospace;font-size:.68rem;
+    letter-spacing:.08em;text-transform:uppercase;
+  }
+  .ruler .legend span:first-child{color:var(--low)}
+  .ruler .legend span:last-child{color:var(--high)}
+
+  h2{
+    font-family:"IBM Plex Sans",system-ui,sans-serif;
+    font-weight:600;font-size:1.12rem;letter-spacing:-.005em;
+    margin:3.2rem 0 .2rem;padding-top:1.4rem;border-top:1px solid var(--rule);
+  }
+  h2 .n{
+    font-family:"IBM Plex Mono",monospace;font-size:.78rem;font-weight:400;
+    color:var(--soft);margin-right:.7em;
+  }
+  h3{
+    font-family:"IBM Plex Sans",system-ui,sans-serif;
+    font-weight:500;font-size:.97rem;margin:2rem 0 .3rem;
+  }
+  p{margin:.9rem 0}
+  ul{margin:.9rem 0;padding-left:1.3rem}
+  li{margin:.45rem 0}
+  code{
+    font-family:"IBM Plex Mono",monospace;font-size:.84em;
+    background:#E7ECE9;padding:.1em .34em;border-radius:3px;
+  }
+  strong{font-weight:600}
+
+  .block{
+    background:var(--panel);border:1px solid var(--rule);border-radius:6px;
+    padding:1.35rem 1.5rem;margin:1.5rem 0;overflow-x:auto;
+  }
+  .block.accent-lo{border-left:3px solid var(--low);border-radius:0}
+  .block.accent-hi{border-left:3px solid var(--high);border-radius:0}
+  .caption{
+    font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:.8rem;
+    color:var(--soft);margin:-.9rem 0 1.6rem;
+  }
+  .katex{font-size:1.06em}
+  .katex-display{margin:.4rem 0}
+
+  table{width:100%;border-collapse:collapse;margin:1.4rem 0;font-size:.9rem}
+  th,td{text-align:left;padding:.55rem .6rem;border-bottom:1px solid var(--rule);vertical-align:top}
+  th{
+    font-family:"IBM Plex Sans",system-ui,sans-serif;font-weight:500;font-size:.76rem;
+    letter-spacing:.07em;text-transform:uppercase;color:var(--soft);
+  }
+  td:first-child{font-family:"IBM Plex Mono",monospace;font-size:.82rem;white-space:nowrap}
+
+  pre{
+    background:var(--panel);border:1px solid var(--rule);border-radius:6px;
+    padding:1.1rem 1.2rem;overflow-x:auto;
+    font-family:"IBM Plex Mono",monospace;font-size:.82rem;line-height:1.6;margin:1.4rem 0;
+  }
+  pre code{background:none;padding:0;font-size:1em}
+
+  .flag{
+    background:#FBF3EC;border:1px solid #E6D2C2;border-radius:6px;
+    padding:1rem 1.2rem;margin:1.5rem 0;font-size:.95rem;
+  }
+  .flag b{font-family:"IBM Plex Sans",system-ui,sans-serif;font-weight:600;font-size:.85rem;
+    letter-spacing:.04em;text-transform:uppercase;color:var(--high);display:block;margin-bottom:.3rem}
+
+  footer{
+    margin-top:4rem;padding-top:1.2rem;border-top:1px solid var(--rule);
+    font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:.8rem;color:var(--soft);
+  }
+  @media (max-width:640px){
+    body{font-size:16.5px}
+    h1{font-size:1.6rem}
+    .wrap{padding:2.5rem 1.1rem 4rem}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <p class="eyebrow">Yu et al. 2023 · equation 1</p>
+  <h1>Split band-level modeling in BSRNN</h1>
+  <p class="standfirst">What <span style="font-family:'IBM Plex Mono',monospace;font-size:.9em">BLSTM</span> means, the recurrence it unrolls, and why the high-frequency half of the spectrum gets a different input.</p>
+
+  <div class="ruler" aria-hidden="true">
+    <div class="ticks">
+      <i class="lo" style="height:38%"></i><i class="lo" style="height:52%"></i><i class="lo" style="height:66%"></i><i class="lo" style="height:78%"></i><i class="lo" style="height:88%"></i><i class="lo" style="height:96%"></i><i class="lo" style="height:100%"></i><i class="lo" style="height:97%"></i><i class="lo" style="height:90%"></i><i class="lo" style="height:82%"></i><i class="lo" style="height:74%"></i><i class="lo" style="height:67%"></i><i class="lo" style="height:60%"></i><i class="lo" style="height:54%"></i><i class="lo" style="height:49%"></i><i class="lo" style="height:44%"></i><i class="lo" style="height:40%"></i><i class="lo" style="height:36%"></i><i class="lo" style="height:33%"></i><i class="lo" style="height:30%"></i>
+      <i class="gap"></i>
+      <i class="hi" style="height:26%"></i><i class="hi" style="height:23%"></i><i class="hi" style="height:21%"></i><i class="hi" style="height:19%"></i><i class="hi" style="height:17%"></i><i class="hi" style="height:15%"></i><i class="hi" style="height:13%"></i><i class="hi" style="height:12%"></i><i class="hi" style="height:11%"></i><i class="hi" style="height:10%"></i><i class="hi" style="height:9%"></i><i class="hi" style="height:8%"></i><i class="hi" style="height:7%"></i>
+    </div>
+    <div class="legend"><span>Bidirectional · low subbands</span><span>Forward only · high subbands</span></div>
+  </div>
+
+  <h2><span class="n">01</span>The name first</h2>
+  <p><strong>BLSTM = bi-directional LSTM.</strong> Nothing bilinear appears anywhere in this paper.</p>
+
+  <h2><span class="n">02</span>The LSTM cell</h2>
+  <p>An LSTM walks along a sequence one step at a time, carrying a hidden state \(\mathbf{h}\) and a cell state \(\mathbf{c}\). At step \(k\) with input \(\mathbf{x}_k \in \mathbb{R}^{N}\):</p>
+
+  <div class="block">
+  \[
+  \begin{aligned}
+  \mathbf{f}_k &= \sigma\!\left(\mathbf{W}_f\mathbf{x}_k + \mathbf{U}_f\mathbf{h}_{k-1} + \mathbf{b}_f\right) && \text{forget gate}\\[2pt]
+  \mathbf{i}_k &= \sigma\!\left(\mathbf{W}_i\mathbf{x}_k + \mathbf{U}_i\mathbf{h}_{k-1} + \mathbf{b}_i\right) && \text{input gate}\\[2pt]
+  \mathbf{o}_k &= \sigma\!\left(\mathbf{W}_o\mathbf{x}_k + \mathbf{U}_o\mathbf{h}_{k-1} + \mathbf{b}_o\right) && \text{output gate}\\[2pt]
+  \mathbf{g}_k &= \tanh\!\left(\mathbf{W}_g\mathbf{x}_k + \mathbf{U}_g\mathbf{h}_{k-1} + \mathbf{b}_g\right) && \text{candidate}\\[6pt]
+  \mathbf{c}_k &= \mathbf{f}_k \odot \mathbf{c}_{k-1} \;+\; \mathbf{i}_k \odot \mathbf{g}_k && \text{cell update}\\[2pt]
+  \mathbf{h}_k &= \mathbf{o}_k \odot \tanh(\mathbf{c}_k) && \text{read-out}
+  \end{aligned}
+  \]
+  </div>
+  <p class="caption">\(\sigma\) is the logistic sigmoid, \(\odot\) is elementwise product. Weights \(\mathbf{W}_\ast \in \mathbb{R}^{H \times N}\), \(\mathbf{U}_\ast \in \mathbb{R}^{H \times H}\), states in \(\mathbb{R}^{H}\).</p>
+
+  <p>The three gates live in \((0,1)\) and act as soft switches: how much of the old memory to erase, how much of the new candidate to write, how much of the memory to expose. The reason \(\mathbf{c}\) is the long-term store is visible in its update — it is only ever scaled and added to, never passed through a squashing nonlinearity, so \(\partial \mathbf{c}_k / \partial \mathbf{c}_{k-1} = \operatorname{diag}(\mathbf{f}_k)\) and gradients survive many steps when \(\mathbf{f}_k \approx \mathbf{1}\).</p>
+
+  <h2><span class="n">03</span>Making it bi-directional</h2>
+  <p>Run two independent copies of that recurrence over the same sequence, in opposite orders, and stack their outputs at each position:</p>
+
+  <div class="block">
+  \[
+  \overrightarrow{\mathbf{h}}_k = \mathrm{LSTM}^{\rightarrow}\!\left(\mathbf{x}_k, \overrightarrow{\mathbf{h}}_{k-1}, \overrightarrow{\mathbf{c}}_{k-1}\right),
+  \qquad
+  \overleftarrow{\mathbf{h}}_k = \mathrm{LSTM}^{\leftarrow}\!\left(\mathbf{x}_k, \overleftarrow{\mathbf{h}}_{k+1}, \overleftarrow{\mathbf{c}}_{k+1}\right)
+  \]
+  \[
+  \mathbf{h}_k^{\text{bi}} = \left[\,\overrightarrow{\mathbf{h}}_k \;;\; \overleftarrow{\mathbf{h}}_k\,\right] \in \mathbb{R}^{2H}
+  \]
+  </div>
+  <p>The two directions share no parameters and no state. Every position ends up with context from both sides, and the output width doubles to \(2H\).</p>
+
+  <h2><span class="n">04</span>Which axis is the sequence?</h2>
+  <p>This is the part that trips people up. After the band-split module you hold</p>
+  <div class="block">
+  \[
+  \mathbf{Z} \in \mathbb{R}^{K \times T \times N}, \qquad K = 33 \text{ subbands}, \quad T \text{ frames}, \quad N \text{ features}
+  \]
+  </div>
+  <p>and BSRNN alternates two RNNs, \(L = 6\) times:</p>
+  <ul>
+    <li><strong>Sequence-level</strong> — recurrence over \(t = 1 \dots T\), with \(K\) folded into the batch. The familiar "across time".</li>
+    <li><strong>Band-level</strong> — recurrence over \(k = 1 \dots K\), with \(T\) folded into the batch. Here the <em>sequence is the frequency axis</em>: step 1 is the 0–200 Hz band, step 2 is 200–400 Hz, and so on up the spectrum.</li>
+  </ul>
+  <p>Equation 1 is the band-level one. So "bi-directional" here means low\(\rightarrow\)high frequency and high\(\rightarrow\)low frequency. It has nothing to do with temporal causality — a causal, streaming BSRNN still uses a bi-directional <em>band</em> RNN, because reading higher frequencies to help estimate lower ones costs zero latency.</p>
+
+  <h2><span class="n">05</span>Equation 1, unpacked</h2>
+  <p>Split the frequency axis in two: \(\hat{\mathbf{Z}}_1\) holds the subbands below 8 kHz, \(\hat{\mathbf{Z}}_2\) the subbands above. Write \(K_1 + K_2 = K\) for the two band counts. Then</p>
+
+  <div class="block accent-lo">
+  \[
+  \mathbf{Q}_1,\;(\mathbf{h}, \mathbf{c}) \;=\; \mathrm{BLSTM}\!\left(\hat{\mathbf{Z}}_1\right),
+  \qquad
+  \hat{\mathbf{Z}}_1 \in \mathbb{R}^{K_1 \times T \times N}, \quad \mathbf{Q}_1 \in \mathbb{R}^{K_1 \times T \times N}
+  \]
+  \[
+  \mathbf{h} \;=\; \overrightarrow{\mathbf{h}}_{K_1}, \qquad \mathbf{c} \;=\; \overrightarrow{\mathbf{c}}_{K_1}
+  \]
+  </div>
+  <p class="caption">The returned states are the <em>forward</em> direction's final states — the ones sitting at the highest low-frequency band. Not the backward direction's.</p>
+
+  <div class="block accent-hi">
+  \[
+  \mathbf{Q}_2 \;=\; \mathrm{LSTM}\!\left(\hat{\mathbf{Z}}_2,\; (\mathbf{h}, \mathbf{c})\right),
+  \qquad
+  \overrightarrow{\mathbf{h}}_{0}^{\,(2)} := \mathbf{h}, \quad \overrightarrow{\mathbf{c}}_{0}^{\,(2)} := \mathbf{c}
+  \]
+  </div>
+  <p class="caption">A uni-directional LSTM over the high bands, initialised from those states instead of \(\mathbf{0}\).</p>
+
+  <p>So \(\mathbf{Q}_2\) is not a different <em>kind</em> of object from \(\mathbf{Q}_1\). It is the continuation of the same walk up the spectrum, minus the return trip. The two halves are then re-joined along the band axis (the <code>CAT</code> in Figure 1B):</p>
+  <div class="block">
+  \[
+  \mathbf{Q} = \left[\,\mathbf{Q}_1 \;;\; \mathbf{Q}_2\,\right] \in \mathbb{R}^{K \times T \times N}
+  \]
+  </div>
+
+  <h3>Why the asymmetry</h3>
+  <p>Device frequency responses are unpredictable above roughly 8 kHz, and some recordings simply have no content up there — the paper's Figure 1A spectrogram is dead above 16 kHz. A fully bi-directional band RNN would carry whatever garbage sits in those bands <em>downward</em> into the representations used to estimate the low bands, where nearly all the perceptually important energy lives. Table 1 is the evidence: full-band bi-directional BSRNN scores 3.32 PESQ-WB against 3.45 for the 16 kHz model (rows 6 vs 7); the split version recovers most of the loss at 3.42 (row 8).</p>
+  <p>The design is therefore deliberately one-way. Clean low-frequency context is allowed to inform the high bands; the reverse path is cut. Passing \((\mathbf{h}, \mathbf{c})\) rather than zeros is what preserves that one surviving direction — without it, the two halves of the spectrum would be modelled independently and you would lose spectral continuity across the split.</p>
+
+  <h2><span class="n">06</span>Shapes, and where the bugs are</h2>
+
+  <table>
+    <thead><tr><th>Tensor</th><th>Shape</th><th>Note</th></tr></thead>
+    <tbody>
+      <tr><td>band-level input</td><td>(B·T, K, N)</td><td>frequency is the time-step axis for <code>nn.LSTM</code></td></tr>
+      <tr><td>seq-level input</td><td>(B·K, T, N)</td><td>you permute and fold between every layer</td></tr>
+      <tr><td>BLSTM output</td><td>(B·T, K₁, 2H)</td><td>needs <code>Linear(2H, N)</code></td></tr>
+      <tr><td>LSTM output</td><td>(B·T, K₂, H)</td><td>needs a <em>separate</em> <code>Linear(H, N)</code></td></tr>
+      <tr><td>h_n from BLSTM</td><td>(2·layers, B·T, H)</td><td>directions interleaved</td></tr>
+      <tr><td>h_0 for LSTM</td><td>(layers, B·T, H)</td><td>forward slice only</td></tr>
+    </tbody>
+  </table>
+
+  <pre><code>q1, (h_n, c_n) = self.blstm(z1)      # (B*T, K1, 2H)
+h0, c0 = h_n[0:1], c_n[0:1]          # forward direction, single layer
+q2, _ = self.lstm(z2, (h0, c0))      # (B*T, K2, H)
+q = torch.cat([self.proj_lo(q1), self.proj_hi(q2)], dim=1)</code></pre>
+
+  <div class="flag">
+    <b>The silent bug</b>
+    <code>nn.LSTM(bidirectional=True)</code> orders <code>h_n</code> as <code>[layer0_fwd, layer0_bwd, layer1_fwd, …]</code>. Taking <code>h_n[-1]</code> gives you the backward direction's state at band 1 — the exact opposite of what equation 1 asks for. It typechecks and trains. It just quietly discards the design.
+  </div>
+
+  <p>Two further points. Both LSTMs must share the same hidden size \(H\) for the handoff to line up at all, but their <em>outputs</em> differ in width, so you need two output projections, not one. And this whole structure repeats at every one of the six band-and-sequence layers, each with its own pair of RNNs and its own handoff — it is not a one-time operation at the input.</p>
+
+  <h3>Where exactly to split</h3>
+  <p>The prose says 8 kHz; Figure 1 labels the halves \(K_{\le 20}\) and \(K_{>20}\). Under the paper's band scheme — twenty 200 Hz bands (to 4 kHz), six 500 Hz bands (to 7 kHz), seven 2 kHz bands (to 21 kHz) — index 20 is 4 kHz, and 8 kHz falls <em>inside</em> a 2 kHz band. Neither reading is fully consistent. Make the split index a config parameter, pick the band boundary nearest your intended cutoff, and record the choice. It will not be what decides whether your reimplementation works.</p>
+
+  <footer>Reference notes for reimplementation · Yu, Chen, Luo, Gu, Weng, <em>High Fidelity Speech Enhancement with Band-split RNN</em>, arXiv:2212.00406v2</footer>
+
+</div>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+<script>
+  renderMathInElement(document.body, {
+    delimiters: [
+      {left:"\\[", right:"\\]", display:true},
+      {left:"$$", right:"$$", display:true},
+      {left:"\\(", right:"\\)", display:false}
+    ],
+    throwOnError:false
+  });
+</script>
+</body>
+</html>
