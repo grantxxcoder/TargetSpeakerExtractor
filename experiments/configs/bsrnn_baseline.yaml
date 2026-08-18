@@ -1,0 +1,22 @@
+seed: 42
+
+data:
+  chunk_s: 4.0          # decisions-m1.md 2026-08-18 (CARTSE)
+  batch_size: 12        # decisions-m1.md 2026-08-18, provisional on GPU memory
+   
+model:
+  bands:                # task #1 — plan is inherited and unjustified, see decisions-m1.md
+    plan: wesep_16k
+  separator:
+    feature_dim: 128    # N, Yu et al. §4.2 for the 16 kHz model
+    num_repeat: 6       # six-layer band + sequence module
+    lstm_hidden: 192
+    causal: true 
+    norm: cLN
+  mask:
+    mlp_hidden: 384     # Tanh + GLU output
+    residual_branch: true   # S = M (x) X + R, paper eq. 2
+  stft:
+    n_fft: 512          # 32 ms at 16 kHz (Yu et al., Interspeech 2023 §4.2)
+    hop: 128            # 8 ms
+  lookahead_frames: 0   # 0-16. Each frame = one hop = 8 ms.
