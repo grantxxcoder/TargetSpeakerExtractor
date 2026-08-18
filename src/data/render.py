@@ -2,13 +2,13 @@
 
 Kept a pure function of (row, config, corpus paths) so a PyTorch `Dataset` can call
 `render_trial` directly if B7's on-the-fly path is ever switched back on
-(decisions.md 2026-08-15). Nothing here touches disk except reading source audio.
+(decisions-m0.md 2026-08-15). Nothing here touches disk except reading source audio.
 
 Every level, length and position comes from the manifest row. The renderer draws
 NOTHING: given the same row and the same corpora it produces bit-identical audio,
 which is what makes a logged seed mean something.
 
-The decisions this file implements, all in docs/decisions/decisions.md:
+The decisions this file implements, all in docs/decisions/decisions-m0.md:
 
   A1  2026-08-13  the reference is the target convolved with its OWN room, no
                   interferer and no noise -- "what the mic heard from that person".
@@ -308,7 +308,7 @@ def render_enrollment(row, cfg, flac_of, meter, target_lufs):
     """The conditioning clip: dry, no room (A4), optionally EQ'd.
 
     Levelled to `target_loudness_lufs` like the anchor. Not covered by any
-    decision -- see the renderer entry in decisions.md 2026-08-16 -- but leaving
+    decision -- see the renderer entry in decisions-m0.md 2026-08-16 -- but leaving
     it at LibriSpeech's native level would put a spread of loudness on the
     conditioning path for no reason, and level is a cue we close everywhere else.
     """

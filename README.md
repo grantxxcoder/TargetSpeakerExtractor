@@ -13,7 +13,7 @@ primary contribution is a defined, gaming-resistant metric for that
 
 The extractor outputs **audio**. The live model also accepts text, and that
 path is measured as a benchmark reference condition, but it is not the build
-target — see `docs/decisions/decisions.md`.
+target — see `docs/decisions/decisions-m0.md`.
 
 Start with `docs/decisions/specification.md` (the brief), then `docs/decisions/research-plan.md`.
 
@@ -52,7 +52,7 @@ The REAL-TSE Challenge is cited as the anchor benchmark for real
 conversational TSE, and we borrow its data-construction methods and its
 lessons about metric gaming — but we replicate neither its baselines nor its
 eval pipeline, so our numbers are never comparable to published REAL-TSE
-results. See `docs/decisions/decisions.md`.
+results. See `docs/decisions/decisions-m0.md`.
 
 ## The data pipeline, file by file
 
@@ -185,7 +185,7 @@ the per-condition results table (B13), which is the thesis's central artefact.
 Step 2 fixes the measurement. **It does not change the audio** — mixtures still
 contain the pauses, because that is what speech sounds like. Full evidence,
 including the settings sweep that chose 250 ms, is in
-`experiments/results/2026-08-15-vad-impact/` and `docs/decisions/decisions.md`
+`experiments/results/2026-08-15-vad-impact/` and `docs/decisions/decisions-m0.md`
 (2026-08-15).
 
 ### Running any of it

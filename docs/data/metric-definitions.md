@@ -116,7 +116,7 @@ row is reported. Without it a text row has nothing to be better than.
 On constructed trials the ceiling is exact. On AMI it is **approximate**,
 computed from the individual headset (IHM) channel, which carries cross-talk
 bleed and a different channel response from the distant mixture mic. Always
-label it as approximate. See `docs/decisions/decisions.md`, 2026-08-07 data decision.
+label it as approximate. See `docs/decisions/decisions-m0.md`, 2026-08-07 data decision.
 
 ### 3.5 Output modality — audio primary, text as a reference condition
 
@@ -156,7 +156,7 @@ paralinguistic probe (see §7), not a switch of build target.
 
 Latency is reported per modality and is not comparable across them without
 it: the text path pays for ASR decoding plus endpointing on top of
-extraction. See `docs/decisions/decisions.md`, 2026-08-07 output-modality decision.
+extraction. See `docs/decisions/decisions-m0.md`, 2026-08-07 output-modality decision.
 
 ---
 
@@ -180,7 +180,7 @@ other two. A single-score metric would not have this property, which is why
 all three are always reported together.
 
 **The judge is held out from training.** Enforced by the different-model-
-family rule in `docs/decisions/decisions.md`. The judge is also never used as a
+family rule in `docs/decisions/decisions-m0.md`. The judge is also never used as a
 training-data filter.
 
 **Anchored.** The clean-target ceiling bounds what is achievable on this

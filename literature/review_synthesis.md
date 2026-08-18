@@ -8,7 +8,7 @@ Compiled 5 August 2026. Ranked most → least important online/streaming TSE, lo
 >
 > - **On-device / small-model work is out of scope.** TF-MLPNet (#8) and the
 >   "highest-value gap" at the bottom of this file are now background and
->   named future work, not a build target. See `docs/decisions/decisions.md`.
+>   named future work, not a build target. See `docs/decisions/decisions-m0.md`.
 > - **Replicating the challenge baselines is dropped.** Where this file says
 >   "the baseline you must replicate", read "the architecture you are
 >   borrowing as a well-characterised instrument."

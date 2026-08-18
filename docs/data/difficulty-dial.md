@@ -110,7 +110,7 @@ improve it:
    difficulty goes **up** in the short-utterance corner. Do it for correctness, not
    for relief.
 7. **`overlap_ratio` ceiling 0.7 → 0.45.** *Do this last.* It is the only narrowing
-   that breaks the deliberate match to REAL-TSE, so it needs a `decisions.md` entry
+   that breaks the deliberate match to REAL-TSE, so it needs a `decisions-m0.md` entry
    and supervisor agreement, not a config edit.
 
 **Never narrow:** `same_gender_fraction`, `enrollment_length_s`,

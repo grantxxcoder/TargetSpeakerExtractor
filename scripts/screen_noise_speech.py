@@ -339,7 +339,7 @@ def main():
         "pools": {s: len(by_split[s]) for s in pools},
         # Deliberately absent: any rejection verdict. The rule lives in config and
         # is applied at manifest-build time, so changing it never means re-scanning.
-        "rejection_rule": "NOT APPLIED -- see decisions.md, chosen from this report",
+        "rejection_rule": "NOT APPLIED -- see decisions-m0.md, chosen from this report",
     }, sort_keys=False))
 
     report(by_split, n_trials)
@@ -367,7 +367,7 @@ def main():
      rather than quietly shipping a gentler test set.
 
   4. Nothing has been rejected. This wrote measurements. Choose a rule, record
-     it in decisions.md with these numbers as the evidence, put it in
+     it in decisions-m0.md with these numbers as the evidence, put it in
      generator.yaml, and apply it in build_manifest.py.
 
   Re-run with --sample-out /tmp/noise_check and listen.

@@ -4,7 +4,7 @@
     ../tse_venv/bin/python scripts/measure_vad_impact.py \
         --out experiments/results/2026-08-15-vad-impact
 
-This is the evidence behind decisions.md 2026-08-15. It answers three questions
+This is the evidence behind decisions-m0.md 2026-08-15. It answers three questions
 and writes the answers to disk with the config, commit hash, seed and date, so
 the numbers can be re-derived rather than trusted.
 
@@ -210,7 +210,7 @@ def part2(rng, manifest, sr, ls_root, subset, n, workers, tolerance):
     # PR2 added *_footprint_s at the same time as it changed what *_speech_s and
     # overlap_achieved mean, so the column's presence identifies the generation
     # of the manifest. Detected rather than assumed, so the pre-PR2 numbers in
-    # decisions.md 2026-08-16 stay re-derivable from the backed-up manifests.
+    # decisions-m0.md 2026-08-16 stay re-derivable from the backed-up manifests.
     speech_based = "target_footprint_s" in rows[0]
 
     need = set()
@@ -351,7 +351,7 @@ def part2(rng, manifest, sr, ls_root, subset, n, workers, tolerance):
         interrupted[k] = round(float(np.mean(v)), 4)
         print(f"  {k:<32} {np.mean(v):>8.3f}   {notes[k]}")
     print("\n  The spread across definitions is larger than most effects this")
-    print("  project will report, which is why it is pinned in decisions.md.")
+    print("  project will report, which is why it is pinned in decisions-m0.md.")
 
     return {
         "manifest_convention": "speech" if speech_based else "file_boundary",

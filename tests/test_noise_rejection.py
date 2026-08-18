@@ -1,6 +1,6 @@
 """Unit tests for reject_speech_clips() in scripts/build_manifest.py.
 
-B2 `noise_speech_rejection`, decisions.md 2026-08-16.
+B2 `noise_speech_rejection`, decisions-m0.md 2026-08-16.
 
 The guards matter as much as the filter here. A missing or stale screening index
 must stop the build, because the whole point of the parameter is that a bed with

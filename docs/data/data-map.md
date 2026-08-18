@@ -108,7 +108,7 @@ Different speakers in every column. Speaker-disjoint, enforced by
   don't need it.
 - **`train-other-500`.** Lower-quality audio; we need clean targets.
 - **Real conversational corpora for training.** No clean target, no
-  verbatim text. See `docs/decisions/decisions.md` 2026-08-07.
+  verbatim text. See `docs/decisions/decisions-m0.md` 2026-08-07.
 
 ## Storage, roughly
 
@@ -116,7 +116,7 @@ Different speakers in every column. Speaker-disjoint, enforced by
 |---|---|---|
 | LibriSpeech | ~30 GB | yes, permanently |
 | WHAM! noise, converted | ~6 GB | yes, permanently |
-| Training mixtures | ~26 GB | yes, rendered once (decisions.md 2026-08-15) |
+| Training mixtures | ~26 GB | yes, rendered once (decisions-m0.md 2026-08-15) |
 | Val + eval mixtures | ~2–5 GB | yes, frozen |
 | AMI subset | ~10–80 GB | later, optional |
 
@@ -125,7 +125,7 @@ the fly, never stored". They are now rendered to disk like every other split.
 The on-the-fly plan rested on the training set "never repeating", which B7
 turned off the same day — with fixed draws it repeats byte-for-byte, so
 regenerating each epoch bought nothing and risked a CPU-bound dataloader
-starving the GPU. See `docs/decisions/decisions.md` 2026-08-15.
+starving the GPU. See `docs/decisions/decisions-m0.md` 2026-08-15.
 
 Do not delete LibriSpeech or WHAM! after rendering. They are still needed to
 re-render after any manifest rebuild, and a logged seed only reproduces a run
@@ -138,4 +138,4 @@ while they exist.
 - `docs/data/changing-the-data.md` — **how to change a distribution and rebuild**
 - `docs/data/data-construction-parameters.md` — what each generator parameter is
 - `docs/data/difficulty-dial.md` — which parameters to narrow first, and T60 in room terms
-- `docs/decisions/decisions.md` — why these choices, dated
+- `docs/decisions/decisions-m0.md` — why these choices, dated
