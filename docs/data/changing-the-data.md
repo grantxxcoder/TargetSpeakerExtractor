@@ -122,7 +122,7 @@ rebuild.
 - **`regime` is not a reporting stratum.** `base` is a sub-range of `hard`, so a
   `hard` trial is usually not extreme — it lands inside the base band 50–71 % of the
   time depending on the parameter. Report on value bands (SIR band, overlap band,
-  T60 above/below the latency budget) instead. `decisions.md` 2026-08-13.
+  T60 above/below the latency budget) instead. `decisions-m0.md` 2026-08-13.
 - **Re-run the §7 leak audit within each regime**, not just pooled. A shortcut inside
   `base` can be diluted to invisibility in a combined AUC.
 

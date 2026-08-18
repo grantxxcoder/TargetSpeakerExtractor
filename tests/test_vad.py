@@ -127,7 +127,7 @@ def test_onsets_skip_utterances_with_no_speech():
 
 def test_interrupted_requires_strictly_inside():
     """Beginning exactly as the target stops is turn-taking, not interruption.
-    decisions.md 2026-08-14."""
+    decisions-m0.md 2026-08-14."""
     target = [(0.0, 5.0)]
     assert vad.is_interrupted(target, [5.0]) is False
     assert vad.is_interrupted(target, [4.999]) is True
@@ -197,7 +197,7 @@ def test_generator_yaml_vad_block_is_valid():
         open("experiments/configs/generator.yaml").read())
     cfg = vad.vad_config(config)
     assert cfg["min_silence_duration_ms"] == 250, \
-        "250 ms is the value decisions.md 2026-08-15 records and justifies"
+        "250 ms is the value decisions-m0.md 2026-08-15 records and justifies"
 
 
 def test_build_manifest_keeps_no_private_copies():

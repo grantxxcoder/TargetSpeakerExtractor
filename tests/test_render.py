@@ -2,7 +2,7 @@
 
 The renderer's failure mode is silence: wrong audio still plays, still has the
 right length, and still passes every check that does not measure it. So each test
-pins one decision from decisions.md to a property that would break if the code
+pins one decision from decisions-m0.md to a property that would break if the code
 drifted.
 
 Nothing here reads the corpora. Signals are synthetic so the expected answer is

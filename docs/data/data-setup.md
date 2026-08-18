@@ -1,7 +1,7 @@
 # Data acquisition runbook (M0)
 
 **Written 2026-08-10.** Companion to `docs/decisions/milestones.md` §M0 and
-`docs/decisions/decisions.md` (2026-08-07, "Data: constructed primary, AMI secondary").
+`docs/decisions/decisions-m0.md` (2026-08-07, "Data: constructed primary, AMI secondary").
 
 Covers **acquiring and preparing source material only**. Writing the mixture
 generator is the next job and is not in this document.
@@ -35,7 +35,7 @@ rendered too because with B7 off its draws are fixed anyway.
 > byte-identical audio every epoch — recomputation, not variety — while risking
 > a CPU-bound dataloader starving the GPU on a 4-vCPU Kaggle instance. It also
 > moves *more* data, not less: a rendered trial needs no corpora on the training
-> machine. See `docs/decisions/decisions.md` 2026-08-15. Byte-stability is *implied* by the pin-and-date
+> machine. See `docs/decisions/decisions-m0.md` 2026-08-15. Byte-stability is *implied* by the pin-and-date
 rule at `docs/data/metric-definitions.md:209` and the private-split requirement at
 `:198-200`, but is nowhere stated outright — add it explicitly to
 `metric-definitions.md` §4. Everything is speaker-disjoint.
@@ -45,7 +45,7 @@ real conversational audio with pseudo-labels, which cannot supply the clean
 target signal or the exact verbatim `t` and `d` our metric requires. We borrow
 two cheap, separable components from CARTSE (target-absent examples,
 channel-gap enrollment EQ) and REAL-T's construction method for the AMI set.
-See `docs/decisions/decisions.md`.
+See `docs/decisions/decisions-m0.md`.
 
 ## Before you start
 
@@ -484,7 +484,7 @@ meeting, our mixture). At ~170 meetings that is ~80 GB for the full corpus, so
 take 20–30 meetings first and expand only if the transfer check looks
 informative. Skip all video streams.
 
-Remember the mandatory caveat (`docs/decisions/decisions.md:139`): the AMI ceiling is
+Remember the mandatory caveat (`docs/decisions/decisions-m0.md:139`): the AMI ceiling is
 **approximate**, computed from IHM, which has cross-talk bleed and a different
 channel response from the distant mic. Never label it ground truth.
 
@@ -503,7 +503,7 @@ setup is the one to look at first. *(Unverified as of 2026-08-10.)*
 | Peak, step 3d (WHAM 6 + 360 tar + extract) | ~58 GB |
 | **Steady state, sources ready** | **~36 GB** |
 | Frozen val + eval audio, added later | ~2–5 GB |
-| Training mixtures, rendered once | ~26 GB (decisions.md 2026-08-15) |
+| Training mixtures, rendered once | ~26 GB (decisions-m0.md 2026-08-15) |
 
 Global peak ~58 GB during setup, then ~67 GB steady state once training audio is
 rendered. **Budget ~90 GB free**, not the 70 GB this section previously assumed —
@@ -531,7 +531,7 @@ WHAM! originals after conversion. Nothing else.
       identical to source.
 - [ ] `experiments/configs/splits.yaml` committed, disjointness asserted in
       code rather than eyeballed.
-- [X] WHAM! CC BY-NC licence note added to `docs/decisions/decisions.md`.
+- [X] WHAM! CC BY-NC licence note added to `docs/decisions/decisions-m0.md`.
 - [ ] `git status` shows no audio staged.
 - [ ] PR opened. Small and single-purpose.
 

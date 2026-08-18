@@ -1,5 +1,5 @@
 Plain-English scratchpad — things explained to myself in my own words.
-Formal versions live in `docs/decisions/decisions.md`; glossary terms live in
+Formal versions live in `docs/decisions/decisions-m0.md`; glossary terms live in
 `docs/data/definitions.md`. Nothing here is authoritative.
 
 **What is a "Sabine floor", and where did the term come from?** 

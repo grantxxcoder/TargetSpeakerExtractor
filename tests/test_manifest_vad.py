@@ -1,6 +1,6 @@
 """Unit tests for B2 PR2 -- the footprint/speech split in build_manifest.py.
 
-decisions.md 2026-08-15. The single defect this PR can introduce is using one
+decisions-m0.md 2026-08-15. The single defect this PR can introduce is using one
 quantity where the other belongs, so every test here pins which one a function
 is supposed to be reading:
 

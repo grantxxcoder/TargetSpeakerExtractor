@@ -215,7 +215,7 @@ def test_base_is_a_subrange_of_hard_where_it_only_narrows():
 
 
 def test_overlap_ratio_base_band_reaches_below_the_default_floor():
-    # Recorded, not asserted away. decisions.md says base is a sub-range of
+    # Recorded, not asserted away. decisions-m0.md says base is a sub-range of
     # hard; difficulty-dial.md §2 proposes overlap_ratio base [0.1, 0.45]
     # against a default floor of 0.2, because that floor is itself the B9 bug
     # (no present trial can have zero overlap, so silent-target trials are

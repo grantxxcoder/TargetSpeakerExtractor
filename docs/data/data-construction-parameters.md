@@ -33,14 +33,14 @@ matches perceived level, is what both references use, and gates out silence so
 the measured level does not depend on how much of the window the speaker fills.
 Renderer must guard two cases: a stem under 400 ms raises `ValueError` (block
 size), and a fully silent stem returns `-inf`.
-*decisions.md 2026-08-12.*
+*decisions-m0.md 2026-08-12.*
 
 ### `target_loudness_lufs`
 **U(−33, −25) LUFS.**
 Absolute level of the **target**. The target anchors the trial: the interferer
 is then placed at `sir_db` relative to it, and the noise at `snr_db`. Prevents
 every trial sitting at identical volume. In target-absent trials the interferer
-is the anchor instead — `decisions.md` 2026-08-11.
+is the anchor instead — `decisions-m0.md` 2026-08-11.
 *LibriMix constants `MIN_LOUDNESS`/`MAX_LOUDNESS` (`:14-21`), applied per source.*
 
 ### `clip_ceiling`
@@ -93,7 +93,7 @@ so a source is never assembled from a long string of short fragments.
 ### `target_absent_fraction`
 **~0.35 of training *and validation* examples; 0.0 in eval, pending B4.**
 Val must carry them or the push-to-silence loss term is trained and never
-measured. *decisions.md 2026-08-11.*
+measured. *decisions-m0.md 2026-08-11.*
 Examples where the target never speaks. Trains the model to output silence
 rather than hallucinate the interferer. Needs a split loss (masked SI-SDR when
 present, push-to-silence when absent).
@@ -174,7 +174,7 @@ as useful as the direct sound (Bradley & Sato, 2003).*
 
 *Divergence from WHAMR!, which chose direct-path-only (`wham_room.py:47-60`):
 offline, quality-scored benchmark vs causal, content-scored system. Numbers not
-comparable. Full reasoning and citations: `decisions.md` 2026-08-13.*
+comparable. Full reasoning and citations: `decisions-m0.md` 2026-08-13.*
 
 *Direct+early remains available as a second reference stem for the dereverberation
 ablation, if time allows.*
@@ -208,7 +208,7 @@ content leak measurable instead of assumed.
 **Assert that no utterance appears in both the enrollment and the mixture.** Automatic
 in the first two tiers; in the third it is the only separation there is.
 
-*decisions.md 2026-08-11 (B8) and 2026-08-13 (B10).*
+*decisions-m0.md 2026-08-11 (B8) and 2026-08-13 (B10).*
 
 ### `enrollment_eq_augmentation`
 **On for ~50% of training examples.**
@@ -263,7 +263,7 @@ speech run** using the Silero pass B2 already pays for. Reason: our failure mode
 is words being transcribed, and a quiet-but-clear background talker is a
 transcription risk at an energy WHAMR!'s test would pass. Whole clips are
 rejected rather than offsets resampled, so nothing has to be written back to the
-manifest. decisions.md 2026-08-16.
+manifest. decisions-m0.md 2026-08-16.
 
 ---
 
@@ -285,7 +285,7 @@ both. The comparison is unfair unless normalised consistently.
 ## 9. Format
 
 ### `sample_rate` / `channels` / `bit_depth`
-**16 kHz / mono / 16-bit PCM.** *Fixed project-wide — `decisions.md` 2026-08-10.*
+**16 kHz / mono / 16-bit PCM.** *Fixed project-wide — `decisions-m0.md` 2026-08-10.*
 
 ### `stems_per_trial`
 **Emit five: mixture `x`, clean target, enrollment `e`, target text `t`,
