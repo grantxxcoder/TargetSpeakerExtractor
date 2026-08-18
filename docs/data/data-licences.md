@@ -1,6 +1,6 @@
 # Data licences and attribution obligations
 
-**Written 2026-08-10.** Decision rationale is in `docs/decisions/decisions.md`
+**Written 2026-08-10.** Decision rationale is in `docs/decisions/decisions-m0.md`
 (2026-08-10, "Data licensing"). This file is the operational checklist:
 what each licence actually requires you to *do*.
 

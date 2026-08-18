@@ -26,7 +26,7 @@ paths:
 #
 # THIS BLOCK DEFINES WHAT "OVERLAP" MEANS. Quote min_silence_duration_ms wherever
 # an overlap number is quoted. Changing anything here invalidates the VAD index and
-# every manifest built from it. decisions.md 2026-08-15.
+# every manifest built from it. decisions-m0.md 2026-08-15.
 vad:
   # How long a pause must be before it counts as "stopped talking". THE knob.
   # At 100 ms (Silero's default) a sentence shreds into near-word fragments and
@@ -66,7 +66,7 @@ vad:
 # scripts/screen_noise_speech.py measured every clip into
 # data/index/noise_speech_{split}.csv; this is the cutoff applied to that report.
 # Changing it changes which clips exist, so it invalidates every manifest.
-# decisions.md 2026-08-16.
+# decisions-m0.md 2026-08-16.
 noise_speech_rejection:
   # Drop a clip if its longest unbroken run of detected speech reaches this many
   # seconds. Below about half a second the detector is usually firing on a laugh,
@@ -118,7 +118,7 @@ defaults:
   # files are only ~86 % speech, so 0.85 of the window as voice needs ~0.99 of it
   # packed with audio, and the most `lay_out` has ever achieved is 0.946. Trials
   # drawing above the limit fail all 20 attempts and are dropped, which would
-  # silently thin out the talkative end of the band. decisions.md 2026-08-16.
+  # silently thin out the talkative end of the band. decisions-m0.md 2026-08-16.
   target_activity_ratio: [0.15, 0.78]
 
   # How far the achieved talking time may drift from the ratio above.
@@ -153,9 +153,9 @@ defaults:
   # Typical: ~15-20 dB in an office or home; ~5-10 dB in a busy cafe.
   snr_db: [0.0, 20.0]
 
-  # Absolute loudness of the target, BS.1770 integrated (decisions.md 2026-08-12).
+  # Absolute loudness of the target, BS.1770 integrated (decisions-m0.md 2026-08-12).
   # Stops every trial sitting at the same volume. In silent-target trials the
-  # interferer is normalised to this instead (decisions.md 2026-08-11).
+  # interferer is normalised to this instead (decisions-m0.md 2026-08-11).
   # Typical: broadcast reference is -23 LUFS; this range sits below it to leave
   # headroom for the interferer and noise on top.
   target_loudness_lufs: [-33.0, -25.0]
@@ -204,7 +204,7 @@ defaults:
   early_reflections_ms: 50
 
   # Length of the sample of the target's voice given to the model so it knows
-  # who to listen for. Fixed, not sampled (decisions.md 2026-08-12).
+  # who to listen for. Fixed, not sampled (decisions-m0.md 2026-08-12).
   # Set to a [low, high] pair to sweep it as an experiment.
   enrollment_length_s: 5.0
 
@@ -226,7 +226,7 @@ defaults:
   # The two zero-overlap types are deliberately the same size, which puts
   # P(target absent | no overlap) at exactly 0.50 -- a coin flip, so the
   # shortcut carries no information. Any other ratio leaves it partly
-  # predictive. decisions.md 2026-08-13 (B9).
+  # predictive. decisions-m0.md 2026-08-13 (B9).
   #
   #   both             both speak, overlapping
   #   target_only      the target speaks, nobody interrupts. The most common
@@ -250,7 +250,7 @@ defaults:
 # and hard overlap, so comparing them would understate the gap.
 #
 # If training proves too hard, filter to `regime == base`. No rebuild needed.
-# That is the whole point of this block. decisions.md 2026-08-13 (B12).
+# That is the whole point of this block. decisions-m0.md 2026-08-13 (B12).
 #
 # Only the six parameters listed in src/data/sampling.py REGIME_SCOPED may
 # appear here; anything else is rejected at load.
@@ -268,13 +268,13 @@ regimes:
     # B9 gives this a real band. `base` keeps the target reasonably talkative;
     # `hard` reaches down to 0.15, where the target says very little and there
     # is far less of it to anchor on.
-    # Ceiling follows the global one down, 0.85 -> 0.78. decisions.md 2026-08-16.
+    # Ceiling follows the global one down, 0.85 -> 0.78. decisions-m0.md 2026-08-16.
     target_activity_ratio: [0.45, 0.78]
     # NOT narrowed here, deliberately:
     #   overlap_ratio        -- its 0.7 ceiling is matched to REAL-TSE on
     #                           purpose. difficulty-dial.md section 3 puts this
     #                           LAST and requires supervisor agreement plus a
-    #                           decisions.md entry, not a config edit.
+    #                           decisions-m0.md entry, not a config edit.
     #   (target_activity_ratio was listed here until PR3. B9 has now decided
     #    what varying it means, so it is narrowed above.)
     #   source_distance_m is no longer narrowed either: the band was widened to
@@ -284,7 +284,7 @@ regimes:
 # comparable between what the model saw and what it is judged on. They no
 # longer set target_absent_fraction: 0.0 -- and they need target_only trials
 # for the same reason train does, or "no overlap -> absent" becomes perfectly
-# predictive again inside eval. decisions.md 2026-08-13 (B4, B9).
+# predictive again inside eval. decisions-m0.md 2026-08-13 (B4, B9).
 splits:
   # n_trials: how many to generate. noise_split: which WHAM! noise pool to draw
   # from, never crossed between training and evaluation.
@@ -292,7 +292,7 @@ splits:
   # from the wide ranges and `regime` records "none". The eval splits do this:
   # under regimes a hard trial draws wide SIR AND wide overlap together, which
   # correlates them, so B13's per-condition tables would report one effect twice.
-  # Eval is never filtered, so it gains nothing from regimes. decisions.md
+  # Eval is never filtered, so it gains nothing from regimes. decisions-m0.md
   # 2026-08-13.
   # target_absent_fraction: share of trials where the target never speaks at all,
   # which is what teaches the model to stay silent rather than invent words.

@@ -7,7 +7,7 @@ draw decided here. Reads file headers only, never audio samples.
 Transcripts are not copied into the manifest. They live in the utterance
 index, keyed by utterance id.
 
-B2 PR2 (decisions.md 2026-08-15) split one quantity into two, and confusing them
+B2 PR2 (decisions-m0.md 2026-08-15) split one quantity into two, and confusing them
 is the way to break this file:
 
   FOOTPRINT  how much of the timeline a source's audio occupies, silence
@@ -70,7 +70,7 @@ COLUMNS = [
     # derived convenience -- it is true for interferer_only and noise_only.
     "target_absent", "condition",
     "same_gender",
-    # B13's interruption condition, derived from the onsets (decisions.md
+    # B13's interruption condition, derived from the onsets (decisions-m0.md
     # 2026-08-14).
     "interrupted",
     # B12: provenance of the bands this trial was drawn from, never a stratum.
@@ -218,7 +218,7 @@ def index_noise(root, noise_split, cache):
 def reject_speech_clips(noise, screen_csv, max_speech_run_s):
     """Drop noise beds holding a run of speech long enough to become words.
 
-    B2 `noise_speech_rejection`, decisions.md 2026-08-16. WHAM! was recorded in
+    B2 `noise_speech_rejection`, decisions-m0.md 2026-08-16. WHAM! was recorded in
     real cafes and bars, so some beds contain audible background talkers. Their
     words reach the mixture but appear in no transcript, so the metric would
     score them as speech the model invented, and they add an unlabelled third
@@ -392,7 +392,7 @@ def best_onset(target_spans, block, footprint_s, length, wanted_s):
 # The two zero-overlap types are deliberately equal in size (25 % present,
 # 25 % absent), which puts P(target absent | no overlap) at exactly 0.50 so
 # "did two voices overlap?" carries no information about absence.
-# decisions.md 2026-08-13 (B9).
+# decisions-m0.md 2026-08-13 (B9).
 CONDITIONS = ("both", "target_only", "interferer_only", "noise_only")
 
 
@@ -422,7 +422,7 @@ def pick_enrollment(rng, candidates, target_chapter, used_utts, book):
     candidate, and records which one fired. B8 required `book` with no
     fallback, which meant a speaker who read only one book could never be a
     present target -- 60.2 % of `train` speakers, and an AUC 0.795 label leak
-    (decisions.md 2026-08-13, B10). Falling back keeps every speaker and makes
+    (decisions-m0.md 2026-08-13, B10). Falling back keeps every speaker and makes
     the content-leak cost measurable instead of assumed.
 
     Returns (tier, utterance) or None if even the weakest tier is empty.
@@ -469,7 +469,7 @@ def pick_enrollment(rng, candidates, target_chapter, used_utts, book):
 # interruption test itself is unchanged in form -- what changed is that both the
 # target's spans and the interferer's onsets are now real speech. Option A
 # (`first_only=True`): one onset per interferer utterance, the moment they begin
-# that turn. decisions.md 2026-08-15 Part 3.
+# that turn. decisions-m0.md 2026-08-15 Part 3.
 
 
 def build_trial(trial_id, split, sampling_cfg, speakers, sex, book, by_speaker,
@@ -578,7 +578,7 @@ def build_trial(trial_id, split, sampling_cfg, speakers, sex, book, by_speaker,
             # present trial would have produced. Pinning it made absent trials
             # identifiable without listening: their interferer always talked
             # 0.75-0.85 of the window, where present-trial interferers span
-            # roughly 0.2-0.9. decisions.md 2026-08-11. The shadow target
+            # roughly 0.2-0.9. decisions-m0.md 2026-08-11. The shadow target
             # activity now comes from the same varying band as a real one (B9).
             shadow_t_act = draw(level, cfg["target_activity_ratio"])
             s_lo, s_hi = cfg["overlap_ratio"]
@@ -819,7 +819,7 @@ def main():
         # change under a manifest that is not itself in git.
         # Which noise beds this split could draw from, after B2's speech
         # rejection. Recorded because the cutoff is a config value and the
-        # manifest is not in git. decisions.md 2026-08-16.
+        # manifest is not in git. decisions-m0.md 2026-08-16.
         "noise_split": cfg["noise_split"],
         "noise_clips_screened": n_noise_screened,
         "noise_clips_kept": len(noise),

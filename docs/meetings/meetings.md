@@ -1,6 +1,6 @@
 # Meeting notes
 
-Newest first. Decisions taken here move to `docs/decisions/decisions.md`; anything left
+Newest first. Decisions taken here move to `docs/decisions/decisions-m0.md`; anything left
 open stays in `docs/decisions/decisions-pending.md`. Keep the item IDs so they can be
 traced both ways.
 
@@ -48,10 +48,10 @@ with a stronger schedule, mixed precision, frozen-feature caching.
 
 | Item | Question | Supervisor's answer | Status |
 |---|---|---|---|
-| **A4** | Should the enrollment clip carry the room? | **No — clean voice samples, so the model knows what clean sounds like** | Done. `decisions.md` 2026-08-12. No code change: renderer unwritten, enrollment is already dry |
-| **B3** | Fixed enrollment length? | **Yes, fixed 5 s, and it must stay a changeable parameter** | Done. `decisions.md` 2026-08-12. No code change: already `enrollment_length_s: 5.0` in config |
+| **A4** | Should the enrollment clip carry the room? | **No — clean voice samples, so the model knows what clean sounds like** | Done. `decisions-m0.md` 2026-08-12. No code change: renderer unwritten, enrollment is already dry |
+| **B3** | Fixed enrollment length? | **Yes, fixed 5 s, and it must stay a changeable parameter** | Done. `decisions-m0.md` 2026-08-12. No code change: already `enrollment_length_s: 5.0` in config |
 | **B4** | Silent-target trials in eval too? | **Yes — we are measuring intelligibility, so eval must include them** | **Decided, not implemented.** Needs a config change and an eval rebuild — see below |
-| **A3** | Levels measured how? | **RMS** — reversed same day to **BS.1770 integrated loudness** | Done. `decisions.md` 2026-08-12. No code change: `pyloudnorm` 0.2.0 already in `tse_venv`, column names and ranges already correct |
+| **A3** | Levels measured how? | **RMS** — reversed same day to **BS.1770 integrated loudness** | Done. `decisions-m0.md` 2026-08-12. No code change: `pyloudnorm` 0.2.0 already in `tse_venv`, column names and ranges already correct |
 
 ### Difficulty, controllability and reporting
 

@@ -86,7 +86,7 @@ B12 implementation, before the rebuild:
       new `regime` column is ignored — `scripts/check_manifest_parity.py`~~
 - [ ] **Narrow `overlap_ratio` in the `base` regime** — left out of PR2 on purpose.
       `difficulty-dial.md` §3 puts it last and requires supervisor agreement plus a
-      `decisions.md` entry, because its 0.7 ceiling is deliberately matched to
+      `decisions-m0.md` entry, because its 0.7 ceiling is deliberately matched to
       REAL-TSE. One config line once approved
 - [X] ~~Decide whether `data/manifests/` is tracked in git — still open, and now
       overdue: PR2 changed the schema. `.gitignore:222` claims manifests are
@@ -108,7 +108,7 @@ P(absent | no overlap) 1.000 -> 0.500, all 1,172 speakers now reach the present 
       0.505 within base / hard~~
 - [ ] **Scope decision 2026-08-14 consequences**: decide whether the AMI check is
       restricted to <=2 active speakers or reported as an out-of-scope probe, and
-      write the two-speaker limitation into the thesis. See `decisions.md`
+      write the two-speaker limitation into the thesis. See `decisions-m0.md`
 
 Still unimplemented from `data-construction-parameters.md`:
 - [X] ~~**`noise_speech_rejection`** — done 2026-08-16, and *not* in the renderer as
@@ -138,7 +138,7 @@ Still unimplemented from `data-construction-parameters.md`:
         0.508 -> 0.503). `n_failed` 50 -> 62 of 20,000, so the 0.78 ceiling stands.
         `check_manifest_parity.py` fails on all six, as designed~~
   - [X] ~~**`target_activity_ratio` ceiling.** Lowered 0.85 -> 0.78 on 2026-08-16 in
-        both the global band and `base`, with a decisions.md entry. 0.85 of *speech*
+        both the global band and `base`, with a decisions-m0.md entry. 0.85 of *speech*
         needs 0.988 of the window filled with audio and realised footprint tops out
         at 0.946, so it was unreachable; unreachable draws are dropped silently and
         would have thinned the talkative end of the band. REAL-TSE's ~0.75 still sits
@@ -169,12 +169,12 @@ and it is an hour and a half, not the overnight job feared here:
 - [X] ~~**Run it.** ~83 min for all six splits. Resumable; re-issue the same command~~
 - [ ] Three under-specified points were interpreted, not decided — noise covering
       A5's tail, the `noise_only` level anchor, and the enrollment's level. Worth a
-      supervisor glance. See `decisions.md` 2026-08-16
+      supervisor glance. See `decisions-m0.md` 2026-08-16
 
 Notebook and verification:
 - [X] ~~§7.5 — leak scoreboard, **before** the rebuild so it is a before/after — done
       2026-08-16 for B2 PR2, but run standalone against the backed-up pre-rebuild
-      manifests rather than in the notebook. Numbers in `decisions.md`. The notebook
+      manifests rather than in the notebook. Numbers in `decisions-m0.md`. The notebook
       cells themselves still print the old figures~~
 - [ ] **EDA per parameter** — plot each parameter's realised distribution against
       the intended one (raised 2026-08-12, needed to verify B12)
@@ -212,7 +212,7 @@ Housekeeping:
 - [ ] Causal BSRNN + TF-Map extractor implemented; Luo & Yu (TASLP 2023) and
       Zhang et al. (ICASSP 2025) cited in-file
 - [ ] STFT window/hop chosen against the ~200–300 ms budget, not the
-      challenge's 100 ms cap, and the choice justified in `decisions.md`
+      challenge's 100 ms cap, and the choice justified in `decisions-m0.md`
 - [ ] Model deliberately sized down from challenge scale (fewer blocks, smaller
       feature dim) and reported as such
 - [ ] Target-absent training and channel-gap enrollment augmentation in
@@ -271,7 +271,7 @@ Drafted during M2, finished here now that there is a real system to point it at.
       made; the document still defines nothing for a trial with no reference text
 - [ ] **Pin B5's normaliser** — Whisper `EnglishTextNormalizer`, applied identically
       to both sides, frozen before the first judge result and never adjusted per
-      system (decisions.md 2026-08-13)
+      system (decisions-m0.md 2026-08-13)
 - [ ] Judge harness: fixed prompt, fixed response ASR, pinned model IDs, k≥3
       repeats, **input modality recorded per trial**, cost/compute logging
 - [ ] Judge decided and its cost model resolved — closed API (money) or
@@ -350,7 +350,7 @@ week 12.
 - [ ] Experiment freeze honoured (Oct 14)
 - [ ] Every result traceable to config + commit hash + seed + date
 - [ ] Every borrowed method cited
-- [ ] Every deviation and cut recorded in `docs/decisions/decisions.md`
+- [ ] Every deviation and cut recorded in `docs/decisions/decisions-m0.md`
 - [ ] Approximate-ceiling caveat stated wherever AMI numbers appear
 - [ ] Modality recorded on every judge result, and the cross-modality caveat
       (`docs/data/metric-definitions.md` §3.5) stated wherever audio and text rows
@@ -395,7 +395,7 @@ slips at all, it is cut rather than delayed — M6 must still run.
 
 ## Dropped from earlier milestone sets
 
-See `docs/decisions/decisions.md`, 2026-08-07:
+See `docs/decisions/decisions-m0.md`, 2026-08-07:
 
 - Replication of REAL-TSE online-track baselines
 - Use of the official challenge scoring pipeline as primary evaluation

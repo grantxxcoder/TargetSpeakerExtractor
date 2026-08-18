@@ -4,7 +4,7 @@
 · **§2 and §6 re-ordered:** 2026-08-07 (evening) to a build-first sequence
 **Horizon:** ~3 months to final submission (2026-11-05), *including* write-up
 **Supersedes:** the metric-first-but-baseline-replication plan of 2026-08-06.
-Decisions are logged in `docs/decisions/decisions.md`.
+Decisions are logged in `docs/decisions/decisions-m0.md`.
 
 > **Schedule authority is `docs/decisions/milestones.md`.** This file holds
 > the reasoning; the milestone file holds the dates and the checklists. §2
@@ -186,7 +186,7 @@ Systems to include:
   ceiling (ground-truth text). Spec note 10 permits a text output; this is
   how we measure it without building a second system. No training, one extra
   harness path, and it tells us how much content is recoverable at all.
-  See `docs/decisions/decisions.md`, 2026-08-07 output-modality decision, and
+  See `docs/decisions/decisions-m0.md`, 2026-08-07 output-modality decision, and
   `docs/data/metric-definitions.md` §3.5 for why it is a reference condition
   rather than a rival build target — and why it is *not* an upper bound.
 - Later: our own baseline and second model
@@ -212,7 +212,7 @@ compute picture. Ten minutes of searching, potentially weeks saved.
 
 ## 5. The model
 
-**Output modality: audio.** Settled — see `docs/decisions/decisions.md`,
+**Output modality: audio.** Settled — see `docs/decisions/decisions-m0.md`,
 2026-08-07. Text output is measured as a benchmark reference condition (§4),
 not built. Nothing in the model work changes because of it: the extractor
 produces a waveform, the proxy losses are computed on that waveform, and the
@@ -224,7 +224,7 @@ embedding conditioning. Rationale: it is the best-understood strong
 streaming TSE design, the challenge evidence shows the causal TF-Map variant
 is unusually strong for an online system, and reference implementations
 exist to read. We are borrowing it as a well-characterised instrument, not
-replicating it as a result — see `docs/decisions/decisions.md`.
+replicating it as a result — see `docs/decisions/decisions-m0.md`.
 
 Cite: Luo & Yu (TASLP 2023) for BSRNN; Zhang et al. (ICASSP 2025) for
 TF-Map / multi-level speaker representation.
@@ -261,7 +261,7 @@ on conventional metrics. This is the controlled experiment that supports
 claim 3, and it is why the baseline and the second model share a base
 checkpoint.
 
-**Latency.** ~200–300 ms streaming budget (`docs/decisions/decisions.md`).
+**Latency.** ~200–300 ms streaming budget (`docs/decisions/decisions-m0.md`).
 Measured algorithmic latency and RTF reported for every system, **and
 separately per output modality** — the text reference condition pays for ASR
 decoding and endpointing on top of extraction, and reporting one latency
@@ -286,7 +286,7 @@ cut, not delayed, because M6 must still run before the freeze.
 
 ### Cut list, in order
 
-Record every cut in `docs/decisions/decisions.md`.
+Record every cut in `docs/decisions/decisions-m0.md`.
 
 1. **ASR cross-entropy proxy** → feature-matching only. Costs one ablation row.
 2. **The second model entirely** → weeks 9–10 become writing buffer. The

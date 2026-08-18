@@ -213,7 +213,7 @@ def main():
         "n_utterances": len(rows),
         "n_failed": len(failed),
         "n_no_speech_detected": int((nsegs == 0).sum()),
-        # Recorded here as well as in decisions.md: the manifests are not in git,
+        # Recorded here as well as in decisions-m0.md: the manifests are not in git,
         # so this sidecar is the only travelling record of what produced them.
         "speech_ratio_mean": round(float(ratio.mean()), 4),
         "speech_ratio_median": round(float(np.median(ratio)), 4),

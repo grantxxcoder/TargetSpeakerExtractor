@@ -8,7 +8,7 @@ WHY THIS EXISTS
 `scripts/build_manifest.py` currently treats a LibriSpeech utterance as speech from
 the first sample to the last, because the file duration is all it has. It is not: a
 read sentence carries silence before the first word, pauses between clauses, and
-silence after the last. Measured over 2,000 utterances (decisions.md 2026-08-15),
+silence after the last. Measured over 2,000 utterances (decisions-m0.md 2026-08-15),
 **86.0 % of a file is speech**, with a near-constant **0.331 s of leading silence**
 and 0.129 s of trailing silence.
 
@@ -99,7 +99,7 @@ def vad_config(config):
             f"silero-vad is {model_version()}, config expects {want}. Every "
             f"overlap figure depends on these weights -- either pin the install "
             f"back, or bump expected_model_version AND rebuild the VAD index and "
-            f"the manifests, recording the change in decisions.md.")
+            f"the manifests, recording the change in decisions-m0.md.")
     return out
 
 
@@ -206,6 +206,6 @@ def is_interrupted(target_spans, interferer_onsets):
     Strictly inside, so beginning exactly as the target stops is turn-taking.
     Unchanged in form from build_manifest.is_interrupted -- what changes is that
     both arguments now come from detected speech rather than file boundaries.
-    decisions.md 2026-08-14 (definition), 2026-08-15 (option A).
+    decisions-m0.md 2026-08-14 (definition), 2026-08-15 (option A).
     """
     return any(t0 < o < t1 for o in interferer_onsets for t0, t1 in target_spans)

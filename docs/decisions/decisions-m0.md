@@ -1,4 +1,13 @@
-# Decision Log
+# Decision Log — M0 (data preparation)
+
+**Closed 2026-08-18.** Covers the spec, the metric framing and every
+data-construction decision. New decisions go in `decisions-m1.md`; open
+questions stay in `decisions-pending.md`.
+
+Renamed from `decisions.md` on 2026-08-18 when the log was split by milestone.
+References elsewhere in the repo were updated in the same commit.
+
+---
 
 ## 2026-08-04 — Repo workflow: branch protection + PR review
 Chose to enforce PRs on main (no direct commits) even as a solo project,

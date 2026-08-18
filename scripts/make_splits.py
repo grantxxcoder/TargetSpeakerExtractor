@@ -54,7 +54,7 @@ from datetime import date
 from pathlib import Path
 
 # Fixed for the life of the project. Changing this invalidates every result
-# produced before the change. If you must change it, log it in decisions.md.
+# produced before the change. If you must change it, log it in decisions-m0.md.
 SEED = 42
 
 TRAIN_SUBSETS = ("train-clean-100", "train-clean-360")
@@ -105,7 +105,7 @@ def guard_tier(speaker_id: str, chapters: dict[str, tuple[str, str]]) -> str:
         chapter   1 book, 2+ chapters -> only a same-book chapter is free
         utterance a single chapter     -> only another utterance of it is free
 
-    decisions.md 2026-08-13 (B10). Computed from CHAPTERS.TXT rather than from
+    decisions-m0.md 2026-08-13 (B10). Computed from CHAPTERS.TXT rather than from
     the utterance index, because the split assignment is pinned before any
     index exists.
     """

@@ -1,7 +1,7 @@
 """Parameter sampling for the mixture generator: the two regimes and the
 distribution shapes decided in B12.
 
-Implements docs/decisions/decisions.md, "2026-08-13 — B12 architecture: two
+Implements docs/decisions/decisions-m0.md, "2026-08-13 — B12 architecture: two
 regimes, a sampler layer, no relational constraints". Band values live in
 docs/data/difficulty-dial.md §2.
 
@@ -107,7 +107,7 @@ def split_config(config, split):
 
     A split inherits the top-level `regimes:` block unless it declares its own;
     `regimes: null` opts out, which is how the eval splits draw every parameter
-    independently from the wide ranges (decisions.md 2026-08-13). `regimes` is
+    independently from the wide ranges (decisions-m0.md 2026-08-13). `regimes` is
     popped rather than merged, so it can never be mistaken for a parameter.
     """
     split_cfg = dict(config["splits"][split])

@@ -13,7 +13,7 @@ Layout, one directory per trial:
         meta.json        both transcripts, the gains applied, the EQ curve
 
 16-bit WAV at 16 kHz, chosen 2026-08-16: decode-free, so a training step is a
-pure disk read. That is the point of pre-rendering (decisions.md 2026-08-15) and
+pure disk read. That is the point of pre-rendering (decisions-m0.md 2026-08-15) and
 it matters on a 4-vCPU box, where a CPU-bound loader starves the GPU.
 
 Resumable. A trial whose four files all exist is skipped, so an interrupted run
