@@ -213,3 +213,77 @@ accuracy/latency trade-off against a live-model content-fidelity metric, because
 no such metric exists yet — this is ours to produce.
 
 ---
+
+## 2026-08-18 — Band plan: inherited for the baseline, six candidates for ablation
+
+**Decision: `wesep_16k` is the baseline plan. It is inherited, not justified —
+that is recorded here deliberately, because the band plan is an open question in
+this literature and one of the few cheap contributions available to us.**
+
+### The plan is unjustified everywhere, not just here
+
+The 16 kHz table (`[3]*15 + [6]*10 + [16]*5 + [64] + [8]`, 32 bands over 257 bins)
+does **not** come from Yu et al. (Interspeech 2023). That paper specifies 33
+subbands — 20x200 Hz + 6x500 Hz + 7x2 kHz — for its **48 kHz** model, which covers
+~21 kHz and does not transfer to our 8 kHz ceiling. The 16 kHz table is the
+wesep / REAL-TSE baseline's own adaptation, and it is not published or motivated
+anywhere. `review_synthesis.md` already noted SA-Mamba and CARTSE quietly use 36
+and 32 bands with no stated reason.
+
+So: every system in this space inherited a table from a *music* separation paper
+(Luo & Yu, TASLP 2023), hand-adapted it, and nobody wrote down why. Given that
+per-band normalisation is a large part of why the architecture works — speech
+energy falls ~6 dB/octave, so without splitting the high bands are numerically
+invisible — the placement of those boundaries is not a detail.
+
+### Candidates, all verified expressible at n_fft=512 / 16 kHz
+
+| preset | bands | min bins | max bins | motivation |
+| --- | --- | --- | --- | --- |
+| `wesep_16k` | 32 | 3 | 64 | inherited baseline; the thing being tested |
+| `uniform_32` | 32 | 8 | 9 | control — if this matches, non-uniform splitting does no work |
+| `yu_truncated` | 27 | 6 | 41 | Yu et al. §4.2 progression truncated to 0-8 kHz; closest to a published plan |
+| `bark` | 22 | 3 | 41 | Bark critical bands (Zwicker, 1961) — boundaries where the ear integrates energy and masking occurs |
+| `mel_32` | 32 | 2 | 22 | mel spacing: the filterbank our proxy losses and every ASR front-end consume |
+| `f0_focused` | 26 | 3 | 35 | maximum resolution across F0 and the first two formants, coarse above |
+
+All six sum to 257 with no empty bands.
+
+`mel_32` is the motivation most specific to this project and has no precedent in
+the TSE literature: our objective is what a live model *understands*, so aligning
+band structure with the representation that model listens through is an argument
+only available to us, because only we have the metric.
+
+### Two constraints on the experiment, both found by measuring
+
+**1. Band count confounds capacity.** Band count ranges 22-32 across the
+candidates. `SubbandNorm` holds one normalisation and projection per band and
+`BandMasker` one MLP per band, so band count drives parameter count directly.
+Comparing `bark` (22) against `wesep_16k` (32) varies boundary placement *and*
+model size together, and a difference could not be attributed to either. **Any
+band-plan ablation must either match band counts across arms or report parameter
+counts alongside every result.**
+
+**2. The band-plan and window-size questions are entangled.** At n_fft=512 one bin
+is 31.25 Hz, and `mel_32`'s narrowest band is 2 bins — expressible, but thin. An
+ERB-spaced 32-band plan is *not* expressible at all: its lowest edge lands near
+27 Hz, under one bin, and is correctly rejected by the `min(widths) >= 1` guard.
+At n_fft=1024 a bin is 15.6 Hz and both become comfortable. So perceptual plans
+argue for the larger window independently of the latency headroom argument
+(40 ms used of a 200-300 ms budget). Treat these as one experiment grid, not two.
+
+### Implementation
+
+`band_plan(sample_rate, n_fft, spec)` is a pure function — no state, no I/O —
+taking a preset name or an explicit spec, returning bin counts. Four spec kinds:
+`segments` (bandwidth + count), `edges_hz` (natural for perceptual scales),
+`uniform`, `mel`. It asserts widths sum to `n_fft // 2 + 1` and that no band is
+empty; both failure modes are config errors rather than code bugs, so segment
+overrun and sub-bin bandwidths raise named errors rather than surfacing as shape
+mismatches downstream.
+
+Kept pure specifically so the plan can be swapped from YAML and regenerated at any
+`n_fft` — the wesep reference computes it inline in the `BSRNN` constructor, which
+is exactly what makes this ablation impossible there.
+
+---

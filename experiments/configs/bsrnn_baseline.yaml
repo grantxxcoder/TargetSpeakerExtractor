@@ -17,6 +17,6 @@ model:
     mlp_hidden: 384     # Tanh + GLU output
     residual_branch: true   # S = M (x) X + R, paper eq. 2
   stft:
-    n_fft: 512          # 32 ms at 16 kHz (Yu et al., Interspeech 2023 §4.2)
+    n_fft: 512          # 32 ms at 16 kHz (Yu et al., Interspeech 2023 §4.2), consider making this larger at 1024 as we have the budget for it
     hop: 128            # 8 ms
   lookahead_frames: 0   # 0-16. Each frame = one hop = 8 ms.
