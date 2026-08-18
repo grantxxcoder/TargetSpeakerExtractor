@@ -287,3 +287,85 @@ Kept pure specifically so the plan can be swapped from YAML and regenerated at a
 is exactly what makes this ablation impossible there.
 
 ---
+
+## 2026-08-18 — Normalisation: channel-wise LayerNorm, not BatchNorm and not GroupNorm
+
+**Decision: per-band normalisation is channel-wise LayerNorm — `nn.LayerNorm` over
+the channel axis at each time step. `GroupNorm(1, d)` is retained for a
+non-causal/offline config only. We do NOT use the paper's BatchNorm.**
+
+### This is a deviation from the paper, deliberately
+
+Yu et al. (Interspeech 2023) §4.2 state: "We use layer normalization for offline
+configuration and batch normalization for online configuration." So BatchNorm is
+*their* online choice, and departing from it needs a reason.
+
+The reason is not causality — BatchNorm is causal at inference, because it uses
+frozen running statistics that depend on neither future frames nor other examples.
+It is that BatchNorm couples examples within a batch during training and then
+switches to population statistics at inference, so training and deployment
+normalise differently. In a streaming model that mismatch compounds with
+everything else we are already managing about chunk boundaries and recurrent
+state. Channel-wise LayerNorm has no train/inference discrepancy at all.
+
+### Why channel-wise rather than cumulative
+
+| option | pools over | causal | stateful |
+| --- | --- | --- | --- |
+| `GroupNorm(1, d)` | channels **and time** | **no** | - |
+| **channel-wise LN** | channels, current frame | yes | **no** |
+| cumulative LN | channels, start to now | yes | yes |
+| BatchNorm | batch (frozen at inference) | yes | running stats |
+
+Channel-wise is chosen because it is **stateless**. Cumulative layer norm's
+statistics depend on how much audio has been seen, so a 4 s training chunk would
+normalise differently from a 60 s deployed stream — a real train/inference
+mismatch — and it adds state to carry in the streaming cache. Channel-wise has
+neither problem: frame *t* is normalised using only its own channels.
+
+**Naming trap, worth getting right in the write-up.** wesep calls this `"cLN"`,
+but its implementation is `ChannelWiseLayerNorm`: a transpose, `nn.LayerNorm` over
+channels, transpose back. Conv-TasNet's cLN (Luo & Mesgarani, 2019) means
+*cumulative* layer norm, a different operation. Same abbreviation, different
+thing. **Cite ours as channel-wise LayerNorm, never as Conv-TasNet's cLN.**
+
+### Measured: GroupNorm leaks the future
+
+Perturbing the input at frame 50 of 100 and finding the earliest output frame that
+changes:
+
+| normalisation | first changed frame | verdict |
+| --- | --- | --- |
+| channel-wise LN | 50 | causal |
+| `GroupNorm(1, d)` | **0** | leaks the future |
+
+GroupNorm contaminates frame 0 — the *entire* output — because it pools statistics
+over channels and time jointly. This is the silent failure mode: such a model
+trains normally and scores normally offline, and only fails when streamed. The
+test is kept as a regression check and must be re-run after any change to the
+normalisation or the modelling stack.
+
+### Why per-band at all
+
+Speech energy falls roughly 6 dB per octave, so the lowest bins carry orders of
+magnitude more energy than the highest. Normalising all 257 bins jointly would
+leave the high bands numerically invisible and contributing almost nothing to the
+gradient. Each band instead gets its own normalisation and its own 1x1 projection
+to N=128, so a quiet 6 kHz band arrives at the sequence model with the same
+representational budget as a loud 200 Hz one. This is a large part of why the
+band-split architecture works, and it is the mechanism the band-plan ablation
+(entry above) is really testing.
+
+### Implementation note
+
+`SubbandNorm.forward` uses `reshape`, not `view`, when flattening `(B, C, BW, T)`
+to `(B, C*BW, T)`. `BandSplit` slices with `narrow()`, which returns a
+non-contiguous view, and `view()` raises on it (verified). The wesep reference
+calls `.contiguous()` inside its band split to make `view` legal; `reshape` avoids
+needing that.
+
+Output shape `(B, K, N, T)` = `(12, 32, 128, 503)` at our config; 70,916
+parameters. This is the module that turns 32 unequal-width bands into one
+stackable tensor, which is what allows a single RNN to run across bands.
+
+---
