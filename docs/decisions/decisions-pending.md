@@ -171,10 +171,17 @@ structure from speaker verification**, applied per-frame per-band as a streaming
 extractor feature. That combination appears to be novel and is the part worth
 claiming.
 
-**Related work to position against:** NMF with learned per-speaker dictionaries
-(TF-Map is the dictionary-free simplification of exactly this); speaker-adaptive
-acoustic modelling (MLLR/MAP, eigenvoices) for step 3; GMM-UBM speaker
-verification for the contrastive term.
+**Related work: searched 2026-08-19, written up in full at
+`literature/novelty-review-contrastive-phonetic-cue.md`.** Verdict: novel as a
+combination; every ingredient has prior art. Closest existing work is
+arXiv:2502.16611 (NeurIPS 2025), which contrasts positive against negative
+enrollments -- but its negative reference is actual interfering speakers from the
+same recording rather than a speaker-independent background, it compares at the
+embedding level rather than densely, and its TF-GridNet/BiLSTM backbone is
+non-causal. Step 3 has direct prior art in Weiss & Ellis (2010) eigenvoice
+speaker adaptation for separation, and steps 1-2 in phone-dependent NMF; both must
+be cited prominently. The SLT 2026 REAL-TSE overview surveys all 24 submissions
+from 12 teams and lists no contrastive and no phonetic conditioning.
 
 **Known obstacles.**
 
