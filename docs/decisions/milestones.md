@@ -212,7 +212,7 @@ Housekeeping:
 - [ ] Causal BSRNN + TF-Map extractor implemented; Luo & Yu (TASLP 2023) and
       Zhang et al. (ICASSP 2025) cited in-file
 - [ ] STFT window/hop chosen against the ~200–300 ms budget, not the
-      challenge's 100 ms cap, and the choice justified in `decisions-m0.md`
+      challenge's 100 ms cap, and the choice justified in `decisions-m1.md`
 - [ ] Model deliberately sized down from challenge scale (fewer blocks, smaller
       feature dim) and reported as such
 - [ ] Target-absent training and channel-gap enrollment augmentation in
@@ -350,7 +350,8 @@ week 12.
 - [ ] Experiment freeze honoured (Oct 14)
 - [ ] Every result traceable to config + commit hash + seed + date
 - [ ] Every borrowed method cited
-- [ ] Every deviation and cut recorded in `docs/decisions/decisions-m0.md`
+- [ ] Every deviation and cut recorded in the milestone decision logs
+      (`decisions-m0.md`, `decisions-m1.md`, and any later ones)
 - [ ] Approximate-ceiling caveat stated wherever AMI numbers appear
 - [ ] Modality recorded on every judge result, and the cross-modality caveat
       (`docs/data/metric-definitions.md` §3.5) stated wherever audio and text rows
