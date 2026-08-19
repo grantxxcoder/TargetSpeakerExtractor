@@ -369,3 +369,220 @@ parameters. This is the module that turns 32 unequal-width bands into one
 stackable tensor, which is what allows a single RNN to run across bands.
 
 ---
+
+## 2026-08-19 — Model sizing: 7.16 M parameters, deliberately below challenge scale
+
+**Decision: `feature_dim = 128`, `hidden_dim = 192`, `num_repeat = 6`,
+`mlp_hidden = 384`, `n_hidden = 1`. Total 7,156,234 parameters against the
+REAL-TSE causal baselines' 25-27 M — a 3.5x reduction.** This satisfies the M1
+requirement that the model be deliberately sized down and reported as such.
+
+### Where the parameters are
+
+| component | params | note |
+| --- | --- | --- |
+| `SubbandNorm` | 70,916 | per-band norm + 1x1 projection to 128 |
+| `BandSequenceModel` (6 x BSNet) | 4,898,304 | 816,384 per block: 272,256 time + 544,128 band |
+| `Estimator` (384 x 1) | 2,187,014 | 32 per-band trunks + mask and residual heads |
+| **total** | **7,156,234** | |
+
+`STFT` and `BandSplit` hold no parameters (the Hann window is a non-persistent
+buffer).
+
+### Two deviations from the reference, both toward smaller
+
+**`hidden_dim = 192`, not 256.** 192 is the paper's stated LSTM width (Yu et al.,
+Interspeech 2023 §4.2). The wesep reference uses `feature_dim * 2` = 256 instead,
+which would put the separator at ~7.7 M rather than 4.90 M. We follow the paper.
+
+**`n_hidden = 1`, not 2.** The paper states the estimation module's *width* (384)
+but not its *depth*; wesep uses two hidden layers. We keep the paper's width and
+use one hidden layer, so the deviation falls on the axis the paper left
+unspecified rather than on a number it actually gives. This is where the saving
+is: the second 384->384 convolution costs 147,840 per band, i.e. 4.7 M across 32
+bands, for what is a per-band readout rather than sequence modelling.
+
+### The scaling ladder, if the baseline underfits
+
+Measured, so the cost of each step is known in advance:
+
+| `mlp_hidden` | `n_hidden` | Estimator | total model |
+| --- | --- | --- | --- |
+| 256 | 1 | 1.46 M | 6.43 M |
+| **384** | **1** | **2.19 M** | **7.16 M** (chosen) |
+| 256 | 2 | 3.57 M | 8.54 M |
+| 384 | 2 | 6.92 M | 11.89 M (paper width and wesep depth) |
+| 512 | 2 | 11.32 M | 16.29 M (wesep) |
+
+Rationale for starting at the small end: a baseline that trains is worth more than
+a baseline that is faithful, and raising capacity is a one-line config change
+whereas debugging a model too large to iterate on is not. If it underfits, step up
+this ladder and record which rung and why.
+
+Note the Estimator dominates at every rung — at the paper's 384 x 2 it would be
+58 % of the whole model, larger than the six-layer separator. Capacity added there
+buys per-band readout richness, not temporal or cross-band modelling.
+
+### Conditioning is nearly free
+
+TF-Map (M1, still to build) raises `SubbandNorm`'s input channels from 2 to 3,
+taking it from 70,916 to ~104,000 — about 33 k, under 0.5 % of the model. It needs
+no speaker encoder at all, unlike the embedding path. So the sizing above will not
+move materially when conditioning lands.
+
+---
+
+## 2026-08-19 — Measured effective future dependency: 23.9 ms
+
+**Decision: report 23.9 ms measured effective future dependency, with the
+`n_fft - hop` convention stated. Supersedes the derived 40 ms figure in the STFT
+entry above as the number to quote.**
+
+The STFT entry required the reported latency be measured rather than derived.
+Method: perturb the input waveform from sample 32,000 of 64,000 onward, run the
+full model, find the earliest output sample that differs.
+
+| quantity | value |
+| --- | --- |
+| first changed output sample | 31,618 |
+| lead over the perturbation | 382 samples = **23.9 ms** |
+| `n_fft - hop` | 384 samples = 24.0 ms |
+| `n_fft + hop` (earlier, conservative) | 640 samples = 40.0 ms |
+
+The measured dependency tracks `n_fft - hop`, not `n_fft + hop`. The 40 ms figure
+quoted earlier was a conservative over-accounting: it added a hop of buffering to
+the window fill, whereas the true dependency is set by how far forward the
+overlap-add reaches, which is `n_fft - hop`.
+
+**Independent agreement with the published system.** CARTSE reports 24 ms
+algorithmic latency and a *measured* effective future dependency of 22.2-23.7 ms
+(mean 22.9 ms). We measure 23.9 ms from an independently written implementation.
+That corroborates both the framing and the measurement method, and it is the
+convention to use when the number appears next to theirs.
+
+For a deployed total, add one hop of buffering (8 ms) as CARTSE does: ~32 ms.
+Against a 200-300 ms budget that leaves roughly 170-270 ms for compute, the
+lookahead knob, and the live-model API round trip.
+
+Test to keep: this measurement is the causal-correctness check for the whole
+model, not merely a latency figure. It must be re-run after any change to the
+STFT framing, the normalisation, or the sequence stack; a result materially below
+382 samples means something has started reading the future.
+
+---
+
+## 2026-08-19 — TF-Map conditioning: Spectral Similarity, not Embedding Similarity
+
+**Decision: TF-Map uses the Spectral Similarity variant (eq. 2). The Embedding
+Similarity variant (eq. 3) is rejected because it requires encoding the live
+mixture, which is not causal at any acceptable latency.**
+
+Source: K. Zhang, J. Li, S. Wang, Y. Wei, Y. Wang, Y. Wang, H. Li, "Multi-Level
+Speaker Representation for Target Speaker Extraction", Proc. ICASSP 2025,
+doi:10.1109/ICASSP49660.2025.10889409, arXiv:2410.16059, sec II-A and Fig. 2.
+(Local copy is filed as `...TSE2024.pdf` — the preprint is 2024, the venue is
+ICASSP 2025. Cite the venue.) That paper uses BSRNN as its own backbone, so
+combining the two follows its architecture rather than stitching together
+unrelated work.
+
+This is what makes the model a target speaker *extractor*. Everything before it
+is a speech enhancer: it would clean up a two-voice mixture without any notion of
+which voice to keep.
+
+### What it does
+
+`F_tfmap = B_e H` with `H = Softmax(B_e^T B_x)`. `B_e` is the enrollment
+magnitude spectrogram used directly as NMF-style basis vectors — every enrollment
+frame is a basis vector, rather than a learned dictionary. For each mixture frame,
+cosine similarity against every enrollment frame is softmaxed into weights, and the
+weighted sum of enrollment frames is "what the target's spectrum probably looks
+like at this instant, reconstructed only from the enrollment". Energy is then
+recovered by projecting the mixture magnitude onto the unit TF-Map frame, per the
+paper. The result is concatenated as a third input channel beside real and
+imaginary, so `in_channels` goes 2 -> 3.
+
+**In both variants the output is `B_e H` and the basis vectors are always the
+enrollment magnitude spectrogram.** Only the computation of the weights `H`
+differs. The encoder in eq. 3 does not produce the cue; it only produces a better
+similarity measure for choosing which enrollment frames to blend.
+
+### Why not Embedding Similarity
+
+The honest weakness of the spectral variant: **magnitude spectra are dominated by
+phonetic content rather than speaker identity.** An interferer saying "ah" and the
+target saying "ah" in the enrollment have similar spectral shape, and cosine
+similarity in 257-dim magnitude space will match them. A speaker-embedding space
+is trained to be invariant to what is said and sensitive to who says it, so it
+would not.
+
+The reason we still reject it: **eq. 3 needs `E_x`, frame-level embeddings of the
+live mixture.** The enrollment side (`E_e`) is free, computed once offline. The
+mixture side is not. ECAPA-TDNN's frame-level layers are symmetric dilated
+convolutions whose receptive field extends on the order of 100+ ms in each
+direction (order-of-magnitude; verify against the specific checkpoint before
+quoting). That is roughly half of our 200-300 ms budget, spent on a better
+similarity measure rather than on the model.
+
+**Freezing the encoder does not help.** Frozen or trainable, a symmetric
+convolution still reads the future. Making it causal would mean retraining the
+encoder with causal convolutions — a separate project.
+
+Evidence that the cheap variant is not a compromise: the paper's own finding is
+that the spectral-level feature is the main driver of improved generalisation, and
+in the REAL-TSE baselines the *causal* TF-Map variant achieves the best TER
+(0.652 DEV / 0.801 EVAL1 / 0.808 EVAL2), beating even the non-causal
+speaker-embedding baselines. TER is the published metric closest to our LCF
+objective. See `literature/review_synthesis.md`.
+
+**Recorded as a deviation, not an omission:** Zhang et al.'s full system uses a
+pretrained ECAPA-TDNN. We use only their eq. 2. The justification is the streaming
+budget, and any claim about our results must not be presented as reproducing their
+full multi-level system.
+
+### Where the encoder does still belong
+
+An *utterance-level* speaker embedding of the enrollment is computed entirely
+offline and therefore costs zero latency on the mixture side. It supplies the
+identity information TF-Map's phonetic confound lacks, and remains the natural
+ablation arm.
+
+| conditioning path | causal | mixture-side latency | provides |
+| --- | --- | --- | --- |
+| Spectral TF-Map (chosen) | yes | **0 ms** | time-varying spectral hint |
+| Utterance-level embedding | yes | 0 ms | speaker identity |
+| Embedding-similarity TF-Map | **no** | ~100+ ms | better weights only |
+
+### Measured
+
+| quantity | value |
+| --- | --- |
+| parameters added | **33,410** (0.47 % of the model) |
+| parameters in the TFMap module itself | **0** |
+| enrollment frames (5 s) vs mixture frames (4 s) | 628 vs 503 |
+| compute (TF-Map + enrollment STFT) | 6.2 ms, **0.4 %** of the forward pass |
+| causality: perturb mixture frame 250 | first changed TF-Map frame **250** |
+
+The 33 k comes entirely from `SubbandNorm`'s input growing from 2 channels to 3.
+TF-Map itself is normalise, matmul, softmax, matmul, rescale — no weights.
+
+Causal by construction: each mixture frame attends only over enrollment frames,
+and the enrollment is fixed and fully available before the stream starts. No
+mixture frame ever sees another mixture frame.
+
+### Test to keep: the conditioning must be live
+
+Substituting a *different speaker's* enrollment and measuring the relative change:
+
+| quantity | relative change |
+| --- | --- |
+| TF-Map feature | 0.8123 |
+| model output | **0.4785** |
+
+**This is the most important test on the conditioning path.** The standard silent
+failure in TSE is a model that quietly learns to be a plain enhancer while the
+conditioning input is ignored — it trains, it converges, it produces clean audio,
+and it extracts the wrong speaker. No shape assertion detects that. Re-run this
+after any change to the conditioning path or to `in_channels`, and treat a
+relative output change near zero as a failure.
+
+---
