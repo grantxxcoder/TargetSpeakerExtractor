@@ -126,3 +126,113 @@ during that rebuild rather than before it.
    asking. See `decisions-m0.md`.*
 4. *B4 — answered 2026-08-12 and now fully decided. See `decisions-m0.md`.*
 5. *B11 — decided 2026-08-13, and largely defused by A1. See `decisions-m0.md`.*
+
+---
+
+## D. Modelling — open, not blocking M1
+
+*Added 2026-08-19. This file was written for M0 data decisions; group D extends it
+to open modelling questions, which have nowhere else to live. Decisions actually
+taken go to `decisions-m1.md`.*
+
+### D1. Phoneme-template speaker cue as an alternative to TF-Map
+
+**Status: idea, unscheduled. M5-scale (M5 is already marked CUTTABLE). Do not
+start before the cheap precursor in D2 has been run.**
+
+**The problem it addresses.** TF-Map compares magnitude spectra, and magnitude
+spectra are dominated by *what is being said* rather than *who is saying it*. An
+interferer saying "ah" resembles the enrollment's "ah". The cue is therefore
+partly phonetic rather than speaker-discriminative. See `decisions-m1.md`
+2026-08-19.
+
+**The proposal.** Replace the raw enrollment frames (TF-Map's basis vectors) with
+a phonetically organised, speaker-adapted dictionary:
+
+1. define a library of the language's phonetic units;
+2. from the enrollment, build a spectral template for each unit this speaker
+   actually produced;
+3. for units absent from the enrollment, *predict* the speaker's realisation from
+   the ones present, using similarity between sounds;
+4. match mixture frames against this dictionary instead of against raw frames.
+
+**Refinement that makes it work (agreed 2026-08-19).** The proposal as stated does
+*not* remove the confound — the interferer's "ah" still matches the target's "ah"
+template. It needs a contrastive term:
+
+- `S_target` — similarity to *this speaker's* template for a unit
+- `S_background` — similarity to a *speaker-independent average* template for the
+  same unit, built across many speakers
+- feed the network `S_target - S_background`
+
+Phonetic content cancels; what survives is "how much more target-like than
+average-speaker-like is this frame". **This is the GMM-UBM likelihood-ratio
+structure from speaker verification**, applied per-frame per-band as a streaming
+extractor feature. That combination appears to be novel and is the part worth
+claiming.
+
+**Related work to position against:** NMF with learned per-speaker dictionaries
+(TF-Map is the dictionary-free simplification of exactly this); speaker-adaptive
+acoustic modelling (MLLR/MAP, eigenvoices) for step 3; GMM-UBM speaker
+verification for the contrastive term.
+
+**Known obstacles.**
+
+- *Phonetic labels.* Step 2 needs forced alignment of the enrollment. We are
+  unusually well placed — `meta.json` carries `target_text`, exact ground-truth
+  transcripts — so it is feasible offline on our data. A deployed system would not
+  have the enrollment transcript, which weakens any generality claim and must be
+  stated.
+- *Enrollment sparsity.* English has ~44 phonemes; 5 s of speech contains maybe
+  15-20 tokens and perhaps a dozen distinct units. **Most of the dictionary would
+  be predicted rather than observed, so step 3 is doing the work, not the
+  enrollment.** Enrollment length is a knob we control
+  (`enrollment_length_s`, currently fixed at 5 s per `decisions-m0.md`
+  2026-08-12) and lengthening it is the obvious first mitigation — it is a config
+  change and a regeneration, not new code.
+- *Step 3 is a speaker encoder in disguise.* Predicting unseen units properly
+  requires a model of speaker space learned across many speakers. Note however
+  that **the latency objection does not apply here**: all of this is enrollment
+  side and therefore offline. Matching against ~44 templates is *cheaper* at
+  runtime than against 628 enrollment frames. So this is a legitimate route to
+  encoder-quality conditioning without the streaming cost that ruled out
+  Zhang et al.'s eq. 3.
+
+**Open concern (raised 2026-08-19): model size.** Whether this is affordable
+with or without an encoder is unresolved, and is the main risk to the idea. It
+needs a parameter budget before any implementation. Current model is 7.19 M
+against challenge baselines at 25-27 M, so there is headroom, but a speaker-space
+model for step 3 could consume all of it.
+
+**Evaluation.** Compare against TF-Map on extraction quality *and* on efficiency
+(parameters, RTF, added latency), not quality alone — the whole argument for
+TF-Map over the embedding variant was efficiency, so a replacement must be judged
+on the same axis.
+
+### D2. Attention temperature in TF-Map — the cheap precursor to D1
+
+**Status: unrun, one line of code. Run this before scheduling D1.**
+
+Measured 2026-08-19: TF-Map's softmax weights are almost uniform — it blends ~621
+of 628 enrollment frames, max weight 0.00239 against a uniform 0.00159. This is
+**forced by the arithmetic, not a property of the audio**: magnitude spectra are
+non-negative, so cosine similarities lie in [0, 1], and a softmax over a range of
+1 can produce weight ratios of at most e ~ 2.7, which is nearly uniform across 628
+items. The wesep reference has no temperature either, so this is the published
+behaviour.
+
+Consequence: TF-Map's time-variation comes almost entirely from the energy
+recovery step, not from the attention. What it actually supplies is "the target's
+average spectral shape, scaled per frame by how much energy the mixture has in
+that direction" — a useful signal, but not the frame-selective mechanism the NMF
+framing describes.
+
+**The experiment.** `h = softmax(sim / tau)` with `tau` in {1.0 (current), 0.2,
+0.05}. D1 and the temperature share one hypothesis: *more selective matching
+against enrollment content improves extraction.* The temperature tests that
+hypothesis in an afternoon. **If sharpening the existing mechanism does not help,
+a richer dictionary is unlikely to, and D1 should not be scheduled.**
+
+Also worth confirming the near-uniformity across several trials before it is
+written up — measured on one so far, though the argument above says it is
+structural.

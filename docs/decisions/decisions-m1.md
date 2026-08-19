@@ -470,3 +470,119 @@ STFT framing, the normalisation, or the sequence stack; a result materially belo
 382 samples means something has started reading the future.
 
 ---
+
+## 2026-08-19 — TF-Map conditioning: Spectral Similarity, not Embedding Similarity
+
+**Decision: TF-Map uses the Spectral Similarity variant (eq. 2). The Embedding
+Similarity variant (eq. 3) is rejected because it requires encoding the live
+mixture, which is not causal at any acceptable latency.**
+
+Source: K. Zhang, J. Li, S. Wang, Y. Wei, Y. Wang, Y. Wang, H. Li, "Multi-Level
+Speaker Representation for Target Speaker Extraction", Proc. ICASSP 2025,
+doi:10.1109/ICASSP49660.2025.10889409, arXiv:2410.16059, sec II-A and Fig. 2.
+(Local copy is filed as `...TSE2024.pdf` — the preprint is 2024, the venue is
+ICASSP 2025. Cite the venue.) That paper uses BSRNN as its own backbone, so
+combining the two follows its architecture rather than stitching together
+unrelated work.
+
+This is what makes the model a target speaker *extractor*. Everything before it
+is a speech enhancer: it would clean up a two-voice mixture without any notion of
+which voice to keep.
+
+### What it does
+
+`F_tfmap = B_e H` with `H = Softmax(B_e^T B_x)`. `B_e` is the enrollment
+magnitude spectrogram used directly as NMF-style basis vectors — every enrollment
+frame is a basis vector, rather than a learned dictionary. For each mixture frame,
+cosine similarity against every enrollment frame is softmaxed into weights, and the
+weighted sum of enrollment frames is "what the target's spectrum probably looks
+like at this instant, reconstructed only from the enrollment". Energy is then
+recovered by projecting the mixture magnitude onto the unit TF-Map frame, per the
+paper. The result is concatenated as a third input channel beside real and
+imaginary, so `in_channels` goes 2 -> 3.
+
+**In both variants the output is `B_e H` and the basis vectors are always the
+enrollment magnitude spectrogram.** Only the computation of the weights `H`
+differs. The encoder in eq. 3 does not produce the cue; it only produces a better
+similarity measure for choosing which enrollment frames to blend.
+
+### Why not Embedding Similarity
+
+The honest weakness of the spectral variant: **magnitude spectra are dominated by
+phonetic content rather than speaker identity.** An interferer saying "ah" and the
+target saying "ah" in the enrollment have similar spectral shape, and cosine
+similarity in 257-dim magnitude space will match them. A speaker-embedding space
+is trained to be invariant to what is said and sensitive to who says it, so it
+would not.
+
+The reason we still reject it: **eq. 3 needs `E_x`, frame-level embeddings of the
+live mixture.** The enrollment side (`E_e`) is free, computed once offline. The
+mixture side is not. ECAPA-TDNN's frame-level layers are symmetric dilated
+convolutions whose receptive field extends on the order of 100+ ms in each
+direction (order-of-magnitude; verify against the specific checkpoint before
+quoting). That is roughly half of our 200-300 ms budget, spent on a better
+similarity measure rather than on the model.
+
+**Freezing the encoder does not help.** Frozen or trainable, a symmetric
+convolution still reads the future. Making it causal would mean retraining the
+encoder with causal convolutions — a separate project.
+
+Evidence that the cheap variant is not a compromise: the paper's own finding is
+that the spectral-level feature is the main driver of improved generalisation, and
+in the REAL-TSE baselines the *causal* TF-Map variant achieves the best TER
+(0.652 DEV / 0.801 EVAL1 / 0.808 EVAL2), beating even the non-causal
+speaker-embedding baselines. TER is the published metric closest to our LCF
+objective. See `literature/review_synthesis.md`.
+
+**Recorded as a deviation, not an omission:** Zhang et al.'s full system uses a
+pretrained ECAPA-TDNN. We use only their eq. 2. The justification is the streaming
+budget, and any claim about our results must not be presented as reproducing their
+full multi-level system.
+
+### Where the encoder does still belong
+
+An *utterance-level* speaker embedding of the enrollment is computed entirely
+offline and therefore costs zero latency on the mixture side. It supplies the
+identity information TF-Map's phonetic confound lacks, and remains the natural
+ablation arm.
+
+| conditioning path | causal | mixture-side latency | provides |
+| --- | --- | --- | --- |
+| Spectral TF-Map (chosen) | yes | **0 ms** | time-varying spectral hint |
+| Utterance-level embedding | yes | 0 ms | speaker identity |
+| Embedding-similarity TF-Map | **no** | ~100+ ms | better weights only |
+
+### Measured
+
+| quantity | value |
+| --- | --- |
+| parameters added | **33,410** (0.47 % of the model) |
+| parameters in the TFMap module itself | **0** |
+| enrollment frames (5 s) vs mixture frames (4 s) | 628 vs 503 |
+| compute (TF-Map + enrollment STFT) | 6.2 ms, **0.4 %** of the forward pass |
+| causality: perturb mixture frame 250 | first changed TF-Map frame **250** |
+
+The 33 k comes entirely from `SubbandNorm`'s input growing from 2 channels to 3.
+TF-Map itself is normalise, matmul, softmax, matmul, rescale — no weights.
+
+Causal by construction: each mixture frame attends only over enrollment frames,
+and the enrollment is fixed and fully available before the stream starts. No
+mixture frame ever sees another mixture frame.
+
+### Test to keep: the conditioning must be live
+
+Substituting a *different speaker's* enrollment and measuring the relative change:
+
+| quantity | relative change |
+| --- | --- |
+| TF-Map feature | 0.8123 |
+| model output | **0.4785** |
+
+**This is the most important test on the conditioning path.** The standard silent
+failure in TSE is a model that quietly learns to be a plain enhancer while the
+conditioning input is ignored — it trains, it converges, it produces clean audio,
+and it extracts the wrong speaker. No shape assertion detects that. Re-run this
+after any change to the conditioning path or to `in_channels`, and treat a
+relative output change near zero as a failure.
+
+---
