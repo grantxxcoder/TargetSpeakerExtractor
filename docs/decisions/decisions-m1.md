@@ -586,3 +586,303 @@ after any change to the conditioning path or to `in_channels`, and treat a
 relative output change near zero as a failure.
 
 ---
+
+## 2026-08-20 — M2 training objective: three terms, six deviations from CARTSE
+
+**Decision: the M2 loss is**
+
+```
+L = (1 - w) * mean_present[ L_pres + w_m * L_MR ]  +  w * mean_absent[ L_abs ]
+```
+
+```
+                            ||s_proj||^2
+L_pres  =  -10 log10  ---------------------------------
+                      ||s_hat - s_proj||^2 + tau*||s_proj||^2
+
+                     ||s_hat||^2 + tau*||x||^2
+L_abs   =   10 log10 -------------------------
+                              ||x||^2
+
+                <s_hat, s>
+s_proj  =  ---------------- * s
+                 ||s||^2
+
+            1
+L_MR    =  --- SUM_i [ || |S_i|^p - |S_hat_i|^p ||_1  +  || S_i - S_hat_i ||_1 ]
+            I
+
+tau = 1e-3        p = 0.3    I = 4, windows [128, 256, 512, 1024]
+w = 0.458         w_m = set by measurement (below)
+```
+
+The present/absent switch is `crop_absent` from `dataset_loader.py`, **never the
+manifest condition label** — 5.8 % of `both`/`target_only` crops land in target
+silence (2026-08-18 entry), and branching on the label sends ~1 crop in 17 down
+the `L_pres` path with an all-zero target, which is a `NaN`.
+
+### Provenance
+
+| term | source |
+| --- | --- |
+| `L_pres` floored SI-SDR | CARTSE Track 1 (Li & Seki, 2026) eq (1). SI-SDR itself: Le Roux et al., ICASSP 2019; as a separation objective: Luo & Mesgarani, TASLP 2019 |
+| `L_abs` push-to-silence | CARTSE eq (2). Target-absent/false-alarm framing: Delcroix et al., Interspeech 2022 |
+| `L_MR` multi-resolution | Yu et al., Interspeech 2023 eq (3) (`p = 0.3`, windows 10-40 ms). Multi-resolution STFT loss: Yamamoto et al., ICASSP 2020. Compression exponent: Braun & Tashev, 2021 (verify venue string before citing) |
+
+CARTSE applied eqs (1)-(2) to real pseudo-labelled conversational audio; we apply
+them to constructed LibriSpeech mixtures. **Same formulae, different data — no
+number produced under this loss is comparable to a published REAL-TSE result.**
+
+### Deviation 1 — `L_pres` floors on `||s_proj||^2`, not `||s||^2`
+
+**Found by running the sanity test, not by reading the paper.** CARTSE eq (1)
+floors the denominator on `tau*||s||^2`, tied to the *target's* energy. The
+numerator `||s_proj||^2` scales with the output gain `g`; the floor does not. So
+eq (1) as written is **not scale-invariant and has no lower bound**: a
+perfect-shape output scaled by `g` scores `-20 log10(g) - 30`.
+
+Measured, perfect-shape output, sweeping `g`:
+
+| `g` | floor `tau*||s||^2` (eq 1) | floor `tau*||s_proj||^2` (ours) |
+| --- | --- | --- |
+| 0.05 | -3.98 | **-30.00** |
+| 0.2 | -16.02 | **-30.00** |
+| 1.0 | -30.00 | **-30.00** |
+| 5.0 | **-43.98** | **-30.00** |
+| 100 | **-70.00** | **-30.00** |
+
+So eq (1) pays **unlimited reward for amplifying the output**, and its 30 dB
+ceiling exists only at unity gain. On an imperfect output the drift is smaller
+but present (-11.85 at `g=0.2` rising to -13.95 as `g -> inf`, converging on
+plain unfloored SI-SDR).
+
+Flooring on `||s_proj||^2` makes numerator and floor scale together, so they
+cancel: **flat -30 dB at every gain, and the range really is `[-30, inf)`.**
+
+Why fix it at the source rather than leaving it to `L_MR`: `L_MR` compares
+magnitudes directly and so does pin the output gain — but the `w_m = 0` ablation
+arm is required, and in that arm nothing else bounds it.
+
+Cost of the fix: on total collapse (`s_hat = 0`) numerator and denominator are
+both exactly 0, so `0/0` is `NaN` where eq (1) would have given `+inf`. `NaN`
+survives any clamp, so **eps is added to both sides**, making collapse read
+0.0 dB — finite, and worse than the ~-6 dB of passing the mixture through, so
+not an attractor.
+
+Not a criticism of CARTSE: their objective carries a mel-filterbank L1 and a
+DNSMOS term that both pin the output gain, so the defect is masked in their
+system. It is exposed in ours only because a `w_m = 0` arm exists.
+
+### Deviation 2 — `L_abs` is normalised by `||x||^2`
+
+CARTSE eq (2) is `eta * 10 log10(||s_hat||^2 + tau*||x||^2)`, which is **not
+scale-invariant**: scale `x` and `s_hat` by `g` and the value shifts by
+`20 log10 g`. Two loudness-matched absent trials that are both perfectly silent
+therefore receive different losses and different gradients. `L_pres` is already
+scale-invariant, so the pair was mismatched.
+
+Dividing by `||x||^2` fixes it and buys a free anchor:
+
+| `L_abs` | meaning |
+| --- | --- |
+| `0` | emitted the mixture unchanged — **did nothing** |
+| `-10` | suppressed 10 dB |
+| `-30` | floor: at or below 30 dB down, i.e. silent |
+| `> 0` | **amplifying. A bug, not a bad score** — flag it in the run log |
+
+`0` = do-nothing on every trial regardless of loudness, so the term reads without
+knowing the trial's level. CARTSE's form has no such anchor.
+
+### Deviations 3-5 — how the halves combine
+
+**Deviation 3: masked means per half, not one batch-wide mean.** Averaging each
+term over its own subset. Under a single batch-wide mean the absent half's share
+of the gradient is whatever the batch happened to draw — 15 % at 1 absent crop in
+12, 67 % at 6 — so the present/absent balance fluctuates step to step on sampling
+luck.
+
+**Deviation 4: `eta` is removed and folded into `w`.** Under the masked-mean form
+`w` and `eta` appear only as the product `w * eta`, so `(0.297, 2.0)` and
+`(0.594, 1.0)` give identical gradients. Two dials, one degree of freedom.
+CARTSE needed `eta` because they used a batch-wide mean and it was their only
+weight; we do not.
+
+**Deviation 5: `w = 0.458`, not `0.297`.** The 2026-08-18 entry requires the
+weighting use the measured crop-level absent rate 0.297. It does — inside the
+calculation, not as the weight itself:
+
+```
+present coefficient = 1 - p       = 0.703
+absent  coefficient = p * eta     = 0.297 * 2.0 = 0.594
+                                     total mass = 1.297
+w = 0.594 / 1.297 = 0.458
+```
+
+`w = 0.458` reproduces CARTSE eqs (1)+(2) with `eta = 2.0` at *our* measured
+0.297. `eta = 2.0` was their deliberate choice to weight silence **above** its
+data frequency; `w = 0.297` would silently discard that and is logged as the
+data-frequency-neutral ablation arm instead.
+
+Note the coefficients sum to 1, scaling the whole loss by `1/1.297` relative to a
+batch-wide mean. Interacts with learning rate only — but CARTSE's `1e-4` is not
+directly transferable because of it.
+
+### Deviation 6 — `L_MR` window set straddles the model's own framing
+
+**Windows `[128, 256, 512, 1024]` samples (8/16/32/64 ms), hop = window/4.**
+
+CARTSE used `[512, 1024, 2048]`, all at or above our `n_fft`. Yu et al. used
+10-40 ms. Ours brackets 512 deliberately: an STFT with a 32 ms window averages
+everything inside 32 ms into one number per band, and the model builds its output
+by masking 32 ms frames and overlap-adding, so its characteristic artefacts —
+frame-boundary discontinuities, per-frame gain jumps, warble at the frame rate —
+have exactly the structure a 32 ms analysis integrates away. The 8 and 16 ms
+windows resolve them; 64 ms catches harmonic structure the short ones blur.
+
+Powers of two throughout, unlike Yu et al.'s `[160, 320, 480, 640]`, so no
+zero-padded windows.
+
+**`L_MR` is applied to present crops only.** With an all-zero reference both L1
+terms reduce to "minimise output energy", which duplicates `L_abs`'s job in
+non-dB, unnormalised units and makes the effective silence weight unknowable.
+
+**Reduction is `mean`, pinned in config and in the code comment.** `||.||_1` in
+Yu et al. eq (3) literally means a sum over ~257 x 500 = ~128,000 coefficients,
+while `auraloss` and the ParallelWaveGAN reference use a mean — a factor of
+~1e5. Under sum-reduction with `w_m = 1.0`, `L_MR ~ 1e4` against
+`L_pres ~ 1e1` and **Term 1 becomes numerically invisible with no error
+message.** Published `w_m` values do not transfer unless the reduction matches.
+
+`p = 0.3` is an empirical convention, not derived. It compresses ~60 dB of
+in-frame dynamic range to ~8:1 so quiet high-frequency bins (fricatives,
+sibilants, stop bursts) can compete for gradient.
+
+**Measured, on a real chunk** (`train-42-010130`, 4 s at the highest-energy
+offset; top of the spectrum ablated, low band and phase kept exact):
+
+| output | energy kept | `L_pres` | `L_MR` |
+| --- | --- | --- | --- |
+| perfect (`s_hat = s`) | 100.00 % | **-30.00** | **0.0000** |
+| >6 kHz deleted | 99.50 % | -22.28 | 0.0560 |
+| >4 kHz deleted | 98.07 % | -16.86 | 0.1263 |
+| >2 kHz deleted | 97.67 % | -16.06 | 0.1896 |
+| >1 kHz deleted | 96.69 % | **-14.61** | **0.2314** |
+| unprocessed mixture | - | -5.60 | 0.2535 |
+
+**This is the justification for the term, and it is reportable as a result.**
+A signal with everything above 1 kHz destroyed - a muffled mumble, every
+consonant gone - keeps 96.7 % of the energy, so `L_pres` scores it **-14.61**,
+i.e. 9 dB *better* than doing nothing. `L_MR` scores the same signal at 0.2314
+against the do-nothing mixture's 0.2535, i.e. 91 % of the way to "you achieved
+nothing" - the correct judgement, and one `L_pres` cannot reach at any weight.
+
+Supersedes the earlier order-of-magnitude estimate in this entry (~1 % of energy
+above 4 kHz, "SI-SDR still reads ~20 dB"). Measured: 1.93 % and -16.86 dB. The
+argument holds; the numbers are now measured rather than projected.
+
+Consequence: the `w_m = 0` ablation arm is not a formality. It is the arm in
+which this blindness is live.
+
+### `w_m` is set by measurement, not by sweep
+
+**Measure both terms at `s_hat = x` (the mixture passed through) before
+training.** Model-free, seed-independent, and roughly what the model does after a
+few hundred steps. An untrained model is *not* a valid anchor — its output depends
+on the random init.
+
+Target `w_m * L_MR ~ 0.3 * |L_pres|` at that anchor. First measurement, one
+real chunk (`train-42-010130`): `L_pres = -5.605`, `L_MR = 0.2535`, so
+`w_m ~ 6.6` -- **not** CARTSE's 1.0, which would have put `L_MR` at ~4.5 % of the
+present branch. Provisional until run over a few hundred crops and medianed;
+`L_MR` varies with a trial's spectral content far more than `L_pres` does.
+
+**The ratio drifts monotonically during training.** `|L_pres|` grows as the model
+improves (-5.6 -> -30) while `L_MR` shrinks (0.25 -> 0), so `L_MR`'s share of the
+loss value falls throughout. An early-strong / late-weak spectral term is
+defensible, but it must be a stated choice rather than an accident, and it is a
+further reason to log both terms every step. `L_pres` defines the task;
+`L_MR` prices what it cannot see. Ablate `w_m` at `{0, 0.3x, 1.0x}` — the `0` arm
+is required to show the term earns its place, and is direct thesis material if
+`L_MR` moves LCF without moving SI-SDR.
+
+Caveat to state when reporting: matching loss *values* is a proxy for matching
+*gradients*. Record gradient norms for each term once at the anchor
+(`torch.autograd.grad`). No paper in `review_synthesis.md` reports this.
+
+### Not in the M2 loss
+
+| term | source | status |
+| --- | --- | --- |
+| scenario-aware frame-level split | CARTSE eq (3) | **deferred to M4.** Needs frame-level `y`; see below |
+| speaker consistency | CARTSE eq (4) | deferred. Using it forfeits SpkSim as a held-out number |
+| mel-filterbank L1 | CARTSE eq (5) | deferred to M4 |
+| frozen-encoder feature matching | CARTSE eq (7), PS4 (Ning et al., 2026) | deferred to M4 — the primary proxy |
+| **DNSMOS maximisation** | CARTSE eq (6) | **rejected, permanently** |
+
+**DNSMOS is rejected on two independent grounds.** The organisers found
+DNSMOS-OVRL over-optimised to the point of ~zero human-MOS correlation on Track 1
+(LCC +0.003) and swapped the official metric post hoc; `metric-definitions.md` §4
+names this as the cautionary tale this project designs against, and CARTSE
+explicitly trains on it. Second, it optimises perceptual quality, which is
+explicitly not the objective (`CLAUDE.md`). Recorded as a rejection with the
+citation, not an omission.
+
+**Why M2 is conventional at all**, given the thesis argues conventional
+objectives are the wrong target: the divergence between conventional metrics and
+LCF *is* the finding, and it needs a competently-trained conventional arm to
+diverge from; `research-plan.md` §5 requires the proxy models share a base
+checkpoint with the baseline or the ablation is unattributable; SI-SDR carries
+calibration a proxy loss does not, so a bad number means a bad model rather than
+an ambiguity; and every proxy paper in the set (CARTSE, PS4, Ma et al.)
+fine-tunes from a signal-loss checkpoint — none trains from random init.
+
+### Consequences to carry
+
+1. **`L_MR` reduction, and the complex-term convention, must be pinned in the
+   config.** L1 on a complex tensor is ambiguous: `L1(real) + L1(imag)` or
+   `sum |S - S_hat|` (modulus). They are different numbers. Yu et al. eq (3)
+   leaves the complex term **uncompressed** — some of the literature compresses
+   both. Follow the paper; state the choice in the code comment.
+2. **Frame-level `y` for M4 is not free.** `target.wav` is exactly zero only
+   where no utterance was *placed*. Within-utterance pauses (LibriSpeech carries
+   ~0.331 s leading silence; 86.0 % of a file is speech, 2026-08-15) are room
+   noise and reverb tail after RIR convolution, not zeros. Frame-accurate `y`
+   needs `vad_segments.csv` mapped through `target_onsets_s`, and a rule for the
+   reverb tail: up to `t60` (<= 0.6 s) of the target's own energy follows the
+   last word, is present in the reference, and is rewarded by `L_pres` — a strict
+   VAD label would mark those frames silent and have `L_TS` punish correct
+   behaviour. Either extend active regions by `t60` or threshold on stem energy.
+3. **Supervision is against the *reverberant* target.** `render.py` returns "the
+   target through its own room, alone", so this loss asks the model to preserve
+   the room, not dereverberate. Our SI-SDR is therefore not comparable to
+   dry-target-supervised numbers.
+4. Every weight (`tau`, `w`, `w_m`, `p`, the window list, the reduction) lives in
+   `experiments/configs/`. None in the loss module.
+5. Compute the loss in float32 even under AMP — the squared-norm sums and the
+   logs are unreliable in fp16.
+
+### Tests to keep
+
+Implemented as `tests/test_losses.py` (30 tests, synthetic seeded signals
+only, no corpora read). The gain-invariance test is verified to FAIL on
+CARTSE eq (1) as published, which is what makes it worth keeping.
+
+| assertion | expected |
+| --- | --- |
+| `L_pres(s, s)` | exactly `-30.0` at `tau = 1e-3`. Validates the whole implementation in one line |
+| `L_pres` gain invariance | `L_pres(s, g*s_hat) == L_pres(s, s_hat)` for `g` in [0.05, 100]. **This is the test that caught Deviation 1** — it fails on CARTSE eq (1) as written |
+| `L_pres(s, 0)` | `0.0`, finite. Total collapse must be neither `NaN` nor `inf` |
+| `L_pres(s, x)` | the mixture's own SI-SDR, ~ `sir_db`. The floor anchor |
+| `L_MR(s, s)` | `0.0` |
+| `L_abs(0, x)` | `-30.0`, on any `x` |
+| `L_abs(x, x)` | `10 log10(1 + tau)` = **`0.00434`**, not `0.0`. On any `x` |
+| masked means | do not divide by zero when a batch holds 0 present or 0 absent crops |
+| silent target | `L_pres(0, x)` is `NaN` **by design**. Assert it, so the masking requirement is pinned by a test rather than a comment |
+
+**Log every term separately from step 1, and keep absent trials in `val`**
+(0.35, `decisions-m0.md` 2026-08-11). A total loss that falls while `L_abs` sits
+flat near `0` is a model passing the interferer straight through whenever the
+target is silent — invisible in the total, invisible in SI-SDR, and visible at
+eval only as a blown-up ICR.
+
+---

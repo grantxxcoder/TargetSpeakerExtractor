@@ -42,3 +42,11 @@ Formal versions live in `docs/decisions/decisions-m0.md`; glossary terms live in
  Two reasons, and the second is the one that is easy to miss.
  (1) *Information density.* F0 and the first two formants — what actually distinguishes one voice from another — live below about 1 kHz. Above 4 kHz there is mostly fricative energy and spectral tilt, far less structure per Hz. So spend resolution where the information is.
  (2) *Normalisation.* Speech energy falls roughly 6 dB per octave, so the lowest bins are orders of magnitude louder than the highest. If all 257 bins were normalised together, the high bands would be numerically invisible and contribute almost nothing to the gradient. Splitting first means every band gets its own normalisation and its own projection to 128 dimensions — so a quiet 6 kHz band gets exactly the same representational budget as a loud 200 Hz one. This is a large part of *why* BSRNN works, and a better answer in a viva than "it splits the spectrum".
+---
+
+
+
+
+**Energy ratio:** The energy of a signal is the sum of its squared samples. So if we have a sample rate of 64000, then the energy is the sum of each component squared ie ||a||^2 = a[0]^2 + a[1]^2+....+a[63999]^2
+
+
