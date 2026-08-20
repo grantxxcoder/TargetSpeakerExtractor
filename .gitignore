@@ -259,3 +259,5 @@ experiments/**/checkpoints/
 !experiments/configs/**
 !experiments/results/**
 tse_venv/
+experiments/results/2026-08-20-loss-anchor/per_crop.csv
+experiments/configs/bsrnn_baseline.yaml
