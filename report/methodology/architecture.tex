@@ -109,57 +109,188 @@ bands of a frame are available at the same instant.
 \subsection{Objective function}
 \label{sec:objective}
 
-% TODO: the three terms. L_pres (floored SI-SDR), L_MR (multi-resolution
-% compressed magnitude + complex L1), L_abs (push-to-silence), combined under
-% masked means over the present and absent crops of each batch.
+The objective has to express two different requirements, because the training data contains two different situations. Where the target speaks, the output should match the target signal. Where the target is silent as the result of either the trial contains no target speech at all, or because the four-second crop happened to land in a gap between the target's utterances, there is no signal to match, and the correct output is silence. A single loss cannot serve both use cases and so the objective is therefore split, and each crop is scored by the branch that applies to it.
 
-% TODO: state the combined objective, then each term, then the table below.
-% Every weight is in experiments/configs/bsrnn_baseline.yaml -- quote the config,
-% do not restate numbers here where they can drift out of sync.
+Throughout, $x$ is the mixture, $s$ the target reference and $\hat{s}$ the model's output, all in the time domain over one training crop.
+
+\paragraph{Target present}
+The first term measures how much of the output is the target and how much is everything else, following \cite{li2026cartse}. Importantly, the loss needs to be invariable to the overall volume as if the $\hat{s}$ is of the correct shape, it should not be penalised for being loud or quiet. Therefore the first step is to find the single gain that best explains the output as a scaled copy of the target, which will be calculated as a projection, 
+\begin{equation}
+\alpha = \frac{\langle \hat{s},\, s \rangle}{\lVert s \rVert^2},
+\qquad
+s_\textup{proj} = \alpha s,
+\label{eq:alpha}
+\end{equation}
+and then comparing the energy of that scaled target against the energy of whatever the output contains beyond it. The loss is modelled after the Scale-Invariant Signal-to-Distortion Ratio (SI-SDR). The loss is therefore,
+\begin{equation}
+L_\textup{pres}
+  = -10 \log_{10}
+    \frac{\lVert s_\textup{proj} \rVert^2}
+         {\lVert \hat{s} - s_\textup{proj} \rVert^2
+          + \tau \lVert s_\textup{proj} \rVert^2}.
+\label{eq:lpres}
+\end{equation}
+Lower is better. The loss is secondly in terms of decibels (dB), which is where the logarithm comes from. The $\tau$ term in the denominator is a floor. Without it a perfect output would score $-\infty$, and the gradient would keep rewarding refinement of crops that are already essentially solved. With $\tau = 10^{-3}$ the best attainable score is
+\SI{-30}{dB}. This constant follows the suggestion from CARTSE \cite{li2026cartse}. The reasoning is that an output whose residual error already sits \SI{30}{dB} below the target is close enough to be treated as solved, so it would be wasteful to keep spending gradient on it. Two properties of this measure should be stated plainly, because they are what the second term exists to compensate for. The first is that everything the output contains beyond the target is collected into one denominator. Residual interfering speech, residual background noise and artefacts the model itself introduced all count identically per unit of energy, although they are not equally damaging: a fragment of the interferer left in the output can be transcribed downstream as words the target never said, whereas a diffuse artefact of the same energy usually cannot. The measure has no way to express that difference. The second is that it is an energy ratio summed over the whole crop, so it is dominated by whatever is loudest in it. Speech energy sits overwhelmingly in the low frequencies and in vowels, which means a model can score well on \eqref{eq:lpres} while reconstructing fricatives and the upper spectrum poorly. Those are the parts that carry consonant identity, and therefore much of what makes speech intelligible rather than merely present. 
+
+\paragraph{Multi-resolution spectral term.}
+Equation~\eqref{eq:lpres} is a single number computed over the whole waveform, which makes it ignore the location of errors in the spectrum. Since it cannot express \emph{where} in the spectrum the error lies, a model that reconstructs the loud low bands well and the quiet high bands poorly is barely penalised and secondly since being scale-invariant, it does not constrain the output's absolute loudness at all. The idea is to use a loss that considers multiple resolutions of $s$ and $\hat{s}$. By considering different granularity of the spectrogram, the model is encouraged to reconstruct both the low and high frequency bands well. A spectral term allows for this following \cite{yu2023high}:
+\begin{equation}
+L_\textup{MR} = \frac{1}{I} \sum_{i=1}^{I}
+  \Big(
+    \big\lVert\, |S_i|^{p} - |\hat{S}_i|^{p} \,\big\rVert_1
+    + \big\lVert \Re S_i - \Re \hat{S}_i \big\rVert_1
+    + \big\lVert \Im S_i - \Im \hat{S}_i \big\rVert_1
+  \Big),
+\label{eq:lmr}
+\end{equation}
+where $S_i$ and $\hat{S}_i$ are the spectrograms of the target and the output under the $i$th of $I$ analysis window lengths, and each norm is averaged over its time-frequency coefficients.
+
+Three choices inside \eqref{eq:lmr} are worth stating. The exponent $p = 0.3$ compresses magnitudes, which will highlight the quieter components relative to loud ones so that an error in a low-energy region is not diluted just because it is quite. Without the compression the term would be dominated by the same loud low bands that already dominate \eqref{eq:lpres}. The real and imaginary terms are left uncompressed and they are what make the term sensitive to phase: a magnitude-only loss would be indifferent to the phase that the complex mask of Section~\ref{sec:estimator} is free to change. Finally the term is evaluated at several window lengths rather than one, because a single analysis window can hide errors at its own scale.
+
+The window lengths used are \num{8}, \num{16}, \num{32} and \SI{64}{\ms}. This is with respect to the model's own \SI{32}{\ms} framing. The model builds its output by masking \SI{32}{\ms} frames and overlapping them, so the places that most errors would occur can be expected to exist at frame boundaries. The \SI{8}{\ms} and \SI{16}{\ms} windows resolve this and the \SI{64}{\ms} window catches harmonic structure that the short ones blur.
+
+\paragraph{Target absent}
+When there is no target speaker present in the mixture audio, the model should output silence and suppress all other noise. The model should therefore penalise any output that is not silent. This is modelled after a modified version of the absolute level loss from CARTSE \cite{li2026cartse}, where in this works the loss now contains the denominator term. 
+
+\begin{equation}
+L_\textup{abs} = 10 \log_{10}
+  \frac{\lVert \hat{s} \rVert^2 + \tau \lVert x \rVert^2}
+       {\lVert x \rVert^2}.
+\label{eq:labs}
+\end{equation}
+ Including the denominator term makes the loss relative to the input, which is directly readable: \SI{0}{dB} means the output is as loud as the mixture, that is, the model did nothing; \SI{-10}{dB} means the interfering speech was suppressed by \SI{10}{dB}; and the same $\tau$ floors the term at \SI{-30}{dB}, beyond which the output counts as silent. A positive value means the
+model amplified the mixture, which is a direct failure. The inclusion of the denominator also allows for scale invariance, which puts the loss in the same units as the loss for the target present case.
+
+\paragraph{Combining the two.}
+Each term is averaged over the crops it applies to, and the two averages are
+weighted against one another:
+\begin{equation}
+L = (1 - w) \operatorname*{mean}_{\textup{target present}}
+      \big[\, L_\textup{pres} + w_\textup{m} L_\textup{MR} \,\big]
+  + w \operatorname*{mean}_{\textup{target absent}}
+      \big[\, L_\textup{abs} \,\big].
+\label{eq:total}
+\end{equation}
+Averaging within each branch rather than over the batch as a whole matters more
+than it appears to. Under a single batch-wide mean, the share of the gradient
+belonging to the silent crops would be whatever fraction of the batch happened to
+be silent, so the balance between the two requirements would fluctuate from step to
+step on the luck of the draw. Under \eqref{eq:total} that balance is fixed by $w$.
+
+Which branch a crop belongs to is decided from the audio of the cropped target
+itself, not from the trial's label. A trial in which the target does speak can
+still yield a crop containing no target speech, and this occurs in \SI{5.8}{\percent}
+of crops. Routing such a crop to the present branch would put an all-zero reference
+into \eqref{eq:alpha}, where $\alpha$ becomes $0/0$; the implementation asserts
+against this rather than relying on the labels agreeing.
+
+% \paragraph{Weights.}
+% Every weight in \eqref{eq:total} is set in the experiment configuration rather than
+% in the loss implementation. Two of them are not arbitrary and are worth recording
+% here.
+
+% The weight $w$ on the silent branch is derived rather than chosen. Silent crops make
+% up a measured \num{0.297} of the training crops, and the objective is intended to
+% weight silence at twice its frequency in the data, following
+% \cite{li2026cartse}. Carrying that through gives $w = 0.458$, which reproduces the
+% intended emphasis at this project's own absent rate rather than at the rate of the
+% corpus the value was originally set on. Weighting silence at exactly its data
+% frequency is retained as an ablation.
+
+% The weight $w_\textup{m}$ on the spectral term is set by measurement.
+% Equations~\eqref{eq:lpres} and \eqref{eq:lmr} are on unrelated scales -- one is a
+% ratio in decibels, the other a mean absolute difference between compressed
+% magnitudes -- so a value cannot be chosen by inspection. Both terms were therefore
+% evaluated on the output that does nothing at all, $\hat{s} = x$, over 300 training
+% crops: a model-free reference point, and close to what an early-training model
+% produces. The median values there were \num{-5.91} and \num{0.184} respectively, so
+% $w_\textup{m} = 9.62$ places the spectral term at roughly \SI{30}{\percent} of the
+% present branch at the start of training. This is far from the value of \num{1.0}
+% used in the source, which at these scales would have made the spectral term
+% contribute a few percent.
+
+% One consequence should be stated rather than discovered. The ratio between the two
+% terms drifts as training proceeds: $|L_\textup{pres}|$ grows towards its
+% \SI{-30}{dB} floor as the model improves, while $L_\textup{MR}$ shrinks towards
+% zero. The spectral term is therefore strong early and weak late. That is
+% defensible -- \eqref{eq:lpres} defines the task and \eqref{eq:lmr} prices what it
+% cannot see -- but it is a property of the design rather than an accident, and both
+% terms are logged separately at every step so the drift is visible. The weight is
+% ablated, including at zero, in Chapter~\ref{ch:experiments}.
+
+% \paragraph{Departures from the source objective.}
+% The present and absent terms are taken from the CARTSE system \cite{li2026cartse},
+% the online-track submission whose task most closely matches this one, but they are
+% not reproduced unchanged. Table~\ref{tab:loss-deviations} lists the differences.
+% The first is the most consequential: as published, the floor in \eqref{eq:lpres} is
+% taken on $\lVert s \rVert^2$ rather than on $\lVert s_\textup{proj} \rVert^2$,
+% which breaks the scale invariance the term is built on. With that form, an output
+% of the correct shape scaled by a gain $g$ scores better the louder it is made,
+% without bound. Flooring on the projection instead makes numerator and floor scale
+% together, so the two cancel and the score is flat with respect to gain. The
+% difference was found by a unit test asserting invariance, which the published form
+% fails.
 
 \begin{table}[htbp]
-\caption{Deviations from the CARTSE objective as published. [GRANT: Each is recorded with
-its reason in \texttt{docs/decisions/decisions-m1.md}, 2026-08-20.]}
+\caption{Departures from the objective of \cite{li2026cartse} as published. Each is
+recorded with its reason in the project's decision log.}
 \label{tab:loss-deviations}
 \mytable
 \begin{tabularx}{\textwidth}{@{}lLL@{}}
 \toprule
-& As published & As implemented here \\
+& As published & As used here \\
 \midrule
-1. \(L_\textup{pres}\) floor
-    & % TODO: floors on \(\tau\|s\|^2\)
-    & % TODO: floors on \(\tau\|s_\textup{proj}\|^2\); why -- gain invariance
+1. Floor in \eqref{eq:lpres}
+    & On $\tau \lVert s \rVert^2$, which is not scale-invariant
+    & On $\tau \lVert s_\textup{proj} \rVert^2$, so that gain cancels
     \\
-2. \(L_\textup{abs}\) normalisation
-    & % TODO: unnormalised
-    & % TODO: divided by \(\|x\|^2\); why -- 0\,dB means "did nothing" on every trial
+2. Scale of \eqref{eq:labs}
+    & Unnormalised, so the value shifts with input loudness
+    & Divided by $\lVert x \rVert^2$, so \SI{0}{dB} means ``did nothing''
     \\
-3. Reduction over the batch
-    & % TODO: one batch-wide mean
-    & % TODO: masked mean per half; why -- present/absent balance stops depending
-      % on what the batch drew
+3. Reduction
+    & One mean over the whole batch
+    & A mean within each branch, so the balance is set by $w$ alone
     \\
-4. The \(\eta\) weight
-    & % TODO: separate \(\eta\)
-    & % TODO: folded into \(w\); why -- two dials, one degree of freedom
+4. Number of weights
+    & A separate weight on the silent term
+    & Folded into $w$; under branch-wise means the two are one degree of freedom
     \\
-5. Value of the absent weight
-    & % TODO: \(\eta = 2.0\) at their absent rate
-    & % TODO: \(w = 0.458\), reproducing \(\eta = 2.0\) at our measured 0.297
+5. Silence weight
+    & Twice the absent rate of the source corpus
+    & $w = 0.458$, the same emphasis at this project's measured \num{0.297}
     \\
-6. \(L_\textup{MR}\) window set
-    & % TODO: windows at or above \(n_\textup{fft}\)
-    & % TODO: 8/16/32/64\,ms, straddling the model's own 32\,ms framing
+6. Windows in \eqref{eq:lmr}
+    & All at or above the model's frame length
+    & \numlist{8;16;32;64}\,\si{\ms}, straddling it
     \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-% TODO: DNSMOS maximisation (CARTSE eq. 6) is rejected, not omitted -- record it
-% here with the citation. Two independent grounds: the organisers measured
-% DNSMOS-OVRL at ~zero human-MOS correlation on Track 1, and perceptual quality
-% is explicitly not this project's objective.
+% \paragraph{What is deliberately absent.}
+% The source objective includes a term that maximises a non-intrusive speech-quality
+% predictor, DNSMOS. It is rejected here on two independent grounds. The challenge
+% organisers measured that predictor's overall variant against human opinion scores
+% and found a linear correlation of \num{+0.003} on the online track, effectively no
+% agreement, and consequently demoted it to a reference score
+% \cite{wang2026realtse}. Optimising directly against a measure that does not track
+% human judgement is the specific failure this project's evaluation is designed to
+% avoid. Independently, perceptual quality is not this work's objective at all: the
+% target is what a downstream listening model recovers, which quality may or may not
+% serve. The term is therefore recorded as rejected, with its reason, rather than
+% omitted silently.
 
-% TODO: terms deferred to the proxy-objective model rather than used here --
-% scenario-aware frame-level split, speaker consistency, mel-filterbank L1,
-% frozen-encoder feature matching.
+% Several further terms from the same source -- a frame-level split of the present
+% and absent cases, a speaker-consistency term, and a mel-filterbank distance -- are
+% deferred rather than rejected, and are discussed with the proxy objective in
+% Chapter~\ref{ch:experiments}. Using a speaker-similarity term in training would
+% forfeit speaker similarity as an independent measurement at evaluation, which is
+% reason enough to keep it out of the baseline.
+
+% Finally, the baseline is trained on a conventional signal objective on purpose. The
+% comparison this work is built around needs a competently trained conventional arm
+% for the proposed measure to diverge from, and the later variant must start from the
+% same checkpoint for that comparison to be attributable to the objective rather than
+% to anything else.
