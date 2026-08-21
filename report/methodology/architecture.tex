@@ -66,7 +66,30 @@ normalisation for their online configuration. The opposition is for the followin
 \subsection{Residual LSTM block}
 \label{sec:resrnn}
 
-% TODO
+The idea of the residual LSTM block is to model the sequential structure of speech such that the model can leverage patterns that unfold over time. There are two kinds of sequential structures that are modelled here. The first is the sequence over time, which is the natural order of speech. The second is the sequence over frequency. Think of the time being unidirectional, as the speech only makes sense to unfold forward in time, but the frequency is bidirectional, as all of the bands of a frame are available at the same instant and can be traversed in either direction. The block is used for both kinds of modelling, with the same structure but different parameters.
+
+The recurrent layer is what carries information forward where this work leverages a long short-term memory
+layer, or LSTM. This is a recurrent layer with an internal mechanism for deciding what to keep in that summary and what to discard, which is what allows it to retain information over hundreds of frames rather than only the last few. This structure also suits the deployment target directly. At inference time, since the model is running in a streaming fashion, the LSTM's internal state is preserved between frames and information can be carried forward indefinitely. The LSTM is therefore a natural fit for the task, and it is used in the same way for both the time and frequency sequences.
+
+The block is made of three steps applied in order, following \cite{luo2023music}. The input is first normalised, then passed through the LSTM, and the LSTM's output is then mapped back to the input's width by a learned projection. The final addition is a residual connection \cite{he2016deep}, and is inspired by the original ResNet \cite{he2016deep} architecture. This allows the gradient an unobstructed path back through the computation stack of all the blocks, which matters because six of these blocks are stacked in Section~\ref{sec:bsnet}. This is important as the LSTM is a deep recurrent layer, and the gradient can vanish or explode as it passes through the LSTM's internal state. The residual connection allows the gradient to bypass the LSTM entirely, which is what allows the model to train when the gradient vanishes within the LSTM. 
+
+
+[GRANT: TODO ] - Still might need to increase the size of the model so this is not final!!!
+
+\paragraph{What is used here.}
+The LSTM has a single layer with a width of 192, taken from Yu et al.\ \cite{yu2023high}, whose \SI{16}{\kHz} model specifies that width. This is deliberately narrower than the reference implementation of the same architecture,
+which uses twice the feature width, or 256. Because the LSTM's width differs from
+the 128 features entering the block, the projection is not optional bookkeeping: it
+is what makes the addition dimensionally possible at all.
+
+The block is written to be indifferent to what its sequence axis represents. It
+receives a batch of sequences and processes them; whether those sequences run along
+time or along frequency is decided by the caller. This is what allows the same
+block to be used for both kinds of modelling in Section~\ref{sec:bsnet}, with one
+critical difference between the two uses. Along time the LSTM runs forward only,
+because a backward pass over time reads frames that have not yet arrived. Along
+frequency it runs in both directions, which costs nothing in latency, since all the
+bands of a frame are available at the same instant.
 
 \subsection{Band and sequence model}
 \label{sec:bsnet}
