@@ -273,4 +273,3 @@ experiments/configs/bsrnn_baseline.yaml
 *.out
 *.synctex.gz
 *.toc
-report/report.pdf
