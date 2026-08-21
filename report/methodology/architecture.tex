@@ -113,7 +113,7 @@ The objective has to express two different requirements, because the training da
 
 Throughout, $x$ is the mixture, $s$ the target reference and $\hat{s}$ the model's output, all in the time domain over one training crop.
 
-\paragraph{Target present}
+\paragraph{Target present.}
 The first term measures how much of the output is the target and how much is everything else, following \cite{li2026cartse}. Importantly, the loss needs to be invariable to the overall volume as if the $\hat{s}$ is of the correct shape, it should not be penalised for being loud or quiet. Therefore the first step is to find the single gain that best explains the output as a scaled copy of the target, which will be calculated as a projection, 
 \begin{equation}
 \alpha = \frac{\langle \hat{s},\, s \rangle}{\lVert s \rVert^2},
@@ -150,7 +150,7 @@ Three choices inside \eqref{eq:lmr} are worth stating. The exponent $p = 0.3$ co
 
 The window lengths used are \num{8}, \num{16}, \num{32} and \SI{64}{\ms}. This is with respect to the model's own \SI{32}{\ms} framing. The model builds its output by masking \SI{32}{\ms} frames and overlapping them, so the places that most errors would occur can be expected to exist at frame boundaries. The \SI{8}{\ms} and \SI{16}{\ms} windows resolve this and the \SI{64}{\ms} window catches harmonic structure that the short ones blur.
 
-\paragraph{Target absent}
+\paragraph{Target absent.}
 When there is no target speaker present in the mixture audio, the model should output silence and suppress all other noise. The model should therefore penalise any output that is not silent. This is modelled after a modified version of the absolute level loss from CARTSE \cite{li2026cartse}, where in this works the loss now contains the denominator term. 
 
 \begin{equation}
@@ -182,55 +182,19 @@ Which branch a crop belongs to is decided from the audio of the cropped target
 itself, not from the trial's label. A trial in which the target does speak can
 still yield a crop containing no target speech, and this occurs in \SI{5.8}{\percent}
 of crops. Routing such a crop to the present branch would put an all-zero reference
-into \eqref{eq:alpha}, where $\alpha$ becomes $0/0$; the implementation asserts
+into \eqref{eq:alpha}, where $\alpha$ becomes $0/0$. the implementation asserts
 against this rather than relying on the labels agreeing.
 
-% \paragraph{Weights.}
-% Every weight in \eqref{eq:total} is set in the experiment configuration rather than
-% in the loss implementation. Two of them are not arbitrary and are worth recording
-% here.
+\paragraph{Weights.}
 
-% The weight $w$ on the silent branch is derived rather than chosen. Silent crops make
-% up a measured \num{0.297} of the training crops, and the objective is intended to
-% weight silence at twice its frequency in the data, following
-% \cite{li2026cartse}. Carrying that through gives $w = 0.458$, which reproduces the
-% intended emphasis at this project's own absent rate rather than at the rate of the
-% corpus the value was originally set on. Weighting silence at exactly its data
-% frequency is retained as an ablation.
+The weight $w$ on the silent branch is derived rather than chosen. Silent crops make up a measured \num{0.297} of the training crops, and the objective is intended to weight silence at twice its frequency in the data, following \cite{li2026cartse}. Carrying that through gives $w = 0.458$, which reproduces the same focus on silence as the source objective, but using the actual frequency of silence in this project's training data rather than the source's.
 
-% The weight $w_\textup{m}$ on the spectral term is set by measurement.
-% Equations~\eqref{eq:lpres} and \eqref{eq:lmr} are on unrelated scales -- one is a
-% ratio in decibels, the other a mean absolute difference between compressed
-% magnitudes -- so a value cannot be chosen by inspection. Both terms were therefore
-% evaluated on the output that does nothing at all, $\hat{s} = x$, over 300 training
-% crops: a model-free reference point, and close to what an early-training model
-% produces. The median values there were \num{-5.91} and \num{0.184} respectively, so
-% $w_\textup{m} = 9.62$ places the spectral term at roughly \SI{30}{\percent} of the
-% present branch at the start of training. This is far from the value of \num{1.0}
-% used in the source, which at these scales would have made the spectral term
-% contribute a few percent.
+The weight $w_\textup{m}$ on the spectral term is derived from the target present and absent losses. The reason for this term is  equations~\eqref{eq:lpres} and \eqref{eq:lmr} are in different units. $L_{pres}$ is in units with respect to a ratio in decibels, and $L_{MR}$ is the mean absolute difference between compressed magnitudes. Therefore the weighting term $w_\textup{m}$ will reconcile the two terms to be on the same scale.
+This is done by evaluating on the output that does nothing at all, $\hat{s} = x$, over 300 training crops which will simulate the scenario for the average losses for an untrained model. The median values for $L_{pres}$ and $L_{MR}$ are \num{-5.91} and \num{0.184} respectively. The aim is for the spectral term (Multi-Resolution) to be roughly \SI{30}{\percent} of the present branch at the start of training. The calculation then becomes  
+ $$w_\text{m} = \frac{0.3 \times |L_\text{pres}|}{L_\text{MR}} =  \frac{0.3 \times 5.9088}{0.1842} = 9.62$$
 
-% One consequence should be stated rather than discovered. The ratio between the two
-% terms drifts as training proceeds: $|L_\textup{pres}|$ grows towards its
-% \SI{-30}{dB} floor as the model improves, while $L_\textup{MR}$ shrinks towards
-% zero. The spectral term is therefore strong early and weak late. That is
-% defensible -- \eqref{eq:lpres} defines the task and \eqref{eq:lmr} prices what it
-% cannot see -- but it is a property of the design rather than an accident, and both
-% terms are logged separately at every step so the drift is visible. The weight is
-% ablated, including at zero, in Chapter~\ref{ch:experiments}.
-
-% \paragraph{Departures from the source objective.}
-% The present and absent terms are taken from the CARTSE system \cite{li2026cartse},
-% the online-track submission whose task most closely matches this one, but they are
-% not reproduced unchanged. Table~\ref{tab:loss-deviations} lists the differences.
-% The first is the most consequential: as published, the floor in \eqref{eq:lpres} is
-% taken on $\lVert s \rVert^2$ rather than on $\lVert s_\textup{proj} \rVert^2$,
-% which breaks the scale invariance the term is built on. With that form, an output
-% of the correct shape scaled by a gain $g$ scores better the louder it is made,
-% without bound. Flooring on the projection instead makes numerator and floor scale
-% together, so the two cancel and the score is flat with respect to gain. The
-% difference was found by a unit test asserting invariance, which the published form
-% fails.
+\paragraph{Differences with the source objective.}
+The present and absent terms are inpsired from the CARTSE system \cite{li2026cartse}, the online-track submission whose task most closely matches this one, but they are slightly modified. Table~\ref{tab:loss-deviations} lists the differences. The first is the most consequential: as published, the floor in \eqref{eq:lpres} is taken on $\lVert s \rVert^2$ rather than on $\lVert s_\textup{proj} \rVert^2$, which breaks the scale invariance the term is built on. With that form, an output of the correct shape scaled by a gain $g$ scores better the louder it is made and it is not bounded. Flooring on the projection instead makes numerator and floor scale together, so the two cancel and the score is flat with respect to gain.
 
 \begin{table}[htbp]
 \caption{Departures from the objective of \cite{li2026cartse} as published. Each is
@@ -249,8 +213,8 @@ recorded with its reason in the project's decision log.}
     & Unnormalised, so the value shifts with input loudness
     & Divided by $\lVert x \rVert^2$, so \SI{0}{dB} means ``did nothing''
     \\
-3. Reduction
-    & One mean over the whole batch
+3. Averaging over the batch
+    & One mean over all crops in the batch
     & A mean within each branch, so the balance is set by $w$ alone
     \\
 4. Number of weights
@@ -263,7 +227,7 @@ recorded with its reason in the project's decision log.}
     \\
 6. Windows in \eqref{eq:lmr}
     & All at or above the model's frame length
-    & \numlist{8;16;32;64}\,\si{\ms}, straddling it
+    & \numlist{8;16;32;64}\,\si{\ms}, slightly lower and higher than the model's \SI{32}{\ms} frame length
     \\
 \bottomrule
 \end{tabularx}
