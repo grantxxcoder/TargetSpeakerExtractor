@@ -30,7 +30,29 @@ Each coefficient carries two quantities. Its magnitude $|X(f,t)|$ is how much en
 \subsection{Band plan}
 \label{sec:bandplan}
 
-% TODO
+The spectrogram of Section~\ref{sec:stft} has 257 outputted frequency bins, each covering an equal slice of \SI{31.25}{\Hz}. Treating all 257 alike would waste the model's capacity, because speech does not spread itself evenly across them. Most of the energy, and nearly all of the structure that distinguishes one voice from another, sits at the lower frequencies: the pitch of a voice and the resonances that give a vowel its identity all fall below about \SI{4}{\kHz}, and energy falls away steadily above that. The bins near the top carry far less information and thus would be wasteful to model with the same level of detail as the bins near the bottom.  
+
+A band plan is the decision of how to group those bins. Bins are gathered into contiguous groups, called bands, and each band is then handled separately by the network: it gets its own normalisation and its own projection, so a band is compared against itself over time rather than against the loud low-frequency bands next to it. Grouping few bins per band keeps fine detail. Secondly grouping many bins into one band summarises coarsely but costs far less. A band plan therefore decides where the model's resolution is spent. 
+
+The plan in this work is 32 bands over the 257 bins: fifteen bands of \SI{100}{\Hz} covering \SIrange{0}{1.5}{\kHz}, ten of \SI{200}{\Hz} covering \SIrange{1.5}{3.5}{\kHz}, five of \SI{500}{\Hz} covering \SIrange{3.5}{6}{\kHz}, and the remaining \SIrange{6}{8}{\kHz} as one band. Figure~\ref{fig:bandplan} shows it against a real mixture in the training set. The effect is a factor of twenty between the finest and coarsest resolution. This plan follows the implementation from Zhang et al.\ \cite{zhang2025multi} for their \SI{16}{\kHz} target speaker extraction model and used by the challenge baseline built on it, but no reason is given there for these particular boundaries, and none is given in the papers it descends from -- the original band splitting was designed for music \cite{luo2023music}, where the sources are instruments rather than voices. It is adopted here as the baseline so that this work's results are comparable with that lineage, and it is recorded as an unjustified inheritance rather than a motivated choice.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{figures/bandplan-wesep.png}
+\caption{The band plan used here, shown against a four-second mixture from the training set. Left: the band boundaries drawn over the spectrogram, closely spaced at the bottom where the speech structure is and widening upwards. Right: the width of each band in hertz. The lowest fifteen bands are \SI{100}{\Hz} wide; the single highest spans \SI{2}{\kHz}. This band plan follows the one used by Zhang et al.\ \cite{zhang2025multi} for their \SI{16}{\kHz} model.}
+\label{fig:bandplan}
+\end{figure}
+
+[GRANT: TODO - Possible experiment]
+Because the plan is a free parameter that nobody has justified, it is also
+implemented as a configurable table rather than fixed in code, with alternative
+plans available for comparison. 
+
+\paragraph{Why the spectrum stops at \SI{8}{\kHz}.}
+The audio in this work is sampled at \SI{16}{\kHz}, meaning 16{,}000 amplitude measurements per second. When measuring a wave you need at least two measurements per cycle, one for the peak and one for the trough of the wave. Therefore the fastest possible wave that \SI{16}{\kHz} sampling can represent will complete 8{,}000 cycles per second. Anything faster cannot be distinguished from a slower wave passing through the same measured points. Therefore, the largest possible range that can be represented by the 257 bins have to span \SIrange{0}{8}{\kHz} rather than \SIrange{0}{16}{\kHz}.
+
+
+
 
 \subsection{Band split}
 \label{sec:bandsplit}
