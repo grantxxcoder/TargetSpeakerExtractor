@@ -1,0 +1,96 @@
+% Block diagram of the extractor as implemented. Drawn for this work.
+% Provenance is stated per component in the caption, not wholesale: the diagram
+% is not a redraw of any published figure -- the causal time path, the lookahead
+% shift and the third input channel do not appear in one.
+%
+% Requires, in the preamble: \usetikzlibrary{arrows.meta,positioning,calc,backgrounds}
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    font=\small\sffamily,
+    >={Stealth[width=5pt,length=5pt]},
+    block/.style={draw, fill=white, rounded corners=1.5pt, align=center, inner sep=4pt,
+                  minimum height=8mm, text width=42mm},
+    inblock/.style={block, text width=34mm},
+    ours/.style={block, dashed, thick},
+    sig/.style={font=\small, inner sep=2pt},
+    note/.style={font=\scriptsize\sffamily, text=black!55},
+    arr/.style={->, thick, black!75},
+    skip/.style={->, thick, black!45}
+  ]
+
+  % ---------- inputs -------------------------------------------------------
+  % Columns sit symmetrically about the trunk at x = 3.5 and are narrower than
+  % the trunk blocks, so the upper half does not overhang it.
+  \node[sig] (xin) at (0.9,0) {mixture $x$};
+  \node[sig] (ein) at (6.1,0) {enrolment $e$};
+
+  \node[inblock] (stft1) at (0.9,-1.2) {STFT\\[-1pt] \scriptsize 512 / 128, causal framing};
+  \node[inblock] (stft2) at (6.1,-1.2) {STFT};
+
+  \node[inblock] (ri)  at (0.9,-2.7) {$[\,\Re X,\ \Im X\,]$\\[-1pt] \scriptsize 2 channels};
+  \node[inblock] (mag) at (6.1,-2.7) {$|X_e|$};
+
+  \node[inblock] (tfmap) at (6.1,-4.2) {TF-Map\\[-1pt] \scriptsize spectral similarity};
+
+  \node[ours] (cat) at (3.5,-5.7) {concatenate\\[-1pt] \scriptsize 3 input channels};
+
+  % ---------- trunk --------------------------------------------------------
+  \node[block] (split) at (3.5,-7.2)  {band split\\[-1pt] \scriptsize 32 bands over 257 bins};
+  \node[block] (norm)  at (3.5,-8.7)  {per-band norm $+$ $1{\times}1$ projection\\[-1pt] \scriptsize to $N=128$};
+  \node[block] (bsnet) at (3.5,-10.4) {time LSTM \emph{(causal)}\\[-1pt] $\to$ band LSTM \emph{(bidirectional)}};
+  \node[ours]  (look)  at (3.5,-12.1) {lookahead shift\\[-1pt] \scriptsize $k$ frames, $k=0\ldots16$};
+  \node[block] (est)   at (3.5,-13.6) {per-band MLP\\[-1pt] \scriptsize complex mask $M$ $+$ residual $R$};
+  \node[block] (apply) at (3.5,-15.1) {$\hat{S} = M \otimes X + R$};
+  \node[block] (istft) at (3.5,-16.6) {inverse STFT};
+  \node[sig]   (out)   at (3.5,-17.8) {estimate $\hat{s}$};
+
+  % Six identical blocks, drawn as a stack rather than annotated with an arrow:
+  % offset copies on the background layer sit behind the front block.
+  \begin{pgfonlayer}{background}
+    \foreach \d in {0.18,0.09}{
+      \draw[draw=black!45, fill=white, rounded corners=1.5pt]
+        ($(bsnet.south west)+(\d,\d)$) rectangle ($(bsnet.north east)+(\d,\d)$);
+    }
+  \end{pgfonlayer}
+  \node[note, anchor=west] at ($(bsnet.north east)+(0.30,-0.30)$) {$\times\,6$};
+
+  % ---------- signal flow --------------------------------------------------
+  \draw[arr] (xin) -- (stft1);
+  \draw[arr] (ein) -- (stft2);
+  \draw[arr] (stft1) -- (ri);
+  \draw[arr] (stft2) -- (mag);
+  \draw[arr] (mag) -- (tfmap);
+  \draw[arr] (ri.south)    -- ++(0,-0.55) -| (cat.north west);
+  \draw[arr] (tfmap.south) -- ++(0,-0.55) -| (cat.north east);
+  \draw[arr] (cat) -- (split);
+  \draw[arr] (split) -- (norm);
+  \draw[arr] (norm) -- (bsnet);
+  \draw[arr] (bsnet) -- (look);
+  \draw[arr] (look) -- (est);
+  \draw[arr] (est) -- (apply);
+  \draw[arr] (apply) -- (istft);
+  \draw[arr] (istft) -- (out);
+
+  % TF-Map needs the MIXTURE magnitude as well as the enrolment's. Label sits on
+  % the segment entering TF-Map, not back at the STFT it leaves.
+  \draw[skip] (stft1.east) -- ++(0.75,0) |- (tfmap.west);
+  \node[note] at ($(tfmap.west)+(-0.62,0.20)$) {$|X|$};
+
+  % The complex mixture bypasses the network: the mask multiplies into it, not
+  % into the network's features.
+  \draw[skip] (split.east) -- ++(1.15,0) |- (apply.east);
+  \node[note, align=left, anchor=west] at ($(split.east)+(1.30,-0.55)$)
+        {complex\\mixture\\bands};
+
+  % ---------- legend -------------------------------------------------------
+  \node[note] at (3.5,-18.5) {\emph{dashed}: added in this work};
+
+\end{tikzpicture}
+\caption{The extractor as implemented. Band splitting and the interleaved
+band-level and sequence-level modelling follow \cite{luo2023music}; the
+mask-plus-residual estimator follows \cite{yu2023high}; TF-Map conditioning
+follows \cite{zhang2025multi}. The causal time path, the lookahead shift and the
+third input channel are this work's.}
+\label{fig:baseline-architecture}
+\end{figure}

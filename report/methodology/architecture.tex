@@ -1,4 +1,4 @@
-\section{Model architecture}
+\section{Baseline model architecture}
 \label{sec:architecture}
 
 % TODO
@@ -9,10 +9,23 @@
 % why, then what it deviates from. Sources are decisions-m1.md and the in-file
 % citations in src/models/.
 
+\input{figures/baseline_architecture}
+
 \subsection{Short-time Fourier transform}
 \label{sec:stft}
 
-% TODO
+When speaking, the audio contains energy. The energy is not evenly distributed across frequencies, and in normal speech it is not evenly distributed across time either. The energy is concentrated in particular frequency bands by the unique resonances of the speaker's vocal tract, and is also concentrated in time by syllables, words and phrases. Audio models therefore want to leverage that structure, and require the input to be presented in a representation that allows for those concentrations to be observed. The waveform itself cannot represent that structure as it is a one-dimensional signal and is not aligned with the human perception of sound. 
+
+The short-time Fourier transform (STFT) produces that representation. The waveform is cut into short overlapping segments. These segments are used to compute the Fourier transform, which is used to decompose the signal into its frequency components. These overlapping segments are called frames, and the idea is to pass each of these segments through the Fourier transform by first multiplying the segment by a window function. The window function, which is typically a Hann window, tapers at the ends such that when multiplied, silences the ends of the segment to isolate the middle. After this a discrete Fourier transform is taken of each segment. The result is one complex number per frequency bin per segment: for a real input $x$, the coefficient at frequency bin $f$ and frame $t$ is
+\begin{equation}
+X(f, t) = \sum_{n=0}^{N-1} x[tH + n]\,w[n]\,e^{-j2\pi fn/N},
+\label{eq:stft}
+\end{equation}
+where $j$ is the imaginary unit ($j = \sqrt{-1}$), $N$ is the window length in samples, $H$ is the hop by which successive windows advance, and $w[n]$ is the window function. The hop is what makes the segments overlap: consecutive frames share $N - H$ samples, so a feature that falls near the edge of one frame sits comfortably inside the next. For the implementation in this work, a window size of $N = 512$ is selected, with a hop of $H = 128$ samples at \SI{16}{\kHz} gives a \SI{32}{\ms} window shifting by \SI{8}{\ms}. These are the values Yu et al. \cite{yu2023high} specify for their \SI{16}{\kHz} model. Secondly given the constraint of the streaming budget of \SIrange{200}{300}{\ms}, the framing consumes well under a quarter of that budget, and the remaining headroom allows for budget to be spent on the lookahead of Section~\ref{sec:bsnet}. Finally, the approach in this work forms the frames without centring creating the causal framing. The reason for this is that centring each frame on its own timestamp makes frame $t$ consume $N/2 = 256$ samples -- \SI{16}{\ms} -- of audio recorded \emph{after} $t$. Since the objective is to create an online, streaming system and thus the model should not depend on future input. To account for the beginning samples of the audio, the signal is padded by $N - H$ samples at the start, which is a kind of cold start of a live system whose input buffer begins empty.
+
+Each coefficient carries two quantities. Its magnitude $|X(f,t)|$ is how much energy the signal has in that frequency band at that time, and its phase $\angle X(f,t)$ is where in repetition of the waveform the signal is at that time. The magnitude is what the model uses to determine which parts of the mixture belong to the target speaker, and the phase is what the model uses to reconstruct the waveform from the modified magnitude. The complex spectrogram is kept separately, since the mask of Section~\ref{sec:estimator} is applied to it rather than to the network's internal features.
+
+% TODO: cite CARTSE for the window-minus-hop convention once the bib entry exists.
 
 \subsection{Band plan}
 \label{sec:bandplan}
