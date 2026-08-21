@@ -365,6 +365,73 @@ week 12.
 
 ---
 
+## Report — chapter status
+
+Added 2026-08-21. LaTeX skeleton builds (`cd report && latexmk -pdf report.tex`).
+Structure is fixed; what follows is writing, not decisions. One line per item,
+tick as written.
+
+**Front matter**
+- [ ] Title page: exact degree wording and submission month
+- [ ] Declaration: official SU wording, copied not paraphrased
+- [ ] Abstract, written last; decide whether the Afrikaans Opsomming is required
+      (`frontmatter/abstract.tex` currently has two `Abstract` blocks)
+- [ ] Nomenclature: extend as symbols and abbreviations are introduced
+
+**Ch 1 Introduction**
+- [ ] Problem statement; the live-model objective, not signal quality (spec note 10)
+- [ ] Two-speaker boundary stated as a declared limit (`decisions-m0.md` 2026-08-14)
+- [ ] Contributions list, metric first (spec notes 1 and 8)
+
+**Ch 2 Literature Review** — source: `literature/review_synthesis.md`
+- [X] ~~BSRNN lineage: MSS to PSE to TSE conditioning~~ draft in `litreview.tex`
+- [ ] TSE conditioning survey; where TF-Map sits among the alternatives
+- [ ] REAL-TSE Challenge as the anchor benchmark, and why we do not replicate it
+      (spec note 8) — never present our numbers as comparable
+- [ ] Metric critique: DNSMOS over-optimisation as the cautionary tale
+      (`metric-definitions.md` §4)
+- [ ] Novelty positioning — source: `literature/novelty-review-contrastive-phonetic-cue.md`
+
+**Ch 3 Methodology** — source: `decisions-m0.md`, `decisions-m1.md`
+- [ ] Data construction: mixtures, rooms, levels, absent trials, VAD-measured overlap
+- [ ] Reference signal is the full reverberant target (A1), with the consequence stated
+- [ ] Architecture: the nine component subsections in `architecture.tex`
+- [ ] Causal adaptation and the latency convention (`decisions-m1.md` 2026-08-18)
+- [ ] Sizing: 7.16 M against challenge scale 25-27 M, reported as deliberate
+- [ ] Objective: three terms, six deviations from CARTSE, DNSMOS rejection recorded
+- [ ] Training setup — blocked, the decisions are not yet made or logged
+- [ ] Metric definition: LCF-WER, ICR, NRR; judge protocol and modality recording
+
+**Ch 4 Experiments**
+- [ ] Protocol: config, commit hash, seed and date on every run
+- [ ] Band-plan ablation (six candidates)
+- [ ] `w_m` ablation, the 0 arm required
+- [ ] Latency decay curve at 100/200/300/400/500 ms (B11)
+- [ ] Judge harness: exact model ID, exact prompt, input modality, run date
+
+**Ch 5 Results**
+- [ ] Conventional metrics (M3), then LCF metrics (M6), on the same trials
+- [ ] Anchors: audio floor, audio ceiling, text floor, text ceiling
+- [ ] Per-condition breakdown, no combinations, >=100 trials per bucket (B13).
+      A headline aggregate must never appear alone
+- [ ] At least one off-the-shelf pretrained TSE system scored alongside
+
+**Ch 6 Conclusion**
+- [ ] Limitations: reverberation never removed (A1); two-speaker mixtures, never
+      "conversation"; approximate-ceiling caveat wherever AMI appears; the
+      cross-modality caveat wherever audio and text rows share a table
+
+**Bibliography** (`report/mybib.bib`)
+- [X] ~~`luo2023music`, `yu2023high`, `zhang2025multi` — verified against the
+      published venues, not the arXiv preprints~~
+- [ ] `zhang2025multi` page range, from IEEE Xplore
+- [ ] Still to add: REAL-TSE overview, CARTSE, PS4, Zmolikova et al. 2023,
+      LibriSpeech, WHAM!/WHAMR!, Silero VAD, Whisper text normaliser
+- [ ] Two entries inherited from an earlier project remain (`hunter2007matplotlib`,
+      `chatgpt2024`) — keep only if actually cited
+
+---
+
 ## Risks this ordering accepts
 
 Recorded so they are accepted deliberately rather than discovered late.

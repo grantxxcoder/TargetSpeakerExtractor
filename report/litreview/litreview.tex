@@ -1,0 +1,8 @@
+\chapter{Literature Review}
+\label{ch:litreview}
+
+% TODO
+
+\section{Band-split Recurrent Neural Network (BSRNN)}
+\label{sec:bsrnn}
+Luo and Yu \cite{luo2023music} propose the BSRNN model as a frequency-domain separation model that is designed for high sample rate audio, in which the input audio is transformed from its waveform representation into a time-frequency representation using the Short-Time Fourier Transform (STFT). The model then divides the input spectrum into multiple frequency bands that are modelled independently. The original use case for the BSRNN model is music source separation, but in this work, the model is adapted to allow for the extraction of a target speaker from a mixture of speech signals. The development from music source separation to the method of the target speaker extraction (TSE) approach that this work follows came from the following lineage: \textit{(i)} music source separation was adapted to personalised speech enhancement (PSE) by Yu et al. \cite{yu2023high}. The authors proposed target speaker extraction in the PSE task by appending a target speaker enrollment module that was designed to suppress any interference. PSE can be summarised as enrollment-conditioned extraction. \textit{(ii)} Zhang et al. followed this framework and proposed a new module for the enrollment conditioning module, namely the Time-Frequency Map (TF Map) \cite{zhang2025multi}.

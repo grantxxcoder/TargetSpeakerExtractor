@@ -2,3 +2,107 @@
 \label{sec:architecture}
 
 % TODO
+% The BSRNN lineage is reviewed in Section~\ref{sec:bsrnn}; this section
+% covers our own adaptation of it.
+%
+% Each subsection below: what the component does, then the choice made here and
+% why, then what it deviates from. Sources are decisions-m1.md and the in-file
+% citations in src/models/.
+
+\subsection{Short-time Fourier transform}
+\label{sec:stft}
+
+% TODO
+
+\subsection{Band plan}
+\label{sec:bandplan}
+
+% TODO
+
+\subsection{Band split}
+\label{sec:bandsplit}
+
+% TODO
+
+\subsection{Per-band normalisation}
+\label{sec:subbandnorm}
+
+% TODO
+
+\subsection{Residual LSTM block}
+\label{sec:resrnn}
+
+% TODO
+
+\subsection{Band and sequence model}
+\label{sec:bsnet}
+
+% TODO
+
+\subsection{Estimation module}
+\label{sec:estimator}
+
+% TODO
+
+\subsection{Time-frequency map}
+\label{sec:tfmap}
+
+% TODO
+
+\subsection{Objective function}
+\label{sec:objective}
+
+% TODO: the three terms. L_pres (floored SI-SDR), L_MR (multi-resolution
+% compressed magnitude + complex L1), L_abs (push-to-silence), combined under
+% masked means over the present and absent crops of each batch.
+
+% TODO: state the combined objective, then each term, then the table below.
+% Every weight is in experiments/configs/bsrnn_baseline.yaml -- quote the config,
+% do not restate numbers here where they can drift out of sync.
+
+\begin{table}[htbp]
+\caption{Deviations from the CARTSE objective as published. [GRANT: Each is recorded with
+its reason in \texttt{docs/decisions/decisions-m1.md}, 2026-08-20.]}
+\label{tab:loss-deviations}
+\mytable
+\begin{tabularx}{\textwidth}{@{}lLL@{}}
+\toprule
+& As published & As implemented here \\
+\midrule
+1. \(L_\textup{pres}\) floor
+    & % TODO: floors on \(\tau\|s\|^2\)
+    & % TODO: floors on \(\tau\|s_\textup{proj}\|^2\); why -- gain invariance
+    \\
+2. \(L_\textup{abs}\) normalisation
+    & % TODO: unnormalised
+    & % TODO: divided by \(\|x\|^2\); why -- 0\,dB means "did nothing" on every trial
+    \\
+3. Reduction over the batch
+    & % TODO: one batch-wide mean
+    & % TODO: masked mean per half; why -- present/absent balance stops depending
+      % on what the batch drew
+    \\
+4. The \(\eta\) weight
+    & % TODO: separate \(\eta\)
+    & % TODO: folded into \(w\); why -- two dials, one degree of freedom
+    \\
+5. Value of the absent weight
+    & % TODO: \(\eta = 2.0\) at their absent rate
+    & % TODO: \(w = 0.458\), reproducing \(\eta = 2.0\) at our measured 0.297
+    \\
+6. \(L_\textup{MR}\) window set
+    & % TODO: windows at or above \(n_\textup{fft}\)
+    & % TODO: 8/16/32/64\,ms, straddling the model's own 32\,ms framing
+    \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+% TODO: DNSMOS maximisation (CARTSE eq. 6) is rejected, not omitted -- record it
+% here with the citation. Two independent grounds: the organisers measured
+% DNSMOS-OVRL at ~zero human-MOS correlation on Track 1, and perceptual quality
+% is explicitly not this project's objective.
+
+% TODO: terms deferred to the proxy-objective model rather than used here --
+% scenario-aware frame-level split, speaker consistency, mel-filterbank L1,
+% frozen-encoder feature matching.
