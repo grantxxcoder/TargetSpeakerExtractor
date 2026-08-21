@@ -259,3 +259,18 @@ experiments/**/checkpoints/
 !experiments/configs/**
 !experiments/results/**
 tse_venv/
+experiments/results/2026-08-20-loss-anchor/per_crop.csv
+experiments/configs/bsrnn_baseline.yaml
+
+# LaTeX build artefacts (report/). Sources tracked, generated files are not.
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.lof
+*.lot
+*.out
+*.synctex.gz
+*.toc
+report/report.pdf

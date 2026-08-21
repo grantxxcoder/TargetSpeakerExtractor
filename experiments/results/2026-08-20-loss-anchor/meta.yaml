@@ -1,0 +1,36 @@
+date: '2026-08-20'
+script: src/models/loss_anchor.ipynb
+git_commit: 4245b06613b0cb9925f9ef8c642a3a8f9e0c4d2e-dirty
+seed: 42
+config: experiments/configs/bsrnn_baseline.yaml
+manifest: data/manifests/train.csv
+manifest_built_at_commit: 6612414b6a358bf929f5c792a94464413e1f8ed5-dirty
+anchor: s_hat = x (the mixture passed through unchanged)
+n_present_crops: 300
+n_absent_skipped: 134
+absent_rate_observed: 0.3088
+wall_seconds: 4.1
+loss_terms:
+  tau: 0.001
+  p: 0.3
+  windows_ms:
+  - 8
+  - 16
+  - 32
+  - 64
+ratio_target: 0.3
+results:
+  L_pres_median: -5.9088
+  L_pres_iqr:
+  - -10.8939
+  - -1.6214
+  L_MR_median: 0.1842
+  L_MR_iqr:
+  - 0.13205
+  - 0.26988
+  w_m_from_medians: 9.623
+  w_m_median_percrop: 10.537
+  w_m_single_crop_2026_08_20: 6.6
+  grad_norm_median_pres: 3.02664
+  grad_norm_median_mr_scaled: 2.618062
+  grad_ratio_median: 1.164
