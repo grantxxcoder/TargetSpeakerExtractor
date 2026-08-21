@@ -34,7 +34,7 @@ The spectrogram of Section~\ref{sec:stft} has 257 outputted frequency bins, each
 
 A band plan is the decision of how to group those bins. Bins are gathered into contiguous groups, called bands, and each band is then handled separately by the network: it gets its own normalisation and its own projection, so a band is compared against itself over time rather than against the loud low-frequency bands next to it. Grouping few bins per band keeps fine detail. Secondly grouping many bins into one band summarises coarsely but costs far less. A band plan therefore decides where the model's resolution is spent. 
 
-The plan in this work is 32 bands over the 257 bins: fifteen bands of \SI{100}{\Hz} covering \SIrange{0}{1.5}{\kHz}, ten of \SI{200}{\Hz} covering \SIrange{1.5}{3.5}{\kHz}, five of \SI{500}{\Hz} covering \SIrange{3.5}{6}{\kHz}, and the remaining \SIrange{6}{8}{\kHz} as one band. Figure~\ref{fig:bandplan} shows it against a real mixture in the training set. The effect is a factor of twenty between the finest and coarsest resolution. This plan follows the implementation from Zhang et al.\ \cite{zhang2025multi} for their \SI{16}{\kHz} target speaker extraction model and used by the challenge baseline built on it, but no reason is given there for these particular boundaries, and none is given in the papers it descends from -- the original band splitting was designed for music \cite{luo2023music}, where the sources are instruments rather than voices. It is adopted here as the baseline so that this work's results are comparable with that lineage, and it is recorded as an unjustified inheritance rather than a motivated choice.
+The plan in this work is 32 bands over the 257 bins: fifteen bands of \SI{100}{\Hz} covering \SIrange{0}{1.5}{\kHz}, ten of \SI{200}{\Hz} covering \SIrange{1.5}{3.5}{\kHz}, five of \SI{500}{\Hz} covering \SIrange{3.5}{6}{\kHz}, and the remaining \SIrange{6}{8}{\kHz} as one band. Figure~\ref{fig:bandplan} shows it against a real mixture in the training set. The effect is a factor of twenty between the finest and coarsest resolution. This plan follows the implementation from Zhang et al.\ \cite{zhang2025multi} for their \SI{16}{\kHz} target speaker extraction model and used by the challenge baseline built on it, but no reason is given there for these particular boundaries, and no explanation is given in previous papers. The original band splitting was designed for music \cite{luo2023music}, where the sources are instruments rather than voices. It is adopted here as the baseline so that this work's results are comparable with that lineage, and it is recorded as an unjustified inheritance rather than a motivated choice.
 
 \begin{figure}[htbp]
 \centering
@@ -103,8 +103,53 @@ bands of a frame are available at the same instant.
 
 \subsection{Time-frequency map}
 \label{sec:tfmap}
+The TF Map is the enrollment-conditioning module to turn normal speech enhancement into the TSE task. The idea behind this module is for the model to take an enrollment of the target speaker, and use the unique audio signature of that speaker to condition the model to extract only that speaker from the mixture. The general process includes processing the enrollment clip through the STFT module, extracting the magnitude of the enrollment, and then breaking up the spectrogram into basis vectors. These basis vectors are then compared to the mixture's spectrogram using cosine similarity.
 
-% TODO
+Concretely, let $|X| \in \mathbb{R}^{F \times T}$ be the magnitude spectrogram of the mixture and $|X_e| \in \mathbb{R}^{F \times T_e}$ that of the enrollment, and write $|X_t|$ and $|X_{e,j}|$ for one frame of each. The module proceeds in three steps. 
+\emph{First}, every frame of both spectrograms is scaled to unit length,
+\begin{equation}
+\tilde{x}_t = \frac{|X_t|}{\big\lVert |X_t| \big\rVert},
+\qquad
+\tilde{e}_j = \frac{|X_{e,j}|}{\big\lVert |X_{e,j}| \big\rVert}.
+\label{eq:tfmap-unit}
+\end{equation}
+
+\emph{Second}, each mixture frame is compared against every enrollment frame by cosine similarity. Because \eqref{eq:tfmap-unit} has already removed the length of each frame, the cosine of the angle between two frames is simply their inner product:
+\begin{equation}
+S_{t,j}
+  \;=\; \cos \theta_{t,j}
+  \;=\; \frac{\big\langle |X_t|,\ |X_{e,j}| \big\rangle}
+             {\big\lVert |X_t| \big\rVert \, \big\lVert |X_{e,j}| \big\rVert}
+  \;=\; \big\langle \tilde{x}_t,\ \tilde{e}_j \big\rangle .
+\label{eq:tfmap-cos}
+\end{equation}
+This is what makes the comparison of spectral \emph{shape} rather than of loudness: a quiet frame and a loud frame with the same spectral pattern are identical under \eqref{eq:tfmap-cos}. Note also that magnitudes are non-negative, so $S_{t,j} \in [0, 1]$ for every pair.
+
+\emph{Third}, the similarities of a mixture frame are turned into weights over the enrollment, and those weights are used to blend the enrollment frames,
+\begin{equation}
+H_{t,j} = \operatorname*{softmax}_{j} \big( S_{t,j} \big),
+\qquad
+M_t = \sum_{j=1}^{T_e} H_{t,j}\, \tilde{e}_j,
+\label{eq:tfmap}
+\end{equation}
+following \cite{zhang2025multi}. The softmax runs along the enrollment index $j$, so each row of $H$ sums to one and describes how to blend the enrollment frames for one instant of the mixture. $M_t$ is a guessed spectrum: for each mixture frame, a weighted average of all the enrollment frames, with the weights given by $H$. It is a rough estimate of the shape of the target speaker's spectrum at that instant.
+
+$M_t$ describes only that shape. It is built entirely from enrollment frames but on its own it says nothing about whether the target is speaking. Note also that the mixture's magnitude has not been used at any point so far: \eqref{eq:tfmap-unit} removed it before the comparison in \eqref{eq:tfmap-cos} was made. The final step is to address the energy component. The estimate is scaled to unit length and the mixture's spectrum is projected onto it which measures how much of the mixture's actual energy lies in the pattern the enrollment predicted:
+\begin{equation}
+f_t = \big\langle\, |X_t|,\ u_t \,\big\rangle\, u_t,
+\qquad
+u_t = \frac{M_t}{\lVert M_t \rVert},
+\label{eq:tfmap-energy}
+\end{equation}
+The feature therefore points in the direction the enrollment predicts and has the magnitude of however much of the mixture actually lies in that direction. Where the mixture at that instant looks like the target, it is large otherwise small. It is this that the model learns to use to identify which parts of the mixture belong to the target speaker.
+
+\paragraph{Where it enters and what it costs.}
+The result is a quantity of the same shape as the spectrogram itself, one value per frequency bin per frame. It is therefore attached as a third input channel alongside the real and imaginary parts, before the band split, so that it is divided into bands and projected by the same machinery as the rest of the input. Nothing else in the architecture changes. Because the extra channel only widens the input of the per-band projections, the entire conditioning path costs roughly \num{33000} parameters, under half a percent of the model, and it adds no learned parameters of its own at all: \eqref{eq:tfmap-unit} through \eqref{eq:tfmap-energy} contain nothing to train.
+
+
+
+
+
 
 \subsection{Objective function}
 \label{sec:objective}
