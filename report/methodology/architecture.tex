@@ -44,9 +44,10 @@ The plan in this work is 32 bands over the 257 bins: fifteen bands of \SI{100}{\
 \end{figure}
 
 [GRANT: TODO - Possible experiment]
+\textit{
 Because the plan is a free parameter that nobody has justified, it is also
 implemented as a configurable table rather than fixed in code, with alternative
-plans available for comparison. 
+plans available for comparison.}
 
 \paragraph{Why the spectrum stops at \SI{8}{\kHz}.}
 The audio in this work is sampled at \SI{16}{\kHz}, meaning 16{,}000 amplitude measurements per second. When measuring a wave you need at least two measurements per cycle, one for the peak and one for the trough of the wave. Therefore the fastest possible wave that \SI{16}{\kHz} sampling can represent will complete 8{,}000 cycles per second. Anything faster cannot be distinguished from a slower wave passing through the same measured points. Therefore, the largest possible range that can be represented by the 257 bins have to span \SIrange{0}{8}{\kHz} rather than \SIrange{0}{16}{\kHz}.
@@ -71,7 +72,7 @@ The idea of the residual LSTM block is to model the sequential structure of spee
 The recurrent layer is what carries information forward where this work leverages a long short-term memory
 layer, or LSTM. This is a recurrent layer with an internal mechanism for deciding what to keep in that summary and what to discard, which is what allows it to retain information over hundreds of frames rather than only the last few. This structure also suits the deployment target directly. At inference time, since the model is running in a streaming fashion, the LSTM's internal state is preserved between frames and information can be carried forward indefinitely. The LSTM is therefore a natural fit for the task, and it is used in the same way for both the time and frequency sequences.
 
-The block is made of three steps applied in order, following \cite{luo2023music}. The input is first normalised, then passed through the LSTM, and the LSTM's output is then mapped back to the input's width by a learned projection. The final addition is a residual connection \cite{he2016deep}, and is inspired by the original ResNet \cite{he2016deep} architecture. This allows the gradient an unobstructed path back through the computation stack of all the blocks, which matters because six of these blocks are stacked in Section~\ref{sec:bsnet}. This is important as the LSTM is a deep recurrent layer, and the gradient can vanish or explode as it passes through the LSTM's internal state. The residual connection allows the gradient to bypass the LSTM entirely, which is what allows the model to train when the gradient vanishes within the LSTM. 
+The block is made of three steps applied in order, following \cite{luo2023music}. The input is first normalised, then passed through the LSTM, and the LSTM's output is then mapped back to the input's width by a learned projection. The final addition is a residual connection and is inspired by the original ResNet \cite{he2016deep} architecture. This allows the gradient an unobstructed path back through the computation stack of all the blocks, which matters because six of these blocks are stacked in Section~\ref{sec:bsnet}. This is important as the LSTM is a deep recurrent layer, and the gradient can vanish or explode as it passes through the LSTM's internal state. The residual connection allows the gradient to bypass the LSTM entirely, which is what allows the model to train when the gradient vanishes within the LSTM. 
 
 
 [GRANT: TODO ] - Still might need to increase the size of the model so this is not final!!!
@@ -94,7 +95,24 @@ bands of a frame are available at the same instant.
 \subsection{Band and sequence model}
 \label{sec:bsnet}
 
-% TODO
+The band and sequence model is the implementation of the residual LSTM block of Section~\ref{sec:resrnn} in a stack of six blocks, using the input from Section~\ref{sec:subbandnorm}. After the per-band normalisation and projection, there are 32 bands of 128 features each. The model is now tasked for the two kinds of sequential modelling with the residual LSTM blocks as previously mentioned: time and frequency. 
+
+Each of these blocks is designed to make two passes. The design is to first make a pass over the time dimension (unidirectional), and then make a pass over the frequency dimension (bidirectional). This is considered as follows:
+\begin{itemize}
+    \item \textbf{Time}: The recurrence goes forward only, as a backward pass would assume knowledge of future frames  that have not yet arrived.
+    \item \textbf{Frequency}: The recurrence goes over the bands of a frame in both directions. This pass is what lets the bands inform one another: a voice lays down a harmonic pattern across many bands at the same instant, so whether a given band belongs to the target is often not decidable from that band alone. Frequency itself is not a causal dimension. This can be reasoned by the fact that all the bands of a frame are all available simultaneously so the bidirectional recurrence does not introduce any latency. 
+\end{itemize}
+Pairing the two passes in a single block is the design of Luo and Yu \cite{luo2023music}, who motivate it by analogy with dual-path recurrent networks for speech separation rather than by an argument specific to bands. Stacking six such blocks follows Yu et al.\ \cite{yu2023high}, where their \SI{16}{\kHz} model uses that specific number of blocks. The effect of stacking the blocks is to allow for the accumulation of evidence over longer time spans. The evidence can then be shared across bands of the next block and so forth.
+
+\paragraph{Lookahead.} The model is set to allow for a lookahead of $k$ frames, ranging from \num{0} to \num{16}, which costs $k$ hops of additional latency, $8k$ milliseconds. The REAL-TSE challenge, an IEEE SLT 2026 satellite challenge \cite{wang2026realtse} counts lookahead frames as part of the latency budget and does not consider it as a parameter that will break the online requirement. It is rather an expense for the overall latency budget. CARTSE \cite{li2026cartse} uses no lookahead frames at all, so its algorithmic latency reduces to the window minus the hop. The challenge overview reports no comparison of lookahead against the overall quality of the TSE task, so whether it helps is an open question rather and \textbf{is treated as an experimental question}. <- [TODO - Grant: Need to test this lookahead or remove if not applicable]
+
+
+The main idea behind using lookahead is that it can be reasoned that often evidence for whether a frame belongs to the target speaker might arrive late. If the model waits slightly to see what comes next for a brief moment, it does not need to commit to a decision immediately. At $k = 0$ the model has to commit to a decision.
+
+[GRANT TODO] - NEED TO TEST THIS LOOKAHEAD\textit{
+The baseline is trained at $k = 0$ so that the fully causal model is what any larger setting is measured against. The additional delay is treated as an experimental question in Chapter~\ref{ch:experiments} rather than assumed here.}
+
+It is implemented by pairing each frame with a later summary of the sequence. The model still processes every frame as it arrives. What changes is which of the stack's output frames the estimation module will read. To produce the mask for frame $t$ it reads the state the network produced at frame $t + k$ rather than its state for $t$. Since the recurrence for time only goes forwards, the model will consider everything that was heard up to frame $t + k$ when considering the estimation for frame $t$.
 
 \subsection{Estimation module}
 \label{sec:estimator}

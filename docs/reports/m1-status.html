@@ -1,0 +1,521 @@
+<title>M1 Model Milestone</title>
+<style>
+  :root {
+    --ground:        #f8f6f3;
+    --surface:       #ffffff;
+    --surface-sunk:  #f1eee9;
+    --line:          #ddd8d1;
+    --line-strong:   #c3bcb2;
+    --text:          #1d2128;
+    --text-soft:     #5b6470;
+    --text-faint:    #8b939d;
+    --accent:        #2f6d92;
+    --accent-soft:   #e3edf3;
+    --done:          #3d7355;
+    --done-soft:     #e3ede7;
+    --signal:        #9a6f14;
+    --signal-soft:   #f3ebd9;
+    --risk:          #a2433a;
+    --risk-soft:     #f4e4e2;
+
+    --serif: ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif;
+    --sans:  ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono:  ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:        #14161c;
+      --surface:       #1b1e26;
+      --surface-sunk:  #101218;
+      --line:          #2b3038;
+      --line-strong:   #3d434d;
+      --text:          #e8e6e2;
+      --text-soft:     #a4adb8;
+      --text-faint:    #737d89;
+      --accent:        #6aa8cd;
+      --accent-soft:   #1c2c38;
+      --done:          #6fae8a;
+      --done-soft:     #1a2620;
+      --signal:        #d3a851;
+      --signal-soft:   #2a2317;
+      --risk:          #d97f74;
+      --risk-soft:     #2c1d1b;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:        #14161c;
+    --surface:       #1b1e26;
+    --surface-sunk:  #101218;
+    --line:          #2b3038;
+    --line-strong:   #3d434d;
+    --text:          #e8e6e2;
+    --text-soft:     #a4adb8;
+    --text-faint:    #737d89;
+    --accent:        #6aa8cd;
+    --accent-soft:   #1c2c38;
+    --done:          #6fae8a;
+    --done-soft:     #1a2620;
+    --signal:        #d3a851;
+    --signal-soft:   #2a2317;
+    --risk:          #d97f74;
+    --risk-soft:     #2c1d1b;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 940px; margin: 0 auto; padding: 0 28px 96px; }
+  .prose { max-width: 68ch; }
+
+  /* ---- masthead ---- */
+  .masthead {
+    border-bottom: 2px solid var(--text);
+    padding: 56px 0 20px;
+    margin-bottom: 40px;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    margin-bottom: 22px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(34px, 5.5vw, 52px);
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+    margin: 0 0 16px;
+    text-wrap: balance;
+  }
+  .standfirst {
+    font-family: var(--serif);
+    font-size: clamp(17px, 2.2vw, 20px);
+    line-height: 1.5;
+    color: var(--text-soft);
+    max-width: 60ch;
+    margin: 0;
+  }
+
+  /* ---- verdict strip ---- */
+  .verdict {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(138px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    margin: 36px 0 56px;
+  }
+  .vcell { background: var(--surface); padding: 16px 18px; }
+  .vlabel {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-bottom: 8px;
+  }
+  .vnum {
+    font-family: var(--mono);
+    font-size: 26px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+  }
+  .vnote { font-size: 12.5px; color: var(--text-soft); margin-top: 5px; line-height: 1.4; }
+  .is-done { color: var(--done); }
+  .is-signal { color: var(--signal); }
+  .is-risk { color: var(--risk); }
+
+  /* ---- sections ---- */
+  section { margin-bottom: 60px; }
+  h2 {
+    font-family: var(--serif);
+    font-size: 27px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0 0 6px;
+    text-wrap: balance;
+  }
+  .sub {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 20px;
+  }
+  h3 {
+    font-family: var(--sans);
+    font-size: 15px;
+    font-weight: 650;
+    margin: 28px 0 8px;
+    letter-spacing: -0.005em;
+  }
+  p { margin: 0 0 14px; }
+  a { color: var(--accent); }
+  strong { font-weight: 650; }
+  code {
+    font-family: var(--mono);
+    font-size: 0.87em;
+    background: var(--surface-sunk);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 1px 4px;
+  }
+
+  /* ---- the segment-bar motif: speech spans against silence ---- */
+  .track {
+    display: flex;
+    gap: 2px;
+    height: 9px;
+    margin: 10px 0 0;
+  }
+  .seg { flex: 1; background: var(--line-strong); opacity: 0.35; border-radius: 1px; }
+  .seg.on { background: var(--done); opacity: 1; }
+  .seg.part { background: var(--signal); opacity: 1; }
+
+  /* ---- milestone ladder ---- */
+  .ladder { border-top: 1px solid var(--line); }
+  .rung {
+    display: grid;
+    grid-template-columns: 86px 1fr 150px;
+    gap: 18px;
+    padding: 15px 0;
+    border-bottom: 1px solid var(--line);
+    align-items: baseline;
+  }
+  .rung-id {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+  .rung-name { font-size: 14.5px; }
+  .rung-name em { color: var(--text-soft); font-style: normal; display: block; font-size: 13px; margin-top: 2px; }
+  .rung-when {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-soft);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  .rung.now { background: var(--accent-soft); margin: 0 -14px; padding-left: 14px; padding-right: 14px; }
+  .rung.now .rung-id { color: var(--accent); }
+
+  /* ---- tables ---- */
+  .scroll { overflow-x: auto; margin: 18px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; min-width: 460px; }
+  th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    font-weight: 500;
+    padding: 0 14px 8px 0;
+    border-bottom: 1px solid var(--line-strong);
+    white-space: nowrap;
+  }
+  td {
+    padding: 9px 14px 9px 0;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+
+  /* ---- inventory columns ---- */
+  .cols {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(258px, 1fr));
+    gap: 26px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    padding: 20px 22px 22px;
+  }
+  .card h3 { margin-top: 0; }
+  .card ul { margin: 0; padding-left: 17px; }
+  .card li { margin-bottom: 7px; font-size: 13.5px; line-height: 1.5; }
+  .card li:last-child { margin-bottom: 0; }
+  .tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    padding: 2.5px 7px;
+    border-radius: 2px;
+    vertical-align: 1.5px;
+  }
+  .t-done   { background: var(--done-soft);   color: var(--done); }
+  .t-signal { background: var(--signal-soft); color: var(--signal); }
+  .t-risk   { background: var(--risk-soft);   color: var(--risk); }
+
+  /* ---- callout ---- */
+  .note {
+    border-left: 3px solid var(--accent);
+    background: var(--surface);
+    padding: 16px 20px;
+    margin: 22px 0;
+  }
+  .note.warn { border-left-color: var(--risk); }
+  .note p:last-child { margin-bottom: 0; }
+  .note-h {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-bottom: 7px;
+  }
+
+  /* ---- ordered next steps ---- */
+  ol.steps { list-style: none; counter-reset: s; padding: 0; margin: 0; }
+  ol.steps > li {
+    counter-increment: s;
+    display: grid;
+    grid-template-columns: 34px 1fr;
+    gap: 16px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  ol.steps > li::before {
+    content: counter(s);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    border: 1px solid var(--line-strong);
+    border-radius: 50%;
+    width: 26px; height: 26px;
+    display: grid; place-items: center;
+    font-variant-numeric: tabular-nums;
+  }
+  ol.steps h3 { margin: 0 0 4px; }
+  ol.steps p { margin: 0; font-size: 13.5px; color: var(--text-soft); }
+
+  footer {
+    border-top: 1px solid var(--line);
+    padding-top: 20px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--text-faint);
+    line-height: 1.7;
+  }
+
+  @media (max-width: 620px) {
+    .rung { grid-template-columns: 62px 1fr; }
+    .rung-when { grid-column: 2; text-align: left; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow">
+      <span>Real-time Target Speaker Extraction</span>
+      <span>Status 21 Aug 2026</span>
+      <span>M1 &middot; Model</span>
+    </div>
+    <h1>The model exists now. It has not been trained.</h1>
+    <p class="standfirst">Every component of the streaming baseline is built and measured, the
+    training objective is defined, and the methodology chapter is being written as the model is
+    assembled rather than after. What is not decided is the training setup itself &mdash; that is
+    the single item now standing between the code and a first run.</p>
+  </header>
+
+  <div class="verdict">
+    <div class="vcell">
+      <div class="vlabel">Parameters</div>
+      <div class="vnum is-done">7.16 M</div>
+      <div class="vnote">against 25&ndash;27 M challenge scale &middot; 3.5&times; smaller, deliberately</div>
+    </div>
+    <div class="vcell">
+      <div class="vlabel">Future dependency</div>
+      <div class="vnum is-done">23.9</div>
+      <div class="vnote">ms, measured &middot; well inside the 200&ndash;300 ms budget</div>
+    </div>
+    <div class="vcell">
+      <div class="vlabel">Conditioning cost</div>
+      <div class="vnum is-done">33 k</div>
+      <div class="vnote">params &middot; under 0.5 % &middot; no speaker encoder</div>
+    </div>
+    <div class="vcell">
+      <div class="vlabel">Loss terms</div>
+      <div class="vnum is-done">3</div>
+      <div class="vnote">six deviations from source, each logged</div>
+    </div>
+    <div class="vcell">
+      <div class="vlabel">Chapter 3 written</div>
+      <div class="vnum is-signal">6/8</div>
+      <div class="vnote">architecture subsections drafted</div>
+    </div>
+    <div class="vcell">
+      <div class="vlabel">Training run</div>
+      <div class="vnum is-risk">0</div>
+      <div class="vnote">setup decisions not yet made</div>
+    </div>
+  </div>
+
+  <section class="prose">
+    <div class="sub">Where it stands</div>
+    <h2>The baseline is assembled component by component, and each component was measured before it was accepted.</h2>
+    <p>The week moved the project from data to model. The streaming BSRNN baseline now exists as
+    working components &mdash; STFT and inverse STFT, the band-split planner and slicer, per-band
+    normalisation, the residual LSTM block, the estimation module, and the TF-Map enrollment
+    conditioning that turns speech enhancement into target speaker extraction. The architecture is
+    settled at <strong>7.16 M parameters</strong>, chosen to sit deliberately below the challenge
+    baselines rather than accidentally.</p>
+    <p>The part worth reporting is not that the components exist but how the choices were settled.
+    Three of them were decided by measuring rather than by following the source paper, and one
+    source choice was rejected because measurement contradicted it.</p>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th>Choice</th><th>Settled as</th><th>Because</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Normalisation</td>
+            <td>Channel-wise LayerNorm, per band, per frame</td>
+            <td>BatchNorm optimises a different function than it deploys, and the gap is wide here.
+            GroupNorm was measured to leak future information.</td>
+          </tr>
+          <tr>
+            <td>Enrollment conditioning</td>
+            <td>TF-Map spectral similarity, not embedding similarity</td>
+            <td>The embedding path needs a speaker encoder over the live stream &mdash; unaffordable
+            at this latency, and it adds parameters to a model kept small on purpose.</td>
+          </tr>
+          <tr>
+            <td>Silence weight</td>
+            <td class="num">w = 0.458</td>
+            <td>Derived from this project's <em>measured</em> 0.297 crop-level absent rate, not
+            copied from the source corpus's rate.</td>
+          </tr>
+          <tr>
+            <td>Spectral term weight</td>
+            <td class="num">w<sub>m</sub> = 9.62</td>
+            <td>Set by measuring both terms on a do-nothing output over 300 crops, not by sweeping.</td>
+          </tr>
+          <tr>
+            <td>DNSMOS loss term</td>
+            <td>Rejected</td>
+            <td>The challenge organisers measured it at LCC +0.003 against human opinion on the
+            online track. Optimising it is the exact failure this project's metric exists to avoid.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p>The training objective is now fully specified: a target-present term, a multi-resolution
+    spectral term to cover what that term is blind to, and a target-absent term for the 29.7 % of
+    crops containing no target speech. It departs from the closest published objective in
+    <strong>six</strong> places, all logged with reasons &mdash; most consequentially a correction
+    to a scale-invariance error in the published form, where an output of the correct shape scores
+    better simply for being made louder.</p>
+  </section>
+
+  <section class="prose">
+    <div class="sub">Finding to flag</div>
+    <h2>The conditioning module does something slightly different from what its own paper describes.</h2>
+    <p>TF-Map is presented as matching each incoming frame against the enrollment frames that
+    resemble it. It cannot do that as published. Magnitude spectra are non-negative, so the cosine
+    similarities entering its softmax lie in [0, 1], which bounds the ratio between the largest and
+    smallest weight at <em>e</em> &mdash; and spread over a five-second enrollment that is nearly
+    uniform. Measured on a training trial: largest weight <strong>0.00239</strong> against a
+    uniform <strong>0.00159</strong>, with essentially every enrollment frame contributing.</p>
+    <div class="note">
+      <div class="note-h">What this means</div>
+      <p>What the module actually supplies is the target's <em>average</em> spectral shape, scaled
+      each frame by how much of the mixture lies along it &mdash; not the frame-selective matching
+      the description implies. It is still a useful cue, and it holds for the published form too.
+      Sharpening its selectivity is now a Chapter 4 experiment rather than an assumption.</p>
+    </div>
+  </section>
+
+  <section class="prose">
+    <div class="sub">Not done</div>
+    <h2>Stated plainly, so it is not mistaken for progress.</h2>
+    <div class="cols">
+      <div class="card">
+        <h3>Training setup <span class="tag t-risk">Blocker</span></h3>
+        <ul>
+          <li>Optimiser, schedule, epochs and curriculum are not decided or logged</li>
+          <li>This is what stands between the built model and a first run</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Report <span class="tag t-signal">Partial</span></h3>
+        <ul>
+          <li>Two architecture subsections still empty: band &amp; sequence model, estimation module</li>
+          <li>Literature review is one paragraph &mdash; the BSRNN lineage only</li>
+          <li>Introduction, experiments, results, conclusion are skeletons</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Unverified <span class="tag t-signal">Open</span></h3>
+        <ul>
+          <li>No model has been trained, so no architectural choice is validated by a result yet</li>
+          <li>The band plan remains an inherited choice, kept configurable for ablation</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="prose">
+    <div class="sub">Next</div>
+    <h2>In order.</h2>
+    <ol class="steps">
+      <li>
+        <h3>Decide and log the training setup</h3>
+        <p>Optimiser, learning-rate schedule, epoch budget and stopping rule, with a config entry
+        and a seed. Everything else is waiting on this.</p>
+      </li>
+      <li>
+        <h3>First training run of the baseline</h3>
+        <p>Conventional signal objective, so the proposed metric has a competently trained
+        conventional arm to diverge from.</p>
+      </li>
+      <li>
+        <h3>Finish the two open architecture subsections</h3>
+        <p>Written while the code is fresh, as the rest of the chapter was.</p>
+      </li>
+      <li>
+        <h3>Band plan and w<sub>m</sub> ablations</h3>
+        <p>Both are currently inherited or derived rather than validated. The plan is already
+        implemented as a configurable table for exactly this.</p>
+      </li>
+    </ol>
+  </section>
+
+  <footer>
+    Real-time Target Speaker Extraction &middot; M1 status, 21 August 2026<br>
+    Sources: <code>docs/decisions/decisions-m1.md</code>, <code>docs/decisions/milestones.md</code>,
+    <code>report/methodology/architecture.tex</code><br>
+    Every figure above is measured on this project's own data and code. No number is projected.
+    54 days to model freeze, 14 Oct.
+  </footer>
+
+</div>
