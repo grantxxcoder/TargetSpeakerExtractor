@@ -117,7 +117,21 @@ It is implemented by pairing each frame with a later summary of the sequence. Th
 \subsection{Estimation module}
 \label{sec:estimator}
 
-% TODO
+The estimation module is responsible for producing an output spectrogram that contains the estimated target speaker's speech. This is done by creating an output network per band to reconstruct the target speaker's speech from the features produced by the band and sequence model. However, there are two methods to do this: either to predict the output spectrogram directly, or to predict a mask that is applied to the mixture. The latter is the approach taken here, following Yu et al.\ \cite{yu2023high}.
+
+Yu et al. realised that the mixture audio itself already contains the target's speech, and thus it would be more efficient to mask the mixture rather than predict the output spectrogram directly. This mask is a number for each time-frequency bin, which the mixture is multiplied by.
+
+A mask alone is not enough however as multiplication can only ever scale what a bin already holds. In the cases where  the interferer completely dominates a bin no multiplier recovers the target as the multiplication operation would not be able to scale the drowned out target. To solve this, the estimation module makes use of a residual spectrogram and is predicted directly and appended. Yu et al.\ \cite{yu2023high} introduce it for exactly this reason, to absorb what the mask alone produces as artefacts. It is useful to not bound this mask and is what the original implementation encouraged. The estimate for a band is then
+\begin{equation}
+\hat{S} = M \otimes X + R,
+\label{eq:estimator}
+\end{equation}
+where $\otimes$ is the complex product, taken bin by bin. The $X$ that the mask multiplies is the
+original complex mixture and is taken as is from the band split and not from the output of the model's features. The features are used only to \emph{decide} how to mask the input. The conditioning feature of Section~\ref{sec:tfmap} therefore never enters the signal path either.
+
+Each band has its own two-layer output network: a normalisation, then a projection to a width of 384 with a $\tanh$ activation. Finally we have two output layers reading from it, one producing the mask and one the residual. The width of 384 is the value Yu et al.\ \cite{yu2023high} specify.
+
+The mask output layer has to output four pairs of real and imaginary parts for each frequency bin. Two of them are taken as the mask values, and the other two are passed through a sigmoid, giving a number between zero and one that each mask value is then multiplied by. This arrangement is a gated linear unit \cite{dauphin2017language}, and it is what both source papers specify for this layer \cite{luo2023music, yu2023high}.
 
 \subsection{Time-frequency map}
 \label{sec:tfmap}
