@@ -6,6 +6,14 @@ the metric → report.
 
 Submission 2026-11-05; hard freeze on new experiments **2026-10-14**.
 
+**Where the project is, 2026-08-24.** M0 data is built (21,208 trials, 27 GB) and
+M1 is functionally complete ten days early — model, objective, training loop and
+a proven resume. M2 has started ahead of schedule but only on the 50-trial smoke
+split, where the model has found a degenerate attenuate-and-gate solution rather
+than separating. **The two things actually blocking progress are compute** (no
+usable GPU; `--split full` will not run on this laptop) **and M0's floor/ceiling
+WER calibration**, which C2 needs. Neither is a code problem.
+
 Each milestone names the artefact that proves it is done. "Reviewed by
 supervisors" is not a milestone — a thing that exists is.
 
@@ -40,12 +48,14 @@ evaluate → nothing to compare.
 Both training and evaluation draw from the same construction code, so this is
 built once.
 
-**Status 2026-08-13.** Manifests exist for all six splits and have been audited
-(`src/exploratory/data_setup.ipynb`). **No audio exists yet.** **Every data decision is
-now made** — all of group A and all thirteen B items. The only open question is **C2**,
-how hard the task should be, which needs the supervisor and blocks nothing meanwhile.
-What is left is implementation: B12's two PRs, then one manifest rebuild, then the
-renderer.
+**Status 2026-08-24** (was 2026-08-13, which said "no audio exists yet" — it
+does). Manifests exist for all six splits and have been audited
+(`src/exploratory/data_setup.ipynb`), and **all 21,208 trials are rendered**:
+63,624 files, 27 GB, 105.4 h of audio, 0 render failures, 40 trials checked by
+ear. **Every data decision is made** — all of group A and all thirteen B items.
+The only open decision is **C2**, how hard the task should be, which needs the
+supervisor. What remains is the floor/ceiling WER calibration below, the
+per-parameter EDA, and the notebook revision.
 
 **Schedule reality check.** The target is Aug 20 and no code is written yet. What
 makes it survivable is that manifest rebuilds take 58 s. **Superseded 2026-08-15:**
@@ -151,10 +161,11 @@ Still unimplemented from `data-construction-parameters.md`:
         not overlap measurement
 - [ ] `length_mode`
 
-Renderer — **written 2026-08-16** (`src/data/render.py` + `scripts/render_trials.py`),
-**not yet run at full scale**. 100 trials measured at 23.4 s / 8 workers, so the
-whole set is **~83 min and ~27 GB** — the "unknown" row in `run_times.md` is closed
-and it is an hour and a half, not the overnight job feared here:
+Renderer — **written 2026-08-16** (`src/data/render.py` + `scripts/render_trials.py`)
+and **run at full scale 2026-08-16/17: 3.2 h, 27 GB, 0 failures**. The ~83 min
+projected from a 100-trial sample was out by 2.3x, which is why that sample is
+now treated as too small to extrapolate from rather than as a measurement — the
+same caution now applied to the smoke epoch times in M2:
 - [X] ~~Manifest row → audio: RIRs, levels at BS.1770, noise wrap, clip ceiling~~
 - [X] ~~Five stems per trial: mixture, clean target, enrollment, both texts~~
 - [X] ~~Clean target = target × its own RIR, no interferer, no noise (A1). Room
@@ -209,12 +220,15 @@ Housekeeping:
 
 ## M1 — BSRNN implemented and training infrastructure trustworthy · target Sep 3 (weeks 3–4)
 
-**Status 2026-08-24. The model is built and trains end to end. Two items remain,
-and one of them is the proof item.** Every architecture decision is logged in
-`decisions-m1.md` (2026-08-18 to 08-20). `scripts/train.py` runs, early-stops,
-checkpoints and writes `history.csv` + `meta.yaml`. Outstanding: the
-kill-and-resume proof, and unit tests for every model module except the loss.
-One open question is carried forward — the cold-vs-warm context mismatch below.
+**Status 2026-08-24. M1 is functionally complete, ten days ahead of the Sep 3
+target.** Every architecture decision is logged in `decisions-m1.md`
+(2026-08-18 to 08-20). `scripts/train.py` runs, early-stops, checkpoints, plots,
+writes `history.csv` + `meta.yaml`, and **resume is proven** — see below. The
+proof item that gates this milestone is therefore closed.
+
+One checklist item and one open question remain, neither blocking M2: unit tests
+for the model modules (the loss has 30, nothing else has any), and the
+cold-vs-warm context mismatch.
 
 - [X] ~~Causal BSRNN + TF-Map extractor implemented — `src/models/{stft,bands,
       modules,conditioning,bsrnn}.py`. Cited in-file: Luo & Yu (TASLP 2023) in
@@ -241,11 +255,13 @@ One open question is carried forward — the cold-vs-warm context mismatch below
 - [X] ~~Seed set and logged — `train.py` seeds torch and numpy from the config
       *before* the model is built, so weight init is reproducible too, and the
       seed lands in every `meta.yaml`~~
-- [ ] **Checkpoint/resume proven across a deliberate session kill.** Resume is
-      *implemented* (`train.py --resume`: model, optimiser, scheduler,
-      `best_val`, `best_row`, and it refuses a config mismatch) but has **never
-      been killed and resumed**. Still the M1 proof item — do not tick on the
-      code existing
+- [X] ~~**Checkpoint/resume proven — 2026-08-24.** Resumed the 30-epoch smoke
+      run from epoch 28 and ran on. State verified restored, not reinitialised:
+      scheduler `_last_lr` stayed at **0.00025** rather than resetting to the
+      config's 0.0005, and AdamW's `step` counter read **480** = 464 through
+      epoch 28 plus 16 for epoch 29. A silent failure would have shown `step`
+      restarting near 16. `best_val` carried across and improved to −12.9296,
+      so the resumed run wrote its own checkpoint~~
 - [ ] **Unit tests for the model modules.** `tests/test_losses.py` collects 30;
       there are **none** for `stft.py`, `bands.py`, `modules.py`,
       `conditioning.py` or `bsrnn.py`. "Training infrastructure trustworthy" is not met by a loop that
@@ -291,9 +307,22 @@ discovering it is broken at hour 11 of a 12-hour Kaggle session costs a week.
 ## M2 — Baseline trained · target Sep 17 (weeks 5–6)
 
 **Status 2026-08-24. Started early: the loop works on `smoke`, nothing is
-converged, and `--split full` cannot run on this laptop.** First runs completed
-on the 50-trial smoke split; `models/model_smoke.pt` is at epoch 4,
-`best_val -8.636`. Treat that as a wiring proof, not a result.
+converged, and `--split full` cannot run on this laptop.** 31 epochs total on the
+50-trial smoke split — 30 in one run, then epochs 29-30 via `--resume`.
+`models/model_smoke.pt` is at epoch 29, `best_val -12.9296`.
+`ReduceLROnPlateau` fired once, at epoch 16; lr has been 0.00025 since.
+Artefacts: `experiments/results/2026-08-24-train-smoke/{history.csv,loss_plot.png}`
+and `-train-smoke-resume/` for the resumed epochs. Treat it as a wiring proof,
+not a result — and see the collapse item below, which is now measured rather
+than suspected.
+
+**The total plateaued around epoch 20.** Slope over the last 10 epochs is
+-0.0222/epoch at t = -0.43, i.e. indistinguishable from flat, against
+-0.1285/epoch (t = -3.33) over the last 15. It is not converged, it is
+oscillating: val sd 0.423 and range 1.416 over the last 10 epochs on a **fixed**
+val set (`random_crop=False`, so that spread is the weights moving, not crop
+noise). At batch 3 over 50 trials with `drop_last=True` that is 16 optimiser
+steps per epoch.
 
 - [ ] **Converged checkpoint from conventional training** (SI-SDR +
       multi-resolution STFT). Smoke only so far
@@ -305,21 +334,66 @@ on the 50-trial smoke split; `models/model_smoke.pt` is at epoch 4,
 - [ ] **Compute is the blocker, not the code.** 15.7 GB RAM with VSCode open is
       not enough — `systemd-oomd` killed the editor on 2026-08-24 before training
       started. `requirements.txt` pins a CPU torch. The one measured row in
-      `run_times.md` is 243 s/epoch at batch 3 over 50 trials on CPU; that is a
-      smoke timing and **must not be extrapolated** to 19,938 trials. Server-class
+      `run_times.md` is **277 s/epoch** at batch 3 over 50 trials on CPU (2.3 h
+      for 30 epochs — the 243 s/epoch row is a 1-epoch run and includes startup,
+      so prefer the 30-epoch figure). Smoke timing: **must not be extrapolated**
+      to 19,938 trials. Server-class
       compute or Kaggle is required, which makes the M1 resume proof urgent
 - [ ] **`batch_size` is still 12-on-paper, 3-in-config.** `decisions-m1.md`
       2026-08-18 chose 12; the config says 3 with a comment saying it should be
       12, pending the GPU-memory measurement `measure_train_cost.py` exists to
       make. The absent-crop rate that sets `w` was derived at batch 12
+- [ ] **Early stopping will not fire as configured.** `patience: 10` resets on
+      *any* improvement, and best-val keeps creeping down by less than the noise
+      (blocks of 5 epochs: -8.636, -9.495, -10.276, -12.301, -12.706, -12.900,
+      then -12.9296 on resume — a 0.03 gain against a 0.42 sd). Left alone this
+      run grinds to epoch 99 chasing `L_abs` to its floor. Needs a minimum-delta
+      threshold before `--split full`, or the epoch budget is the only stop
 - [ ] **Two ablations are declared but unrun** — the band plan (six candidates,
       `decisions-m1.md` 2026-08-18) and `w_m` (`ablate_w_m: [0.0, 2.89, 9.62]`,
       the 0 arm required). Both need the converged baseline first
-- [ ] **Watch for silence collapse.** The epoch-4 smoke checkpoint already shows
-      it: on a present crop it scores *worse* than passing the mixture through
-      (−2.4197 vs −2.7266) while sitting 13 dB under the target, but on an absent
-      crop it beats pass-through by 6.47. With `w = 0.458` the cheap half of the
-      objective is winning. Expected this early; a failure mode if it persists
+- [ ] **CONFIRMED 2026-08-24: the smoke model attenuates, it does not separate.**
+      Not a watch item any more — measured. Over 30 epochs on `smoke_val`:
+
+      | | epoch 0 | epoch 29 | change | trend/epoch, last 10 |
+      | --- | --- | --- | --- | --- |
+      | `L_pres` | −4.181 | −5.273 | −1.092 | **+0.0365** (worsening) |
+      | `L_MR` | 0.279 | 0.279 | −0.000 | +0.0004 (flat) |
+      | `L_abs` | −5.753 | −23.905 | **−18.153** | −0.0963 (still improving) |
+
+      **93 % of the total's movement is the absent half.** `L_MR` has not moved
+      at all in 30 epochs. Paired on 200 identical crops, epoch 4 -> 28 gained
+      only 0.462 total, and the *present half got worse by 0.320* while the
+      absent half improved by 0.781. `L_pres` is now **+0.157 dB worse than
+      passing the mixture through**, against −0.374 dB better at epoch 4.
+
+      Mechanism: output RMS is **−24.9 dB below the input mixture** on present
+      crops (−12.6 dB at epoch 4, so the attenuation is deepening). `L_pres` is
+      scale-invariant *by design* (Deviation 1) so it cannot see attenuation at
+      all; only `L_MR` penalises it, at weight `(1-w)*w_m = 5.21`, against
+      `w = 0.458` on an absent branch whose optimum is reachable by outputting
+      zero. Turning the volume down is therefore strongly net-positive.
+
+      Where it sits among non-separating strategies on the fixed val set:
+
+      | strategy | total | `L_pres` |
+      | --- | --- | --- |
+      | pass the mixture through | −2.288 | −6.152 |
+      | all silence | −11.732 | 0.000 |
+      | **model @ epoch 28** | **−12.900** | **−6.151** |
+      | oracle-gated mixture (perfect VAD, zero separation) | −16.030 | −6.152 |
+
+      The model's `L_pres` equals pass-through's to three decimals, which is
+      what "attenuated mixture, no separation" looks like through a
+      scale-invariant term. It has passed all-silence and is climbing toward the
+      oracle-gated solution: **3.13 total still available with no separation at
+      all.** Do not read further loss improvement as separation until `L_MR`
+      starts falling — that is the term that cannot be fooled by gain.
+
+      Open, and not to be fixed on smoke: 50 trials is too few to require
+      separation, so a degenerate solution is the expected outcome here. Re-test
+      on `full` before touching `w` or `w_m` — both are derived numbers
+      (`decisions-m1.md` 2026-08-20) and changing them needs its own entry
 
 **Proof:** a checkpoint in `experiments/results/` that reproduces its own
 reported numbers from its config.

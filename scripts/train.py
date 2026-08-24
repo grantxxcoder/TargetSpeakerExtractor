@@ -15,7 +15,12 @@ from collections import defaultdict
 from datetime import date
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-import matplotlib.pyplot as plt
+import matplotlib
+# Agg before pyplot is imported, never after -- the backend is fixed at import.
+# Training runs on a headless server and on Kaggle, where the default backend
+# has no display and plt.show() either warns or blocks.
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
 
 # `python scripts/train.py` puts scripts/ on sys.path, not the repo root, so
 # the src.* imports below fail without this. Same line as
@@ -385,6 +390,60 @@ def log_results(out_dir, config, config_path, args, model, device, manifest_csv,
         return False
 
 
+def plot_history(out_dir, train_loss_history, val_loss_history, best_row, loss_floor):
+    """Write loss_plot.png: train and val `total` against epoch.
+
+    The histories are lists of DICTS from epoch_report, not floats -- passing
+    them straight to plt.plot raises `TypeError: unhashable type: 'dict'`,
+    which is what happened on 2026-08-24 *after* the run had finished and the
+    results were already written. Hence `total` pulled out explicitly, and hence
+    the try block: a plotting bug must not be the last thing a 12-hour run does.
+    Same never-raise contract as log_results.
+
+    X axis comes from the VAL row's own `epoch`, not enumerate(), so a resumed
+    run plots epochs 40-60 rather than relabelling them 0-20.
+    """
+    try:
+        if len(val_loss_history) < 2:
+            return False                    # a single point is not a curve
+        epochs = [v["epoch"] for v in val_loss_history]
+        fig, ax = plt.subplots(figsize=(7, 4.5))
+        ax.plot(epochs, [t["total"] for t in train_loss_history], label="train")
+        ax.plot(epochs, [v["total"] for v in val_loss_history], label="val")
+
+        # The two reference lines that say whether the curve is any good. The
+        # floor is 10*log10(tau) and is reachable only at exact reconstruction;
+        # the anchor is the do-nothing baseline measured over 300 crops in
+        # experiments/results/2026-08-20-loss-anchor/.
+        ax.axhline(loss_floor, ls=":", lw=1, color="grey")
+        ax.axhline(-2.24, ls="--", lw=1, color="crimson")
+        # Labels right-aligned inside the axes, not anchored to a data point --
+        # at epochs[0] the anchor label sat directly on top of both curves.
+        ax.text(0.995, loss_floor, f" floor {loss_floor:.0f} ", fontsize=8,
+                color="grey", ha="right", va="bottom", transform=ax.get_yaxis_transform())
+        ax.text(0.995, -2.24, " do-nothing anchor -2.24 ", fontsize=8, color="crimson",
+                ha="right", va="top", transform=ax.get_yaxis_transform())
+
+        if best_row and best_row.get("epoch") is not None:
+            ax.plot(best_row["epoch"], best_row["total"], "o", ms=7, mfc="none",
+                    color="black", label=f"best val {best_row['total']:.3f}")
+
+        ax.set_xlabel("epoch")
+        ax.set_ylabel("total loss")
+        # Integer ticks: epochs are counts, and the default locator was showing
+        # 0.5 and 1.5 on short runs.
+        ax.xaxis.set_major_locator(matplotlib.ticker.MaxNLocator(integer=True))
+        ax.legend(fontsize=8)
+        fig.tight_layout()
+        fig.savefig(out_dir / "loss_plot.png", dpi=130)
+        plt.close(fig)                      # or figures accumulate across calls
+        print(f"Wrote {out_dir}/loss_plot.png")
+        return True
+    except Exception as e:                  # noqa: BLE001 - never fatal
+        print(f"  plot_history: could not plot: {e}", file=sys.stderr)
+        return False
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--split", required=True)
@@ -493,15 +552,8 @@ def main():
     log_results(results_dir, config, config_path, args, model, device,
                 train_manifest, train_loss_history, val_loss_history, best_row,
                 wall_s, num_epochs, save_path)
-    if len(train_loss_history) > 10:
-        # Plot training and validation loss
-        plt.plot(train_loss_history, label="Training Loss")
-        plt.plot(val_loss_history, label="Validation Loss")
-        plt.xlabel("Epoch")
-        plt.ylabel("Loss")
-        plt.legend()
-        plt.savefig(results_dir /  "loss_plot.png")
-        plt.show()
+    plot_history(results_dir, train_loss_history, val_loss_history, best_row,
+                 loss_floor=10 * np.log10(float(config["loss"]["tau"])))
 
 if __name__ == "__main__":
     main()
