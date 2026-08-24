@@ -372,6 +372,11 @@ stackable tensor, which is what allows a single RNN to run across bands.
 
 ## 2026-08-19 — Model sizing: 7.16 M parameters, deliberately below challenge scale
 
+> **Headline figure superseded 2026-08-24 — quote 7,189,644 (7.19 M).** Every
+> number below is the *pre-conditioning* count, as this entry's own "Conditioning
+> is nearly free" section states. The decision itself stands unchanged; only the
+> total moved, and by the amount predicted here. See 2026-08-24 below.
+
 **Decision: `feature_dim = 128`, `hidden_dim = 192`, `num_repeat = 6`,
 `mlp_hidden = 384`, `n_hidden = 1`. Total 7,156,234 parameters against the
 REAL-TSE causal baselines' 25-27 M — a 3.5x reduction.** This satisfies the M1
@@ -884,5 +889,56 @@ CARTSE eq (1) as published, which is what makes it worth keeping.
 flat near `0` is a model passing the interferer straight through whenever the
 target is silent — invisible in the total, invisible in SI-SDR, and visible at
 eval only as a blown-up ICR.
+
+---
+
+## 2026-08-24 — Sizing figure: 7.19 M realised, and the conditioning prediction confirmed
+
+**Quote 7,189,644 parameters (7.19 M) wherever the model size appears — thesis,
+README, `meta.yaml` prose. Not 7,156,234 (7.16 M).** The 2026-08-19 entry's
+figure was measured before TF-Map conditioning was built, which that entry says
+explicitly. This is a realised-versus-planned update, not a correction of an
+error.
+
+Measured from the config that trains, via `build_model()`:
+
+```
+../tse_venv/bin/python -c "import sys,yaml;from pathlib import Path;\
+sys.path[:0]=['.','scripts'];from train import build_model;\
+m=build_model(yaml.safe_load(Path('experiments/configs/bsrnn_baseline.yaml').read_text()));\
+print(sum(p.numel() for p in m.parameters()))"
+```
+
+### The 08-19 prediction was right
+
+That entry predicted the delta rather than leaving it to be discovered:
+
+| | predicted 2026-08-19 | measured 2026-08-24 |
+| --- | --- | --- |
+| `SubbandNorm` | ~104,000 | **104,326** (+326) |
+| increase over the 2-channel count | ~33 k | **33,410** |
+| share of the whole model | under 0.5 % | **0.46 %** |
+
+`BandSequenceModel` 4,898,304 and `Estimator` 2,187,014 match the 08-19 table
+exactly, so the entire difference is `SubbandNorm` and the cause is not in doubt:
+TF-Map raises the band-split projection's input from 2 channels (`Xri`) to 3
+(`Xri` + the TF-Map plane), and that projection is inside `SubbandNorm`.
+
+### What does not change
+
+- **The 3.5x reduction claim.** 25-27 M / 7.19 M is 3.5x, same as before.
+- **The two deviations toward smaller** (`hidden_dim = 192`, `n_hidden = 1`).
+- **The scaling ladder**, whose `total model` column is likewise pre-conditioning.
+  Add 33,410 to every rung: the chosen rung is 7.19 M, and the paper-width /
+  wesep-depth rung is 11.92 M rather than 11.89 M. The ordering and the argument
+  for starting at the small end are untouched.
+- **"Conditioning is nearly free"** — now demonstrated rather than projected, at
+  0.46 % of the model and with no speaker encoder.
+
+### Why this is logged rather than edited in place
+
+The 08-19 count is what the sizing *decision* was taken against, and a decision
+log that silently rewrites its own numbers cannot be audited. The stale figure
+stays where it is with a pointer here.
 
 ---

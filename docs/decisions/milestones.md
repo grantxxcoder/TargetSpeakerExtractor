@@ -209,17 +209,78 @@ Housekeeping:
 
 ## M1 — BSRNN implemented and training infrastructure trustworthy · target Sep 3 (weeks 3–4)
 
-- [ ] Causal BSRNN + TF-Map extractor implemented; Luo & Yu (TASLP 2023) and
-      Zhang et al. (ICASSP 2025) cited in-file
-- [ ] STFT window/hop chosen against the ~200–300 ms budget, not the
-      challenge's 100 ms cap, and the choice justified in `decisions-m1.md`
-- [ ] Model deliberately sized down from challenge scale (fewer blocks, smaller
-      feature dim) and reported as such
-- [ ] Target-absent training and channel-gap enrollment augmentation in
-      (Li & Seki, 2026)
-- [ ] YAML config committed — no hardcoded hyperparameters
-- [ ] Seed set and logged
-- [ ] **Checkpoint/resume proven across a deliberate session kill**
+**Status 2026-08-24. The model is built and trains end to end. Two items remain,
+and one of them is the proof item.** Every architecture decision is logged in
+`decisions-m1.md` (2026-08-18 to 08-20). `scripts/train.py` runs, early-stops,
+checkpoints and writes `history.csv` + `meta.yaml`. Outstanding: the
+kill-and-resume proof, and unit tests for every model module except the loss.
+One open question is carried forward — the cold-vs-warm context mismatch below.
+
+- [X] ~~Causal BSRNN + TF-Map extractor implemented — `src/models/{stft,bands,
+      modules,conditioning,bsrnn}.py`. Cited in-file: Luo & Yu (TASLP 2023) in
+      `bands.py` and `modules.py`, Yu et al. (Interspeech 2023) in `bands.py`,
+      Zhang et al. (ICASSP 2025) in `conditioning.py` and `bsrnn.py`~~
+- [X] ~~STFT window/hop chosen against the ~200–300 ms budget — 512/128,
+      `center=False`, manual overlap-add, `lookahead_frames` knob. Latency
+      convention and the rejection of the challenge's 100 ms cap in
+      `decisions-m1.md` 2026-08-18. Effective future dependency then *measured*
+      at 23.9 ms rather than assumed (2026-08-19)~~
+- [X] ~~Model deliberately sized down and reported as such — `decisions-m1.md`
+      2026-08-19, against the REAL-TSE causal baselines' 25–27 M. **Realised
+      figure 2026-08-24: 7,189,644 (7.19 M), not the pre-conditioning 7,156,234
+      (7.16 M) — `decisions-m1.md` 2026-08-24.** The whole 33,410 gap is
+      `SubbandNorm` (104,326 vs 70,916), and the 08-19 entry *predicted* it at
+      ~104,000 / ~33 k / under 0.5 % — measured +326 off, 0.46 %. The 3.5x
+      reduction claim is unaffected. **Quote 7.19 M in the thesis**~~
+- [X] ~~Target-absent training and channel-gap enrollment augmentation
+      (Li & Seki, 2026) — target-absent is `L_abs` + the loader's `crop_absent`
+      (`decisions-m1.md` 2026-08-20); channel-gap enrollment EQ is
+      `src/data/render.py:152`, cited in-file~~
+- [X] ~~YAML config committed — `experiments/configs/bsrnn_baseline.yaml`. No
+      training hyperparameter is a command-line flag; `--epochs` overrides only~~
+- [X] ~~Seed set and logged — `train.py` seeds torch and numpy from the config
+      *before* the model is built, so weight init is reproducible too, and the
+      seed lands in every `meta.yaml`~~
+- [ ] **Checkpoint/resume proven across a deliberate session kill.** Resume is
+      *implemented* (`train.py --resume`: model, optimiser, scheduler,
+      `best_val`, `best_row`, and it refuses a config mismatch) but has **never
+      been killed and resumed**. Still the M1 proof item — do not tick on the
+      code existing
+- [ ] **Unit tests for the model modules.** `tests/test_losses.py` collects 30;
+      there are **none** for `stft.py`, `bands.py`, `modules.py`,
+      `conditioning.py` or `bsrnn.py`. "Training infrastructure trustworthy" is not met by a loop that
+      runs. The causality property below is the obvious first test to lift
+
+Built alongside, not on the original list:
+- [X] ~~Objective implemented and its anchor measured — `src/models/losses.py`,
+      three terms and six deviations from CARTSE (`decisions-m1.md` 2026-08-20);
+      do-nothing anchor over 300 crops in
+      `experiments/results/2026-08-20-loss-anchor/`, which is where `w_m = 9.62`
+      comes from~~
+- [X] ~~`scripts/measure_train_cost.py` — per-batch-size peak RSS and step time
+      in a subprocess each, after `systemd-oomd` killed VSCode on 2026-08-24~~
+- [X] ~~`scripts/pass_a_test_case_through.py` — one val trial through a
+      checkpoint, estimate audio + full provenance, loss beside the
+      pass-through anchor for that same crop~~
+- [X] ~~**Loss floor derived and verified 2026-08-24: exactly −30.** All three
+      terms are floored (`L_pres`, `L_abs` at `10log10(tau)`; `L_MR` at 0) and
+      the outer weights are convex, so the bound is −30 for **any** `w` in [0,1]
+      and any `w_m` — only `tau` moves it. Do-nothing anchor is −2.24, so the
+      usable range is −2.24 → −30~~
+- [X] ~~**Causality verified by measurement 2026-08-24, not assumed.** Appending
+      later audio leaves earlier output unchanged (1.68e-08), so one full-length
+      pass is what streaming emits and **no chunk-stitching is needed** —
+      concatenating independent 4 s chunks is worse, reinjecting the
+      `n_fft - hop` = 384-sample (23.4 ms) overlap-add tail at every seam
+      (4.37e-03 max, rel L2 1.04e-02)~~
+- [ ] **Train/inference context mismatch, found 2026-08-24 — open question.**
+      Causal is not context-free: training only ever feeds cold-start 4 s crops,
+      while deployment hands the model unbounded warm state. On the epoch-4 smoke
+      checkpoint the same window scores 30.6 % rel L2 apart cold vs warm, though
+      `total` moves only 0.005 (−2.4197 vs −2.4150). Re-measure on a converged
+      checkpoint: if the gap grows it argues for warm-state or longer-context
+      training; if it shrinks it is retired with evidence. Needs a
+      `decisions-m1.md` entry either way
 
 **Proof:** a 1-epoch run that completes, is killed, and resumes cleanly.
 **Why resume is a checklist item and not an implementation detail:**
@@ -229,10 +290,36 @@ discovering it is broken at hour 11 of a 12-hour Kaggle session costs a week.
 
 ## M2 — Baseline trained · target Sep 17 (weeks 5–6)
 
-- [ ] Converged checkpoint from conventional training (SI-SDR +
-      multi-resolution STFT)
-- [ ] Training curves and final losses logged with config, commit hash, seed,
-      date
+**Status 2026-08-24. Started early: the loop works on `smoke`, nothing is
+converged, and `--split full` cannot run on this laptop.** First runs completed
+on the 50-trial smoke split; `models/model_smoke.pt` is at epoch 4,
+`best_val -8.636`. Treat that as a wiring proof, not a result.
+
+- [ ] **Converged checkpoint from conventional training** (SI-SDR +
+      multi-resolution STFT). Smoke only so far
+- [X] ~~Training curves and final losses logged with config, commit hash, seed,
+      date — `log_results()` writes `meta.yaml` + per-epoch wide `history.csv`
+      (train and val on one row, plus `lr`, which is what distinguishes a plateau
+      from a scheduler step). Never raises: a logging bug must not discard a
+      finished run~~
+- [ ] **Compute is the blocker, not the code.** 15.7 GB RAM with VSCode open is
+      not enough — `systemd-oomd` killed the editor on 2026-08-24 before training
+      started. `requirements.txt` pins a CPU torch. The one measured row in
+      `run_times.md` is 243 s/epoch at batch 3 over 50 trials on CPU; that is a
+      smoke timing and **must not be extrapolated** to 19,938 trials. Server-class
+      compute or Kaggle is required, which makes the M1 resume proof urgent
+- [ ] **`batch_size` is still 12-on-paper, 3-in-config.** `decisions-m1.md`
+      2026-08-18 chose 12; the config says 3 with a comment saying it should be
+      12, pending the GPU-memory measurement `measure_train_cost.py` exists to
+      make. The absent-crop rate that sets `w` was derived at batch 12
+- [ ] **Two ablations are declared but unrun** — the band plan (six candidates,
+      `decisions-m1.md` 2026-08-18) and `w_m` (`ablate_w_m: [0.0, 2.89, 9.62]`,
+      the 0 arm required). Both need the converged baseline first
+- [ ] **Watch for silence collapse.** The epoch-4 smoke checkpoint already shows
+      it: on a present crop it scores *worse* than passing the mixture through
+      (−2.4197 vs −2.7266) while sitting 13 dB under the target, but on an absent
+      crop it beats pass-through by 6.47. With `w = 0.458` the cheap half of the
+      objective is winning. Expected this early; a failure mode if it persists
 
 **Proof:** a checkpoint in `experiments/results/` that reproduces its own
 reported numbers from its config.
@@ -397,13 +484,18 @@ tick as written.
 - [ ] Reference signal is the full reverberant target (A1), with the consequence stated
 - [ ] Architecture: the nine component subsections in `architecture.tex`
 - [ ] Causal adaptation and the latency convention (`decisions-m1.md` 2026-08-18)
-- [ ] Sizing: 7.16 M against challenge scale 25-27 M, reported as deliberate
+- [ ] Sizing: **7.19 M** against challenge scale 25-27 M, reported as deliberate
+      (corrected from 7.16 M on 2026-08-24 — see M1)
 - [ ] Objective: three terms, six deviations from CARTSE, DNSMOS rejection recorded
-- [ ] Training setup — blocked, the decisions are not yet made or logged
+- [ ] Training setup — objective, chunk, batch, seed and schedule now exist in
+      `bsrnn_baseline.yaml` and `decisions-m1.md`; still unlogged are the
+      `batch_size` 3-vs-12 resolution and the compute actually used
 - [ ] Metric definition: LCF-WER, ICR, NRR; judge protocol and modality recording
 
 **Ch 4 Experiments**
 - [ ] Protocol: config, commit hash, seed and date on every run
+- [ ] Causality verified by measurement, and why no chunk-stitching is used
+      (2026-08-24) — with the cold-vs-warm context gap stated as a limitation
 - [ ] Band-plan ablation (six candidates)
 - [ ] `w_m` ablation, the 0 arm required
 - [ ] Latency decay curve at 100/200/300/400/500 ms (B11)

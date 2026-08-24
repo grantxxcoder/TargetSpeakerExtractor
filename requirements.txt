@@ -29,6 +29,9 @@ torch==2.13.0                 # silero's runtime; CPU is sufficient for the VAD 
 pyroomacoustics==0.10.1       # shoebox RIRs, Sabine T60 feasibility check
 pyloudnorm==0.2.0             # BS.1770 integrated loudness (decisions.md 2026-08-12)
 
+# --- training ------------------------------------------------------------
+tqdm==4.70.0                  # per-epoch progress bar in scripts/train.py
+
 # --- analysis notebook (src/exploratory/data_setup.ipynb) ----------------
 pandas==3.0.5
 matplotlib==3.11.1
