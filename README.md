@@ -204,6 +204,132 @@ python3 -m venv ../tse_venv
 ../tse_venv/bin/python scripts/render_trials.py --split train --workers 8
 ```
 
+### Training
+
+Run from the repo root. `epochs`, `patience`, `lr` and the loss weights all come
+from the config — no training hyperparameter is a command-line flag.
+
+```bash
+# smoke first: 50 train / 20 val trials, proves the wiring before the real run
+../tse_venv/bin/python scripts/train.py --split smoke --epochs 5
+
+# the real run
+../tse_venv/bin/python scripts/train.py --split full
+
+# continue a stopped run; refuses if the checkpoint's config differs
+../tse_venv/bin/python scripts/train.py --split full --resume
+```
+
+Writes three things: `models/model_<split>.pt` (best validation epoch only, with
+the optimiser and scheduler state so `--resume` continues rather than restarts),
+a wall-time row in `docs/run_times.md`, and
+`experiments/results/<date>-train-<split>/{meta.yaml,history.csv}`.
+
+**Not on this laptop for `--split full`.** 15.7 GB RAM with VSCode open is not
+enough — `systemd-oomd` killed the editor and a terminal on 2026-08-24, before
+training had even been started. Close VSCode, or use server-class compute
+(`docs/decisions/specification.md`). `requirements.txt` pins a CPU torch and
+`docs/run_times.md` records no usable GPU here. The one measured row so far is
+CPU and smoke-sized — 243 s/epoch at batch 3 over 50 trials — which is a wiring
+timing, not a basis for projecting the full split.
+
+**Judging the first curve.** The do-nothing anchor — emitting the mixture
+unchanged — scores `total = -2.24` at the config's `w` and `w_m`
+(`experiments/results/2026-08-20-loss-anchor/`). A model that settles above that
+is losing to a passthrough, which is a wiring or learning-rate problem, not a
+slow start.
+
+### Listening to one example
+
+What the model actually did to a single validation trial. A listening check, not
+a measurement — interpretability metrics are a later, separate script.
+
+```bash
+# first val trial, against models/model_smoke.pt
+../tse_venv/bin/python scripts/pass_a_test_case_through.py --split smoke --index 0
+
+# a named trial, and a checkpoint that is not the default
+../tse_venv/bin/python scripts/pass_a_test_case_through.py --split smoke \
+    --trial-id smoke_val-42-000013 --checkpoint models/model_full.pt
+```
+
+`--index` and `--trial-id` are mutually exclusive; the checkpoint defaults to
+`models/model_<split>.pt` and is required — an untrained forward pass tells you
+nothing. Writes one directory per trial under
+`experiments/results/<date>-passthrough-<split>/<trial_id>/`, holding **two files**:
+
+```
+estimate.wav     what came out — the whole clip, the only signal that exists nowhere else
+meta.yaml        which trial, which 4 s window the loss covers, checkpoint epoch,
+                 the trial's SIR/SNR/overlap/regime, peak and RMS dBFS, both loss dicts
+```
+
+**No chunking and no stitching.** Rendered clips are 15.7–20.4 s; the estimate is
+the whole one, from a single forward pass. The model is causal
+(`causal: true`, `lookahead_frames: 0`), so appending later audio cannot change
+earlier output — which makes one full-length pass exactly what streaming emits.
+Measured on `smoke_val-42-000000`:
+
+| | max abs diff | |
+|---|---|---|
+| full 17.7 s pass vs a 4 s pass, both from sample 0 | `1.68e-08` | causality holds |
+| 4 independent 4 s chunks concatenated vs one full pass | `4.37e-03`, rel L2 `1.04e-02` | one seam artefact per join |
+
+Stitching is not merely unnecessary but harmful: each seam reinjects the
+incomplete-overlap-add tail, the last `n_fft - hop` = 384 samples (23.4 ms).
+`--crop-only` writes just the 4 s crop if you want the smaller file.
+
+**Causal is not context-free**, and this is the trap. A crop taken from mid-clip
+starts the LSTM and cLN state *cold*; the same window inside a full pass has state
+warmed by everything before it. For the crop at sample 19611 (1.23 s in) those
+differ by `5.60e-03` max, rel L2 `3.06e-01` — 14 % of the estimate's peak. So the
+audio written here is the **warm-state** version, i.e. what deployment produces,
+*not* the cold-start crop the trainer saw. The loss is still reported on the
+cold-start crop, because that is the only number comparable to `history.csv`;
+over the same window the two score `-2.4197` (cold) against `-2.4150` (warm), so
+quoting one beside the other is safe by measurement rather than by the causality
+argument.
+
+**The mixture, target and enrollment are deliberately not copied.** They are
+already in `data/rendered/<split>/<trial_id>/`, so copying them would add
+812 KiB per inspected trial against a 27 GB dataset and go stale the moment a
+manifest is rebuilt. The meta records `source_dir` and `crop_window_s` instead —
+listen to the stems in place, at the window the estimate corresponds to:
+
+```
+source_dir: data/rendered/smoke_val/smoke_val-42-000000
+crop_window_s: [1.226, 5.226]
+```
+
+`estimate.wav` is **float32 and unnormalised**, 256 KiB for a 4 s crop.
+Normalising would hide the gain error `L_MR` exists to catch, since `L_pres` is
+scale-invariant and cannot see it; `PCM_16` would clip an estimate above 1.0 and
+make a gain bug sound like a model artefact. The peak is reported instead,
+flagged `<-- CLIPS` past 1.0.
+
+The terminal prints the loss terms beside the **pass-through anchor for that same
+crop**, because a single crop's loss alone does not say whether the model did
+anything:
+
+```
+  crop branch : PRESENT
+  term             model    pass-through     delta
+  L_pres         -6.3977         -6.9036   +0.5058
+  L_MR            0.2010          0.1947   +0.0063
+  L_abs             n/a             n/a        n/a
+  total          -2.4197         -2.7266   +0.3069
+
+  WORSE than emitting the mixture unchanged, by 0.3069
+```
+
+Two traps in reading that. **The single-crop `total` is not comparable to
+`val_total` in `history.csv`**: the objective is
+`(1-w)*mean_present[...] + w*mean_absent[...]`, and one crop is either present or
+absent, so the other half contributes 0 instead of its mean — hence the `n/a`
+row. And **this anchor is for this crop only**, not the 300-crop median of
+`-2.24` above; a single crop's anchor moves by many dB with SIR and target
+activity.
+
 Versions in `requirements.txt` are pinned exactly, because several of them
 define the data rather than merely produce it — the VAD weights decide what
 "overlap" means, and `pyroomacoustics` and `pyloudnorm` decide what the rendered

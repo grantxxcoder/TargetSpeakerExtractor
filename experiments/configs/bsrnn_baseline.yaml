@@ -1,8 +1,9 @@
 seed: 42
 
 data:
+  sample_rate: 16000    # read by the loss (windows_ms -> n_fft) and the loader
   chunk_s: 4.0          # decisions-m1.md 2026-08-18 (CARTSE)
-  batch_size: 12        # decisions-m1.md 2026-08-18, provisional on GPU memory
+  batch_size: 3        # decisions-m1.md 2026-08-18, provisional on GPU memory and should be 12
    
 model:
   bands:                # task #1 — plan is inherited and unjustified, see decisions-m1.md
@@ -38,3 +39,14 @@ loss:
   reduction:    mean             # over (F, N) only, never over the batch --
                                  # the masked means need per-example values
   ablate_w_m:   [0.0, 2.89, 9.62]   # the 0 arm is required
+
+training:
+  lr: 0.0005
+  epochs: 100
+  patience: 10
+  grad_clip: 5.0
+  weight_decay: 0.0     # AdamW defaults to 0.01, which would decay every LSTM
+                        # weight. Recorded as a choice, not inherited silently.
+  lr_factor: 0.5        # ReduceLROnPlateau on val total
+  lr_patience: 3        # must stay < patience or training stops before the
+                        # lr ever drops

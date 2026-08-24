@@ -15,6 +15,8 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
 <!-- rows appended below by src/run_log.py -->
+| 2026-08-24 | `scripts/train.py --split smoke` | 50 trials x 5 epochs, smoke | 22 min | batch 3, cpu, 268 s/epoch |
+| 2026-08-24 | `scripts/train.py --split smoke` | 50 trials x 1 epochs, smoke | 4 min | batch 3, cpu, 243 s/epoch |
 | 2026-08-18 | `src/models/workbook.ipynb` — `measure_empty_crops()` | 3,000 trials x 3 epochs = 9,000 target crops, `train` | 3 min | ~21 ms/crop, 1 windowed read per crop, single-threaded. Added by hand: notebook cell, not a `run_log.py` script |
 | 2026-08-16 | `scripts/render_trials.py --split eval_public` | 500 trials rendered | 2 min | 8 workers, 16 kHz PCM_16 |
 | 2026-08-16 | `scripts/measure_vad_impact.py` | 2,000 utts x 8 settings + 400 trials | 14 min | 8 workers |
