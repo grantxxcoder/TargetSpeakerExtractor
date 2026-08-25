@@ -366,7 +366,15 @@ def git_commit():
                                text=True, check=True, timeout=10).stdout.strip()
         return head + ("-dirty" if dirty else "")
     except Exception:
-        return "UNKNOWN-not-a-git-checkout"
+        # No .git here. That is the normal case inside the Kaggle bundle, which
+        # ships source files only -- so fall back to the hash stamped in at
+        # bundle-build time by scripts/make_kaggle_bundle.py. Prefixed so it is
+        # never mistaken for a hash read from a live checkout.
+        stamp = Path(__file__).resolve().parents[1] / "docs/bundle_commit.txt"
+        try:
+            return "bundle:" + stamp.read_text().strip()
+        except OSError:
+            return "UNKNOWN-not-a-git-checkout"
 
 
 def log_results(out_dir, config, config_path, args, model, device, manifest_csv, train_loss_history, val_loss_history, best_row, wall_s, num_epochs, save_path):
@@ -436,6 +444,11 @@ def log_results(out_dir, config, config_path, args, model, device, manifest_csv,
             "seconds_per_epoch": round(wall_s / epochs_run, 1) if epochs_run else None,
             # Copied verbatim so the result is readable without opening the
             # yaml -- config_md5 above is what proves they match.
+            # data as well as loss/training: the Kaggle notebook rewrites
+            # batch_size (GPU memory) and num_workers, so a run logged without
+            # this cannot say what batch it actually trained at. The 2-epoch
+            # mid run on 2026-08-25 trained at batch 6 and did not record it.
+            "data": config["data"],
             "loss": config["loss"],
             "training": config["training"],
             # The best val row, whichever run produced it -- on a resume that

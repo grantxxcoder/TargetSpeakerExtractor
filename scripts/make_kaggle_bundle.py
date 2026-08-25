@@ -66,6 +66,19 @@ MID = [("mid_train", "train"), ("mid_val", "val")]
 TRIAL_FILES = ["mixture.wav", "target.wav", "enrollment.wav", "meta.json"]
 
 
+def git_commit() -> str:
+    """Repo commit, or a clear marker. Stamped into the bundle so a Kaggle run,
+    which has no .git, can still record what code produced it."""
+    try:
+        head = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True,
+                              text=True, check=True, timeout=10).stdout.strip()
+        dirty = subprocess.run(["git", "status", "--porcelain"], capture_output=True,
+                               text=True, check=True, timeout=10).stdout.strip()
+        return head + ("-dirty" if dirty else "")
+    except Exception:
+        return "UNKNOWN-not-a-git-checkout"
+
+
 def copy_if_changed(src: Path, dst: Path) -> bool:
     """True if it copied. Size-only comparison: these files are write-once
     renders, so a matching size means matching content, and stat() is ~1000x
@@ -87,7 +100,12 @@ def stage_code(out: Path) -> None:
         dst = out / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
-    print(f"  code: {len(CODE)} files")
+    # Stamp the repo commit into the bundle. There is no .git inside it, so
+    # without this every Kaggle run logs "UNKNOWN-not-a-git-checkout" and the
+    # result cannot be tied to a code version -- which CLAUDE.md requires.
+    (out / "docs").mkdir(parents=True, exist_ok=True)
+    (out / "docs/bundle_commit.txt").write_text(git_commit() + "\n")
+    print(f"  code: {len(CODE)} files, stamped commit {git_commit()[:12]}")
 
 
 def stage_data(out: Path) -> None:
