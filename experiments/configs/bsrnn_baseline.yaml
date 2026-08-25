@@ -3,6 +3,9 @@ seed: 42
 data:
   sample_rate: 16000    # read by the loss (windows_ms -> n_fft) and the loader
   chunk_s: 4.0          # decisions-m1.md 2026-08-18 (CARTSE)
+  num_workers: 0        # DataLoader workers. 0 on the laptop: 4 cores, already
+                        # saturated by the model. Raise on GPU (the Kaggle
+                        # notebook sets 4) or the wav reads starve the device.
   batch_size: 3        # decisions-m1.md 2026-08-18, provisional on GPU memory
                        # and should be 12. Still 3: the laptop has no usable GPU
                        # (docs/run_times.md). Raise to 12 when running `--split

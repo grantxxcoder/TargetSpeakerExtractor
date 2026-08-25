@@ -52,6 +52,25 @@ def build_loss_fn(config):
                      sample_rate=sample_rate)
 
 
+# The history schema, in one place. Used BOTH by the per-epoch line printed to
+# stdout and by history.csv, so a log pasted out of a killed run is a valid
+# history.csv with no editing. If these drifted, that guarantee would silently
+# break -- hence one definition, not two.
+HISTORY_FIELDS = ["total", "L_pres", "L_MR", "L_abs", "n_present", "n_absent"]
+
+
+def history_header():
+    return (["epoch"] + [f"train_{k}" for k in HISTORY_FIELDS]
+            + [f"val_{k}" for k in HISTORY_FIELDS] + ["lr"])
+
+
+def history_row(tr, va):
+    """One row. Epoch comes from the VAL dict: on a resume the histories start at
+    start_epoch, so enumerate() would relabel epoch 40 as epoch 0."""
+    return ([va["epoch"]] + [tr[k] for k in HISTORY_FIELDS]
+            + [va[k] for k in HISTORY_FIELDS] + [va["lr"]])
+
+
 def total_loss_floor(config):
     """Best total the objective can reach, for the reference line on the plot.
 
@@ -201,9 +220,6 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
         epoch_loss = epoch_report(sums, counts, loss_fn.w, loss_fn.wm)
         train_loss_history.append(epoch_loss)
 
-        if print_debug and (epoch + 1) % 10 == 0:
-            print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss["total"]:.4f}')
-
 
         # VALIDATION LOSS
         model.eval()
@@ -221,6 +237,16 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
         val_loss["epoch"] = epoch
         val_loss["lr"] = optimizer.param_groups[0]["lr"]
         val_loss_history.append(val_loss)
+
+        # One CSV row per epoch, same columns and same order as history.csv. The
+        # header is printed once above the first row, so if the run dies the
+        # printed block can be pasted straight into a .csv file and read back.
+        # flush: stdout is a pipe under the Kaggle notebook, so without this the
+        # rows sit in the buffer and a killed session loses exactly what this
+        # exists to preserve.
+        if epoch == start_epoch:
+            print(",".join(history_header()), flush=True)
+        print(",".join(str(v) for v in history_row(epoch_loss, val_loss)), flush=True)
 
         if scheduler is not None:
             scheduler.step(val_loss["total"])
@@ -302,18 +328,29 @@ def get_data_loaders(split, csv_path, data_path, config):
         random_crop=False,
     )
 
+    # num_workers from the config, default 0. 0 is right on the laptop (4 cores,
+    # already saturated by the model) but starves a GPU: every crop is 3 windowed
+    # wav reads, and single-threaded that dominates the step. Config-driven so the
+    # figure that produced a given wall time is logged with the run.
+    num_workers = int(config["data"].get("num_workers", 0))
+    # persistent_workers only legal when num_workers > 0; without it each epoch
+    # re-forks the pool, which set_epoch()'s per-epoch re-crop makes very visible.
+    extra = dict(persistent_workers=True, prefetch_factor=4) if num_workers else {}
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=config["data"]["batch_size"],
         shuffle=True,
-        num_workers=0,
-        drop_last=True)
+        num_workers=num_workers,
+        drop_last=True,
+        **extra)
 
     val_loader = DataLoader(
         val_dataset,
         batch_size=config["data"]["batch_size"],
         shuffle=False,
-        num_workers=0)
+        num_workers=num_workers,
+        **extra)
 
     return train_loader, val_loader
 
@@ -351,16 +388,15 @@ def log_results(out_dir, config, config_path, args, model, device, manifest_csv,
         out_dir = Path(out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        fields = ["total", "L_pres", "L_MR", "L_abs", "n_present", "n_absent"]
         with open(out_dir / "history.csv", "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(["epoch"] + [f"train_{k}" for k in fields]
-                            + [f"val_{k}" for k in fields] + ["lr"])
-            # Epoch comes from the VAL row: on a resume the histories start at
-            # start_epoch, so enumerate() would relabel epoch 40 as epoch 0.
+            # lineterminator="\n": csv.writer defaults to CRLF, but the per-epoch
+            # rows printed to stdout are LF. Matching them makes a block pasted
+            # out of a killed run byte-identical to this file rather than merely
+            # equivalent. pandas reads either, so no prior result is invalidated.
+            writer = csv.writer(f, lineterminator="\n")
+            writer.writerow(history_header())
             for tr, va in zip(train_loss_history, val_loss_history):
-                writer.writerow([va["epoch"]] + [tr[k] for k in fields]
-                                + [va[k] for k in fields] + [va["lr"]])
+                writer.writerow(history_row(tr, va))
 
         # The manifest's own provenance, carried through the way
         # measure_vad_impact.py does it -- the result is only interpretable

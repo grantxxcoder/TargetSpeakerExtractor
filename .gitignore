@@ -273,3 +273,6 @@ experiments/configs/bsrnn_baseline.yaml
 *.out
 *.synctex.gz
 *.toc
+
+# Kaggle upload staging (regenerate with scripts/make_kaggle_bundle.py)
+kaggle_bundle/
