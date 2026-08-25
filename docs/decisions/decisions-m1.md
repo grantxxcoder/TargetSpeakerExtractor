@@ -942,3 +942,113 @@ log that silently rewrites its own numbers cannot be audited. The stale figure
 stays where it is with a pointer here.
 
 ---
+
+## 2026-08-25 — The first full run collapsed to a mute; `tau` split, `mid` split added
+
+**Decision: split `tau` into `tau_pres` (0.001) and `tau_abs` (0.01), and add a
+`mid` split — 2,000 trials subset from the already-rendered `train` — as the next
+training target. `w_m` is NOT changed.**
+
+The 100-epoch smoke run (`experiments/results/2026-08-24-train-smoke-resume`)
+drove total loss to -15.44 while `L_MR` got steadily *worse*, 0.279 -> 0.318.
+Diagnosed on the saved checkpoint over the 20 val crops.
+
+### What the model actually learned
+
+| measurement | value |
+| --- | --- |
+| output energy vs mixture, present crops | -34.11 dB |
+| output energy vs mixture, absent crops | -35.46 dB |
+| present-minus-absent discrimination | **+1.34 dB** |
+| gain that minimises `L_MR` | **30x** (-29.5 dB too quiet) |
+| `L_MR` at that gain | 0.224, vs 0.319 as trained |
+| output change when the enrolment is swapped | **-17.15 dB** |
+| `L_pres` cost of a swapped enrolment | **+0.62 dB** |
+
+A uniform mute that nearly ignores the enrolment. `L_pres = -7.18` looks healthy
+only because SI-SDR is scale-invariant *and* satisfiable by generic
+speech-shaped output on a two-speaker mixture — it is flattering the model twice.
+
+### Why `L_MR` was the term that paid
+
+`dL/d(log g)` at the operating point: `L_pres` **0.00000**, `L_MR` -0.031,
+`L_abs` +1.999. `L_MR` is the *only* term that can see output gain, so as the
+model learned silence `L_MR` recorded the bill. Over epochs 3-99,
+`corr(val_L_MR, val_L_abs) = -0.967` — one variable seen twice.
+
+Loss units delivered over the run: `L_abs` **-10.55**, `L_pres` -1.64,
+`L_MR` **+0.20**. A *perfect* `L_MR` is worth 1.66 units, ~3 % of the range.
+
+### Neither hypothesis on the table was right
+
+- **Not `w_m` miscalibration.** 9.62 is correct for what it was calibrated to:
+  a `L_MR`-vs-`L_pres` ratio at the do-nothing anchor. Two things make it miss —
+  `grad_norms.csv` never measured the absent branch, and the anchor sits at
+  `s_hat = x` where the gain is already right, so the attenuated region where the
+  trade-off bites was never sampled. But no `w_m` fixes it: 243 would be needed
+  at g=10, and at g=30 the required value goes *negative*.
+- **Not capacity.** `train_L_MR` 0.278 vs `val_L_MR` 0.319 — a 0.04 gap on 48
+  crops against 7.19 M parameters. A capacity-bound model memorises; this one
+  does not even try. And the failure is one global scalar.
+
+### Root cause
+
+No enrolment conditioning -> cannot tell present from absent -> one shared gain
+serves both branches -> correct level costs **+24 dB** on absent crops
+(x `w` = ~+11 loss units) -> the mute is genuinely optimal.
+
+**The objective is not broken.** With present/absent gains free it already
+prefers the right answer: -16.47 at (g_pres=30, g_abs=0) vs -15.44 achieved. The
+model cannot use it.
+
+### `tau_abs` is a knob, not the fix — logged so it is not retried
+
+Raising `tau_abs` was the first proposal and it is **measured powerless**: the
+argmin along the shared-gain diagonal is g\*=0.3 for every `tau_abs` from 0.001
+to 0.1. `L_abs` at correct gain is -5.90 dB at *all* of them. `tau` floors the
+quiet end; what pins the model quiet is the penalty at the loud end.
+
+Giving `L_pres` gain authority (plain SNR instead of SI-SDR) does work as
+intended — spread over the gain range goes from 0.0000 dB to 6.92 dB — but the
+diagonal optimum still lands on the mute. Not adopted; it is a real deviation
+from CARTSE eq (1) and it does not solve this. Revisit only if conditioning
+works and the gain is still wrong.
+
+The split is kept anyway because a single `tau` for two differently-scaled halves
+was conflating two things, and `-20 dB` is already inaudible suppression.
+Consequence: the plot's total floor is no longer `10log10(tau)` but
+`(1-w)*10log10(tau_pres) + w*10log10(tau_abs)` = **-25.42**, now computed by
+`total_loss_floor()` in `scripts/train.py`. The hardcoded do-nothing anchor line
+moves -2.240 -> -2.222; left as -2.24, noted in the code.
+
+### The `mid` split
+
+Speaker diversity is what conditioning needs, and smoke has **20** speakers.
+`mid_train` is 2,000 trials subset from `train`'s 19,938 — **940 target
+speakers**, condition mix held to within 0.03 % by proportional stratification
+(the absent rate is what `w` was calibrated against, so it must not drift).
+`mid_val` is `val` unchanged, 200 trials over 40 unseen speakers.
+
+No new audio: `TrialDataset`'s `split` is only the directory under
+`data/rendered/`, so `SPLIT_MANIFESTS` now carries `(manifest, audio_dir)`
+separately and `mid` reads the already-rendered `train`/`val` trials. Widening
+smoke's 20 speakers instead would have cost a re-render and still not tested the
+hypothesis.
+
+**Not run yet.** ~2.7 h/epoch on the laptop (projection from the measured
+4.92 s/trial-epoch, batch 3, CPU) — i.e. ~3.4 days for 30 epochs. Intended for
+Kaggle at batch 12.
+
+### What to watch, instead of `L_MR`
+
+`L_pres` is scale-invariant so it **cannot** show a mute, and `L_MR` shows it
+only as a lagging side-effect. The leading indicators are enrolment sensitivity
+(dB change when the enrolment is swapped) and the present-minus-absent output
+energy gap. Neither is in `history.csv` yet.
+
+### Caveats
+
+15 present + 5 absent val crops, one checkpoint, one seed. The gain sweep is a
+1-D slice holding the learned mask shape fixed.
+
+---

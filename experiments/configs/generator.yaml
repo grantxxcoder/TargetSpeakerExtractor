@@ -306,3 +306,18 @@ splits:
   eval_private: {n_trials: 500,   noise_split: tt, regimes: null}
   smoke_train:  {n_trials: 50,    noise_split: tr}
   smoke_val:    {n_trials: 20,    noise_split: cv}
+
+# Mid-size prototyping split. NOT generated: these are deterministic,
+# condition-stratified SUBSETS of the manifests above, written by
+# scripts/make_subset_manifest.py and reading the already-rendered audio in
+# data/rendered/train and data/rendered/val. No new trials, no new audio.
+#
+# Exists because the 50-trial smoke split has only 20 speakers, and the failure
+# it produced was an enrolment-blind mute (decisions-m1.md 2026-08-25): the
+# model never learned to use the enrolment, so it could not tell target-present
+# from target-absent and muted everything. Speaker diversity is what that needs,
+# so subsetting train's 1172 speakers is the point -- widening smoke's 20 would
+# not have tested it.
+subsets:
+  mid_train: {n_trials: 2000, source: train, stratify_by: condition}
+  mid_val:   {n_trials: 200,  source: val,   stratify_by: condition}

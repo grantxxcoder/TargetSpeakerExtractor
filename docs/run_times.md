@@ -15,6 +15,7 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
 <!-- rows appended below by src/run_log.py -->
+| 2026-08-24 | `scripts/train.py --split smoke` | 50 trials x 70 epochs, smoke | 4.8 h | batch 3, cpu, 246 s/epoch |
 | 2026-08-24 | `scripts/train.py --split smoke` | 50 trials x 2 epochs, smoke | 9 min | batch 3, cpu, 263 s/epoch |
 | 2026-08-24 | `scripts/train.py --split smoke` | 50 trials x 30 epochs, smoke | 2.3 h | batch 3, cpu, 277 s/epoch |
 | 2026-08-24 | `scripts/train.py --split smoke` | 50 trials x 5 epochs, smoke | 22 min | batch 3, cpu, 268 s/epoch |

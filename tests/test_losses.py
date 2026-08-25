@@ -33,7 +33,11 @@ from src.models.losses import LossBSRNN  # noqa: E402
 SR = 16000
 T = 64000           # 4 s at 16 kHz, the training chunk length
 N_FFT = 512
-TAU = 0.001
+# tau is no longer one number: tau_pres floors L_pres, tau_abs floors L_abs
+# (split 2026-08-25). The absent tests below read loss.tau_abs off the fixture
+# rather than a module constant, so changing the default cannot silently make
+# them assert the wrong floor -- which is exactly what happened at the split.
+TAU_PRES = 0.001
 
 
 @pytest.fixture
@@ -136,19 +140,22 @@ def test_present_is_nan_on_a_silent_target_by_design(loss):
 
 # --- L_abs: push-to-silence, CARTSE eq (2), normalised --------------------
 
-def test_absent_floor_is_minus_30_on_perfect_silence(loss):
+def test_absent_floor_is_10log10_tau_abs_on_perfect_silence(loss):
+    """The floor is 10log10(tau_abs), i.e. -20 dB at the default tau_abs=0.01,
+    not the -30 dB it was when a single tau served both halves."""
     x = speechlike(8)
-    assert float(loss._loss_target_absent(x, torch.zeros_like(x))[0]) == pytest.approx(-30.0, abs=1e-4)
+    assert float(loss._loss_target_absent(x, torch.zeros_like(x))[0]) == pytest.approx(
+        10 * math.log10(loss.tau_abs), abs=1e-4)
 
 
 def test_absent_do_nothing_anchor_is_not_zero(loss):
     """Deviation 2 gives 0 dB = "emitted the mixture unchanged". The exact value
-    is 10log10(1 + tau) = 0.004341, NOT 0.0, because the tau floor sits in the
+    is 10log10(1 + tau_abs), NOT 0.0, because the tau floor sits in the
     numerator. A test asserting exactly 0.0 fails for a reason that looks like a
     bug and is not."""
     x = speechlike(9)
     assert float(loss._loss_target_absent(x, x)[0]) == pytest.approx(
-        10 * math.log10(1 + TAU), abs=1e-5)
+        10 * math.log10(1 + loss.tau_abs), abs=1e-5)
 
 
 def test_absent_is_positive_when_amplifying(loss):
@@ -156,7 +163,7 @@ def test_absent_is_positive_when_amplifying(loss):
     4x the energy is +6.02 dB."""
     x = speechlike(10)
     assert float(loss._loss_target_absent(x, 2 * x)[0]) == pytest.approx(
-        10 * math.log10(4 + TAU), abs=1e-3)
+        10 * math.log10(4 + loss.tau_abs), abs=1e-3)
 
 
 @pytest.mark.parametrize("scale", [0.01, 1.0, 100.0])

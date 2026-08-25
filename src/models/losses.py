@@ -10,8 +10,9 @@ class LossBSRNN:
     (pred, target) convention, so keep it consistent. The reference is the
     target for the present term and the mixture for the absent one.
     """
-    def __init__(self, wm, w, p=0.3, tau=0.001, windows=(8, 16, 32, 64), sample_rate=16000):
-        self.tau = tau
+    def __init__(self, wm, w, p=0.3, tau_pres=0.001, tau_abs=0.01, windows=(8, 16, 32, 64), sample_rate=16000):
+        self.tau_pres = tau_pres
+        self.tau_abs = tau_abs
         self.wm = wm            # weight on L_MR, inside the present branch
         self.w = w              # weight on the ABSENT half. Do not confuse with wm.
         self.p = p
@@ -24,7 +25,7 @@ class LossBSRNN:
         # sum of squared samples, per example. (B, T) -> (B,)
         return x.pow(2).sum(dim=-1)
 
-    def _loss_target_present(self, s_target, s_output, tau=0.001):
+    def _loss_target_present(self, s_target, s_output, tau_pres=0.001):
         """L_pres, floored SI-SDR. CARTSE eq (1). (B, T) -> (B,)
 
         Lower is better. Range [-30, inf): -30 when s_output == s_target.
@@ -45,11 +46,11 @@ class LossBSRNN:
         # -43.98 dB, g=100 -> -70 dB). Flooring on ||s_proj||^2 makes numerator
         # and floor scale together, so they cancel: flat -30 dB at every gain.
         numerator = self.energy(s_projected)
-        denominator = self.energy(s_output - s_projected) + tau * numerator
+        denominator = self.energy(s_output - s_projected) + tau_pres * numerator
 
         return -10 * torch.log10((numerator + 1e-12) / (denominator + 1e-12))
 
-    def _loss_target_absent(self, x_input, s_output, tau=0.001):
+    def _loss_target_absent(self, x_input, s_output, tau_abs=0.01):
         """L_abs, push-to-silence. CARTSE eq (2), normalised. (B, T) -> (B,)
 
         No target argument: the right answer IS silence, so there is nothing to
@@ -68,7 +69,7 @@ class LossBSRNN:
         #
         # eta is deliberately absent. Under masked means it and w appear only as
         # the product w*eta -- two dials, one degree of freedom. It lives in w.
-        numerator = self.energy(s_output) + tau * self.energy(x_input)
+        numerator = self.energy(s_output) + tau_abs * self.energy(x_input)
         denominator = self.energy(x_input)
 
         return 10 * torch.log10((numerator + 1e-12) / (denominator + 1e-12))
@@ -176,7 +177,7 @@ class LossBSRNN:
                 "a crop flagged present has an all-zero target stem -- "
                 "crop_absent disagrees with s_target. Use the loader's "
                 "crop_absent, not the manifest condition label.")
-            loss_present = self._loss_target_present(target_p, output_p, self.tau).mean()
+            loss_present = self._loss_target_present(target_p, output_p, self.tau_pres).mean()
             loss_mr = self._loss_multi_res_stft(target_p, output_p, self.windows, self.p).mean()
             total = total + (1 - self.w) * (loss_present + self.wm * loss_mr)
             parts["L_pres"] = float(loss_present.detach())
@@ -184,7 +185,7 @@ class LossBSRNN:
 
         if n_absent:
             loss_absent = self._loss_target_absent(x_input[crop_absent],
-                                                   s_output[crop_absent], self.tau).mean()
+                                                   s_output[crop_absent], self.tau_abs).mean()
             total = total + self.w * loss_absent    
             parts["L_abs"] = float(loss_absent.detach())
 

@@ -3,7 +3,12 @@ seed: 42
 data:
   sample_rate: 16000    # read by the loss (windows_ms -> n_fft) and the loader
   chunk_s: 4.0          # decisions-m1.md 2026-08-18 (CARTSE)
-  batch_size: 3        # decisions-m1.md 2026-08-18, provisional on GPU memory and should be 12
+  batch_size: 3        # decisions-m1.md 2026-08-18, provisional on GPU memory
+                       # and should be 12. Still 3: the laptop has no usable GPU
+                       # (docs/run_times.md). Raise to 12 when running `--split
+                       # mid` or `full` on Kaggle -- and note w's absent-rate
+                       # calibration assumed batch 12, where ~1.5 % of batches
+                       # have no absent crop at the measured 0.297 absent rate.
    
 model:
   bands:                # task #1 — plan is inherited and unjustified, see decisions-m1.md
@@ -30,7 +35,14 @@ loss:
   w_m:   9.62          # weight on L_MR inside the present branch. MEASURED at
                     # the do-nothing anchor over 300 crops, 2026-08-20:
                     # L_pres -5.909 dB, L_MR 0.1842, target ratio 0.3
-  tau:   0.001        # floor on both halves: caps the reward at 30 dB
+  tau_pres: 0.001       # floor inside L_pres only: caps the present reward at
+                        # 30 dB. Was a single `tau` shared by both halves;
+                        # split 2026-08-25.
+  tau_abs:  0.01        # floor inside L_abs only: caps the SILENCE reward at
+                        # 20 dB. Measured to be powerless against the mute
+                        # collapse (the binding penalty is at the loud end, not
+                        # the quiet end) -- kept as a separate knob, not as a
+                        # fix. decisions-m1.md 2026-08-25.
   p:     0.3          # magnitude compression, Yu et al. Interspeech 2023 eq (3)
   windows_ms: [8, 16, 32, 64]   # multi-resolution window set, straddles the
                     # model's own 32 ms framing (Deviation 6)

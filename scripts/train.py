@@ -34,7 +34,8 @@ from src.run_log import timed  # noqa: E402
 def build_loss_fn(config):
     w = float(config["loss"]["w"])
     wm = float(config["loss"]["w_m"])
-    tau = float(config["loss"]["tau"])
+    tau_pres = float(config["loss"]["tau_pres"])
+    tau_abs = float(config["loss"]["tau_abs"])
     p = float(config["loss"]["p"])
     windows = config["loss"]["windows_ms"]
     # the loss turns windows_ms into n_fft with this, so it cannot be defaulted
@@ -47,8 +48,22 @@ def build_loss_fn(config):
     assert 0.0 <= w <= 1.0, f"loss.w must be in [0, 1], got {w}"
     assert wm >= 0.0, f"loss.w_m must be >= 0, got {wm}"
 
-    return LossBSRNN(wm=wm, w=w, tau=tau, p=p, windows=windows,
+    return LossBSRNN(wm=wm, w=w, tau_pres=tau_pres, tau_abs=tau_abs, p=p, windows=windows,
                      sample_rate=sample_rate)
+
+
+def total_loss_floor(config):
+    """Best total the objective can reach, for the reference line on the plot.
+
+    At exact reconstruction L_pres hits 10*log10(tau_pres), L_MR hits 0 and
+    L_abs hits 10*log10(tau_abs), so the floor is the w-weighted sum of the two.
+    Was 10*log10(tau) off a single shared tau; once tau_pres and tau_abs differ
+    (2026-08-25) no single tau defines the floor and that read the wrong one.
+    """
+    w = float(config["loss"]["w"])
+    tau_pres = float(config["loss"]["tau_pres"])
+    tau_abs = float(config["loss"]["tau_abs"])
+    return ((1 - w) * 10 * np.log10(tau_pres) + w * 10 * np.log10(tau_abs))
 
 
 def build_model(config):
@@ -240,24 +255,38 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
     return train_loss_history, val_loss_history, best_row
 
 
-SPLIT_MANIFESTS = {"smoke": ("smoke_train", "smoke_val"), "full": ("train", "val")}
+# split -> ((train_manifest, train_audio_dir), (val_manifest, val_audio_dir))
+#
+# The manifest name and the audio directory used to be one string, because for
+# smoke and full they happen to be equal. `mid` breaks that: it is a SUBSET
+# manifest over train/val audio that was already rendered, so it must read
+# data/rendered/train while carrying its own row list. Keeping them as one
+# string would have meant either re-rendering 2,000 duplicate trials or
+# symlinking 2,000 directories. See experiments/configs/generator.yaml
+# `subsets:` and scripts/make_subset_manifest.py.
+SPLIT_MANIFESTS = {
+    "smoke": (("smoke_train", "smoke_train"), ("smoke_val", "smoke_val")),
+    "mid":   (("mid_train",   "train"),       ("mid_val",   "val")),
+    "full":  (("train",       "train"),       ("val",       "val")),
+}
 
 
 def get_data_loaders(split, csv_path, data_path, config):
     # The dataset's `split` is the directory name under data/rendered/, so it
     # must track the manifest -- hardcoding "smoke_train" made --split full
-    # read smoke audio against the full manifest.
+    # read smoke audio against the full manifest. It is a SEPARATE string from
+    # the manifest name so a subset split can point at already-rendered audio.
     if split not in SPLIT_MANIFESTS:
-        raise ValueError(f"Unknown split: {split}")
-    train_split, val_split = SPLIT_MANIFESTS[split]
+        raise ValueError(f"Unknown split: {split}. Known: {sorted(SPLIT_MANIFESTS)}")
+    (train_manifest, train_audio), (val_manifest, val_audio) = SPLIT_MANIFESTS[split]
 
-    csv_train = csv_path / f"{train_split}.csv"
-    csv_val = csv_path / f"{val_split}.csv"
+    csv_train = csv_path / f"{train_manifest}.csv"
+    csv_val = csv_path / f"{val_manifest}.csv"
 
     train_dataset = TrialDataset(
         manifest_csv=csv_train,
         data_root=data_path,
-        split=train_split,
+        split=train_audio,
         chunk_s=config["data"]["chunk_s"], # follow CARTSE
         sample_rate=config["data"]["sample_rate"],
         seed=config["seed"],
@@ -266,7 +295,7 @@ def get_data_loaders(split, csv_path, data_path, config):
     val_dataset = TrialDataset(
         manifest_csv=csv_val,
         data_root=data_path,
-        split=val_split,
+        split=val_audio,
         chunk_s=config["data"]["chunk_s"], # follow CARTSE
         sample_rate=config["data"]["sample_rate"],
         seed=config["seed"],
@@ -412,9 +441,12 @@ def plot_history(out_dir, train_loss_history, val_loss_history, best_row, loss_f
         ax.plot(epochs, [v["total"] for v in val_loss_history], label="val")
 
         # The two reference lines that say whether the curve is any good. The
-        # floor is 10*log10(tau) and is reachable only at exact reconstruction;
-        # the anchor is the do-nothing baseline measured over 300 crops in
-        # experiments/results/2026-08-20-loss-anchor/.
+        # floor is total_loss_floor(config), reachable only at exact
+        # reconstruction; the anchor is the do-nothing baseline measured over 300
+        # crops in experiments/results/2026-08-20-loss-anchor/. NOTE -2.24 was
+        # computed at the old shared tau=0.001; at tau_abs=0.01 it is -2.22. The
+        # 0.02 shift is invisible on this plot, but the constant is tau-dependent
+        # and hardcoded, so it needs recomputing if w, w_m or tau_abs move.
         ax.axhline(loss_floor, ls=":", lw=1, color="grey")
         ax.axhline(-2.24, ls="--", lw=1, color="crimson")
         # Labels right-aligned inside the axes, not anchored to a data point --
@@ -548,12 +580,12 @@ def main():
                    Path("experiments/results") /
                    f"{date.today().isoformat()}-train-{args.split}")
     
-    train_manifest = csv_path / f"{SPLIT_MANIFESTS[args.split][0]}.csv"
+    train_manifest = csv_path / f"{SPLIT_MANIFESTS[args.split][0][0]}.csv"
     log_results(results_dir, config, config_path, args, model, device,
                 train_manifest, train_loss_history, val_loss_history, best_row,
                 wall_s, num_epochs, save_path)
     plot_history(results_dir, train_loss_history, val_loss_history, best_row,
-                 loss_floor=10 * np.log10(float(config["loss"]["tau"])))
+                 loss_floor=total_loss_floor(config))
 
 if __name__ == "__main__":
     main()
