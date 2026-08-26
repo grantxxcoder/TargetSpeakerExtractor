@@ -732,7 +732,21 @@ def main():
 
     ls_root = Path(config["paths"]["librispeech"])
     splits = yaml.safe_load(Path(config["paths"]["splits"]).read_text())
-    speakers = [str(s) for s in splits[args.split]]
+    # `speakers_from` lets a new split borrow an existing split's speaker list.
+    # splits.yaml is a GENERATED file, pinned before any data was made, and
+    # hand-editing it silently redefines what "eval" means -- so a split that
+    # only varies acoustics (sir0, which changes sir_db and nothing else) must
+    # NOT need its own entry there. Speaker-disjointness is inherited from
+    # whichever split is borrowed, so it cannot be broken by borrowing.
+    speaker_split = cfg.get("speakers_from", args.split)
+    if speaker_split not in splits:
+        sys.exit(f"speakers_from '{speaker_split}' is not in "
+                 f"{config['paths']['splits']}. Known: "
+                 f"{sorted(k for k in splits if k != 'meta' and k != 'counts')}")
+    speakers = [str(s) for s in splits[speaker_split]]
+    if speaker_split != args.split:
+        print(f"  speakers borrowed from '{speaker_split}' "
+              f"({len(speakers)} speakers)", file=sys.stderr)
 
     meta = read_speakers(ls_root)
     sex = {s: meta[s][0] for s in speakers}

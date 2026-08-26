@@ -58,9 +58,14 @@ CODE = [
     "docs/run_times.md",   # src.run_log appends here; give it a real file
 ]
 
-# (manifest stem, rendered audio dir). Must match SPLIT_MANIFESTS["mid"] in
-# scripts/train.py -- for `mid` the manifest and the audio directory differ.
-MID = [("mid_train", "train"), ("mid_val", "val")]
+# Which (manifest stem, rendered audio dir) pairs a split needs. Must match
+# SPLIT_MANIFESTS in scripts/train.py -- for `mid` the manifest and the audio
+# directory differ, because it is a row-subset over train/val audio; for `sir0`
+# they are the same, because those are freshly generated trials.
+SPLIT_FILES = {
+    "mid":  [("mid_train", "train"), ("mid_val", "val")],
+    "sir0": [("sir0_train", "sir0_train"), ("sir0_val", "sir0_val")],
+}
 
 # the only files TrialDataset opens, plus meta.json for provenance
 TRIAL_FILES = ["mixture.wav", "target.wav", "enrollment.wav", "meta.json"]
@@ -108,9 +113,9 @@ def stage_code(out: Path) -> None:
     print(f"  code: {len(CODE)} files, stamped commit {git_commit()[:12]}")
 
 
-def stage_data(out: Path) -> None:
+def stage_data(out: Path, split: str) -> None:
     copied = skipped = 0
-    for stem, audio_dir in MID:
+    for stem, audio_dir in SPLIT_FILES[split]:
         man = REPO / "data/manifests" / f"{stem}.csv"
         if not man.exists():
             sys.exit(f"missing {man} -- build it with "
@@ -133,7 +138,7 @@ def stage_data(out: Path) -> None:
     print(f"  audio files: {copied} copied, {skipped} already current")
 
 
-def verify(code_dir: Path, data_dir: Path) -> None:
+def verify(code_dir: Path, data_dir: Path, split: str) -> None:
     """Import and run one batch through the loss FROM THE STAGED COPIES.
 
     Own process, cwd=code_dir, so nothing can silently resolve against the real
@@ -157,7 +162,7 @@ cfg = yaml.safe_load(open("experiments/configs/bsrnn_baseline.yaml"))
 torch.manual_seed(int(cfg["seed"]))
 
 data = Path(r"{data_dir.resolve()}") / "data"
-tr, va = get_data_loaders("mid", data / "manifests", data, cfg)
+tr, va = get_data_loaders("{split}", data / "manifests", data, cfg)
 assert len(tr.dataset) and len(va.dataset), "empty dataset"
 L, m = build_loss_fn(cfg), build_model(cfg); m.eval()
 print(f"train={{len(tr.dataset)}} val={{len(va.dataset)}} "
@@ -209,6 +214,8 @@ def zip_dir(d: Path, z: Path, compress: bool) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--split", default="mid", choices=sorted(SPLIT_FILES),
+                    help="which split's audio to bundle")
     ap.add_argument("--out", default="kaggle_bundle")
     ap.add_argument("--code-only", action="store_true",
                     help="skip the audio entirely; use after a code change")
@@ -216,17 +223,18 @@ def main() -> None:
     args = ap.parse_args()
 
     root = Path(args.out)
-    code_dir, data_dir = root / "code", root / "data_bundle"
+    code_dir, data_dir = root / "code", root / f"data_bundle_{args.split}"
 
+    print(f"bundling split '{args.split}'")
     print(f"staging code -> {code_dir}")
     stage_code(code_dir)
 
     if not args.code_only:
         print(f"staging data -> {data_dir}")
-        stage_data(data_dir)
+        stage_data(data_dir, args.split)
 
     if data_dir.exists():
-        verify(code_dir, data_dir)
+        verify(code_dir, data_dir, args.split)
     else:
         print("  (no staged data; skipping verification)")
 
@@ -235,10 +243,12 @@ def main() -> None:
         # minutes. The code zip is text, so compress that one.
         zip_dir(code_dir, root / "kaggle_code.zip", compress=True)
         if not args.code_only:
-            zip_dir(data_dir, root / "kaggle_data.zip", compress=False)
+            # named per split: a sir0 bundle must not silently overwrite the mid
+            # one, since `mid` is the control arm and has to stay reproducible
+            zip_dir(data_dir, root / f"kaggle_data_{args.split}.zip", compress=False)
 
         print("\nOn Kaggle, add BOTH as datasets (data once, code whenever it changes):")
-        print(f"  {root}/kaggle_data.zip   -> dataset with data/manifests + data/rendered")
+        print(f"  {root}/kaggle_data_{args.split}.zip   -> dataset with data/manifests + data/rendered")
         print(f"  {root}/kaggle_code.zip   -> dataset with scripts/ + src/ + experiments/")
         print("Then run notebooks/kaggle_train_mid.ipynb.")
 

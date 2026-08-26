@@ -1173,3 +1173,148 @@ epoch 3, the end of the warm-up, which happens to be the state the decision
 turned on.
 
 ---
+
+## 2026-08-25 — The model ignores the voice sample because the data lets it. New `sir0` split
+
+**Decision: stop changing the model and the loss. Build `sir0` -- `mid` with the
+target/interferer loudness ratio centred on zero instead of 90 % target-louder --
+and retrain. `mid` is kept as the control arm.**
+
+A day of measurement, mostly ruling things out. Everything below is measured on
+`mid_train` / `mid_val`, on CPU, with no training.
+
+### The job, and what the model actually does
+
+Each clip has two people talking over each other plus background noise. We hand
+the model a 5 s sample of the voice we want. It should output only that person.
+
+It ignores the sample. Run the same clip twice, once with the right person's
+sample and once with a stranger's: the output changes by **2.6 %**. Same answer
+either way, so it is doing something generic to the audio rather than picking out
+a person.
+
+### Why: the data answers the question without the sample
+
+**90 % of two-speaker trials have the target LOUDER than the interferer**, median
++6 dB, because `regimes.base` narrows `sir_db` to [0, 12]. So "keep the loud
+voice" is right ~90 % of the time -- and the model sees the mixture, so it gets
+loudness for free.
+
+Measured as a hit rate on "is the target the dominant voice at this moment?":
+
+| who is louder | n | speaker cue | loudness (free) |
+| --- | --- | --- | --- |
+| interferer louder (sir < 0) | 66 | 59.2 % | 54.8 % |
+| target louder 0-6 dB | 302 | 61.4 % | 66.9 % |
+| target louder 6+ dB | 379 | 58.5 % | **81.5 %** |
+
+The cue is flat across all three -- it tracks *who*, not *how loud*, which is the
+right behaviour. Loudness climbs to 81.5 % where the target dominates, and 379 of
+747 trials live in that bin. Faced with an 81 %-accurate free strategy and a
+58 %-accurate one that must be learned, the model picks the free one. It is
+behaving correctly; the task barely requires the enrollment.
+
+`difficulty-dial.md` (2026-08-13) ranked `sir_db` #1 of 14 dials and stated the
+mechanism exactly: "At -5 dB the interferer is louder than the target, so nothing
+but the enrollment can identify which voice to keep." It framed the narrowing as
+**difficulty** relief. It is also **relevance** relief. Those are different: a
+task can be easy and still require the enrollment. That distinction is the thing
+this entry adds.
+
+### One real bug in the cue, found and fixed
+
+`TFMap` compares every mixture frame against every enrollment frame and softmaxes
+the scores. Softmax compares logits by DIFFERENCE, not ratio:
+`w_i / w_j = exp(s_i - s_j)`. `F.normalize` (needed -- we want spectral shape,
+not loudness) bounds every cosine to [-1, 1], so the largest achievable
+difference was ~1 and the best-matching frame could never outweigh the worst by
+more than `e^1 = 2.7x`. Spread over 628 enrollment frames that is nothing.
+
+Measured: **619.6 of 628 frames effectively used**; the top frame held 0.22 % of
+the weight against 0.16 % for a flat average. The softmax was averaging, not
+selecting, so the cue was the enrollment's long-term mean spectrum -- varying
+only 4.7 % over time.
+
+Zhang et al. eq (2) is written on UN-normalised products, measured here at
+0..932, a range that selects sharply on its own. Normalising removed the range;
+`model.tfmap_scale` restores it. Default `sqrt(F)` ~ 16 at F=257. Worth **+3.5
+to +5.3 points** on the hit-rate table above. Pinned by
+`tests/test_tfmap_scale.py`, which tests the mechanism (`w_i/w_j == exp(scale *
+(s_i - s_j))`) and not just the symptom.
+
+### Ruled out, with numbers
+
+- **The loss, and the silence reward.** Two runs, two schedules. The `w = 0`
+  warm-up moved enrollment sensitivity by 0.1 dB over four epochs; the model
+  switched from the mute to passthrough. See the entry above.
+- **`w_m` and `tau_abs`.** `w_m` would need ~243 and flips sign at the correct
+  volume; `tau_abs` is identical at 0.001, 0.01 and 0.1.
+- **Enrollment length.** 5 s -> 10 s buys **0.8** points. 5 s -> 20 s buys the
+  same 0.8. Four times the audio, no further gain. **Do not re-render for a
+  longer enrollment.**
+- **Enrollment EQ.** 0.3 points (1 % of the gap), and 49.2 % of trials carry it.
+- **Reverb mismatch.** Giving the sample the trial's room at a mirrored source
+  position: **0.0** points.
+- **The cue's ability to recognise voices.** Given two clean clips it separates
+  "same person, different words" from "different person" in **95.3 %** of 319
+  pairs (97.4 % at scale 8). Spectral Similarity is a strong speaker
+  discriminator; the 2026-08-19 choice of eq (2) over eq (3) is NOT the problem.
+
+### A4 is doing real work -- keep it
+
+The only enrollment arm that helped was giving the sample the target's **exact**
+source position: +4.9 points, 14 % of the gap. That is positional fingerprinting,
+which is precisely what A4 (2026-08-12, "the enrollment carries NO room") exists
+to prevent. Worth recording that A4's stated reason -- matching on room instead
+of voice -- is subtly wrong for a two-speaker trial, since both talkers share the
+room and room-matching cannot separate them. The real cheat is POSITION, and A4
+blocks it. Right decision, slightly wrong justification.
+
+### The finding that keeps the problem open
+
+The cue scores **95 % on clean clips and 56-61 % on mixtures**. An overlapped
+frame is the SUM of two people, so it resembles neither alone; judging whether
+the target dominates a frame almost requires having separated it first. So even
+with the loudness shortcut removed the per-frame signal is weak. It may still be
+enough -- the network has 7.19 M parameters and six LSTM layers, and the cue only
+has to say WHICH voice to favour while the network separates -- but that is
+reasoning, not evidence, and `sir0` is what tests it.
+
+### `sir0`
+
+`sir_db: [-10.0, 10.0]`, symmetric, so the shortcut becomes a coin flip. Width
+kept wide rather than [-6, 6] deliberately: it leaves easy trials (target +10 dB)
+to bootstrap on instead of making every trial equally hard. Realism cost is real
+and acknowledged -- difficulty-dial.md calls -10 dB "plausible but uncommon".
+The protocol gates only `overlap_ratio` behind supervisor agreement, not
+`sir_db`, so this is a logged decision rather than an escalation.
+
+Both regimes resolve to [-10, 10]: the split-level value is what `hard`
+inherits, and the split's own `regimes` block omits `base.sir_db` so `base`
+cannot re-narrow it. Every other parameter matches `train`, so the split differs
+in exactly one axis.
+
+`speakers_from: train` (new, `scripts/build_manifest.py`) borrows train's 1,172
+speakers so `splits.yaml` -- generated and pinned before any data existed --
+needs no hand edit. Speaker-disjointness is inherited from the borrowed split.
+
+**`sir0_val` carries the same symmetric range as `sir0_train`.** Training on one
+loudness distribution and scoring on another would measure neither. This departs
+from the B4 note in `generator.yaml` that eval composition matches train, which
+is why it is logged here.
+
+### Caveats
+
+One seed, one run per arm. The 66-trial interferer-louder cell is the population
+the whole argument rests on and its cue-vs-loudness margin (+4.4) came back at
+`mean/se = +1.1`, i.e. **not distinguishable from noise** -- so "the cue beats
+loudness where loudness fails" is NOT established. What is established is the
+shortcut's size (81.5 % vs 58 %) and its prevalence (90 %).
+
+An attempt to confirm the model literally follows loudness was **inconclusive**:
+the only checkpoint on disk is epoch 1 of the warm-up run (`w = 0`, 333 steps),
+where passthrough behaviour is what the schedule was designed to produce. It
+tracked the mixture at 0.937 against the target at 0.761, but at that epoch that
+shows nothing. The epoch-9 checkpoint was not downloaded.
+
+---

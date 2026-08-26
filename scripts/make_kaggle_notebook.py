@@ -36,15 +36,26 @@ no data generation, no analysis.
 ## Before you run
 
 1. **Settings -> Accelerator -> GPU** (T4 or P100).
-2. **Add data ->** both datasets: `tse-mid-audio` (from `kaggle_data.zip`,
-   2.7 GB, upload once) and `tse-code` (from `kaggle_code.zip`, small, re-upload
-   whenever the code changes). Separate so a one-line fix never costs a 2.7 GB
-   upload. Their paths are hardcoded in `DATA_DIR` / `CODE_DIR` below — if you
-   rename a dataset, copy the new path from the right-hand **Input** panel.
+2. **Add data ->** two datasets: the audio for the split you are training
+   (from `kaggle_data_<split>.zip`, ~2.9 GB, upload once per split) and `tse-code`
+   (from `kaggle_code.zip`, small, re-upload whenever the code changes). Separate
+   so a one-line fix never costs a 2.9 GB upload. Set `SPLIT`, `DATA_DIR` and
+   `CODE_DIR` below to match — copy the paths from the right-hand **Input** panel.
 3. Set `EPOCHS` in the next cell. Run with `EPOCHS = 2` first to get a measured
    seconds/epoch, then decide — Kaggle kills a GPU session at 12 h and
    `history.csv` is only written when training *finishes*. The checkpoint is
    saved on every val improvement, so a kill costs the curve, not the weights.
+
+## Do not lose the results
+
+Launch with **Save & Run All (Commit)**, not interactively. Kaggle then runs this
+headless and commits `/kaggle/working` permanently, so nothing depends on you
+downloading in time. An interactive session discards `/kaggle/working` when it
+times out -- that is how the 2026-08-25 results were nearly lost.
+
+The second-to-last cell also zips everything small into one file and prints the
+history as text, so even a lost filesystem leaves the numbers in this notebook's
+saved output.
 
 ## If the session dies before it finishes
 
@@ -58,22 +69,25 @@ The checkpoint is saved on every val improvement, so the weights survive too.
 ## To resume in a later session
 
 Save Version, then add this notebook's own output as a dataset input and set
-`RESUME_FROM` to the `model_mid.pt` inside it. `train.py` refuses to resume
+`RESUME_FROM` to the `model_<split>.pt` inside it. `train.py` refuses to resume
 across a config change, so do not edit the knobs between sessions.
 """.strip()))
 
 cells.append(code(r'''
 # ============================== KNOBS ==============================
-EPOCHS      = 2       # start at 2 to measure, then raise. 12 h GPU cap.
+SPLIT       = "sir0"  # "mid" = 90% target-louder (control) | "sir0" = symmetric
+EPOCHS      = 10      # 12 h GPU cap. At the measured 1950 s/epoch, 10 ~= 5.4 h.
+                      # 10 not 6: the mid control ran 10, and the 4+3 schedule
+                      # only reaches full w at epoch 6, so 6 would stop mid-ramp.
 BATCH_SIZE  = 12      # CEILING, not a promise. 12 OOMs on a 14.6 GiB T4; the
                       # probe below steps down until one fwd+bwd+step fits and
                       # writes the winner into the config that trains.
 BATCH_FLOOR = 2       # give up below this
 NUM_WORKERS = 4       # 0 starves the GPU: 3 windowed wav reads per crop
-RESUME_FROM = None    # e.g. "/kaggle/input/prev-run/model_mid.pt"
+RESUME_FROM = None    # e.g. "/kaggle/input/prev-run/models/model_sir0.pt"
 
 # The two Kaggle dataset mount points. Change only if you rename the datasets.
-DATA_DIR = "/kaggle/input/datasets/grantbooysen/tse-mid-audio"
+DATA_DIR = "/kaggle/input/datasets/grantbooysen/tse-sir0-audio"
 CODE_DIR = "/kaggle/input/datasets/grantbooysen/tse-code"
 # ===================================================================
 
@@ -117,8 +131,8 @@ print(f"data: {DATA}\ncode: {CODE}")
 # Fail here, with the exact missing path, rather than three cells later with
 # something obscure. If a path is wrong, the Kaggle right-hand Input panel shows
 # the real one -- copy it into the knobs cell above.
-for base, rel in [(DATA, "data/manifests/mid_train.csv"),
-                  (DATA, "data/manifests/mid_val.csv"),
+for base, rel in [(DATA, f"data/manifests/{SPLIT}_train.csv"),
+                  (DATA, f"data/manifests/{SPLIT}_val.csv"),
                   (CODE, "scripts/train.py"),
                   (CODE, "experiments/configs/bsrnn_baseline.yaml"),
                   (CODE, "src/models/bsrnn.py")]:
@@ -173,7 +187,7 @@ print(f"  loss: w={cfg['loss']['w']} w_m={cfg['loss']['w_m']} "
       f"tau_pres={cfg['loss']['tau_pres']} tau_abs={cfg['loss']['tau_abs']}")
 
 if RESUME_FROM:
-    dst = Path(OUT) / "model_mid.pt"
+    dst = Path(OUT) / f"model_{SPLIT}.pt"
     shutil.copy2(RESUME_FROM, dst)
     ck = torch.load(dst, map_location="cpu", weights_only=False)
     print(f"resume: copied checkpoint from epoch {ck['epoch']}, best_val {ck['best_val']:.4f}")
@@ -198,12 +212,12 @@ import sys, yaml, torch
 from pathlib import Path
 sys.path.insert(0, ".")
 from scripts.train import get_data_loaders, build_model, build_loss_fn, unpack
-B, data = int(sys.argv[1]), Path(sys.argv[2])
+B, data, split = int(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
 cfg = yaml.safe_load(open("experiments/configs/bsrnn_baseline.yaml"))
 cfg["data"]["batch_size"] = B
 torch.manual_seed(int(cfg["seed"]))
 dev = torch.device("cuda")
-tr, _ = get_data_loaders("mid", data / "manifests", data, cfg)
+tr, _ = get_data_loaders(split, data / "manifests", data, cfg)
 m = build_model(cfg).to(dev); m.train()
 L = build_loss_fn(cfg)
 opt = torch.optim.AdamW(m.parameters(), lr=1e-4)
@@ -234,7 +248,7 @@ else:
     cands = sorted(set(cands), reverse=True)
     chosen = None
     for B in cands:
-        r = subprocess.run([sys.executable, "_probe_batch.py", str(B), str(DATA / "data")],
+        r = subprocess.run([sys.executable, "_probe_batch.py", str(B), str(DATA / "data"), SPLIT],
                            cwd=REPO, capture_output=True, text=True)
         if r.returncode == 0 and r.stdout.startswith("OK"):
             _, b_ok, peak, res = r.stdout.split()
@@ -276,7 +290,7 @@ cells.append(code(r'''
 # -u as well as train.py's own flush=True: stdout is a pipe here, and a killed
 # session must not lose rows to a buffer.
 cmd = [sys.executable, "-u", "scripts/train.py",
-       "--split", "mid",
+       "--split", SPLIT,
        "--epochs", str(EPOCHS),
        "--config", "experiments/configs/bsrnn_baseline.yaml",
        "--data-root", str(DATA / "data"),
@@ -309,10 +323,74 @@ if rc != 0:
 '''))
 
 cells.append(code(r'''
+# --- SAVE EVERYTHING, before anything can be lost ------------------------
+# The reliable way to keep Kaggle output is "Save & Run All (Commit)": Kaggle
+# then runs this headless and commits /kaggle/working permanently. An
+# INTERACTIVE session throws /kaggle/working away when it times out, which is
+# how the 10-epoch results were nearly lost on 2026-08-25.
+#
+# Belt and braces regardless of how it was launched:
+#   1. train.py now writes model_<split>_last.pt EVERY epoch, so the newest
+#      weights survive a kill even if the best ones are stale.
+#   2. ALL-<split>-e<n>.zip holds the results AND the checkpoints, so
+#      recovery is a single download.
+#   3. the history is printed as text below, so even a lost filesystem leaves
+#      the numbers in this notebook's saved output.
+import shutil, zipfile, glob
+from pathlib import Path
+
+STAMP = f"{SPLIT}-e{EPOCHS}"
+bundle = Path(WORK) / f"results-{STAMP}.zip"
+with zipfile.ZipFile(bundle, "w", zipfile.ZIP_DEFLATED) as z:
+    for f in sorted(Path(RES).rglob("*")):
+        if f.is_file():
+            z.write(f, f"results/{f.name}")
+    cfgp = Path(REPO) / "experiments/configs/bsrnn_baseline.yaml"
+    if cfgp.exists():
+        z.write(cfgp, "bsrnn_baseline.yaml")      # the config that actually ran
+    rt = Path(REPO) / "docs/run_times.md"
+    if rt.exists():
+        z.write(rt, "run_times.md")
+print(f"small artefacts -> {bundle}  ({bundle.stat().st_size/1e6:.1f} MB)")
+
+# ONE archive with the checkpoints in it too, so recovery is a single download.
+# ZIP_STORED for the .pt files: they are already-compressed tensors, so
+# deflating them costs minutes and saves almost nothing.
+full = Path(WORK) / f"ALL-{STAMP}.zip"
+with zipfile.ZipFile(full, "w", zipfile.ZIP_STORED) as z:
+    z.write(bundle, bundle.name)
+    for pt in sorted(glob.glob(f"{OUT}/*.pt")):
+        z.write(pt, f"models/{Path(pt).name}")
+        print(f"  + {Path(pt).name}  ({Path(pt).stat().st_size/1e6:.0f} MB)")
+print(f"EVERYTHING       -> {full}  ({full.stat().st_size/1e6:.0f} MB)")
+
+# Click-to-download, so nothing has to be hunted for in the file browser.
+try:
+    from IPython.display import FileLink, display
+    print("download this one and you have everything:")
+    display(FileLink(str(full.relative_to("/kaggle/working"))))
+    print("or separately:")
+    display(FileLink(str(bundle.relative_to("/kaggle/working"))))
+    for pt in sorted(glob.glob(f"{OUT}/*.pt")):
+        display(FileLink(str(Path(pt).relative_to("/kaggle/working"))))
+except Exception as exc:
+    print(f"(no download links in this environment: {exc})")
+
+# The history as TEXT. If the filesystem is lost this block is still in the
+# notebook's saved output, and it is a valid history.csv on its own.
+for name in ("history.csv", "history_live.csv"):
+    f = Path(RES) / name
+    if f.exists():
+        print(f"\n----- {name} -----")
+        print(f.read_text().strip())
+        break
+'''))
+
+cells.append(code(r'''
 # --- what came out -------------------------------------------------------
 import pandas as pd
 
-ck = Path(OUT) / "model_mid.pt"
+ck = Path(OUT) / f"model_{SPLIT}.pt"
 print(f"checkpoint: {ck}  ({ck.stat().st_size/1e6:.0f} MB)" if ck.exists() else "NO CHECKPOINT")
 
 hist = Path(RES) / "history.csv"
@@ -346,7 +424,7 @@ if rt.exists():
     print("\nmeasured wall time (copy this row into the repo's docs/run_times.md):")
     for r in rows[:1]:
         print(" ", r)
-print("\nDownload /kaggle/working/models/model_mid.pt and /kaggle/working/results/ "
+print(f"\nDownload {full} -- it holds the results and every checkpoint. "
       "before the session ends, or Save Version to keep them.")
 '''))
 

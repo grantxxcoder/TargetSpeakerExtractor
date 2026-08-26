@@ -228,8 +228,24 @@ def build_model(config):
         lookahead_frames=config["model"]["lookahead_frames"],
         # Without this the config key is dead: BSRNN_TFMAP's own default (16.0)
         # would win and editing the yaml would change nothing.
-        tfmap_scale=config["model"]["tfmap_scale"],
+        #
+        # Missing key => a checkpoint saved BEFORE 2026-08-25, when TFMap had no
+        # logit scale at all, i.e. an effective scale of 1.0. Those weights must
+        # be reloaded at 1.0: defaulting to sqrt(F) would run them against a cue
+        # they never saw in training, and every diagnostic on them would be
+        # measuring a model that never existed. Loud, because silently reviving
+        # the flat softmax on a NEW run is the bug this whole file is about.
+        tfmap_scale=_tfmap_scale(config),
     )
+
+
+def _tfmap_scale(config):
+    if "tfmap_scale" in config["model"]:
+        return float(config["model"]["tfmap_scale"])
+    print("WARNING: config has no model.tfmap_scale -- assuming 1.0, the "
+          "pre-2026-08-25 behaviour. Correct for an old checkpoint, WRONG for "
+          "a new run: add the key to the config.", file=sys.stderr)
+    return 1.0
 
 
 def unpack(batch, device):
@@ -400,6 +416,30 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
         if scheduler is not None:
             scheduler.step(val_loss["total"])
 
+        # A SECOND checkpoint, written every epoch regardless of improvement.
+        #
+        # The best-only save below can be many epochs stale: the 2026-08-25
+        # warmup run improved on 9 of 10 epochs, but a run that plateaus early
+        # leaves nothing newer than the plateau. On Kaggle a session that hits
+        # the 12 h wall loses /kaggle/working entirely unless it was committed,
+        # so "the newest weights" and "the best weights" are different insurance
+        # policies and both are cheap (87 MB, ~1 s).
+        #
+        # Deliberately NOT the file --resume reads: resuming from a worse-but-
+        # newer checkpoint silently changes which model a run continues from.
+        if save_path:
+            last_path = Path(save_path).with_name(Path(save_path).stem + "_last.pt")
+            torch.save({
+                "model": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "scheduler": scheduler.state_dict() if scheduler else None,
+                "epoch": epoch,
+                "best_val": best_val,
+                "best_row": best_row,
+                "config": config,
+                "seed": config["seed"],
+            }, last_path)
+
         # Save the model if it has the best validation loss so far.
         if val_loss["total"] < best_val:
             best_val = val_loss["total"]
@@ -442,6 +482,11 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
 SPLIT_MANIFESTS = {
     "smoke": (("smoke_train", "smoke_train"), ("smoke_val", "smoke_val")),
     "mid":   (("mid_train",   "train"),       ("mid_val",   "val")),
+    # sir0: generated trials with its OWN audio, so manifest and audio dir match
+    # (unlike `mid`, which is a row-subset over train/val audio). Symmetric
+    # target/interferer loudness -- the arm that tests whether the model only
+    # ignores the enrollment because "keep the loud voice" already works.
+    "sir0":  (("sir0_train",  "sir0_train"),  ("sir0_val",  "sir0_val")),
     "full":  (("train",       "train"),       ("val",       "val")),
 }
 

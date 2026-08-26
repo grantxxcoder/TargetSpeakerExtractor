@@ -94,8 +94,9 @@ def main() -> None:
                       chunk_s=cfg["data"]["chunk_s"],
                       sample_rate=cfg["data"]["sample_rate"],
                       seed=cfg["seed"], random_crop=False)
+    src = "from --scale" if args.scale is not None else "from the config"
     print(f"{manifest}.csv, audio from rendered/{audio_dir}, {len(ds)} trials, "
-          f"tfmap_scale={scale}")
+          f"tfmap_scale={scale} ({src})")
 
     # bins by who is the louder voice. -inf..0 is the population that matters.
     BINS = [(-99.0, 0.0, "interferer LOUDER (sir < 0)"),
@@ -144,14 +145,24 @@ def main() -> None:
 
     print(f"\nHow often is the TARGET correctly identified as the dominant voice?")
     print(f"(coin flip = 50.0 %)\n")
-    print(f"{'who is louder':<28} {'n':>4} {'speaker cue':>12} {'loudness':>10} {'cue - loud':>11}")
+    print(f"{'who is louder':<28} {'n':>4} {'speaker cue':>12} {'loudness':>10} "
+          f"{'cue - loud':>11} {'std err':>8} {'mean/se':>7}")
     for _, _, key in BINS:
         a = acc[key]
         if not a["cue"]:
             print(f"{key:<28} {0:>4}   (no usable trials)")
             continue
         c, l = 100 * st.mean(a["cue"]), 100 * st.mean(a["loud"])
-        print(f"{key:<28} {len(a['cue']):>4} {c:11.1f}% {l:9.1f}% {c - l:+10.1f}")
+        # PAIRED: cue and loudness are scored on the same trials, so the spread
+        # that matters is of their per-trial difference, not of either alone.
+        d = [100 * (x - y) for x, y in zip(a["cue"], a["loud"])]
+        n = len(d)
+        se = (st.stdev(d) / (n ** 0.5)) if n > 1 else float("nan")
+        # mean / standard error. |.| > 2 is the usual "probably not noise" line.
+        tstat = (st.mean(d) / se) if se and se == se and se > 0 else float("nan")
+        verdict = ("noise" if abs(tstat) < 2 else "real") if tstat == tstat else "?"
+        print(f"{key:<28} {n:>4} {c:11.1f}% {l:9.1f}% {c - l:+10.1f} "
+              f"{se:8.1f} {tstat:+7.1f}  {verdict}")
 
     print("\nRead the FIRST row. That is the only population where loudness cannot")
     print("answer the question, so it is the only place the voice sample has to earn")

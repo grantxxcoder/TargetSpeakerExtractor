@@ -15,6 +15,8 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
 <!-- rows appended below by src/run_log.py -->
+| 2026-08-26 | `scripts/render_trials.py --split sir0_val` | 128 trials rendered | 81 s | 8 workers, 16 kHz PCM_16 |
+| 2026-08-26 | `scripts/render_trials.py --split sir0_train` | 1,989 trials rendered | 18 min | 8 workers, 16 kHz PCM_16 |
 | 2026-08-25 | `scripts/train.py --split mid` | 2,000 trials x 10 epochs, mid | 5.4 h | batch 6, cuda, 1950 s/epoch. w warmup 4+3. Kaggle T4; row copied by hand from the session output. |
 | 2026-08-25 | `scripts/train.py --split smoke` | 50 trials x 2 epochs, smoke | 11 min | batch 3, cpu, 337 s/epoch |
 | 2026-08-25 | `scripts/train.py --split mid` | 2,000 trials x 2 epochs, mid | 58 min | batch 6, cuda, 1739 s/epoch |
