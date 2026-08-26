@@ -105,13 +105,13 @@ class BSRNN_TFMAP(nn.Module):
     def __init__(self, sample_rate=16000, n_fft=512, hop=128, band_segments=None,
                  feature_dim=128, hidden_dim=192, num_repeat=6, mlp_hidden=384,
                  n_hidden=1, lookahead_frames=0, causal=True,
-                 residual_branch=True, in_channels=3):
+                 residual_branch=True, in_channels=3, tfmap_scale=16.0):
         super().__init__()
         self.lookahead_frames = lookahead_frames
         self.band_widths = band_plan(sample_rate, n_fft, band_segments)
 
         self.stft         = STFT(n_fft, hop, sample_rate)
-        self.tfmap        = TFMap()
+        self.tfmap        = TFMap(scale=tfmap_scale)
         self.split        = BandSplit(self.band_widths)
         self.subband_norm = SubbandNorm(self.band_widths, in_channels, feature_dim, causal)
         self.separator    = BandSequenceModel(feature_dim, hidden_dim, num_repeat, causal)

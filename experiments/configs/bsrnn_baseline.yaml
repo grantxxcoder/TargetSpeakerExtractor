@@ -29,6 +29,7 @@ model:
     n_fft: 512          # 32 ms at 16 kHz (Yu et al., Interspeech 2023 §4.2), consider making this larger at 1024 as we have the budget for it
     hop: 128            # 8 ms
   lookahead_frames: 0   # 0-16. Each frame = one hop = 8 ms.
+  tfmap_scale: 16.0      # scale factor for the attention logits in TFMap, see src/models/conditioning.py
 
 loss:
   # M2 objective, decisions-m1.md 2026-08-20. Six deviations from CARTSE

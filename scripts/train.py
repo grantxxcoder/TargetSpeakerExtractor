@@ -226,6 +226,9 @@ def build_model(config):
         mlp_hidden=config["model"]["mask"]["mlp_hidden"],
         residual_branch=config["model"]["mask"]["residual_branch"],
         lookahead_frames=config["model"]["lookahead_frames"],
+        # Without this the config key is dead: BSRNN_TFMAP's own default (16.0)
+        # would win and editing the yaml would change nothing.
+        tfmap_scale=config["model"]["tfmap_scale"],
     )
 
 
