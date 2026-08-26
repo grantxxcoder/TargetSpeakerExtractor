@@ -15,6 +15,8 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
 <!-- rows appended below by src/run_log.py -->
+| 2026-08-25 | `scripts/train.py --split mid` | 2,000 trials x 10 epochs, mid | 5.4 h | batch 6, cuda, 1950 s/epoch. w warmup 4+3. Kaggle T4; row copied by hand from the session output. |
+| 2026-08-25 | `scripts/train.py --split smoke` | 50 trials x 2 epochs, smoke | 11 min | batch 3, cpu, 337 s/epoch |
 | 2026-08-25 | `scripts/train.py --split mid` | 2,000 trials x 2 epochs, mid | 58 min | batch 6, cuda, 1739 s/epoch |
 | 2026-08-25 | `scripts/train.py --split smoke` | 50 trials x 2 epochs, smoke | 10 min | batch 3, cpu, 303 s/epoch |
 | 2026-08-25 | `scripts/make_kaggle_bundle.py` | 2,200 trials staged + zipped, `mid` | 3.5 min | zip-only: audio was already staged (0 copied, 8,800 current). A cold run adds the ~2.7 GB copy. Added by hand: the script does not use `run_log.timed`. |

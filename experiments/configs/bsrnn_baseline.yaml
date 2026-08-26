@@ -34,7 +34,24 @@ loss:
   # M2 objective, decisions-m1.md 2026-08-20. Six deviations from CARTSE
   # recorded there; the deviations are in src/models/losses.py, the numbers here.
   w:     0.458          # weight on the absent half. Deviation 5: 0.297 absent
-                    # rate carried through CARTSE's eta = 2.0
+                    # rate carried through CARTSE's eta = 2.0. NOTE the measured
+                    # rate on mid_train is 0.3028 (val 0.2850), so this is
+                    # slightly off its own derivation. Not re-derived before the
+                    # warmup run: changing two things at once would make the
+                    # result uninterpretable. decisions-m1.md 2026-08-25.
+  w_schedule:           # Absent-branch warmup. WHY: the 2-epoch mid run learned
+                        # SILENCE before conditioning -- by epoch 1 the output
+                        # was already -18.5 dB below the mixture with enrolment
+                        # sensitivity -14.31 dB. With w = 0 the silence shortcut
+                        # pays nothing, so the only way down is to reconstruct
+                        # the target, which on `both` crops needs the enrolment.
+                        # See w_at_epoch() in scripts/train.py.
+                        # Delete this block to train at constant w.
+    w_start: 0.0        # w during warmup
+    warmup_epochs: 4    # epochs at w_start. A GUESS: no measurement says how
+                        # many steps conditioning needs. The end-of-warmup
+                        # val_enrol_sens_db is what tells you if 4 was enough.
+    ramp_epochs: 3      # then linear w_start -> w. Epochs 7+ train at full w.
   w_m:   9.62          # weight on L_MR inside the present branch. MEASURED at
                     # the do-nothing anchor over 300 crops, 2026-08-20:
                     # L_pres -5.909 dB, L_MR 0.1842, target ratio 0.3

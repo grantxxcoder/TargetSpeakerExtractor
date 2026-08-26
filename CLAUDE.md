@@ -84,6 +84,24 @@ real conversational TSE.
 - If needing a format for what to do always begin with the instruction first,
   highlighted, or made clear, followed by the short explanation as to why it
   is required only if necessary.
+- **Explain results in plain English, on every response, not just when asked.**
+  When reporting what an experiment did, say it in ordinary words first: what
+  the model was supposed to do, what it actually did, and why that matters.
+  Then give the numbers. Do not lead with term names (`L_pres`, `L_MR`,
+  `L_abs`, SI-SDR, "conditioning", "the objective") — name the thing in plain
+  words and give the symbol after, once, if it is needed to read a table.
+  Prefer percentages and comparisons to a baseline over raw dB where either
+  will do. **Why:** I have to defend every one of these numbers verbally in a
+  viva, and a result I cannot re-explain from memory in plain speech is a
+  result I do not actually understand yet.
+- **Say what a number means, never just what it is.** "Enrolment sensitivity
+  -15.86 dB" is not a finding. "Swapping in a stranger's voice sample changes
+  the output by 2.6 %, so the model is ignoring it" is. Always state which
+  direction is good.
+- **Flag when a headline number improves for a bad reason.** The 2026-08-25
+  run's total loss fell the whole way while the model was collapsing to
+  silence. If the main metric is moving for a reason that is not progress, say
+  so in the same breath as reporting it.
 
 ## Current phase
 Phase 2: data preparation

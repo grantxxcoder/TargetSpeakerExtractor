@@ -1052,3 +1052,124 @@ energy gap. Neither is in `history.csv` yet.
 1-D slice holding the learned mask shape fixed.
 
 ---
+
+## 2026-08-25 — Turning off the silence reward did not help. The model still ignores the voice sample
+
+**Decision: stop changing the loss. The next thing to investigate is how the
+voice sample is fed into the model (`src/models/conditioning.py`), not the
+scoring.** Ran 10 epochs on `mid` with a warm-up schedule; the result was a
+clean negative and it rules out the loss as the cause.
+
+Result: `experiments/results/2026-08-25-train-mid-warmup/`. 5.4 h on a Kaggle
+T4, batch 6, 1,950 s/epoch.
+
+### The job, and what the model is actually doing
+
+Every clip has two people talking over each other plus background noise. We also
+hand the model a short sample of the voice we want. It should output only that
+person.
+
+It is ignoring the sample. The test: run the same clip twice, once with the
+right person's sample and once with a stranger's. If the model were listening,
+the two outputs would sound like different people. The output changes by
+**2.6 %**. Same answer either way — so it is doing something generic to the
+audio rather than picking out a person.
+
+### Why it can score well without doing the job
+
+The score rewards two separate things: sound like the target while she is
+talking, and stay silent while she is not. That leaves two shortcuts, and
+neither one needs the voice sample.
+
+  1. **Say nothing at all.** Lose points on the first half, max out the second.
+     This is what the 2026-08-24 run did (entry above).
+  2. **Hand the recording back nearly unchanged.** The target is usually the
+     louder of the two voices, so the original mixture already resembles her.
+     Decent score for doing almost nothing.
+
+### What was tried
+
+Switch off the silence reward for the first 4 epochs (`w = 0`), then ramp it in
+over 3. With shortcut 1 unavailable the model should be forced to actually learn
+to pick the person out. Config: `loss.w_schedule`, implemented in
+`w_at_epoch()`.
+
+Thresholds were fixed **before** the run so the result could not be argued into
+whatever we hoped for. Measured on how much the output moves when the sample is
+swapped: better than -6 dB = worked; -6 to -10 = partial; worse than -10 = the
+schedule is not the answer.
+
+### What happened
+
+**At the end of the warm-up (epoch 3): -15.86 dB.** It started at -15.98. Flat
+across all four epochs. It never began listening to the sample.
+
+It took shortcut 2 instead. Compared with just handing the recording back
+unchanged (measured 2026-08-20: `L_pres` -5.909, `L_MR` 0.1842):
+
+| | end of warm-up (epoch 3) | vs handing it back unchanged |
+| --- | --- | --- |
+| how close to the target | -6.657 | only **0.75 dB better** |
+| second quality measure | 0.1900 | **worse** (+0.0058) |
+
+Four epochs bought three quarters of a dB over doing nothing, and the second
+measure never beat doing nothing at all.
+
+Then the silence reward came back and so did shortcut 1: output on
+target-silent clips fell to -18.3 dB below the mixture, and the second quality
+measure went back up, 0.190 -> 0.236.
+
+### The trap: the headline number improved the whole way
+
+Total loss fell from -3.40 to **-10.74** across the run, and the best score was
+the very last epoch. That reads as a successful run. It is not — the score
+improved *because the model got quieter*. The thing making the number look good
+is the thing making the model useless.
+
+This is the second time that has happened, and it is why the two extra columns
+now exist (`val_enrol_sens_db`, `val_pres_abs_gap_db`). They are the only
+numbers in the log that told the truth. **Never report `val_total` from this
+objective without checking them.**
+
+### One thing that did improve
+
+Against the 20-speaker run, this one had 940 and ends slightly less deaf to the
+voice sample: **5.5 % vs 2.5 %**, and the loud/quiet gap reached 3.09 dB against
+1.34. Real, small, pointing the right way. More speakers helps a little; it is
+not the main problem.
+
+### What this rules out
+
+Two runs, two different schedules for the silence reward, same blindness to the
+voice sample. Combined with the 2026-08-24 measurements — no value of `w_m`
+works (it would need ~243 and flips sign at the correct volume), and `tau_abs`
+does nothing (the score at correct volume is -5.90 dB at 0.001, 0.01 and 0.1
+alike) — **the loss is not what is stopping the model from using the sample.**
+
+The remaining suspect is the path the sample takes into the model. If swapping
+it for a stranger's changes the output by a few percent, that connection may be
+too weak to influence what comes out, and no amount of rebalancing the score
+will fix that. See the 2026-08-19 entry on Spectral Similarity conditioning.
+
+### Kept, even though the warm-up did not work
+
+`loss.w_schedule` stays in the config, defaulting to a schedule but returning
+the constant `w` when the block is deleted. It is cheap, it is tested
+(`tests/test_w_schedule.py`), and it is the arm this entry reports — removing it
+would make the result unreproducible.
+
+One implementation note worth keeping: every `total` is computed at the **final**
+`w`, never the epoch's own `w`. Otherwise the number means something different
+each epoch, and two things that read it break — the learning-rate scheduler sees
+the ramp as improvement and never steps down, and best-checkpoint selection
+picks whichever epoch had the largest `w` rather than the best model.
+
+### Caveats
+
+200 validation clips, one seed, one run. `meta.yaml` and the final checkpoint
+were not downloaded before the Kaggle session ended, so this result carries no
+config hash or commit — see the `NOTE.md` beside it. The checkpoint on disk is
+epoch 3, the end of the warm-up, which happens to be the state the decision
+turned on.
+
+---

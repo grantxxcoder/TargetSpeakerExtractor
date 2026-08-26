@@ -52,23 +52,141 @@ def build_loss_fn(config):
                      sample_rate=sample_rate)
 
 
+def w_at_epoch(config, epoch):
+    """The absent-branch weight for this epoch. decisions-m1.md 2026-08-25.
+
+    WHY A SCHEDULE. Measured on the 2-epoch `mid` run: by epoch 1 (666 steps)
+    the model had already muted to -18.5 dB below the mixture, with enrolment
+    sensitivity -14.31 dB and a present/absent gap of +0.85 dB. It learned
+    silence BEFORE it learned anything about who to extract.
+
+    That is what the objective asks for. Going quiet is worth ~9 loss units
+    (w * the 20 dB tau_abs floor) and is immediately available; learning to use
+    the enrolment is slow and, because L_pres is scale-invariant, earns nothing
+    for correct level. So the shortcut wins, and once the output is near-silent
+    the present/absent distinction barely moves the loss -- the gradient that
+    would teach conditioning is weakest exactly when it needs to build.
+
+    Weights cannot fix this: w_m would need ~243 and sign-flips at the correct
+    gain, and tau_abs is inert (L_abs at correct gain is -5.90 dB at tau 0.001,
+    0.01 and 0.1 alike). The untried lever is WHEN the absent branch is active.
+
+    With w = 0 the silence shortcut pays nothing, so the only way down is to
+    reconstruct the target -- and on `both` crops (49 % of the data) that is
+    impossible without reading the enrolment.
+
+        epoch <  warmup_epochs                      -> w_start   (default 0)
+        warmup_epochs <= epoch < warmup + ramp      -> linear w_start -> w
+        epoch >= warmup + ramp                      -> w
+
+    Absent `w_schedule`, returns loss.w for every epoch, so an unscheduled
+    config behaves exactly as before.
+    """
+    w_final = float(config["loss"]["w"])
+    sched = config["loss"].get("w_schedule")
+    if not sched:
+        return w_final
+
+    warmup = int(sched.get("warmup_epochs", 0))
+    ramp = int(sched.get("ramp_epochs", 0))
+    w_start = float(sched.get("w_start", 0.0))
+    assert 0.0 <= w_start <= 1.0, f"w_schedule.w_start must be in [0, 1], got {w_start}"
+    assert warmup >= 0 and ramp >= 0, "w_schedule epochs must be >= 0"
+
+    if epoch < warmup:
+        return w_start
+    if ramp <= 0 or epoch >= warmup + ramp:
+        return w_final
+    # linear in epochs. +1 so the final ramp epoch reaches w_final rather than
+    # stopping one step short of it.
+    frac = (epoch - warmup + 1) / ramp
+    return w_start + frac * (w_final - w_start)
+
+
 # The history schema, in one place. Used BOTH by the per-epoch line printed to
 # stdout and by history.csv, so a log pasted out of a killed run is a valid
 # history.csv with no editing. If these drifted, that guarantee would silently
 # break -- hence one definition, not two.
 HISTORY_FIELDS = ["total", "L_pres", "L_MR", "L_abs", "n_present", "n_absent"]
 
+# VAL-ONLY, so not in HISTORY_FIELDS (which is mirrored as train_* and val_*).
+# These two are LEADING indicators; the four above are lagging ones.
+#
+#   enrol_sens_db     how much the output moves when the enrolment is swapped
+#                     for another crop's. Near 0 dB = strongly conditioned;
+#                     very negative = the model is ignoring the enrolment and
+#                     doing generic enhancement rather than target extraction.
+#   pres_abs_gap_db   output loudness on target-present crops minus target-
+#                     absent crops. Large positive = it knows when to speak.
+#
+# They exist because NONE of the four loss terms can show a mute. L_pres is
+# scale-invariant, so a perfect output at 1/30th volume scores identically to
+# one at correct volume; L_abs rewards silence outright; L_MR notices only
+# indirectly and late. The 2026-08-24 smoke run collapsed to a uniform mute and
+# the loss curve looked healthy throughout -- it took a checkout probe to find.
+# decisions-m1.md 2026-08-25.
+VAL_DIAGNOSTICS = ["enrol_sens_db", "pres_abs_gap_db"]
+
 
 def history_header():
+    # `w` is the absent-branch weight ACTUALLY USED for training that epoch,
+    # which the warmup schedule varies. Logged because without it a reader
+    # cannot tell a real improvement from a schedule step. The `total` columns
+    # are always computed at the FINAL w (see epoch_report), so they stay
+    # comparable across the schedule -- this column records what trained.
     return (["epoch"] + [f"train_{k}" for k in HISTORY_FIELDS]
-            + [f"val_{k}" for k in HISTORY_FIELDS] + ["lr"])
+            + [f"val_{k}" for k in HISTORY_FIELDS] + ["lr", "w"]
+            + [f"val_{k}" for k in VAL_DIAGNOSTICS])
 
 
 def history_row(tr, va):
     """One row. Epoch comes from the VAL dict: on a resume the histories start at
-    start_epoch, so enumerate() would relabel epoch 40 as epoch 0."""
+    start_epoch, so enumerate() would relabel epoch 40 as epoch 0.
+
+    .get on the diagnostics: a caller that builds val rows by hand (the tests,
+    and any older checkpoint's history) has no such keys, and a missing
+    diagnostic must not take down the row that carries the losses."""
     return ([va["epoch"]] + [tr[k] for k in HISTORY_FIELDS]
-            + [va[k] for k in HISTORY_FIELDS] + [va["lr"]])
+            + [va[k] for k in HISTORY_FIELDS] + [va["lr"], va.get("w", float("nan"))]
+            + [va.get(k, float("nan")) for k in VAL_DIAGNOSTICS])
+
+
+def diagnostic_accumulate(diag, model, mixture, enrollment, s_output, crop_absent):
+    """Accumulate the two leading indicators over one val batch.
+
+    The swapped-enrolment forward is the ONLY extra compute this adds: one more
+    forward over the val set per epoch, against a train set 10x larger run with
+    backward. Roll by one within the batch rather than shuffling globally, so no
+    second pass over the data is needed.
+
+    Skipped at batch size 1, where roll() returns the same enrolment and the
+    measurement would read a false 0 dB. With 940 target speakers a rolled pair
+    sharing a speaker is rare enough to ignore.
+    """
+    if mixture.shape[0] > 1:
+        y_swapped = model(mixture, enrollment.roll(1, 0))
+        diag["swap_num"] += float((s_output - y_swapped).pow(2).sum())
+        diag["swap_den"] += float(s_output.pow(2).sum())
+
+    # per-crop output energy relative to its own mixture, in dB
+    e = 10 * torch.log10(s_output.pow(2).sum(-1) / mixture.pow(2).sum(-1) + 1e-12)
+    absent = crop_absent.bool()
+    present = ~absent
+    if present.any():
+        diag["e_pres"] += float(e[present].sum()); diag["n_pres"] += int(present.sum())
+    if absent.any():
+        diag["e_abs"] += float(e[absent].sum()); diag["n_abs"] += int(absent.sum())
+
+
+def diagnostic_report(diag):
+    """Accumulators -> the two logged numbers. NaN when a half was never seen,
+    matching how the loss terms report a missing half."""
+    nan = float("nan")
+    sens = (10 * np.log10(diag["swap_num"] / diag["swap_den"])
+            if diag["swap_den"] > 0 and diag["swap_num"] > 0 else nan)
+    gap = (diag["e_pres"] / diag["n_pres"] - diag["e_abs"] / diag["n_abs"]
+           if diag["n_pres"] and diag["n_abs"] else nan)
+    return {"enrol_sens_db": sens, "pres_abs_gap_db": gap}
 
 
 def total_loss_floor(config):
@@ -151,7 +269,17 @@ def add_parts(sums, counts, parts):
 
 
 def epoch_report(sums, counts, w, wm):
-    """Recombine the accumulated terms with the same w and wm as the batch loss."""
+    """Recombine the accumulated terms.
+
+    `w` here is the REPORTING w -- always loss.w, the schedule's final value --
+    never the w that trained this epoch. Under a warmup schedule the two differ,
+    and mixing them makes `total` a different objective each epoch: the curve
+    would fall as w ramped up for no reason but the schedule. That in turn
+    corrupts two things that read `total`: ReduceLROnPlateau (it would see
+    spurious improvement and never drop the lr) and best-checkpoint selection
+    (it would pick whichever epoch had the largest w). The w that actually
+    trained is logged in its own column. decisions-m1.md 2026-08-25.
+    """
     n_present, n_absent = counts["present"], counts["absent"]
     L_pres = sums["L_pres"] / n_present if n_present else float("nan")
     L_MR = sums["L_MR"] / n_present if n_present else float("nan")
@@ -179,12 +307,24 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
     grad_clip = float(config["training"]["grad_clip"])
     patience = int(config["training"]["patience"])
     epochs_since_best = 0
+    # Fixed for the whole run. Every `total` reported anywhere uses this, so the
+    # curve is one objective even while the schedule moves the training w.
+    w_report = float(config["loss"]["w"])
+    if config["loss"].get("w_schedule"):
+        ws = [w_at_epoch(config, e) for e in range(num_epochs)]
+        print(f"w schedule: {config['loss']['w_schedule']}", flush=True)
+        print(f"  w by epoch: {[round(v, 4) for v in ws]}", flush=True)
+        print(f"  reporting/selection w held at {w_report}", flush=True)
 
     for epoch in range(start_epoch, num_epochs):
         # Re-crop. Offsets are derived from (seed, epoch, idx), so without this
         # every epoch reads the same 4 s window of every clip -- reproducible,
         # and it throws away five sixths of the audio.
         train_loader.dataset.set_epoch(epoch)
+
+        # The one place the schedule takes effect: the loss used for the
+        # backward pass this epoch. Everything downstream reports at w_report.
+        loss_fn.w = w_at_epoch(config, epoch)
 
         model.train()
         sums, counts = defaultdict(float), defaultdict(int)
@@ -214,16 +354,17 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
             # Same recombination as the epoch report, so the bar converges to
             # the number that gets logged.
             pbar.set_postfix_str(
-                f"loss {epoch_report(sums, counts, loss_fn.w, loss_fn.wm)['total']:.4f}")
+                f"loss {epoch_report(sums, counts, w_report, loss_fn.wm)['total']:.4f}")
 
         pbar.close()
-        epoch_loss = epoch_report(sums, counts, loss_fn.w, loss_fn.wm)
+        epoch_loss = epoch_report(sums, counts, w_report, loss_fn.wm)
         train_loss_history.append(epoch_loss)
 
 
         # VALIDATION LOSS
         model.eval()
         val_sums, val_counts = defaultdict(float), defaultdict(int)
+        diag = defaultdict(float)
         with torch.no_grad():
             for batch in tqdm(val_loader, desc=f"epoch {epoch+1}/{num_epochs} val",
                               unit="batch", leave=False, dynamic_ncols=True):
@@ -232,10 +373,15 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
                 s_output = model(mixture, enrollment)
                 _, parts = loss_fn(target, s_output, mixture, crop_absent)
                 add_parts(val_sums, val_counts, parts)
+                diagnostic_accumulate(diag, model, mixture, enrollment,
+                                      s_output, crop_absent)
 
-        val_loss = epoch_report(val_sums, val_counts, loss_fn.w, loss_fn.wm)
+        val_loss = epoch_report(val_sums, val_counts, w_report, loss_fn.wm)
+        val_loss.update(diagnostic_report(diag))
         val_loss["epoch"] = epoch
         val_loss["lr"] = optimizer.param_groups[0]["lr"]
+        # the w that TRAINED this epoch, not w_report -- see history_header()
+        val_loss["w"] = loss_fn.w
         val_loss_history.append(val_loss)
 
         # One CSV row per epoch, same columns and same order as history.csv. The
