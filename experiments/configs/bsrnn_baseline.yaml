@@ -2,7 +2,15 @@ seed: 42
 
 data:
   sample_rate: 16000    # read by the loss (windows_ms -> n_fft) and the loader
-  chunk_s: 4.0          # decisions-m1.md 2026-08-18 (CARTSE)
+  chunk_s: 4.008        # decisions-m1.md 2026-08-18 (CARTSE) gave 4.0; the extra
+                        # 8 ms is a SPEED fix, not a modelling one. fp16
+                        # tensor-core LSTM kernels need the batch dimension to be
+                        # a multiple of 8; band_rnn's batch is examples x T, and
+                        # 4.0 s gives T=503 (prime), so only batch sizes
+                        # divisible by 4 aligned. 4.008 s gives T=504 = 8 x 63,
+                        # so EVERY batch size aligns. Measured 2026-08-28:
+                        # 2.993 -> 0.674 s/step at batch 3, a 4.44x speedup, for
+                        # a 0.2 % LONGER crop. decisions-pending.md E3f.
   both_directions: true   # Train every trial TWICE: the same mixture asked for
                         # the target, then for the other speaker. The only thing
                         # in the data that makes reading the enrollment
@@ -105,6 +113,13 @@ loss:
   ablate_w_m:   [0.0, 2.89, 9.62]   # the 0 arm is required
 
 training:
+  amp: true             # Automatic Mixed Precision: fp16 for the model forward,
+                        # fp32 for the master weights and for the whole loss.
+                        # Measured 1.58x on the T4 (4.741 -> 2.993 s/step) and
+                        # 1.86x less memory. MUST stay config-driven: it changes
+                        # training numerics, so a run's history is only readable
+                        # next to the flag that produced it. CUDA-only; ignored
+                        # on CPU. decisions-pending.md E3d.
   lr: 0.0005
   epochs: 100
   patience: 10

@@ -319,3 +319,338 @@ mechanism does not help, a richer dictionary is unlikely to, and D1 should not b
 scheduled". Sharpening helped but left 85 % of the output enrollment-blind, so
 D1 is **not** cleanly ruled out — but it remains M5-scale against D4 and D6,
 which are hours to days. Order by cost: D3, D6, D4, D5, then reconsider D1.
+
+---
+
+## E. Performance and memory — open
+
+*Added 2026-08-28. Group D is modelling; this is engineering. Both are open
+questions with nowhere else to live. Anything actually decided goes to
+`decisions-m1.md`.*
+
+### E1. `batch_size: 3` is a memory ceiling, not a preference
+
+The config comment says batch "should be 12" on GPU. **It cannot be, in fp32.**
+Activation memory saved for the backward pass, analytic (4 bytes, ~4x hidden for
+cuDNN gate buffers), at `T` = 497 frames, `K` = 32, `N` = 128, `H` = 192, 6 blocks:
+
+| batch (trials) | examples | LSTM activations | fits 15 GB T4 |
+|---|---|---|---|
+| 3 | 6 | ~4.9 GB | yes |
+| 6 | 12 | ~9.8 GB | tight |
+| 12 | 24 | ~19.7 GB | **no** |
+
+**These are computed, not measured** — `scripts/profile_step.py` measures them.
+But they explain the observed `batch_size: 3` exactly, and the comment promising
+12 should be corrected rather than left as an aspiration.
+
+### E2. The band RNN is the dominant cost, and that is counter-intuitive
+
+Per forward at batch 3, LSTM work splits:
+
+    time_rnn  batch = B*K =  192, seq = T = 497           281 GFLOP
+    band_rnn  batch = B*T = 2982, seq = K =  32, bidir    563 GFLOP   <- 67 %
+
+**The "across frequency" RNN costs twice what the "over time" RNN does.** It
+looks cheap — 32 steps against 497 — but `BSNet.forward` reshapes to
+`(B*T, N, K)`, so it runs a separate 32-step bidirectional sequence *for every
+frame of every example*: an effective batch of 2982 at `batch_size` 3. It is
+also the larger half of the memory in E1, for the same reason.
+
+**Consequence: cost is linear in `T` through BOTH RNNs** — directly for
+`time_rnn`'s sequence, and through `band_rnn`'s *batch*. Halving `T` roughly
+halves compute and memory together.
+
+### E3. The 3.7x that is not accounted for
+
+Measured 5.84 s/step (3875.2 s / 663 steps, `docs/run_times.md` 2026-08-27).
+Analytic floor from E2's FLOPs, assuming LSTMs realise ~20 % of the T4's 8.1
+TFLOP/s fp32: **~1.6 s**. So **roughly 3.7x of the step is unexplained** and is
+one of: data loading, the 32-iteration Python band loops in `SubbandNorm` and
+`Estimator`, or low GPU occupancy at batch 3.
+
+**These have different fixes and we do not know which it is.** Run
+`scripts/profile_step.py` before optimising anything. This is the whole reason
+that script exists.
+
+### E3b. MEASURED 2026-08-28 — what the profile actually says
+
+`scripts/profile_step.py`, batch 1, CPU x4, fp32. **CPU timings do not predict
+GPU timings** (no kernel-launch overhead on CPU, different LSTM/conv balance),
+so the shares below need re-running on the T4. The RNN dominance and the loader
+result transfer; the band-loop share is the one that may not.
+
+    11.381 s/step at batch 1, peak RSS 5100 MB
+    forward = 34 % of wall (so backward ~ 66 %, i.e. ~2x forward -- normal)
+
+    stft            0.002 s    0.0 %
+    tfmap           0.005 s    0.1 %
+    subband_norm    0.019 s    0.5 %
+    separator       3.661 s   95.8 %
+    estimator       0.134 s    3.5 %
+
+      time_rnn  seq=497 batch=64    1.207 s   31.6 % of forward
+      band_rnn  seq=32  batch=994   2.276 s   59.6 % of forward
+
+**E2's prediction is confirmed.** Analytic said the band RNN would be ~67 % of
+LSTM work; measured it is 65 % of the two RNNs (59.6 / 91.2). The "cheap"
+across-frequency RNN really is the dominant cost.
+
+**Three corrections to the estimates above.**
+
+1. **The band loops are not the bottleneck.** `SubbandNorm` + `Estimator`
+   together are **4.0 %** of forward. E4 lever 5 was ranked too high even at
+   last place; on CPU it is not worth the refactor risk at all. Kernel-launch
+   overhead could make it larger on the T4 — that is the one number worth
+   re-checking there — but it will not be the headline.
+2. **Data loading is not the bottleneck either.** `--loader-only`: **0.382
+   s/batch** for 6 examples at `num_workers=0`, single-threaded and unoverlapped,
+   i.e. the worst case. Against the measured 5.84 s/step that is 6.5 %, and on
+   Kaggle with `num_workers=4` it overlaps compute and largely disappears.
+   **This settles E5: audio compression would buy nothing.** Do not spend time
+   on FLAC or on caching STFTs.
+3. **E1's memory estimate is ~3x too low.** Analytic said ~1677 MB of LSTM
+   activations at batch 1; measured peak RSS is **5100 MB**. The gap is the
+   autograd graph, gradients, optimiser state, and — significant — `L_MR`'s
+   **eight STFTs** (four window sizes x target and output), all retained for
+   backward. Scale E1's table by ~3 when reasoning about what fits.
+
+**So the remaining unexplained time is inside the RNNs, not around them.** The
+levers that matter are the ones that make the RNNs cheaper or better utilised:
+AMP, a bigger batch for occupancy, checkpointing to enable it, and cutting `T`.
+
+### E3d. MEASURED 2026-08-28 on the T4 — AMP works, batch 3 is the ceiling
+
+`scripts/profile_step.py`, Tesla T4 14.56 GiB, torch 2.10.0+cu128, 8 timed steps.
+
+| batch 3 | s/step | peak GPU |
+|---|---|---|
+| fp32 | 4.741 | **12.20 GB** |
+| AMP (fp16) | 2.968 | **6.57 GB** |
+
+**AMP: 1.60x faster, 1.86x less memory.** Measured, not projected.
+
+**Batch 3 is the fp32 ceiling.** Batches 4, 5, 6 and 12 all raised
+`OutOfMemoryError`, every one inside `band_rnn`'s `_VF.lstm` — the term E2
+identified. `bsrnn_baseline.yaml`'s comment promising batch 12 is wrong by 4x
+and should be corrected: 12.20 GB of a 14.56 GB card leaves no room for a
+fourth trial.
+
+**Wall-clock effect is 1.44x, not 1.60x.** The profiled step is compute only.
+The real loop measures 5.84 s/step (3875.2 s / 663), so ~1.1 s/step is loader,
+validation and the extra diagnostic forward, none of which AMP touches:
+
+    2.968 + 1.1 = 4.07 s/step -> 2698 s/epoch -> 10 epochs in 7.5 h (was 10.8 h)
+
+**E1's analytic memory model is ~2.4x low on GPU** (5032 MB predicted at batch 3,
+12.20 GB measured), consistent with the ~3x under-estimate on CPU. Multiply E1's
+table by ~2.5 before using it to predict a ceiling.
+
+**Attribution from that run is VOID.** It reported `estimator` 97.4 % and
+`separator` 0.8 %, inverting the CPU result. Two bugs, both fixed 2026-08-28:
+CUDA kernels are asynchronous, so unsynchronised `perf_counter` hooks measure
+QUEUING and whichever module blocks last absorbs the whole queue; and the AMP
+loop accumulated into the same counters as the fp32 loop (`calls=17` where 8
+were expected). The fixed script syncs per boundary and runs attribution as its
+own gated fp32 pass. **The GPU attribution still needs re-running** — E3b's CPU
+split (separator 93-96 %, band_rnn 57-60 %, band loops 4 %) is the only valid one.
+
+**Open, and it decides whether checkpointing is needed: the AMP batch ceiling.**
+Unknown, because the sweep runs fp32 first and OOMs before reaching AMP.
+
+**The first `--amp-only` attempt (2026-08-28) was VOID** and reported the fp32
+ceiling a second time: the warmup step before the timing loops ran unconditionally
+in fp32, so it allocated the exact footprint the mode exists to avoid and OOM'd at
+batch 4 before AMP was ever exercised. Fixed by constructing the `GradScaler`
+before the warmup and passing it in when `--amp-only` is set; the mode now also
+refuses to run without CUDA. **Any `--amp-only` result from a bundle built before
+2026-08-28 21:00 should be discarded.**
+
+Re-run over batches 4-8. At 6.57 GB for batch 3, batch 6 is plausible and batch 8
+is not.
+
+### E3c. Operational: profiling locally can kill the terminal
+
+On 2026-08-28 an earlier `profile_step.py` at the config's batch 3 triggered:
+
+    systemd-oomd: Killed .../app-org.gnome.Terminal.slice/vte-spawn-*.scope
+    due to memory pressure ... 57.19% > 50.00% for > 20s with reclaim activity
+    -> killed 13 process(es) in this unit
+
+**systemd-oomd kills the whole cgroup scope, not the offending process**, and it
+fires on sustained PSI pressure rather than absolute exhaustion — swap thrash is
+enough. At 5.1 GB per batch-1 step, batch 3 needs ~15 GB on a 15 GB laptop.
+This is the same failure `measure_train_cost.py` records against VSCode on
+2026-08-24.
+
+**Protocol for any local profiling or training:**
+
+    systemd-run --user --scope -p MemoryMax=5G -p MemorySwapMax=0 -- \
+        ../tse_venv/bin/python scripts/profile_step.py --batch 1
+
+`profile_step.py` now also refuses to start when its estimate exceeds half of
+available RAM, and keeps `torch.profiler` behind `--deep` because it retains a
+record per op.
+
+### E3e. MEASURED 2026-08-28 — AMP ceiling is batch 6, and a bigger batch buys NOTHING
+
+`scripts/profile_step.py --amp-only`, T4 14.56 GiB, 8 steps, fp16.
+
+| batch | s/step | **s/trial** | peak GB | GB/trial |
+|---|---|---|---|---|
+| 3 | 2.971 | **0.990** | 6.57 | 2.19 |
+| 4 | 0.926 | *0.232* | 8.72 | 2.18 |
+| 5 | 4.969 | **0.994** | 10.87 | 2.17 |
+| 6 | 6.028 | **1.005** | 13.02 | 2.17 |
+| 12 | OOM | — | — | — |
+
+**Memory is exactly linear: 0.12 GB fixed + 2.15 GB per trial**, three identical
+2.15 GB increments. Batch 7 would need 15.17 GB against 14.56 available, so
+**batch 6 is the fp16 ceiling** — confirmed by the batch-12 OOM.
+
+**The finding that changes the plan: throughput per trial is FLAT.** Batches 3,
+5 and 6 sit at 0.990, 0.994 and 1.005 s/trial — a 1.4 % spread across a 2x batch
+range. **The T4 is already saturated at batch 3.**
+
+**Therefore gradient checkpointing is NOT worth building (E4 lever 3 is
+withdrawn).** Its entire justification was that batch 3 gives only 192 parallel
+sequences, that an LSTM's batch is its only parallelism, and that a larger batch
+would repay the ~33 % recompute cost through occupancy. **Measured, occupancy
+does not improve.** Checkpointing would buy memory headroom we have no use for
+and charge 33 % more compute for it. That prediction was wrong and the
+measurement is the reason to drop it.
+
+**Batch 4 (0.232 s/trial) is a 4.28x outlier and is NOT yet a result.** Its
+memory sits exactly on the linear trend, so it did allocate the normal
+footprint; only the time is anomalous. A plausible mechanism is a cuDNN LSTM
+kernel switch — `time_rnn`'s batch is `B*K` = 256 at batch 4, the only power of
+two in the sweep — but that should not yield 4x when `time_rnn` is ~1/3 of the
+RNN work, so the mechanism does not explain the size of the effect.
+**If real it is worth 8.4x on epoch time (3875 s -> 460 s) and dwarfs every
+other lever in this group.** Verify before believing: re-run batches 3, 4, 5 at
+`--steps 20`. Do not put it in the thesis on one observation.
+
+### E3f. MEASURED 2026-08-28 — the 4x is REAL: fp16 tensor-core batch alignment
+
+**Batch 4 reproduced six times across two sessions, interleaved with 3/5/6, at a
+0.3 % spread.** It is not noise.
+
+| batch | ex | runs | mean s/step | spread | **s/example** | `band_rnn` batch = ex*T | %8 |
+|---|---|---|---|---|---|---|---|
+| 3 | 6 | 4 | 2.993 | 0.9 % | 0.499 | 3018 | 2 |
+| **4** | 8 | 6 | **0.977** | **0.3 %** | **0.122** | **4024** | **0** |
+| 5 | 10 | 2 | 5.005 | 0.0 % | 0.501 | 5030 | 6 |
+| 6 | 12 | 1 | 6.007 | — | 0.501 | 6036 | 4 |
+
+**The mechanism.** NVIDIA tensor cores require the batch dimension to be a
+multiple of 8 for fp16. `BSNet.forward` reshapes to `(B*T, N, K)` for
+`band_rnn`, so its batch is `ex * T`. **T = 503 is odd** (prime), so
+`ex * T % 8 == 0` requires `ex % 8 == 0`, i.e. **batch divisible by 4**. Miss it
+and cuDNN falls back to a non-tensor-core kernel.
+
+**The hypothesis predicts the data exactly, with nothing fitted:** of 3, 4, 5, 6
+it says only 4 aligns, and only 4 is fast. The three unaligned sizes agree with
+each other to 0.4 % (0.499 / 0.501 / 0.501 s per example) — the signature of a
+shared fallback kernel. Aligned vs unaligned is **4.09x**.
+
+**T was wrong in every earlier entry: it is 503, not 497.** `profile_step.py`
+used `(n - n_fft)//hop + 1`, but `src/models/stft.py` pads by `n_fft - hop` on
+*both* sides for overlap-add ramp room, so the formula under-counts by 6 frames.
+Now measured from the real STFT. E3b/E3d/E3e's stated T is wrong; their timings
+and memory figures are unaffected.
+
+### The fix: `chunk_s` 4.0 -> 4.008, NOT a batch-size change
+
+`T = 504` at 4.008 s, and 504 is a multiple of 8, so **every batch size aligns**
+(verified for 3-6). Why this is better than moving to batch 4:
+
+- **The crop is 0.2 % LONGER, not shorter** (4.008 s vs 4.000 s), so nothing is
+  lost.
+- **`chunk_s` is a crop parameter applied by `TrialDataset`, not a render
+  parameter — no re-rendering, one config line.**
+- **Batch stays 3, so training dynamics are untouched.** Changing batch 3 -> 4
+  changes gradient noise and drops optimiser steps per epoch from 663 to 497,
+  which is a real change to the optimisation and would need its own arm. A
+  0.2 % longer crop is not.
+
+**Projected, NOT yet measured:** at 0.122 s/example, an epoch is
+`1989 x 2 x 0.122` = **486 s of compute against the measured 3875 s -> ~8x**,
+putting 10 epochs near **1.3 h instead of 10.8 h**. The confirming run is
+`--batch 3 --chunk-s 4.008 --amp-only`; it must land near 0.73 s/step.
+
+**Does not revive checkpointing.** Throughput per example was flat across the
+three unaligned sizes, and we have only one aligned point, so nothing yet
+suggests a larger batch helps. E4 lever 3 stays withdrawn.
+
+**Loader settled.** Measured on Kaggle at **0.044 s/batch** (`num_workers=4`),
+i.e. 4.5 % of a 0.977 s step. E5 stands: audio compression buys nothing.
+
+`profile_step.py` now measures T from the real STFT, takes `--chunk-s`, and
+prints an ALIGNED / NOT ALIGNED verdict with the aligned batch sizes for the
+current T.
+
+### E4. Ranked levers, cheapest first
+
+1. **Mixed precision (fp16 + `GradScaler`).** T4 is Turing: fp16 tensor cores
+   yes, bf16 **no**. Expect ~1.5-2x on LSTM-heavy work and ~2x less activation
+   memory, which alone may unlock batch 6-8. **The loss must stay fp32**:
+   `L_pres`/`L_abs`/`L_gain` carry 1e-12 epsilons inside `log10`, and fp16's
+   smallest normal is ~6e-5, so they underflow to zero and return NaN. Wrap only
+   the model forward in `autocast`; cast to `.float()` before `LossBSRNN`.
+2. **`pin_memory=True` on both loaders.** Currently unset in
+   `build_loaders()`; `persistent_workers` and `prefetch_factor` already are.
+   One argument.
+3. **Gradient checkpointing over the six `BSNet` blocks.** Trades ~33 % extra
+   compute for roughly 5x less activation memory. Usually a net *win* here: at
+   batch 3 `time_rnn` has only 192 parallel sequences, which is poor occupancy,
+   and an LSTM's batch dimension is its only parallelism. Bigger batch may pay
+   for the recompute outright.
+4. **`hop` 128 -> 256.** Halves `T` (497 -> 249) and therefore ~halves both
+   compute and memory (E2). Latency granularity 8 ms -> 16 ms, comfortably
+   inside the 200-300 ms budget; 50 % overlap still reconstructs. **Costs mask
+   time-resolution, so it is an architecture change and needs its own ablation
+   arm and decision entry** — not a free win, but the largest single one.
+   Note `chunk_s` 4.0 -> 2.0 halves `T` too and is *not* equivalent: it cuts the
+   context the model has to learn conditioning in, which is exactly our weak
+   point. Prefer the hop change.
+5. **Collapse the 32-band Python loops into grouped convs.** `Estimator`'s
+   trunks are already uniform (`LayerNorm(128)` + `Conv1d(128->384)` + `Tanh`
+   for every band), so all 32 become one `Conv1d(32*128 -> 32*384, groups=32)`
+   — identical arithmetic, ~32x fewer launches. The mask/res heads and
+   `SubbandNorm` have band-dependent widths and need padding to `max(bw)` plus a
+   slice. **Do this last and re-measure first**: it is fixed overhead, so raising
+   the batch size shrinks its share. It may not be worth the refactor risk once
+   1-3 have landed.
+6. **`torch.compile`.** Fuses pointwise work and cuts dispatch overhead; cuDNN
+   LSTMs are untouched. Shapes are static (4 s chunks) so recompilation is not a
+   risk. Cheap to try, modest gain.
+
+### E5. Audio compression: what it can and cannot do
+
+**It cannot reduce GPU memory.** Peak memory is LSTM activations —
+`batch x time x hidden` (E1) — and how a waveform was stored on disk is
+irrelevant once it is a tensor. Compression addresses *disk* and *data-loading*
+only, so it is worth doing **only if E3's profile shows loading is the
+bottleneck**.
+
+- Audio is already 16-bit PCM (`docs/run_times.md`). The easy win is taken.
+- FLAC would halve disk but adds CPU decode on a box with ~4 vCPU already
+  feeding 4 workers. Could make things **worse**. Measure first.
+- **Caching STFTs is a net loss.** A `complex64` spectrogram is 257 x 497 x 8 B
+  = 1.02 MB against 128 KB for the int16 waveform — **8x more storage** — to
+  skip an operation that is well under 1 % of compute.
+
+### E6. Why this is worth doing at all
+
+At the measured 3875 s/epoch, on the 10-epoch schedule:
+
+| | per epoch | 10 epochs | 12 ablation runs | one 10k-trial run |
+|---|---|---|---|---|
+| today | 3875 s | 10.8 h | 129 h | 54 h |
+| 2x faster | 1938 s | 5.4 h | 65 h | 27 h |
+| 3x faster | 1279 s | 3.6 h | 43 h | 18 h |
+
+The planned arms alone (`ablate_w_m` 3, `ablate_w_g` 3, lookahead 3, plus D4a
+and a `tfmap_scale` arm to close D2) are ~12 runs. **Speed converts directly
+into how many questions the thesis can answer**, and Kaggle's ~12 h session cap
+makes the 10k-trial run multi-session at today's rate and single-session at 3x.

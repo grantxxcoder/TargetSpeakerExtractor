@@ -1547,3 +1547,71 @@ collapsed by epoch 4-5, so the comparison holds, but confirm at epoch 7.
 - `2026-08-27-train-sir0` remains the control for the `L_gain` claim
   specifically, not a general baseline: it is a muted model.
 
+## 2026-08-28 — Training made 7x faster. Three changes, one of them the whole story
+
+**Measured on the T4, batch 3: 4.741 -> 0.674 s/step.** Nothing about the model
+changed. Evidence and the full sweep in `decisions-pending.md` E3d-E3f.
+
+| # | change | where | gain |
+|---|---|---|---|
+| 1 | `chunk_s` 4.0 -> **4.008** | `bsrnn_baseline.yaml` | **4.44x** |
+| 2 | mixed precision (`amp: true`) | `bsrnn_baseline.yaml`, `train.py` | 1.58x, 1.86x less memory |
+| 3 | `pin_memory=True` | `get_data_loaders()` | small |
+
+### 1. The 8 ms that bought 4.44x
+
+**fp16 tensor cores require the batch dimension to be a multiple of 8.**
+`BSNet.forward` reshapes to `(B*T, N, K)` for `band_rnn`, so its batch is
+`examples x T`. At `chunk_s` 4.0 the STFT yields **T = 503, which is prime**, so
+only batch sizes divisible by 4 aligned — and cuDNN silently fell back to a
+non-tensor-core kernel for everything else. **4.008 s gives T = 504 = 8 x 63, so
+every batch size aligns.**
+
+Found by accident: batch 4 profiled 4x faster than 3, 5 and 6, reproduced six
+times at 0.3 % spread, and was the only size whose `examples x T` divided by 8.
+The three slow sizes agreed with each other to 0.4 % — one shared fallback kernel.
+
+**The crop is 0.2 % LONGER, not shorter, `chunk_s` is a crop applied by
+`TrialDataset` so nothing was re-rendered, and batch stays 3 so the optimisation
+is untouched.** Moving to batch 4 would have worked equally well but changes
+gradient noise and drops optimiser steps per epoch 663 -> 497; that is a
+modelling change and this is not.
+
+**T was mis-stated as 497 for three days.** `profile_step.py` used
+`(n - n_fft)//hop + 1`, but `src/models/stft.py` pads by `n_fft - hop` on *both*
+sides for overlap-add ramp room. It now measures T from the real STFT and prints
+an ALIGNED / NOT ALIGNED verdict.
+
+### 2. Mixed precision
+
+fp16 for the model forward, fp32 for master weights and **the entire loss** --
+`L_pres`/`L_abs`/`L_gain` carry 1e-12 epsilons inside `log10` and fp16's smallest
+normal is ~6e-5, so an fp16 loss returns NaN. `amp_ctx()` is the single
+definition used by train, val and the diagnostic so they cannot drift apart.
+
+Two correctness details that are easy to get wrong: **`scaler.unscale_()` must
+precede `clip_grad_norm_`** or the clip compares a ~65536x inflated norm against
+`grad_clip` and crushes every gradient to zero — training looks stable and learns
+nothing; and the diagnostic's swapped forward is cast back with `.float()` before
+its sums of squares, which would otherwise overflow fp16's 65504 ceiling.
+
+Val runs in the same precision as training deliberately: a metric measured in a
+precision the model was not trained in describes a model that does not exist.
+
+### Consequences
+
+- **Epoch time is 3.9-7.0x better, not 7x.** The compute step is 7.03x, but of
+  the measured 3875 s/epoch only ~3143 s was training; ~516 s is unaccounted
+  overhead that may not scale. Projected 550-1000 s/epoch, so 10 epochs in
+  **1.5-2.8 h against 10.8 h**. First real run settles it — do not quote 7x for
+  an epoch.
+- **`amp` is config-driven, not hardcoded**, because it changes training numerics:
+  a `history.csv` is only readable next to the flag that produced it. Runs before
+  and after this entry are not numerically comparable.
+- **Gradient checkpointing withdrawn** and the band-loop refactor dropped: E3e
+  measured throughput per example flat across batch sizes, and E3b measured the
+  32-band loops at 4 % of forward.
+- **Audio compression is settled as worthless** -- loader measured at 0.044
+  s/batch on Kaggle, 4.5 % of a step.
+- 189 tests pass. The 4.008 s crop and `amp: true` are both live in
+  `bsrnn_baseline.yaml`, so the next run uses them.
