@@ -4,6 +4,7 @@ from torch import nn
 import torch.nn.functional as F
 import torch.optim as optim
 import argparse
+import contextlib
 import yaml
 import hashlib
 import csv
@@ -127,7 +128,8 @@ def history_row(tr, va):
             + [va.get(k, float("nan")) for k in VAL_DIAGNOSTICS])
 
 
-def diagnostic_accumulate(diag, model, mixture, enrollment, s_output, crop_absent):
+def diagnostic_accumulate(diag, model, mixture, enrollment, s_output, crop_absent,
+                          amp=False):
     """Accumulate the two leading indicators over one val batch.
 
     Costs one extra val forward per epoch. Rolls within the batch rather than
@@ -135,7 +137,12 @@ def diagnostic_accumulate(diag, model, mixture, enrollment, s_output, crop_absen
     enrolment and would read a false 0 dB.
     """
     if mixture.shape[0] > 1:
-        y_swapped = model(mixture, enrollment.roll(1, 0))
+        # Forward in fp16 when training does, but .float() IMMEDIATELY: the sums
+        # below are sums of squares over 64k samples and would overflow fp16's
+        # 65504 ceiling, silently turning the diagnostic into inf.
+        with amp_ctx(amp):
+            y_swapped = model(mixture, enrollment.roll(1, 0))
+        y_swapped = y_swapped.float()
         diag["swap_num"] += float((s_output - y_swapped).pow(2).sum())
         diag["swap_den"] += float(s_output.pow(2).sum())
 
@@ -212,6 +219,19 @@ def _tfmap_scale(config):
           "pre-2026-08-25 behaviour. Correct for an old checkpoint, WRONG for "
           "a new run: add the key to the config.", file=sys.stderr)
     return 1.0
+
+
+def amp_ctx(enabled):
+    """fp16 autocast, or a no-op. ONE definition so train, val and the
+    diagnostic cannot drift into different precisions.
+
+    Scope is deliberately the MODEL FORWARD ONLY. LossBSRNN carries 1e-12
+    epsilons inside log10 and divisions; fp16's smallest normal is ~6e-5, so
+    those underflow to zero and the loss returns inf/NaN. Every caller casts the
+    model output back with .float() before the loss sees it.
+    """
+    return (torch.amp.autocast("cuda", dtype=torch.float16)
+            if enabled else contextlib.nullcontext())
 
 
 def unpack(batch, device):
@@ -295,6 +315,17 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
         print(f"  w by epoch: {[round(v, 4) for v in ws]}", flush=True)
         print(f"  reporting/selection w held at {w_report}", flush=True)
 
+    # Mixed precision. Config-driven so history.csv is readable next to the flag
+    # that produced it; CUDA-only because autocast("cuda") and GradScaler are.
+    # GradScaler(enabled=False) makes scale/unscale_/step/update exact no-ops, so
+    # ONE code path serves both precisions -- no branch in the hot loop and no
+    # second path to keep correct.
+    use_amp = (bool(config["training"].get("amp", False))
+               and str(device).startswith("cuda"))
+    scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
+    print(f"  mixed precision: {'ON (fp16 forward, fp32 loss)' if use_amp else 'off'}",
+          flush=True)
+
     for epoch in range(start_epoch, num_epochs):
         # Re-crop. Offsets are derived from (seed, epoch, idx), so without this
         # every epoch reads the same 4 s window of every clip -- reproducible,
@@ -316,16 +347,28 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
             mixture, target, enrollment, crop_absent = unpack(batch, device)
 
             optimizer.zero_grad()
-            s_output = model(mixture, enrollment)
+            with amp_ctx(use_amp):
+                s_output = model(mixture, enrollment)
             # arg order is (reference, output, mixture, mask) -- reference
             # FIRST, the reverse of the usual (pred, target). See LossBSRNN.
-            loss, parts = loss_fn(target, s_output, mixture, crop_absent)
-            loss.backward()
+            # .float() is not cosmetic: see amp_ctx on why the loss stays fp32.
+            loss, parts = loss_fn(target, s_output.float(), mixture, crop_absent)
+            scaler.scale(loss).backward()
+            # UNSCALE BEFORE CLIPPING. scale() multiplied the loss by ~65536 so
+            # small gradients survive fp16, so the gradients sitting here are
+            # inflated by that factor. Clipping them unscaled would compare an
+            # inflated norm against grad_clip and crush every gradient to near
+            # zero -- training would look stable and learn nothing.
+            scaler.unscale_(optimizer)
             # A six-layer LSTM stack on an SI-SDR-family loss: a near-silent
             # present crop puts a very large gradient through alpha. Clip value
             # comes from the config, never from here.
             nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-            optimizer.step()
+            # step() SKIPS the update when the gradients hold inf/NaN and
+            # update() then lowers the scale. A few skipped steps at the start of
+            # training is the scaler calibrating, not a bug.
+            scaler.step(optimizer)
+            scaler.update()
 
             add_parts(sums, counts, parts)
             # Running epoch loss, not this batch's: the batch number swings on
@@ -349,11 +392,16 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
                               unit="batch", leave=False, dynamic_ncols=True):
                 mixture, target, enrollment, crop_absent = unpack(batch, device)
 
-                s_output = model(mixture, enrollment)
+                # Val runs in the same precision as training on purpose: a
+                # metric measured in a precision the model was not trained in
+                # describes a model that does not exist. The loss is still fp32.
+                with amp_ctx(use_amp):
+                    s_output = model(mixture, enrollment)
+                s_output = s_output.float()
                 _, parts = loss_fn(target, s_output, mixture, crop_absent)
                 add_parts(val_sums, val_counts, parts)
                 diagnostic_accumulate(diag, model, mixture, enrollment,
-                                      s_output, crop_absent)
+                                      s_output, crop_absent, amp=use_amp)
 
         val_loss = epoch_report(val_sums, val_counts, w_report, loss_fn.wm, loss_fn.wg)
         val_loss.update(diagnostic_report(diag))
@@ -496,6 +544,10 @@ def get_data_loaders(split, csv_path, data_path, config):
     # persistent_workers only legal when num_workers > 0; without it each epoch
     # re-forks the pool, which set_epoch()'s per-epoch re-crop makes very visible.
     extra = dict(persistent_workers=True, prefetch_factor=4) if num_workers else {}
+    # Page-locked staging buffers. Pageable host memory is not DMA-readable, so
+    # every H2D copy goes through a bounce buffer and BLOCKS; pinned memory lets
+    # the copy run async and overlap compute. Free, and only meaningful on GPU.
+    extra["pin_memory"] = torch.cuda.is_available()
 
     train_loader = DataLoader(
         train_dataset,

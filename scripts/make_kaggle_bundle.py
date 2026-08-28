@@ -35,6 +35,11 @@ REPO = Path(__file__).resolve().parents[1]
 # an upload.
 CODE = [
     "scripts/train.py",
+    # profile_step.py imports build_model/build_loss_fn/get_data_loaders from
+    # train.py and nothing else new, so it adds no transitive dependency. Shipped
+    # because notebooks/kaggle_profile_step.ipynb needs it on the GPU box -- the
+    # AMP and batch-ceiling numbers cannot be measured on the laptop.
+    "scripts/profile_step.py",
     "src/run_log.py",
     "src/data/dataset_loader.py",
     "src/models/bands.py",
