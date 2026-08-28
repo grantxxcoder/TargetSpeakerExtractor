@@ -276,3 +276,6 @@ experiments/configs/bsrnn_baseline.yaml
 
 # Kaggle upload staging (regenerate with scripts/make_kaggle_bundle.py)
 kaggle_bundle/
+
+# Kaggle run outputs pulled back down (checkpoints, logs, zips) -- regenerable
+kaggle_out/

@@ -35,28 +35,17 @@ class TFMap(nn.Module):
         
         sim = torch.matmul(bx.transpose(1, 2), be)                # (B, Tx, Te)
 
-        # SCALE THE LOGITS. Not cosmetic -- without it this softmax averages
-        # instead of selecting, and the whole speaker cue goes static.
-        #
-        # softmax compares logits by DIFFERENCE, not ratio:
-        #     weight_i / weight_j = exp(s_i - s_j)
-        # The F.normalize above (needed: we want spectral shape, not loudness)
-        # bounds every cosine to [-1, 1], so the largest achievable difference
-        # is ~1 and the best-matching enrollment frame can never outweigh the
-        # worst by more than e^1 = 2.7x. Spread over Te ~ 628 frames that is
-        # nothing: MEASURED 2026-08-25, 619.6 of 628 frames effectively used,
-        # top frame holding 0.22 % of the weight against 0.16 % for a flat
-        # average. The cue became the enrollment's long-term mean spectrum,
-        # varying only 4.7 % over time, and the model ignored it.
-        #
-        # Zhang et al. eq (2) is written on UN-normalised products, measured
-        # here at 0..932 -- a range that selects sharply on its own. Normalising
-        # removed that range; this restores it. Same reasoning as attention's
-        # 1/sqrt(d), applied in the opposite direction because normalising
-        # already removed the magnitude growth that scaling usually tames.
-        #
-        # sqrt(F) by default. At F=257 that is ~16: the top 50 of 628 frames
-        # then carry ~59 % of the weight, and time variation rises to ~39 %.
+        # SCALE THE LOGITS. Without it the softmax averages instead of
+        # selecting and the cue goes static. Softmax compares logits by
+        # DIFFERENCE, and F.normalize (needed: shape, not loudness) bounds every
+        # cosine to [-1, 1], so the best enrollment frame can outweigh the worst
+        # by at most e^1 = 2.7x -- nothing across Te ~ 628 frames. MEASURED
+        # 2026-08-25: 619.6 of 628 frames effectively used, top frame 0.22 % vs
+        # 0.16 % for a flat average; the cue became the long-term mean spectrum,
+        # varying 4.7 %, and the model ignored it. Zhang et al. eq (2) is written
+        # on UN-normalised products (measured 0..932), which select sharply on
+        # their own; normalising removed that range and this restores it.
+        # sqrt(F) ~ 16 at F=257: top 50 frames then carry ~59 %, variation ~39 %.
         scale = mix_mag.shape[1] ** 0.5 if self.scale is None else self.scale
         sim = sim * scale
         h   = torch.softmax(sim, dim=-1)                          # over enrollment

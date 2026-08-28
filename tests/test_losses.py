@@ -289,7 +289,7 @@ def test_call_rejects_a_present_crop_whose_target_is_silent(loss):
 def test_call_parts_dict_has_a_stable_key_set(loss):
     """The logger's schema must not change between batches, or a missing half
     becomes a missing column instead of a gap in the curve."""
-    keys = {"L_pres", "L_MR", "L_abs", "n_present", "n_absent", "total"}
+    keys = {"L_pres", "L_MR", "L_gain", "L_abs", "n_present", "n_absent", "total"}
     for idx in ((), (2, 5, 9), tuple(range(12))):
         s, x, absent = batch(absent_idx=idx)
         assert set(loss(s, x, x, absent)[1]) == keys
@@ -303,3 +303,111 @@ def test_call_gradients_are_finite(loss, absent_idx):
     out = x.clone().requires_grad_(True)
     loss(s, out, x, absent)[0].backward()
     assert bool(torch.isfinite(out.grad).all())
+
+
+# ---------------------------------------------------------------------------
+# L_gain, the deadzone level match. Added 2026-08-27, decisions-m1.md.
+#
+# The term exists because L_pres is scale-invariant and therefore blind to the
+# mute the 2026-08-27 sir0 run collapsed into. These tests pin the three
+# properties that make it safe to add: it is zero inside the band, it is
+# SYMMETRIC (so it cannot be turned into a reward for amplifying, which is the
+# CARTSE bug Deviation 1 fixed), and at its default weight of 0 it changes no
+# existing number.
+# ---------------------------------------------------------------------------
+
+def test_gain_match_is_zero_inside_the_deadzone(loss):
+    """Grace, not indifference: no gradient is spent on sub-band errors."""
+    target = speechlike(seed=11, batch=4)
+    for gain_db in (0.0, 2.9, -2.9):
+        output = target * (10 ** (gain_db / 20))
+        got = loss._loss_gain_match(target, output, delta_db=3.0)
+        assert torch.allclose(got, torch.zeros(4), atol=1e-4), f"nonzero at {gain_db} dB"
+
+
+def test_gain_match_is_linear_in_db_outside_the_deadzone(loss):
+    target = speechlike(seed=12, batch=4)
+    output = target * (10 ** (-13.0 / 20))       # 13 dB too quiet
+    got = loss._loss_gain_match(target, output, delta_db=3.0)
+    assert torch.allclose(got, torch.full((4,), 10.0), atol=1e-3)
+
+
+def test_gain_match_is_symmetric(loss):
+    """THE test that keeps this term from becoming Deviation 1's bug again.
+
+    Too loud must cost exactly what too quiet costs. If it ever pays less, the
+    model has an unbounded gain direction to run in, which is the failure
+    _loss_target_present was rewritten to remove.
+    """
+    target = speechlike(seed=13, batch=4)
+    quiet = loss._loss_gain_match(target, target * (10 ** (-13.0 / 20)), delta_db=3.0)
+    loud = loss._loss_gain_match(target, target * (10 ** (+13.0 / 20)), delta_db=3.0)
+    assert torch.allclose(quiet, loud, atol=1e-3)
+
+
+def test_gain_match_prices_the_measured_sir0_collapse(loss):
+    """The 2026-08-27 run sat ~18 dB under the target's level. Pin what that costs.
+
+    Not a round-number test: 18 dB is the measured gap between the collapsed
+    output (-22.4 dB re mixture) and a correct one (~-4 dB re mixture), so if
+    this assertion ever changes, the term has stopped seeing the thing it was
+    added for.
+    """
+    target = speechlike(seed=14, batch=2)
+    collapsed = target * (10 ** (-18.0 / 20))
+    got = loss._loss_gain_match(target, collapsed, delta_db=3.0)
+    assert torch.allclose(got, torch.full((2,), 15.0), atol=1e-3)
+
+
+def test_gain_match_gradient_survives_near_silence(loss):
+    """eps inside the sqrt, not a clamp on the result.
+
+    A clamp would zero the gradient at exact silence and strand a fully
+    collapsed model with no way back up -- the one state this term must be able
+    to climb out of.
+    """
+    target = speechlike(seed=15, batch=2)
+    output = torch.zeros_like(target).requires_grad_(True)
+    loss._loss_gain_match(target, output, delta_db=3.0).sum().backward()
+    assert torch.isfinite(output.grad).all()
+
+
+def test_wg_defaults_to_zero_and_reproduces_the_three_term_total():
+    """The default must not move a single existing number.
+
+    Guards the A/B: `w_g: 0.0` has to be the 2026-08-20 objective exactly, or
+    the ablation's control arm is not a control.
+    """
+    torch.manual_seed(16)
+    target = speechlike(seed=17, batch=4)
+    output = target * 0.4 + 0.01 * speechlike(seed=18, batch=4)
+    mixture = target + speechlike(seed=19, batch=4)
+    crop_absent = torch.tensor([False, False, True, True])
+
+    off = LossBSRNN(wm=6.6, w=0.458, wg=0.0)
+    total, parts = off(target, output, mixture, crop_absent)
+
+    expected = ((1 - 0.458) * (parts["L_pres"] + 6.6 * parts["L_MR"])
+                + 0.458 * parts["L_abs"])
+    assert total.item() == pytest.approx(expected, abs=1e-5)
+    # ...and it is still computed and logged, which is what the anchor run reads
+    assert parts["L_gain"] == pytest.approx(parts["L_gain"])   # not NaN
+    assert parts["L_gain"] >= 0.0
+
+
+def test_wg_nonzero_enters_the_present_branch_only():
+    """It must scale with (1 - w), never with w: level is a present-crop concept
+    and L_abs already owns the absent side."""
+    target = speechlike(seed=20, batch=4)
+    output = target * 0.05                      # ~26 dB too quiet, well outside the band
+    mixture = target + speechlike(seed=21, batch=4)
+    crop_absent = torch.tensor([False, False, True, True])
+
+    off = LossBSRNN(wm=6.6, w=0.458, wg=0.0)
+    on = LossBSRNN(wm=6.6, w=0.458, wg=1.0)
+    total_off, parts = off(target, output, mixture, crop_absent)
+    total_on, _ = on(target, output, mixture, crop_absent)
+
+    delta = total_on.item() - total_off.item()
+    assert delta == pytest.approx((1 - 0.458) * 1.0 * parts["L_gain"], abs=1e-5)
+    assert delta > 0.0, "a too-quiet output must cost more once L_gain is on"

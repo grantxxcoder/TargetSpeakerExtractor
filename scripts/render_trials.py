@@ -10,7 +10,11 @@ Layout, one directory per trial:
         mixture.wav      what the model hears
         target.wav       A1's reference -- the target through its own room, alone
         enrollment.wav   dry, no room (A4)
-        meta.json        both transcripts, the gains applied, the EQ curve
+        interferer.wav   the interferer through its own room, alone -- the
+                         reference for the second training direction
+        interferer_enrollment.wav   dry, the other speaker's conditioning clip
+                         (a PHANTOM speaker when nobody interferes)
+        meta.json        both transcripts, the gains applied, the EQ curves
 
 16-bit WAV at 16 kHz, chosen 2026-08-16: decode-free, so a training step is a
 pure disk read. That is the point of pre-rendering (decisions-m0.md 2026-08-15) and
@@ -45,7 +49,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.data import render  # noqa: E402
 from src.run_log import timed  # noqa: E402
 
-STEMS = ("mixture", "target", "enrollment")
+# Also gates the "already rendered?" check at line ~85, so adding a stem here
+# is what makes existing trial directories count as INCOMPLETE and get redone.
+# Omitting the new names would leave every old trial silently skipped.
+STEMS = ("mixture", "target", "enrollment",
+         "interferer", "interferer_enrollment")
 _ctx = {}
 
 

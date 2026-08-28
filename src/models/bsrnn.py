@@ -19,28 +19,22 @@ Provenance, four papers:
   the target-absent split loss (not built here)
       CARTSE submission to the REAL-TSE Challenge Track 1
 
-Decisions implemented, all in docs/decisions/decisions-m1.md:
+Decisions, all in docs/decisions/decisions-m1.md:
 
-  2026-08-18  STFT 512/128, center=False with symmetric padding, justified
-              against our 200-300 ms budget rather than the challenge's 100 ms.
-  2026-08-18  band plan is inherited and unjustified in the literature; kept as
-              the baseline with five alternatives available for ablation.
-  2026-08-18  channel-wise LayerNorm, not the paper's BatchNorm and not
-              GroupNorm (which pools over time and leaks the future).
-  2026-08-18  sized down deliberately: hidden_dim 192 (not wesep's 256) and
-              n_hidden 1 (the paper does not specify depth). 7.16 M parameters
-              against the REAL-TSE causal baselines' 25-27 M.
-  2026-08-18  lookahead_frames is a 0-16 config knob. It is applied as a shift
-              of the feature sequence before the mask head, NOT as a target
-              shift: a multiplicative mask cannot move energy in time.
-  2026-08-19  TF-Map uses Spectral Similarity (eq. 2). The Embedding Similarity
-              variant needs frame-level embeddings of the *live mixture*, which
-              is not causal at any acceptable latency.
+  2026-08-18  STFT 512/128, center=False, sized to our 200-300 ms budget not the
+              challenge's 100 ms; band plan inherited, five ablation candidates;
+              channel-wise LayerNorm, not BatchNorm and not GroupNorm (which
+              pools over time and leaks the future); sized down deliberately to
+              7.19 M against the REAL-TSE causal baselines' 25-27 M (hidden 192,
+              n_hidden 1); lookahead_frames 0-16 shifts the FEATURE sequence, not
+              the target -- a multiplicative mask cannot move energy in time.
+  2026-08-19  TF-Map uses Spectral Similarity (eq. 2); Embedding Similarity
+              (eq. 3) needs frame-level embeddings of the live mixture, not
+              causal at any acceptable latency.
 
-Deviations from Yu et al. recorded deliberately: their BSRNN-S split (bidirectional
-band modelling below 8 kHz, unidirectional above) is omitted as inapplicable at
-16 kHz, where Nyquist *is* 8 kHz; their MetricGAN and multi-resolution spectrogram
-discriminators are omitted because they optimise PESQ directly.
+Deliberate omissions from Yu et al.: BSRNN-S's bidirectional sub-8 kHz band
+modelling (inapplicable at 16 kHz, where Nyquist IS 8 kHz), and their MetricGAN
+and spectrogram discriminators (they optimise PESQ directly).
 """
 
 import torch

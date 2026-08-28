@@ -1318,3 +1318,168 @@ tracked the mixture at 0.937 against the target at 0.761, but at that epoch that
 shows nothing. The epoch-9 checkpoint was not downloaded.
 
 ---
+
+## 2026-08-27 — sir0 run: conditioning works, the mute does not go away. Adding `L_gain`
+
+`sir0`, 1,989 train / 200 val, 8 epochs, Tesla T4, batch 3, 8.6 h, 3,875 s/epoch.
+Seed 42, config md5 `2da2d7a9...`, bundle commit `67de944...-dirty`. `kaggle_out/`.
+
+**The model learned who to listen for and still will not speak up.** It attenuates
+rather than separates.
+
+**Good, and real.** Enrolment sensitivity -14.82 -> -8.25 dB: a stranger's
+enrolment now moves the output **39 %, up from 18 %**. That is what `a6baf77`'s
+unbounded conditioning scaling was for. Only interpretable *because* of the
+2026-08-25 `sir0` change -- on `mid`, 90 % of trials had the target louder, so a
+model could look conditioned while tracking the loud voice.
+
+**Bad.** 95.0 % of the total's improvement is the absent half (smoke was 93 %),
+decomposed at the reporting w of 0.458:
+
+| branch | ep 0 | ep 7 | change | share |
+| --- | --- | --- | --- | --- |
+| present `(1-w)(L_pres + w_m·L_MR)` | +0.437 | +0.069 | -0.369 | 5.0 % |
+| absent `w·L_abs` | -1.582 | -8.592 | -7.010 | **95.0 %** |
+
+`L_MR` ended **5.5 % worse than it started** (0.2407 -> 0.2540). It improved to
+0.2231 across epochs 0-3 -- exactly the warm-up epochs where `w = 0` -- then
+reversed the epoch the ramp began. Confound named: 0-3 is also early training.
+But it is a reversal, not a slowdown, and it lands on the ramp.
+
+Derived, not logged: `L_abs` -18.76 puts absent crops 24.8 dB below the mixture;
+with the logged 2.45 dB gap, present crops sit at **-22.4 dB** (smoke: -24.9).
+
+`L_abs` is at -18.76 against its -20 floor -- **94 % spent**. The cheap direction
+is nearly exhausted.
+
+**Correction to the first reading:** `L_pres` is scale-invariant SI-SDR, so -2.32
+is **+2.32 dB** and the term improved 0.81 dB. Smoke went *backwards*. "Not
+separating at all" was too strong.
+
+### Decision: add `L_gain`, deadzone level match, default OFF
+
+    L = (1-w) · mean_present[L_pres + w_m·L_MR + w_g·L_gain] + w · mean_absent[L_abs]
+    L_gain = max(0, |20·log10(RMS_out / RMS_target)| - delta_db),  delta_db = 3.0
+
+**Objective, not architecture or data.** The architecture just learned
+conditioning; the data got harder in the right way and it learned anyway. The
+rest is arithmetic: `L_pres` is scale-invariant by design (Deviation 1) and
+cannot see a mute, `L_abs`'s optimum is zero output at weight 0.458, and the only
+push-back is `L_MR` at effective weight 5.21. The model optimised the objective
+correctly; the objective was wrong.
+
+**Does not undo Deviation 1.** That bug was *unbounded one-directional* reward --
+a correct output scaled by g scored -20log10(g) - 30, so amplifying paid forever.
+`L_gain` is symmetric in log-level and minimised AT the correct level. Scale
+variance was never the hazard; unbounded monotone reward was. `L_pres` stays
+scale-invariant and measures shape alone -- two terms, two jobs.
+
+**Deadzone ±3 dB** (amplitude 0.71x-1.41x): no gradient on sub-dB errors, and it
+puts `.abs()`'s kink inside the zeroed region. **dB, not percent** -- 10 %
+amplitude is 0.83 dB, *stricter* than a listener can resolve.
+
+**Dataset-mean anchor rejected.** Trial levels vary by construction (BS.1770,
+`sir_db` in [-10, 10], varying SNR and `target_activity_ratio`). A global mean
+rewards making quiet targets louder and loud ones quieter -- automatic gain
+control, a new degenerate solution -- and contradicts A1, whose reference is what
+the mic heard, level included.
+
+**Deviations to carry:** Deviation 7 is ours, not CARTSE's. RMS not BS.1770 (not
+differentiable; both signals measured identically so the comparison stays
+symmetric). Present crops only. Floor unchanged at -25.42: `L_gain` is 0 at
+perfect reconstruction.
+
+**Shipped OFF (`w_g = 0.0`)** but still computed and logged -- that is what the
+anchor run reads. `test_wg_defaults_to_zero_and_reproduces_the_three_term_total`
+pins that the default reproduces the 2026-08-20 objective, so the ablation's
+control arm is a real control.
+
+**Watch `pres_abs_gap_db`, not the total.** If it works the gap *widens*. If it
+stays flat while both ends rise, the model traded a mute for a pass-through.
+
+**Incidental:** during warm-up `w = 0`, so `L_gain` runs at full strength while
+the silence pressure is off.
+
+Code: `losses.py::_loss_gain_match`; `train.py` (`build_loss_fn`,
+`HISTORY_FIELDS`, `add_parts`, `epoch_report`); `bsrnn_baseline.yaml`. Seven
+tests. **`history.csv` schema changed** -- `train_L_gain`/`val_L_gain` are new,
+so older histories cannot be concatenated without filling them.
+
+---
+
+## 2026-08-28 — `w_g` = 1.69 derived. And `L_MR` does not do its documented job
+
+`scripts/derive_w_g.py`, 200 `sir0_val` crops, 6 min CPU, seed 42.
+`experiments/results/2026-08-28-wg-anchor-sir0/`.
+
+### The finding that matters more than the weight
+
+**`L_MR` rewards the mute.** The 2026-08-20 entry and `losses.py` both called it
+the term that "pins the output gain". Holding the audio fixed and changing only
+volume:
+
+| anchor | `L_pres` | `L_MR` | `L_gain` | `L_abs` |
+| --- | --- | --- | --- | --- |
+| oracle (= clean target) | -30.000 | 0.0000 | 0.0000 | -20.000 |
+| pass-through (mixture) | -1.593 | 0.2735 | 4.901 | 0.043 |
+| mixture muted to the checkpoint's level | -1.593 | **0.2438** | 17.960 | -18.818 |
+| epoch-7 checkpoint | -3.326 | 0.2417 | 17.960 | -18.818 |
+
+Muting ~21 dB **improves** `L_MR`, 0.2735 -> 0.2438. Nothing opposed the mute:
+the absent branch paid 8.639, `L_MR` a further 0.155, and the only other
+present-branch term is scale-invariant. **There was no fight to lose.** This
+supersedes the 2026-08-27 wording that `L_MR` was "losing".
+
+Why the earlier reading was wrong: `w_m = 9.62` was derived on `train` data where
+the anchor read `L_MR` 0.1842 / `L_pres` -5.909; on `sir0` it reads 0.2735 /
+-1.593. The magnitude was calibrated on a distribution that no longer applies and
+the *sign* against attenuation was never tested.
+
+**`passthrough_muted`** is the anchor that made this visible -- the mixture scaled
+per crop to the checkpoint's level. Model-vs-pass-through moves gain *and*
+separation and would price both. Two wiring checks passed: oracle `L_gain` =
+0.000000, and `L_pres` drifted 1.19e-06 pass-through -> muted, which is
+Deviation 1's scale-invariance confirmed by measurement rather than by reading code.
+
+### Anchors the 2026-08-27 entry said were missing
+
+Pass-through SI-SDR **+1.59 dB**; the checkpoint **+3.33 dB**; so the model beats
+doing nothing by **1.73 dB** -- modest, real, and anchored rather than inferred.
+Not comparable to `history.csv`'s -2.317 (different crop protocol); the
+comparison *within* this run is valid, both rows using identical crops.
+
+`L_gain` 17.960 puts the output **20.96 dB** off the target's level, consistent
+with the -22.4 dB re-mixture figure inferred on 2026-08-27.
+
+### The derivation
+
+    buys on absent   :  w * (0.043 - (-18.818))            = +8.639
+    costs via L_MR   : (1-w) * w_m * (0.2438 - 0.2735)     = -0.155  (a BENEFIT)
+    L_gain headroom  :  17.960 - 4.901                     = +13.060
+    break-even w_g   = (8.639 + 0.155) / ((1-w) * 13.060)  =  1.242
+
+**Chosen: 1.69**, geometric midpoint of [1.242, 2.297], clear of both edges.
+
+**The 2.297 ceiling is a heuristic, not a bound** -- where `w_g` x headroom
+reaches `L_pres`'s full 30 dB range. Stated as heuristic because the *achievable*
+range is nearer 10-13 dB, which would put it lower. 1.69 clears break-even by 36 %.
+
+**Cross-check.** Differentiating w.r.t. a global attenuation g while both terms
+are linear gives `d(total)/dg = -w + (1-w)·w_g`, zero at `w/(1-w) = 0.845`. That
+marginal bound and the measured integrated break-even agree in magnitude; they
+differ because `L_abs` saturates at -20 and `L_MR` supplies a bonus. Two routes,
+same order.
+
+### Consequences
+
+- **Re-derive, never inherit.** Assumes the mute is global (justified at a 2.45 dB
+  gap). A checkpoint with a real gate invalidates it.
+- **`ablate_w_m` gains a reason.** Its 0 arm now tests a term measured to be mildly
+  counterproductive.
+- **Write-up:** "L_MR pins the output gain" must be corrected at source in the
+  2026-08-20 entry, not quietly dropped. The correction is *why* a fourth term
+  was needed.
+- `--n-crops 300` yields 200: `sir0_val` has 200 trials and this script builds the
+  dataset single-direction.
+
+---

@@ -1,62 +1,35 @@
-"""Pass ONE validation trial through a trained checkpoint and write what it sounds like.
+"""Pass ONE validation trial through a checkpoint and write what it sounds like.
 
-    ../tse_venv/bin/python scripts/pass_a_test_case_through.py --split smoke --index 0
-    ../tse_venv/bin/python scripts/pass_a_test_case_through.py --split smoke --trial-id t000123
+    ../tse_venv/bin/python scripts/pass_a_test_case_through.py --split sir0 --index 0
 
-Listening check, not a measurement. Writes ONE wav -- the estimate -- plus the
-meta.yaml that says which trial it came from, and prints the loss terms for that
-one crop. Interpretability metrics come later and belong in their own script;
-this one only has to make the model's output auditable.
+Listening check, not a measurement. Writes estimate.wav + a meta.yaml, and
+prints the loss terms for that crop beside the pass-through anchor.
 
-The mixture, target and enrollment are NOT copied here. They already exist in
-data/rendered/<split>/<trial_id>/, so a copy per inspected trial is 812 KiB of
-pure duplication against a 27 GB dataset. The meta records the source directory
-instead.
+Only the estimate is written: mixture/target/enrollment already exist under
+data/rendered/<split>/<trial_id>/ and the meta records that path.
 
-WHOLE CLIP, ONE FORWARD PASS -- no chunking and no stitching. The model is
-causal (causal=True, lookahead_frames=0), so an output sample depends only on
-input samples at or before it: appending later audio cannot change earlier
-output, which is what makes one full-length pass the same thing streaming would
-emit. Measured on smoke_val-42-000000, 2026-08-24:
+WHOLE CLIP, ONE FORWARD PASS. The model is causal, so appending later audio
+cannot change earlier output -- measured 2026-08-24, interior diff 1.68e-08.
+Stitching 4 s chunks is worse, not merely unnecessary: each seam reinjects the
+384-sample overlap-add tail (max diff 4.37e-03, rel L2 1.04e-02).
 
-    full 17.7 s pass vs a 4 s pass, both starting at sample 0
-        interior max abs diff  1.68e-08          <- causality holds
-    4 independent 4 s chunks concatenated vs one full pass
-        max abs diff 4.37e-03, rel L2 1.04e-02   <- one seam artefact per join
+CAUSAL IS NOT CONTEXT-FREE. A mid-clip crop starts LSTM/cLN state COLD; inside a
+full pass it is warm. Measured 5.60e-03 max, rel L2 3.06e-01. So the AUDIO here
+is the warm version (what deployment emits) while the LOSS is the cold-start
+crop (the only number comparable to history.csv). Safe by measurement: the two
+score -2.4197 vs -2.4150 over the same window.
 
-Stitching is therefore not merely unnecessary but harmful: each seam reinjects
-the incomplete-overlap-add tail, the last n_fft - hop = 384 samples (23.4 ms).
+build_loss_fn/build_model/SPLIT_MANIFESTS are IMPORTED from train.py, never
+re-declared -- a copy is how the two silently diverge.
 
-CAUSAL IS NOT CONTEXT-FREE, and the distinction matters here. A crop taken from
-mid-clip starts the LSTM and cLN state COLD, while the same window inside a full
-pass has state warmed by everything before it. For the crop at sample 19611
-(1.23 s in) those two differ by 5.60e-03 max, rel L2 3.06e-01 -- 14 % of the
-estimate's peak. So the audio written here is NOT the cold-start crop the trainer
-would have seen; it is the warm-state version, which is what deployment produces.
-
-The LOSS is still reported on the cold-start 4 s crop, because that is the only
-number comparable to history.csv. Quoting it beside full-clip audio is safe by
-measurement, not by the causality argument: over the same window the two score
-total -2.4197 (cold) against -2.4150 (warm), a 0.005 gap. The waveform
-difference sits in low-energy detail the objective barely weights.
-
-build_loss_fn and build_model are IMPORTED from train.py, never re-declared, so
-the checkpoint is always evaluated by the same code that produced it. The
-previous draft of this file copied both, which is how the two silently diverge.
-
-Three things to know before reading a number off this script:
-
-  1. The single-crop `total` is NOT on the same scale as an epoch total. The
-     objective is (1-w)*mean_present[...] + w*mean_absent[...]; one crop is
-     either present or absent, so the other half contributes 0 instead of its
-     mean. Comparable to the pass-through anchor printed beside it, and to other
-     single crops of the same kind -- not to val_total in history.csv.
-  2. The pass-through anchor is computed on THIS crop, not the 300-crop median
-     in experiments/results/2026-08-20-loss-anchor. A single crop's anchor
-     varies by many dB with SIR and target activity.
-  3. Audio is written as float32 with NO normalisation. Normalising would hide
-     exactly the gain error that L_MR exists to catch (L_pres is scale-invariant
-     and cannot see it), so the peak is reported instead and may exceed 1.0.
+Reading a number off this:
+  1. The single-crop `total` is not on an epoch total's scale -- one crop is
+     either present or absent, so the other half contributes 0, not its mean.
+  2. The anchor is computed on THIS crop, not the 300-crop median in
+     experiments/results/2026-08-20-loss-anchor. Single-crop anchors swing by
+     many dB with SIR and target activity.
+  3. Audio is float32, UNNORMALISED -- normalising would hide the very gain
+     error L_gain exists to catch. Peak is reported and may exceed 1.0.
 """
 
 import argparse
@@ -75,12 +48,12 @@ import yaml
 # not the repo root, so the src.* imports below need this first.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.data.dataset_loader import TrialDataset  # noqa: E402
-from train import build_loss_fn, build_model, git_commit  # noqa: E402
+from train import SPLIT_MANIFESTS, build_loss_fn, build_model, git_commit  # noqa: E402
 
-# Val manifest per split. train.py's SPLIT_MANIFESTS holds (train, val) pairs;
-# this script only ever reads val, so it keeps its own single-valued map rather
-# than indexing [1] into that one and inviting an off-by-one.
-VAL_MANIFESTS = {"smoke": "smoke_val", "full": "val"}
+# DERIVED from train.py. Was its own literal and had drifted -- `mid` and `sir0`
+# were never added here, so the two splits that actually trained could not be
+# inspected. Two-valued: manifest name != audio dir for `mid` ("mid_val", "val").
+VAL_MANIFESTS = {split: pairs[1] for split, pairs in SPLIT_MANIFESTS.items()}
 
 
 def pick_index(dataset, index, trial_id):
@@ -97,11 +70,8 @@ def pick_index(dataset, index, trial_id):
 
 
 def load_checkpoint(model, checkpoint_path, config, device):
-    """Load weights and return the checkpoint's own provenance for the meta.
-
-    Refuses a config mismatch for the same reason train.py's --resume does: the
-    audio would be produced by a model whose shape the yaml no longer describes.
-    """
+    """Load weights, return provenance. Refuses a config mismatch: the audio
+    would come from a model whose shape the yaml no longer describes."""
     if not checkpoint_path.exists():
         raise SystemExit(f"no checkpoint at {checkpoint_path} -- train first, "
                          f"or pass --checkpoint")
@@ -131,13 +101,8 @@ def levels(x):
 
 
 def write_estimate(out_dir, sample_rate, estimate):
-    """Write estimate.wav -- the only signal that exists nowhere else on disk.
-
-    subtype FLOAT, not PCM_16: the estimate is unnormalised and may exceed
-    [-1, 1], and PCM_16 would clip it silently -- turning a gain bug into an
-    audible distortion that looks like a model artefact. Float wavs open in
-    Audacity, ffplay and VLC.
-    """
+    """Write estimate.wav. FLOAT not PCM_16: the estimate is unnormalised and
+    PCM_16 would clip it silently, turning a gain bug into a fake artefact."""
     path = out_dir / "estimate.wav"
     sf.write(str(path), estimate.detach().cpu().flatten().numpy(),
              sample_rate, subtype="FLOAT")
@@ -149,12 +114,15 @@ def fmt(v):
     return "    n/a " if v is None or (isinstance(v, float) and np.isnan(v)) else f"{v:8.4f}"
 
 
-def report(parts, anchor, w, wm, crop_absent):
-    """Print the loss for this crop beside the do-nothing anchor for the SAME crop."""
+def report(parts, anchor, w, wm, crop_absent, wg=0.0):
+    """Loss for this crop beside the do-nothing anchor for the SAME crop.
+
+    L_gain is listed even at w_g = 0. Use scripts/derive_w_g.py for the real
+    derivation -- single-crop anchors swing by many dB."""
     branch = "ABSENT (target silent in this crop)" if crop_absent else "PRESENT"
     print(f"\n  crop branch : {branch}")
     print(f"  {'term':<12}{'model':>10}{'pass-through':>16}{'delta':>10}")
-    for key in ("L_pres", "L_MR", "L_abs", "total"):
+    for key in ("L_pres", "L_MR", "L_gain", "L_abs", "total"):
         m, a = parts.get(key), anchor.get(key)
         both = all(x is not None and not np.isnan(x) for x in (m, a))
         print(f"  {key:<12}{fmt(m):>10}{fmt(a):>16}"
@@ -164,9 +132,9 @@ def report(parts, anchor, w, wm, crop_absent):
         delta = parts["total"] - anchor["total"]
         verdict = "BETTER than" if delta < 0 else "WORSE than"
         print(f"\n  {verdict} emitting the mixture unchanged, by {abs(delta):.4f}")
-    # The floor is 10*log10(tau), reachable only at exact reconstruction, and it
-    # is the same -30 for every w and w_m because the outer weights are convex.
-    print(f"  single-crop scale: this branch only, w={w} w_m={wm}. "
+    # Floor = w-weighted sum of 10log10(tau_pres) and 10log10(tau_abs), so w
+    # moves it (-25.42 shipped). L_gain adds nothing: 0 at perfect reconstruction.
+    print(f"  single-crop scale: this branch only, w={w} w_m={wm} w_g={wg}. "
           f"Not comparable to an epoch total.")
 
 
@@ -200,8 +168,11 @@ def main():
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    val_split = VAL_MANIFESTS[args.split]
-    manifest_csv = Path(args.manifest_dir) / f"{val_split}.csv"
+    val_manifest, val_audio = VAL_MANIFESTS[args.split]
+    manifest_csv = Path(args.manifest_dir) / f"{val_manifest}.csv"
+    # `split` below is the AUDIO directory, which is val_audio -- not the
+    # manifest name. They differ for `mid`. See VAL_MANIFESTS.
+    val_split = val_audio
 
     # random_crop=False pins epoch 0 inside _crop_offset_start, so re-running
     # this script on the same index returns the same 4 s window every time. A
@@ -246,7 +217,7 @@ def main():
         # loss value on one crop cannot.
         _, anchor = loss_fn(target, mixture, mixture, crop_absent)
 
-    report(parts, anchor, loss_fn.w, loss_fn.wm, sample["crop_absent"])
+    report(parts, anchor, loss_fn.w, loss_fn.wm, sample["crop_absent"], loss_fn.wg)
 
     # Where the three input stems live. They are NOT copied into the results
     # dir -- the meta points at them instead, which is the whole reason this

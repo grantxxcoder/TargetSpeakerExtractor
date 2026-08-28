@@ -15,6 +15,13 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
 <!-- rows appended below by src/run_log.py -->
+| 2026-08-28 | `scripts/derive_w_g.py` | 200 crops x 4 systems, sir0 | 6 min | cpu, batch 4 |
+| 2026-08-27 | `scripts/train.py --split sir0` | 1,989 trials x 8 epochs, sir0 | 8.6 h | batch 3, cuda (Tesla T4), 3875 s/epoch. Kaggle. Added by hand: the row was written into the notebook log, not this file. |
+| 2026-08-27 | `scripts/render_trials.py --split sir0_val` | 200 trials rendered | 2 min | 8 workers, 16 kHz PCM_16 |
+| 2026-08-27 | `scripts/render_trials.py --split sir0_train` | 264 trials rendered **(failed)** | 3 min | 8 workers, 16 kHz PCM_16 |
+| 2026-08-26 | `scripts/render_trials.py --split sir0_val` | 200 trials rendered | 3 min | 8 workers, 16 kHz PCM_16 |
+| 2026-08-26 | `scripts/render_trials.py --split sir0_train` | 1,989 trials rendered | 31 min | 8 workers, 16 kHz PCM_16 |
+| 2026-08-26 | `scripts/train.py --split sir0` | 1,989 trials x 10 epochs, sir0 | 5.2 h | batch 6, cuda, 1869 s/epoch. w warmup 4+3, tfmap_scale 16. Kaggle T4; row copied from the session's own run_times.md. |
 | 2026-08-26 | `scripts/render_trials.py --split sir0_val` | 128 trials rendered | 81 s | 8 workers, 16 kHz PCM_16 |
 | 2026-08-26 | `scripts/render_trials.py --split sir0_train` | 1,989 trials rendered | 18 min | 8 workers, 16 kHz PCM_16 |
 | 2026-08-25 | `scripts/train.py --split mid` | 2,000 trials x 10 epochs, mid | 5.4 h | batch 6, cuda, 1950 s/epoch. w warmup 4+3. Kaggle T4; row copied by hand from the session output. |

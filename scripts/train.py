@@ -16,17 +16,13 @@ from datetime import date
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import matplotlib
-# Agg before pyplot is imported, never after -- the backend is fixed at import.
-# Training runs on a headless server and on Kaggle, where the default backend
-# has no display and plt.show() either warns or blocks.
+# Agg BEFORE pyplot: the backend is fixed at import, and Kaggle is headless.
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
-# `python scripts/train.py` puts scripts/ on sys.path, not the repo root, so
-# the src.* imports below fail without this. Same line as
-# scripts/measure_vad_impact.py -- which is why the src imports come after it.
+# `python scripts/train.py` puts scripts/ on sys.path, not the repo root.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src.data.dataset_loader import TrialDataset  # noqa: E402
+from src.data.dataset_loader import TrialDataset, collate_pairs  # noqa: E402
 from src.models.bsrnn import BSRNN_TFMAP  # noqa: E402
 from src.models.losses import LossBSRNN  # noqa: E402
 from src.run_log import timed  # noqa: E402
@@ -38,42 +34,34 @@ def build_loss_fn(config):
     tau_abs = float(config["loss"]["tau_abs"])
     p = float(config["loss"]["p"])
     windows = config["loss"]["windows_ms"]
-    # the loss turns windows_ms into n_fft with this, so it cannot be defaulted
-    # inside the loss without the run using a rate the config does not record
+    # windows_ms -> n_fft needs this, so it cannot be defaulted inside the loss
     sample_rate = int(config["data"]["sample_rate"])
+    # .get(), so a pre-2026-08-27 config still loads and trains its own objective.
+    wg = float(config["loss"].get("w_g", 0.0))
+    gain_delta_db = float(config["loss"].get("gain_delta_db", 3.0))
 
-    # w is a convex weight between the two halves. A typo of 4.58 for 0.458
-    # makes (1 - w) negative, which trains the model to destroy the target
-    # while the curve still looks like it is descending.
+    # Convex weight: a typo of 4.58 for 0.458 makes (1 - w) negative, training
+    # the model to destroy the target while the curve still looks like it falls.
     assert 0.0 <= w <= 1.0, f"loss.w must be in [0, 1], got {w}"
     assert wm >= 0.0, f"loss.w_m must be >= 0, got {wm}"
+    assert wg >= 0.0, f"loss.w_g must be >= 0, got {wg}"
+    # A negative deadzone punishes a PERFECT match -- reads as a dead term.
+    assert gain_delta_db >= 0.0, f"loss.gain_delta_db must be >= 0, got {gain_delta_db}"
 
     return LossBSRNN(wm=wm, w=w, tau_pres=tau_pres, tau_abs=tau_abs, p=p, windows=windows,
-                     sample_rate=sample_rate)
+                     sample_rate=sample_rate, wg=wg, gain_delta_db=gain_delta_db)
 
 
 def w_at_epoch(config, epoch):
     """The absent-branch weight for this epoch. decisions-m1.md 2026-08-25.
 
-    WHY A SCHEDULE. Measured on the 2-epoch `mid` run: by epoch 1 (666 steps)
-    the model had already muted to -18.5 dB below the mixture, with enrolment
-    sensitivity -14.31 dB and a present/absent gap of +0.85 dB. It learned
-    silence BEFORE it learned anything about who to extract.
-
-    That is what the objective asks for. Going quiet is worth ~9 loss units
-    (w * the 20 dB tau_abs floor) and is immediately available; learning to use
-    the enrolment is slow and, because L_pres is scale-invariant, earns nothing
-    for correct level. So the shortcut wins, and once the output is near-silent
-    the present/absent distinction barely moves the loss -- the gradient that
-    would teach conditioning is weakest exactly when it needs to build.
-
-    Weights cannot fix this: w_m would need ~243 and sign-flips at the correct
-    gain, and tau_abs is inert (L_abs at correct gain is -5.90 dB at tau 0.001,
-    0.01 and 0.1 alike). The untried lever is WHEN the absent branch is active.
-
-    With w = 0 the silence shortcut pays nothing, so the only way down is to
-    reconstruct the target -- and on `both` crops (49 % of the data) that is
-    impossible without reading the enrolment.
+    WHY. On the 2-epoch `mid` run the model had muted to -18.5 dB by epoch 1,
+    enrolment sensitivity -14.31 dB: it learned silence before conditioning.
+    Going quiet is worth ~9 loss units immediately; using the enrolment is slow
+    and earns nothing for level (L_pres is scale-invariant). Weights cannot fix
+    it -- w_m would need ~243, and tau_abs is inert. The lever is WHEN the
+    absent branch turns on. At w = 0 silence pays nothing, so the only way down
+    is to reconstruct the target, which on `both` crops needs the enrolment.
 
         epoch <  warmup_epochs                      -> w_start   (default 0)
         warmup_epochs <= epoch < warmup + ramp      -> linear w_start -> w
@@ -103,49 +91,37 @@ def w_at_epoch(config, epoch):
     return w_start + frac * (w_final - w_start)
 
 
-# The history schema, in one place. Used BOTH by the per-epoch line printed to
-# stdout and by history.csv, so a log pasted out of a killed run is a valid
-# history.csv with no editing. If these drifted, that guarantee would silently
-# break -- hence one definition, not two.
-HISTORY_FIELDS = ["total", "L_pres", "L_MR", "L_abs", "n_present", "n_absent"]
+# One definition, used by both the stdout line and history.csv -- so a log
+# pasted out of a killed run is a valid history.csv with no editing.
+HISTORY_FIELDS = ["total", "L_pres", "L_MR", "L_gain", "L_abs", "n_present", "n_absent"]
 
-# VAL-ONLY, so not in HISTORY_FIELDS (which is mirrored as train_* and val_*).
-# These two are LEADING indicators; the four above are lagging ones.
-#
-#   enrol_sens_db     how much the output moves when the enrolment is swapped
-#                     for another crop's. Near 0 dB = strongly conditioned;
-#                     very negative = the model is ignoring the enrolment and
-#                     doing generic enhancement rather than target extraction.
-#   pres_abs_gap_db   output loudness on target-present crops minus target-
-#                     absent crops. Large positive = it knows when to speak.
-#
-# They exist because NONE of the four loss terms can show a mute. L_pres is
-# scale-invariant, so a perfect output at 1/30th volume scores identically to
-# one at correct volume; L_abs rewards silence outright; L_MR notices only
-# indirectly and late. The 2026-08-24 smoke run collapsed to a uniform mute and
-# the loss curve looked healthy throughout -- it took a checkout probe to find.
-# decisions-m1.md 2026-08-25.
+# VAL-ONLY leading indicators; the loss terms are lagging ones.
+#   enrol_sens_db    output movement on an enrolment swap. Near 0 dB = strongly
+#                    conditioned; very negative = ignoring the enrolment.
+#   pres_abs_gap_db  output loudness, present crops minus absent. Large
+#                    positive = it knows when to speak.
+# Until 2026-08-27 no loss term could show a mute, and the 2026-08-24 smoke run
+# collapsed to one with a healthy-looking curve throughout. L_gain now prices it
+# directly, but read these first: L_gain says the level is wrong,
+# pres_abs_gap_db says whether the correction was SELECTIVE. Fixing level by
+# turning everything up scores well on L_gain and leaves this flat -- that is a
+# pass-through, not an extractor.
 VAL_DIAGNOSTICS = ["enrol_sens_db", "pres_abs_gap_db"]
 
 
 def history_header():
-    # `w` is the absent-branch weight ACTUALLY USED for training that epoch,
-    # which the warmup schedule varies. Logged because without it a reader
-    # cannot tell a real improvement from a schedule step. The `total` columns
-    # are always computed at the FINAL w (see epoch_report), so they stay
-    # comparable across the schedule -- this column records what trained.
+    # `w` is the weight that actually TRAINED this epoch; `total` is always at
+    # the final w (see epoch_report). Without this column a reader cannot tell a
+    # real improvement from a schedule step.
     return (["epoch"] + [f"train_{k}" for k in HISTORY_FIELDS]
             + [f"val_{k}" for k in HISTORY_FIELDS] + ["lr", "w"]
             + [f"val_{k}" for k in VAL_DIAGNOSTICS])
 
 
 def history_row(tr, va):
-    """One row. Epoch comes from the VAL dict: on a resume the histories start at
-    start_epoch, so enumerate() would relabel epoch 40 as epoch 0.
-
-    .get on the diagnostics: a caller that builds val rows by hand (the tests,
-    and any older checkpoint's history) has no such keys, and a missing
-    diagnostic must not take down the row that carries the losses."""
+    """One row. Epoch comes from the VAL dict, not enumerate(), so a resume does
+    not relabel epoch 40 as 0. .get on the diagnostics: hand-built val rows (the
+    tests, older histories) lack them, and that must not kill the row."""
     return ([va["epoch"]] + [tr[k] for k in HISTORY_FIELDS]
             + [va[k] for k in HISTORY_FIELDS] + [va["lr"], va.get("w", float("nan"))]
             + [va.get(k, float("nan")) for k in VAL_DIAGNOSTICS])
@@ -154,14 +130,9 @@ def history_row(tr, va):
 def diagnostic_accumulate(diag, model, mixture, enrollment, s_output, crop_absent):
     """Accumulate the two leading indicators over one val batch.
 
-    The swapped-enrolment forward is the ONLY extra compute this adds: one more
-    forward over the val set per epoch, against a train set 10x larger run with
-    backward. Roll by one within the batch rather than shuffling globally, so no
-    second pass over the data is needed.
-
-    Skipped at batch size 1, where roll() returns the same enrolment and the
-    measurement would read a false 0 dB. With 940 target speakers a rolled pair
-    sharing a speaker is rare enough to ignore.
+    Costs one extra val forward per epoch. Rolls within the batch rather than
+    shuffling globally. Skipped at batch 1, where roll() returns the same
+    enrolment and would read a false 0 dB.
     """
     if mixture.shape[0] > 1:
         y_swapped = model(mixture, enrollment.roll(1, 0))
@@ -192,10 +163,9 @@ def diagnostic_report(diag):
 def total_loss_floor(config):
     """Best total the objective can reach, for the reference line on the plot.
 
-    At exact reconstruction L_pres hits 10*log10(tau_pres), L_MR hits 0 and
-    L_abs hits 10*log10(tau_abs), so the floor is the w-weighted sum of the two.
-    Was 10*log10(tau) off a single shared tau; once tau_pres and tau_abs differ
-    (2026-08-25) no single tau defines the floor and that read the wrong one.
+    w-weighted sum of 10log10(tau_pres) and 10log10(tau_abs). Since the
+    2026-08-25 tau split no single tau defines it. w_g does not appear: L_gain
+    is 0 at perfect reconstruction, so only tau_pres, tau_abs and w move it.
     """
     w = float(config["loss"]["w"])
     tau_pres = float(config["loss"]["tau_pres"])
@@ -206,13 +176,9 @@ def total_loss_floor(config):
 def build_model(config):
     """Config -> BSRNN_TFMAP. Every ctor argument comes from the yaml.
 
-    Separate from main() so scripts/measure_train_cost.py measures the model
-    that actually trains, rather than a second copy of this call that can drift.
-
-    Two config keys are deliberately not passed: separator.norm (cLN is implied
-    by causal=True inside SubbandNorm) and n_hidden (ctor default 1, chosen in
-    decisions-m1.md 2026-08-18). Both belong in the yaml eventually so they are
-    logged rather than inherited.
+    Separate from main() so measure_train_cost.py measures the model that
+    actually trains. Two keys deliberately not passed: separator.norm (implied
+    by causal=True) and n_hidden (ctor default 1). Both belong in the yaml.
     """
     return BSRNN_TFMAP(
         sample_rate=config["data"]["sample_rate"],
@@ -267,47 +233,41 @@ def unpack(batch, device):
 def add_parts(sums, counts, parts):
     """Accumulate each loss term against its own crop count.
 
-    NOT loss.item() * batch_size. A batch loss is
-    (1 - w) * mean_present[L_pres + wm*L_MR] + w * mean_absent[L_abs]: two
-    means over different subsets whose sizes change from batch to batch. A
-    batch-size weighting therefore makes one present crop in one batch count
-    as much as eleven in another, and the epoch number moves when only the
-    shuffle changes.
-
-    Gated on the counts, never on isnan(): LossBSRNN returns NaN for a half
-    with no crops (~1.5 % of batches have no absent crop at batch 12), but a
-    NaN from a real numerical failure must still reach the log.
+    NOT loss.item() * batch_size: the two halves are means over subsets whose
+    sizes vary per batch, so that weighting makes the epoch number move when
+    only the shuffle changes. Gated on counts, never isnan() -- a NaN from a
+    real numerical failure must still reach the log.
     """
     if parts["n_present"]:
         sums["L_pres"] += parts["L_pres"] * parts["n_present"]
         sums["L_MR"] += parts["L_MR"] * parts["n_present"]
+        sums["L_gain"] += parts["L_gain"] * parts["n_present"]
         counts["present"] += parts["n_present"]
     if parts["n_absent"]:
         sums["L_abs"] += parts["L_abs"] * parts["n_absent"]
         counts["absent"] += parts["n_absent"]
 
 
-def epoch_report(sums, counts, w, wm):
+def epoch_report(sums, counts, w, wm, wg):
     """Recombine the accumulated terms.
 
-    `w` here is the REPORTING w -- always loss.w, the schedule's final value --
-    never the w that trained this epoch. Under a warmup schedule the two differ,
-    and mixing them makes `total` a different objective each epoch: the curve
-    would fall as w ramped up for no reason but the schedule. That in turn
-    corrupts two things that read `total`: ReduceLROnPlateau (it would see
-    spurious improvement and never drop the lr) and best-checkpoint selection
-    (it would pick whichever epoch had the largest w). The w that actually
-    trained is logged in its own column. decisions-m1.md 2026-08-25.
+    `w` is the REPORTING w (loss.w, the schedule's final value), never the w
+    that trained this epoch -- otherwise `total` is a different objective each
+    epoch and the curve falls with the schedule alone, corrupting both
+    ReduceLROnPlateau and best-checkpoint selection. The training w is its own
+    column. decisions-m1.md 2026-08-25.
     """
     n_present, n_absent = counts["present"], counts["absent"]
     L_pres = sums["L_pres"] / n_present if n_present else float("nan")
     L_MR = sums["L_MR"] / n_present if n_present else float("nan")
+    L_gain = sums["L_gain"] / n_present if n_present else float("nan")
     L_abs = sums["L_abs"] / n_absent if n_absent else float("nan")
 
     return {
-        "total": (1 - w) * (L_pres + wm * L_MR) + w * L_abs,
+        "total": (1 - w) * (L_pres + wm * L_MR + wg * L_gain) + w * L_abs,
         "L_pres": L_pres,
         "L_MR": L_MR,
+        "L_gain": L_gain,
         "L_abs": L_abs,
         "n_present": n_present,
         "n_absent": n_absent,
@@ -373,10 +333,10 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
             # Same recombination as the epoch report, so the bar converges to
             # the number that gets logged.
             pbar.set_postfix_str(
-                f"loss {epoch_report(sums, counts, w_report, loss_fn.wm)['total']:.4f}")
+                f"loss {epoch_report(sums, counts, w_report, loss_fn.wm, loss_fn.wg)['total']:.4f}")
 
         pbar.close()
-        epoch_loss = epoch_report(sums, counts, w_report, loss_fn.wm)
+        epoch_loss = epoch_report(sums, counts, w_report, loss_fn.wm, loss_fn.wg)
         train_loss_history.append(epoch_loss)
 
 
@@ -395,7 +355,7 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
                 diagnostic_accumulate(diag, model, mixture, enrollment,
                                       s_output, crop_absent)
 
-        val_loss = epoch_report(val_sums, val_counts, w_report, loss_fn.wm)
+        val_loss = epoch_report(val_sums, val_counts, w_report, loss_fn.wm, loss_fn.wg)
         val_loss.update(diagnostic_report(diag))
         val_loss["epoch"] = epoch
         val_loss["lr"] = optimizer.param_groups[0]["lr"]
@@ -499,6 +459,10 @@ def get_data_loaders(split, csv_path, data_path, config):
     if split not in SPLIT_MANIFESTS:
         raise ValueError(f"Unknown split: {split}. Known: {sorted(SPLIT_MANIFESTS)}")
     (train_manifest, train_audio), (val_manifest, val_audio) = SPLIT_MANIFESTS[split]
+    # Every trial trained twice, once per speaker. Config-driven so the arm is
+    # recorded with the run; absent key = the old single-direction behaviour, so
+    # older configs and checkpoints are unaffected. decisions-m1.md 2026-08-26.
+    both_directions = bool(config["data"].get("both_directions", False))
 
     csv_train = csv_path / f"{train_manifest}.csv"
     csv_val = csv_path / f"{val_manifest}.csv"
@@ -510,6 +474,7 @@ def get_data_loaders(split, csv_path, data_path, config):
         chunk_s=config["data"]["chunk_s"], # follow CARTSE
         sample_rate=config["data"]["sample_rate"],
         seed=config["seed"],
+        both_directions=both_directions,
     )
 
     val_dataset = TrialDataset(
@@ -520,6 +485,7 @@ def get_data_loaders(split, csv_path, data_path, config):
         sample_rate=config["data"]["sample_rate"],
         seed=config["seed"],
         random_crop=False,
+        both_directions=both_directions,
     )
 
     # num_workers from the config, default 0. 0 is right on the laptop (4 cores,
@@ -537,6 +503,7 @@ def get_data_loaders(split, csv_path, data_path, config):
         shuffle=True,
         num_workers=num_workers,
         drop_last=True,
+        collate_fn=collate_pairs,
         **extra)
 
     val_loader = DataLoader(
@@ -544,6 +511,7 @@ def get_data_loaders(split, csv_path, data_path, config):
         batch_size=config["data"]["batch_size"],
         shuffle=False,
         num_workers=num_workers,
+        collate_fn=collate_pairs,
         **extra)
 
     return train_loader, val_loader
@@ -574,17 +542,12 @@ def git_commit():
 def log_results(out_dir, config, config_path, args, model, device, manifest_csv, train_loss_history, val_loss_history, best_row, wall_s, num_epochs, save_path):
     """Write experiments/results/<dir>/{meta.yaml,history.csv}.
 
-    The CLAUDE.md rule: every experiment result gets the config used, the git
-    commit hash, the metrics, the seed and the date. Written in the same shape
-    as experiments/results/2026-08-20-loss-anchor/meta.yaml so a training run
-    and the anchor measurement read side by side.
+    CLAUDE.md: config, commit, metrics, seed, date on every result. Same shape
+    as the 2026-08-20 anchor meta.yaml so the two read side by side. history.csv
+    is WIDE (train_* and val_* on one row) because the plot is the two curves
+    against each other; `lr` tells a plateau from a scheduler step.
 
-    history.csv is per-epoch and WIDE -- train_* and val_* on one row -- because
-    the thing actually plotted is the two curves against each other. The lr
-    column is what tells a plateau apart from a scheduler step.
-
-    Never raises: a logging bug must not throw away a finished training run.
-    Same reasoning as src/run_log.py.
+    Never raises: a logging bug must not discard a finished run.
     """
     try:
         out_dir = Path(out_dir)
@@ -665,15 +628,11 @@ def log_results(out_dir, config, config_path, args, model, device, manifest_csv,
 def plot_history(out_dir, train_loss_history, val_loss_history, best_row, loss_floor):
     """Write loss_plot.png: train and val `total` against epoch.
 
-    The histories are lists of DICTS from epoch_report, not floats -- passing
-    them straight to plt.plot raises `TypeError: unhashable type: 'dict'`,
-    which is what happened on 2026-08-24 *after* the run had finished and the
-    results were already written. Hence `total` pulled out explicitly, and hence
-    the try block: a plotting bug must not be the last thing a 12-hour run does.
-    Same never-raise contract as log_results.
-
-    X axis comes from the VAL row's own `epoch`, not enumerate(), so a resumed
-    run plots epochs 40-60 rather than relabelling them 0-20.
+    Histories are lists of DICTS, so `total` is pulled out explicitly -- passing
+    them to plt.plot raised TypeError on 2026-08-24 after a finished run. Hence
+    also the try block: a plotting bug must not be the last thing a 12-hour run
+    does. X axis is the VAL row's own `epoch`, not enumerate(), so a resumed run
+    plots 40-60 rather than relabelling to 0-20.
     """
     try:
         if len(val_loss_history) < 2:

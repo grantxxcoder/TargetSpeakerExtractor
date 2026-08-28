@@ -6,13 +6,8 @@ the metric → report.
 
 Submission 2026-11-05; hard freeze on new experiments **2026-10-14**.
 
-**Where the project is, 2026-08-24.** M0 data is built (21,208 trials, 27 GB) and
-M1 is functionally complete ten days early — model, objective, training loop and
-a proven resume. M2 has started ahead of schedule but only on the 50-trial smoke
-split, where the model has found a degenerate attenuate-and-gate solution rather
-than separating. **The two things actually blocking progress are compute** (no
-usable GPU; `--split full` will not run on this laptop) **and M0's floor/ceiling
-WER calibration**, which C2 needs. Neither is a code problem.
+**Current status lives in `docs/project-state.md`.** This file holds the
+schedule and the per-milestone checklists.
 
 Each milestone names the artefact that proves it is done. "Reviewed by
 supervisors" is not a milestone — a thing that exists is.
@@ -48,23 +43,10 @@ evaluate → nothing to compare.
 Both training and evaluation draw from the same construction code, so this is
 built once.
 
-**Status 2026-08-24** (was 2026-08-13, which said "no audio exists yet" — it
-does). Manifests exist for all six splits and have been audited
-(`src/exploratory/data_setup.ipynb`), and **all 21,208 trials are rendered**:
-63,624 files, 27 GB, 105.4 h of audio, 0 render failures, 40 trials checked by
-ear. **Every data decision is made** — all of group A and all thirteen B items.
-The only open decision is **C2**, how hard the task should be, which needs the
-supervisor. What remains is the floor/ceiling WER calibration below, the
-per-parameter EDA, and the notebook revision.
-
-**Schedule reality check.** The target is Aug 20 and no code is written yet. What
-makes it survivable is that manifest rebuilds take 58 s. **Superseded 2026-08-15:**
-this paragraph assumed training audio was generated on the fly, so only `val` and
-the two eval splits (~1,200 trials) needed rendering. All ~21,200 trials are now
-rendered to disk (~26 GB) — B7 had already turned off the per-epoch variety that
-justified on-the-fly, so it was recomputing identical audio every epoch. Render
-*after* B2's rebuild, never before. The pilot calibration below is still the item
-most likely to slip, and it depends on C2.
+**Status 2026-08-24.** All six manifests audited, **all 21,208 trials rendered**
+— 63,624 files, 27 GB, 105.4 h, 0 failures, 40 checked by ear. Every data
+decision closed except **C2** (task difficulty, needs the supervisor). Remaining:
+floor/ceiling WER, per-parameter EDA, notebook revision.
 
 Done:
 - [X] ~~Speaker-disjoint train / val / eval splits~~
@@ -352,48 +334,15 @@ steps per epoch.
 - [ ] **Two ablations are declared but unrun** — the band plan (six candidates,
       `decisions-m1.md` 2026-08-18) and `w_m` (`ablate_w_m: [0.0, 2.89, 9.62]`,
       the 0 arm required). Both need the converged baseline first
-- [ ] **CONFIRMED 2026-08-24: the smoke model attenuates, it does not separate.**
-      Not a watch item any more — measured. Over 30 epochs on `smoke_val`:
-
-      | | epoch 0 | epoch 29 | change | trend/epoch, last 10 |
-      | --- | --- | --- | --- | --- |
-      | `L_pres` | −4.181 | −5.273 | −1.092 | **+0.0365** (worsening) |
-      | `L_MR` | 0.279 | 0.279 | −0.000 | +0.0004 (flat) |
-      | `L_abs` | −5.753 | −23.905 | **−18.153** | −0.0963 (still improving) |
-
-      **93 % of the total's movement is the absent half.** `L_MR` has not moved
-      at all in 30 epochs. Paired on 200 identical crops, epoch 4 -> 28 gained
-      only 0.462 total, and the *present half got worse by 0.320* while the
-      absent half improved by 0.781. `L_pres` is now **+0.157 dB worse than
-      passing the mixture through**, against −0.374 dB better at epoch 4.
-
-      Mechanism: output RMS is **−24.9 dB below the input mixture** on present
-      crops (−12.6 dB at epoch 4, so the attenuation is deepening). `L_pres` is
-      scale-invariant *by design* (Deviation 1) so it cannot see attenuation at
-      all; only `L_MR` penalises it, at weight `(1-w)*w_m = 5.21`, against
-      `w = 0.458` on an absent branch whose optimum is reachable by outputting
-      zero. Turning the volume down is therefore strongly net-positive.
-
-      Where it sits among non-separating strategies on the fixed val set:
-
-      | strategy | total | `L_pres` |
-      | --- | --- | --- |
-      | pass the mixture through | −2.288 | −6.152 |
-      | all silence | −11.732 | 0.000 |
-      | **model @ epoch 28** | **−12.900** | **−6.151** |
-      | oracle-gated mixture (perfect VAD, zero separation) | −16.030 | −6.152 |
-
-      The model's `L_pres` equals pass-through's to three decimals, which is
-      what "attenuated mixture, no separation" looks like through a
-      scale-invariant term. It has passed all-silence and is climbing toward the
-      oracle-gated solution: **3.13 total still available with no separation at
-      all.** Do not read further loss improvement as separation until `L_MR`
-      starts falling — that is the term that cannot be fooled by gain.
-
-      Open, and not to be fixed on smoke: 50 trials is too few to require
-      separation, so a degenerate solution is the expected outcome here. Re-test
-      on `full` before touching `w` or `w_m` — both are derived numbers
-      (`decisions-m1.md` 2026-08-20) and changing them needs its own entry
+- [X] ~~**CONFIRMED 2026-08-24: the smoke model attenuates rather than separates.**
+      93 % of the total's movement was the absent half; output RMS −24.9 dB below
+      the mixture on present crops; `L_MR` flat for 30 epochs. **Superseded by the
+      2026-08-27 sir0 run**, which reproduced it at 40x the data (95 %, −22.4 dB)
+      and traced the cause to the objective. See `decisions-m1.md` 2026-08-27/28~~
+- [ ] **Re-run with `L_gain` on** (`w_g = 1.69`, derived 2026-08-28). Fresh, not a
+      resume: resuming skips the warm-up where `L_gain` runs at full strength, and
+      the ablation arms would not be comparable. `--epochs 10` — 8 gives only one
+      epoch at the full objective
 
 **Proof:** a checkpoint in `experiments/results/` that reproduces its own
 reported numbers from its config.
@@ -561,6 +510,15 @@ tick as written.
 - [ ] Sizing: **7.19 M** against challenge scale 25-27 M, reported as deliberate
       (corrected from 7.16 M on 2026-08-24 — see M1)
 - [ ] Objective: three terms, six deviations from CARTSE, DNSMOS rejection recorded
+- [ ] **`L_gain`, the fourth term — Deviation 7, OURS not CARTSE's.** Four points,
+      in order: (a) why needed — sir0 muted to 22.4 dB below the mixture with 95 %
+      of its improvement from the absent half, because `L_pres` structurally cannot
+      see a mute; (b) why it does not undo Deviation 1 — that bug was *unbounded
+      one-directional* reward, this is symmetric and minimised at correct level;
+      (c) ±3 dB deadzone, and why percent is the wrong unit (10 % = 0.83 dB);
+      (d) per-trial anchor, and why a dataset mean was rejected (automatic gain
+      control, and it contradicts A1). Caveats to state, not bury: RMS not BS.1770,
+      and present crops only. `decisions-m1.md` 2026-08-27.
 - [ ] Training setup — objective, chunk, batch, seed and schedule now exist in
       `bsrnn_baseline.yaml` and `decisions-m1.md`; still unlogged are the
       `batch_size` 3-vs-12 resolution and the compute actually used
@@ -572,6 +530,16 @@ tick as written.
       (2026-08-24) — with the cold-vs-warm context gap stated as a limitation
 - [ ] Band-plan ablation (six candidates)
 - [ ] `w_m` ablation, the 0 arm required
+- [ ] **`w_g` ablation, 0 arm required** — the control is what proves the term did
+      the work rather than the extra epochs
+- [ ] **The sir0 conditioning result** — enrolment swap moved the output 18 % → 39 %.
+      Say why it is only interpretable on `sir0`: on `mid`, 90 % of trials had the
+      target louder, so a model could look conditioned while tracking the loud voice
+- [ ] **`L_gain`'s derivation, not just its value** — `w_m`'s "30 % of `|L_pres|`"
+      rule does not transfer (`L_gain` is ~0 at pass-through). Show the four anchors
+- [ ] **`L_MR` rewards the mute** (measured 2026-08-28). Correct the 2026-08-20
+      claim that it "pins the output gain" at source — the correction is why a
+      fourth term was needed
 - [ ] Latency decay curve at 100/200/300/400/500 ms (B11)
 - [ ] Judge harness: exact model ID, exact prompt, input modality, run date
 

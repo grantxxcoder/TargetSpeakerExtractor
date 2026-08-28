@@ -1,31 +1,20 @@
 #!/usr/bin/env python3
-"""Stage what a Kaggle GPU session needs to train `--split mid`, and nothing else.
+"""Stage what a Kaggle GPU session needs to train one split, and nothing else.
 
-WHY TWO BUNDLES
----------------
-data/rendered/train is 19,938 trials / ~25 GB. `mid` needs 2,000 of them plus
-val's 200 -- ~2.7 GB, small enough for one Kaggle dataset. The code is ~150 KB.
+    python scripts/make_kaggle_bundle.py --split sir0              # both zips
+    python scripts/make_kaggle_bundle.py --split sir0 --code-only  # after a code change
+    python scripts/make_kaggle_bundle.py --split sir0 --no-zip     # stage only
 
-They are emitted as SEPARATE zips because they change at completely different
-rates: the audio never changes once rendered, the code changes every time a bug
-is found. One combined bundle would mean re-uploading 2.7 GB to fix a one-line
-typo. Upload the data zip once; re-upload the code zip as often as you like.
+TWO ZIPS because they change at different rates: audio never changes once
+rendered, code changes constantly. One combined bundle would mean re-uploading
+~2.7 GB to fix a typo. train.py takes --data-root and --manifest-dir, so the two
+need not sit together.
 
-scripts/train.py takes --data-root and --manifest-dir, so the two never need to
-sit in the same directory -- the notebook runs code from one Kaggle input and
-reads audio from the other.
+NOTE --split defaults to `mid`, and --code-only still verifies against whatever
+data bundle is staged for that split. Pass the split you actually train.
 
-Deliberately NOT included: the eval harness, the live-model metric, the data
-generators, the tests, the literature. None are on the training path.
-
-USAGE
------
-    python scripts/make_kaggle_bundle.py                # both zips
-    python scripts/make_kaggle_bundle.py --code-only    # after a code change
-    python scripts/make_kaggle_bundle.py --no-zip       # stage, do not zip
-
-Data staging is idempotent: files already present with the right size are
-skipped, so re-running after a code change costs seconds, not minutes.
+Not included: the eval harness, the metric, the generators, tests, literature --
+none are on the training path. Data staging is idempotent (size-compared).
 """
 
 from __future__ import annotations
@@ -67,8 +56,12 @@ SPLIT_FILES = {
     "sir0": [("sir0_train", "sir0_train"), ("sir0_val", "sir0_val")],
 }
 
-# the only files TrialDataset opens, plus meta.json for provenance
-TRIAL_FILES = ["mixture.wav", "target.wav", "enrollment.wav", "meta.json"]
+# the only files TrialDataset opens, plus meta.json for provenance.
+# The interferer pair is required by data.both_directions (2026-08-26): without
+# them the bundle uploads fine and training dies on the first batch with a
+# LibsndfileError, several GB and one Kaggle session too late.
+TRIAL_FILES = ["mixture.wav", "target.wav", "enrollment.wav",
+               "interferer.wav", "interferer_enrollment.wav", "meta.json"]
 
 
 def git_commit() -> str:
@@ -152,13 +145,8 @@ sys.path.insert(0, ".")
 from scripts.train import get_data_loaders, build_loss_fn, build_model, unpack
 cfg = yaml.safe_load(open("experiments/configs/bsrnn_baseline.yaml"))
 
-# SEEDED, and seeded once at the top. Without this the number below moved on
-# every run -- the model is randomly initialised and the train loader has
-# shuffle=True, so each run scored different random weights on a different
-# random batch (measured swing: 13.5 to 24.5). One seed pins both, because the
-# loader's shuffle draws from this same RNG stream. CLAUDE.md: set and log a
-# seed for every run. An unreproducible number cannot detect a regression --
-# which is the only reason this check exists.
+# SEEDED once at the top: random init + shuffle=True made this number swing
+# 13.5 to 24.5 between runs, and an unreproducible number detects no regression.
 torch.manual_seed(int(cfg["seed"]))
 
 data = Path(r"{data_dir.resolve()}") / "data"
