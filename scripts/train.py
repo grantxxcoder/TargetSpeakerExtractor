@@ -15,13 +15,14 @@ from collections import defaultdict
 from datetime import date
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-import matplotlib.pyplot as plt
+import matplotlib
+# Agg BEFORE pyplot: the backend is fixed at import, and Kaggle is headless.
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
 
-# `python scripts/train.py` puts scripts/ on sys.path, not the repo root, so
-# the src.* imports below fail without this. Same line as
-# scripts/measure_vad_impact.py -- which is why the src imports come after it.
+# `python scripts/train.py` puts scripts/ on sys.path, not the repo root.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src.data.dataset_loader import TrialDataset  # noqa: E402
+from src.data.dataset_loader import TrialDataset, collate_pairs  # noqa: E402
 from src.models.bsrnn import BSRNN_TFMAP  # noqa: E402
 from src.models.losses import LossBSRNN  # noqa: E402
 from src.run_log import timed  # noqa: E402
@@ -29,33 +30,155 @@ from src.run_log import timed  # noqa: E402
 def build_loss_fn(config):
     w = float(config["loss"]["w"])
     wm = float(config["loss"]["w_m"])
-    tau = float(config["loss"]["tau"])
+    tau_pres = float(config["loss"]["tau_pres"])
+    tau_abs = float(config["loss"]["tau_abs"])
     p = float(config["loss"]["p"])
     windows = config["loss"]["windows_ms"]
-    # the loss turns windows_ms into n_fft with this, so it cannot be defaulted
-    # inside the loss without the run using a rate the config does not record
+    # windows_ms -> n_fft needs this, so it cannot be defaulted inside the loss
     sample_rate = int(config["data"]["sample_rate"])
+    # .get(), so a pre-2026-08-27 config still loads and trains its own objective.
+    wg = float(config["loss"].get("w_g", 0.0))
+    gain_delta_db = float(config["loss"].get("gain_delta_db", 3.0))
 
-    # w is a convex weight between the two halves. A typo of 4.58 for 0.458
-    # makes (1 - w) negative, which trains the model to destroy the target
-    # while the curve still looks like it is descending.
+    # Convex weight: a typo of 4.58 for 0.458 makes (1 - w) negative, training
+    # the model to destroy the target while the curve still looks like it falls.
     assert 0.0 <= w <= 1.0, f"loss.w must be in [0, 1], got {w}"
     assert wm >= 0.0, f"loss.w_m must be >= 0, got {wm}"
+    assert wg >= 0.0, f"loss.w_g must be >= 0, got {wg}"
+    # A negative deadzone punishes a PERFECT match -- reads as a dead term.
+    assert gain_delta_db >= 0.0, f"loss.gain_delta_db must be >= 0, got {gain_delta_db}"
 
-    return LossBSRNN(wm=wm, w=w, tau=tau, p=p, windows=windows,
-                     sample_rate=sample_rate)
+    return LossBSRNN(wm=wm, w=w, tau_pres=tau_pres, tau_abs=tau_abs, p=p, windows=windows,
+                     sample_rate=sample_rate, wg=wg, gain_delta_db=gain_delta_db)
+
+
+def w_at_epoch(config, epoch):
+    """The absent-branch weight for this epoch. decisions-m1.md 2026-08-25.
+
+    WHY. On the 2-epoch `mid` run the model had muted to -18.5 dB by epoch 1,
+    enrolment sensitivity -14.31 dB: it learned silence before conditioning.
+    Going quiet is worth ~9 loss units immediately; using the enrolment is slow
+    and earns nothing for level (L_pres is scale-invariant). Weights cannot fix
+    it -- w_m would need ~243, and tau_abs is inert. The lever is WHEN the
+    absent branch turns on. At w = 0 silence pays nothing, so the only way down
+    is to reconstruct the target, which on `both` crops needs the enrolment.
+
+        epoch <  warmup_epochs                      -> w_start   (default 0)
+        warmup_epochs <= epoch < warmup + ramp      -> linear w_start -> w
+        epoch >= warmup + ramp                      -> w
+
+    Absent `w_schedule`, returns loss.w for every epoch, so an unscheduled
+    config behaves exactly as before.
+    """
+    w_final = float(config["loss"]["w"])
+    sched = config["loss"].get("w_schedule")
+    if not sched:
+        return w_final
+
+    warmup = int(sched.get("warmup_epochs", 0))
+    ramp = int(sched.get("ramp_epochs", 0))
+    w_start = float(sched.get("w_start", 0.0))
+    assert 0.0 <= w_start <= 1.0, f"w_schedule.w_start must be in [0, 1], got {w_start}"
+    assert warmup >= 0 and ramp >= 0, "w_schedule epochs must be >= 0"
+
+    if epoch < warmup:
+        return w_start
+    if ramp <= 0 or epoch >= warmup + ramp:
+        return w_final
+    # linear in epochs. +1 so the final ramp epoch reaches w_final rather than
+    # stopping one step short of it.
+    frac = (epoch - warmup + 1) / ramp
+    return w_start + frac * (w_final - w_start)
+
+
+# One definition, used by both the stdout line and history.csv -- so a log
+# pasted out of a killed run is a valid history.csv with no editing.
+HISTORY_FIELDS = ["total", "L_pres", "L_MR", "L_gain", "L_abs", "n_present", "n_absent"]
+
+# VAL-ONLY leading indicators; the loss terms are lagging ones.
+#   enrol_sens_db    output movement on an enrolment swap. Near 0 dB = strongly
+#                    conditioned; very negative = ignoring the enrolment.
+#   pres_abs_gap_db  output loudness, present crops minus absent. Large
+#                    positive = it knows when to speak.
+# Until 2026-08-27 no loss term could show a mute, and the 2026-08-24 smoke run
+# collapsed to one with a healthy-looking curve throughout. L_gain now prices it
+# directly, but read these first: L_gain says the level is wrong,
+# pres_abs_gap_db says whether the correction was SELECTIVE. Fixing level by
+# turning everything up scores well on L_gain and leaves this flat -- that is a
+# pass-through, not an extractor.
+VAL_DIAGNOSTICS = ["enrol_sens_db", "pres_abs_gap_db"]
+
+
+def history_header():
+    # `w` is the weight that actually TRAINED this epoch; `total` is always at
+    # the final w (see epoch_report). Without this column a reader cannot tell a
+    # real improvement from a schedule step.
+    return (["epoch"] + [f"train_{k}" for k in HISTORY_FIELDS]
+            + [f"val_{k}" for k in HISTORY_FIELDS] + ["lr", "w"]
+            + [f"val_{k}" for k in VAL_DIAGNOSTICS])
+
+
+def history_row(tr, va):
+    """One row. Epoch comes from the VAL dict, not enumerate(), so a resume does
+    not relabel epoch 40 as 0. .get on the diagnostics: hand-built val rows (the
+    tests, older histories) lack them, and that must not kill the row."""
+    return ([va["epoch"]] + [tr[k] for k in HISTORY_FIELDS]
+            + [va[k] for k in HISTORY_FIELDS] + [va["lr"], va.get("w", float("nan"))]
+            + [va.get(k, float("nan")) for k in VAL_DIAGNOSTICS])
+
+
+def diagnostic_accumulate(diag, model, mixture, enrollment, s_output, crop_absent):
+    """Accumulate the two leading indicators over one val batch.
+
+    Costs one extra val forward per epoch. Rolls within the batch rather than
+    shuffling globally. Skipped at batch 1, where roll() returns the same
+    enrolment and would read a false 0 dB.
+    """
+    if mixture.shape[0] > 1:
+        y_swapped = model(mixture, enrollment.roll(1, 0))
+        diag["swap_num"] += float((s_output - y_swapped).pow(2).sum())
+        diag["swap_den"] += float(s_output.pow(2).sum())
+
+    # per-crop output energy relative to its own mixture, in dB
+    e = 10 * torch.log10(s_output.pow(2).sum(-1) / mixture.pow(2).sum(-1) + 1e-12)
+    absent = crop_absent.bool()
+    present = ~absent
+    if present.any():
+        diag["e_pres"] += float(e[present].sum()); diag["n_pres"] += int(present.sum())
+    if absent.any():
+        diag["e_abs"] += float(e[absent].sum()); diag["n_abs"] += int(absent.sum())
+
+
+def diagnostic_report(diag):
+    """Accumulators -> the two logged numbers. NaN when a half was never seen,
+    matching how the loss terms report a missing half."""
+    nan = float("nan")
+    sens = (10 * np.log10(diag["swap_num"] / diag["swap_den"])
+            if diag["swap_den"] > 0 and diag["swap_num"] > 0 else nan)
+    gap = (diag["e_pres"] / diag["n_pres"] - diag["e_abs"] / diag["n_abs"]
+           if diag["n_pres"] and diag["n_abs"] else nan)
+    return {"enrol_sens_db": sens, "pres_abs_gap_db": gap}
+
+
+def total_loss_floor(config):
+    """Best total the objective can reach, for the reference line on the plot.
+
+    w-weighted sum of 10log10(tau_pres) and 10log10(tau_abs). Since the
+    2026-08-25 tau split no single tau defines it. w_g does not appear: L_gain
+    is 0 at perfect reconstruction, so only tau_pres, tau_abs and w move it.
+    """
+    w = float(config["loss"]["w"])
+    tau_pres = float(config["loss"]["tau_pres"])
+    tau_abs = float(config["loss"]["tau_abs"])
+    return ((1 - w) * 10 * np.log10(tau_pres) + w * 10 * np.log10(tau_abs))
 
 
 def build_model(config):
     """Config -> BSRNN_TFMAP. Every ctor argument comes from the yaml.
 
-    Separate from main() so scripts/measure_train_cost.py measures the model
-    that actually trains, rather than a second copy of this call that can drift.
-
-    Two config keys are deliberately not passed: separator.norm (cLN is implied
-    by causal=True inside SubbandNorm) and n_hidden (ctor default 1, chosen in
-    decisions-m1.md 2026-08-18). Both belong in the yaml eventually so they are
-    logged rather than inherited.
+    Separate from main() so measure_train_cost.py measures the model that
+    actually trains. Two keys deliberately not passed: separator.norm (implied
+    by causal=True) and n_hidden (ctor default 1). Both belong in the yaml.
     """
     return BSRNN_TFMAP(
         sample_rate=config["data"]["sample_rate"],
@@ -69,7 +192,26 @@ def build_model(config):
         mlp_hidden=config["model"]["mask"]["mlp_hidden"],
         residual_branch=config["model"]["mask"]["residual_branch"],
         lookahead_frames=config["model"]["lookahead_frames"],
+        # Without this the config key is dead: BSRNN_TFMAP's own default (16.0)
+        # would win and editing the yaml would change nothing.
+        #
+        # Missing key => a checkpoint saved BEFORE 2026-08-25, when TFMap had no
+        # logit scale at all, i.e. an effective scale of 1.0. Those weights must
+        # be reloaded at 1.0: defaulting to sqrt(F) would run them against a cue
+        # they never saw in training, and every diagnostic on them would be
+        # measuring a model that never existed. Loud, because silently reviving
+        # the flat softmax on a NEW run is the bug this whole file is about.
+        tfmap_scale=_tfmap_scale(config),
     )
+
+
+def _tfmap_scale(config):
+    if "tfmap_scale" in config["model"]:
+        return float(config["model"]["tfmap_scale"])
+    print("WARNING: config has no model.tfmap_scale -- assuming 1.0, the "
+          "pre-2026-08-25 behaviour. Correct for an old checkpoint, WRONG for "
+          "a new run: add the key to the config.", file=sys.stderr)
+    return 1.0
 
 
 def unpack(batch, device):
@@ -91,37 +233,41 @@ def unpack(batch, device):
 def add_parts(sums, counts, parts):
     """Accumulate each loss term against its own crop count.
 
-    NOT loss.item() * batch_size. A batch loss is
-    (1 - w) * mean_present[L_pres + wm*L_MR] + w * mean_absent[L_abs]: two
-    means over different subsets whose sizes change from batch to batch. A
-    batch-size weighting therefore makes one present crop in one batch count
-    as much as eleven in another, and the epoch number moves when only the
-    shuffle changes.
-
-    Gated on the counts, never on isnan(): LossBSRNN returns NaN for a half
-    with no crops (~1.5 % of batches have no absent crop at batch 12), but a
-    NaN from a real numerical failure must still reach the log.
+    NOT loss.item() * batch_size: the two halves are means over subsets whose
+    sizes vary per batch, so that weighting makes the epoch number move when
+    only the shuffle changes. Gated on counts, never isnan() -- a NaN from a
+    real numerical failure must still reach the log.
     """
     if parts["n_present"]:
         sums["L_pres"] += parts["L_pres"] * parts["n_present"]
         sums["L_MR"] += parts["L_MR"] * parts["n_present"]
+        sums["L_gain"] += parts["L_gain"] * parts["n_present"]
         counts["present"] += parts["n_present"]
     if parts["n_absent"]:
         sums["L_abs"] += parts["L_abs"] * parts["n_absent"]
         counts["absent"] += parts["n_absent"]
 
 
-def epoch_report(sums, counts, w, wm):
-    """Recombine the accumulated terms with the same w and wm as the batch loss."""
+def epoch_report(sums, counts, w, wm, wg):
+    """Recombine the accumulated terms.
+
+    `w` is the REPORTING w (loss.w, the schedule's final value), never the w
+    that trained this epoch -- otherwise `total` is a different objective each
+    epoch and the curve falls with the schedule alone, corrupting both
+    ReduceLROnPlateau and best-checkpoint selection. The training w is its own
+    column. decisions-m1.md 2026-08-25.
+    """
     n_present, n_absent = counts["present"], counts["absent"]
     L_pres = sums["L_pres"] / n_present if n_present else float("nan")
     L_MR = sums["L_MR"] / n_present if n_present else float("nan")
+    L_gain = sums["L_gain"] / n_present if n_present else float("nan")
     L_abs = sums["L_abs"] / n_absent if n_absent else float("nan")
 
     return {
-        "total": (1 - w) * (L_pres + wm * L_MR) + w * L_abs,
+        "total": (1 - w) * (L_pres + wm * L_MR + wg * L_gain) + w * L_abs,
         "L_pres": L_pres,
         "L_MR": L_MR,
+        "L_gain": L_gain,
         "L_abs": L_abs,
         "n_present": n_present,
         "n_absent": n_absent,
@@ -140,12 +286,24 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
     grad_clip = float(config["training"]["grad_clip"])
     patience = int(config["training"]["patience"])
     epochs_since_best = 0
+    # Fixed for the whole run. Every `total` reported anywhere uses this, so the
+    # curve is one objective even while the schedule moves the training w.
+    w_report = float(config["loss"]["w"])
+    if config["loss"].get("w_schedule"):
+        ws = [w_at_epoch(config, e) for e in range(num_epochs)]
+        print(f"w schedule: {config['loss']['w_schedule']}", flush=True)
+        print(f"  w by epoch: {[round(v, 4) for v in ws]}", flush=True)
+        print(f"  reporting/selection w held at {w_report}", flush=True)
 
     for epoch in range(start_epoch, num_epochs):
         # Re-crop. Offsets are derived from (seed, epoch, idx), so without this
         # every epoch reads the same 4 s window of every clip -- reproducible,
         # and it throws away five sixths of the audio.
         train_loader.dataset.set_epoch(epoch)
+
+        # The one place the schedule takes effect: the loss used for the
+        # backward pass this epoch. Everything downstream reports at w_report.
+        loss_fn.w = w_at_epoch(config, epoch)
 
         model.train()
         sums, counts = defaultdict(float), defaultdict(int)
@@ -175,19 +333,17 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
             # Same recombination as the epoch report, so the bar converges to
             # the number that gets logged.
             pbar.set_postfix_str(
-                f"loss {epoch_report(sums, counts, loss_fn.w, loss_fn.wm)['total']:.4f}")
+                f"loss {epoch_report(sums, counts, w_report, loss_fn.wm, loss_fn.wg)['total']:.4f}")
 
         pbar.close()
-        epoch_loss = epoch_report(sums, counts, loss_fn.w, loss_fn.wm)
+        epoch_loss = epoch_report(sums, counts, w_report, loss_fn.wm, loss_fn.wg)
         train_loss_history.append(epoch_loss)
-
-        if print_debug and (epoch + 1) % 10 == 0:
-            print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss["total"]:.4f}')
 
 
         # VALIDATION LOSS
         model.eval()
         val_sums, val_counts = defaultdict(float), defaultdict(int)
+        diag = defaultdict(float)
         with torch.no_grad():
             for batch in tqdm(val_loader, desc=f"epoch {epoch+1}/{num_epochs} val",
                               unit="batch", leave=False, dynamic_ncols=True):
@@ -196,14 +352,53 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
                 s_output = model(mixture, enrollment)
                 _, parts = loss_fn(target, s_output, mixture, crop_absent)
                 add_parts(val_sums, val_counts, parts)
+                diagnostic_accumulate(diag, model, mixture, enrollment,
+                                      s_output, crop_absent)
 
-        val_loss = epoch_report(val_sums, val_counts, loss_fn.w, loss_fn.wm)
+        val_loss = epoch_report(val_sums, val_counts, w_report, loss_fn.wm, loss_fn.wg)
+        val_loss.update(diagnostic_report(diag))
         val_loss["epoch"] = epoch
         val_loss["lr"] = optimizer.param_groups[0]["lr"]
+        # the w that TRAINED this epoch, not w_report -- see history_header()
+        val_loss["w"] = loss_fn.w
         val_loss_history.append(val_loss)
+
+        # One CSV row per epoch, same columns and same order as history.csv. The
+        # header is printed once above the first row, so if the run dies the
+        # printed block can be pasted straight into a .csv file and read back.
+        # flush: stdout is a pipe under the Kaggle notebook, so without this the
+        # rows sit in the buffer and a killed session loses exactly what this
+        # exists to preserve.
+        if epoch == start_epoch:
+            print(",".join(history_header()), flush=True)
+        print(",".join(str(v) for v in history_row(epoch_loss, val_loss)), flush=True)
 
         if scheduler is not None:
             scheduler.step(val_loss["total"])
+
+        # A SECOND checkpoint, written every epoch regardless of improvement.
+        #
+        # The best-only save below can be many epochs stale: the 2026-08-25
+        # warmup run improved on 9 of 10 epochs, but a run that plateaus early
+        # leaves nothing newer than the plateau. On Kaggle a session that hits
+        # the 12 h wall loses /kaggle/working entirely unless it was committed,
+        # so "the newest weights" and "the best weights" are different insurance
+        # policies and both are cheap (87 MB, ~1 s).
+        #
+        # Deliberately NOT the file --resume reads: resuming from a worse-but-
+        # newer checkpoint silently changes which model a run continues from.
+        if save_path:
+            last_path = Path(save_path).with_name(Path(save_path).stem + "_last.pt")
+            torch.save({
+                "model": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "scheduler": scheduler.state_dict() if scheduler else None,
+                "epoch": epoch,
+                "best_val": best_val,
+                "best_row": best_row,
+                "config": config,
+                "seed": config["seed"],
+            }, last_path)
 
         # Save the model if it has the best validation loss so far.
         if val_loss["total"] < best_val:
@@ -235,51 +430,89 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
     return train_loss_history, val_loss_history, best_row
 
 
-SPLIT_MANIFESTS = {"smoke": ("smoke_train", "smoke_val"), "full": ("train", "val")}
+# split -> ((train_manifest, train_audio_dir), (val_manifest, val_audio_dir))
+#
+# The manifest name and the audio directory used to be one string, because for
+# smoke and full they happen to be equal. `mid` breaks that: it is a SUBSET
+# manifest over train/val audio that was already rendered, so it must read
+# data/rendered/train while carrying its own row list. Keeping them as one
+# string would have meant either re-rendering 2,000 duplicate trials or
+# symlinking 2,000 directories. See experiments/configs/generator.yaml
+# `subsets:` and scripts/make_subset_manifest.py.
+SPLIT_MANIFESTS = {
+    "smoke": (("smoke_train", "smoke_train"), ("smoke_val", "smoke_val")),
+    "mid":   (("mid_train",   "train"),       ("mid_val",   "val")),
+    # sir0: generated trials with its OWN audio, so manifest and audio dir match
+    # (unlike `mid`, which is a row-subset over train/val audio). Symmetric
+    # target/interferer loudness -- the arm that tests whether the model only
+    # ignores the enrollment because "keep the loud voice" already works.
+    "sir0":  (("sir0_train",  "sir0_train"),  ("sir0_val",  "sir0_val")),
+    "full":  (("train",       "train"),       ("val",       "val")),
+}
 
 
 def get_data_loaders(split, csv_path, data_path, config):
     # The dataset's `split` is the directory name under data/rendered/, so it
     # must track the manifest -- hardcoding "smoke_train" made --split full
-    # read smoke audio against the full manifest.
+    # read smoke audio against the full manifest. It is a SEPARATE string from
+    # the manifest name so a subset split can point at already-rendered audio.
     if split not in SPLIT_MANIFESTS:
-        raise ValueError(f"Unknown split: {split}")
-    train_split, val_split = SPLIT_MANIFESTS[split]
+        raise ValueError(f"Unknown split: {split}. Known: {sorted(SPLIT_MANIFESTS)}")
+    (train_manifest, train_audio), (val_manifest, val_audio) = SPLIT_MANIFESTS[split]
+    # Every trial trained twice, once per speaker. Config-driven so the arm is
+    # recorded with the run; absent key = the old single-direction behaviour, so
+    # older configs and checkpoints are unaffected. decisions-m1.md 2026-08-26.
+    both_directions = bool(config["data"].get("both_directions", False))
 
-    csv_train = csv_path / f"{train_split}.csv"
-    csv_val = csv_path / f"{val_split}.csv"
+    csv_train = csv_path / f"{train_manifest}.csv"
+    csv_val = csv_path / f"{val_manifest}.csv"
 
     train_dataset = TrialDataset(
         manifest_csv=csv_train,
         data_root=data_path,
-        split=train_split,
+        split=train_audio,
         chunk_s=config["data"]["chunk_s"], # follow CARTSE
         sample_rate=config["data"]["sample_rate"],
         seed=config["seed"],
+        both_directions=both_directions,
     )
 
     val_dataset = TrialDataset(
         manifest_csv=csv_val,
         data_root=data_path,
-        split=val_split,
+        split=val_audio,
         chunk_s=config["data"]["chunk_s"], # follow CARTSE
         sample_rate=config["data"]["sample_rate"],
         seed=config["seed"],
         random_crop=False,
+        both_directions=both_directions,
     )
+
+    # num_workers from the config, default 0. 0 is right on the laptop (4 cores,
+    # already saturated by the model) but starves a GPU: every crop is 3 windowed
+    # wav reads, and single-threaded that dominates the step. Config-driven so the
+    # figure that produced a given wall time is logged with the run.
+    num_workers = int(config["data"].get("num_workers", 0))
+    # persistent_workers only legal when num_workers > 0; without it each epoch
+    # re-forks the pool, which set_epoch()'s per-epoch re-crop makes very visible.
+    extra = dict(persistent_workers=True, prefetch_factor=4) if num_workers else {}
 
     train_loader = DataLoader(
         train_dataset,
         batch_size=config["data"]["batch_size"],
         shuffle=True,
-        num_workers=0,
-        drop_last=True)
+        num_workers=num_workers,
+        drop_last=True,
+        collate_fn=collate_pairs,
+        **extra)
 
     val_loader = DataLoader(
         val_dataset,
         batch_size=config["data"]["batch_size"],
         shuffle=False,
-        num_workers=0)
+        num_workers=num_workers,
+        collate_fn=collate_pairs,
+        **extra)
 
     return train_loader, val_loader
 
@@ -295,38 +528,40 @@ def git_commit():
                                text=True, check=True, timeout=10).stdout.strip()
         return head + ("-dirty" if dirty else "")
     except Exception:
-        return "UNKNOWN-not-a-git-checkout"
+        # No .git here. That is the normal case inside the Kaggle bundle, which
+        # ships source files only -- so fall back to the hash stamped in at
+        # bundle-build time by scripts/make_kaggle_bundle.py. Prefixed so it is
+        # never mistaken for a hash read from a live checkout.
+        stamp = Path(__file__).resolve().parents[1] / "docs/bundle_commit.txt"
+        try:
+            return "bundle:" + stamp.read_text().strip()
+        except OSError:
+            return "UNKNOWN-not-a-git-checkout"
 
 
 def log_results(out_dir, config, config_path, args, model, device, manifest_csv, train_loss_history, val_loss_history, best_row, wall_s, num_epochs, save_path):
     """Write experiments/results/<dir>/{meta.yaml,history.csv}.
 
-    The CLAUDE.md rule: every experiment result gets the config used, the git
-    commit hash, the metrics, the seed and the date. Written in the same shape
-    as experiments/results/2026-08-20-loss-anchor/meta.yaml so a training run
-    and the anchor measurement read side by side.
+    CLAUDE.md: config, commit, metrics, seed, date on every result. Same shape
+    as the 2026-08-20 anchor meta.yaml so the two read side by side. history.csv
+    is WIDE (train_* and val_* on one row) because the plot is the two curves
+    against each other; `lr` tells a plateau from a scheduler step.
 
-    history.csv is per-epoch and WIDE -- train_* and val_* on one row -- because
-    the thing actually plotted is the two curves against each other. The lr
-    column is what tells a plateau apart from a scheduler step.
-
-    Never raises: a logging bug must not throw away a finished training run.
-    Same reasoning as src/run_log.py.
+    Never raises: a logging bug must not discard a finished run.
     """
     try:
         out_dir = Path(out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        fields = ["total", "L_pres", "L_MR", "L_abs", "n_present", "n_absent"]
         with open(out_dir / "history.csv", "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(["epoch"] + [f"train_{k}" for k in fields]
-                            + [f"val_{k}" for k in fields] + ["lr"])
-            # Epoch comes from the VAL row: on a resume the histories start at
-            # start_epoch, so enumerate() would relabel epoch 40 as epoch 0.
+            # lineterminator="\n": csv.writer defaults to CRLF, but the per-epoch
+            # rows printed to stdout are LF. Matching them makes a block pasted
+            # out of a killed run byte-identical to this file rather than merely
+            # equivalent. pandas reads either, so no prior result is invalidated.
+            writer = csv.writer(f, lineterminator="\n")
+            writer.writerow(history_header())
             for tr, va in zip(train_loss_history, val_loss_history):
-                writer.writerow([va["epoch"]] + [tr[k] for k in fields]
-                                + [va[k] for k in fields] + [va["lr"]])
+                writer.writerow(history_row(tr, va))
 
         # The manifest's own provenance, carried through the way
         # measure_vad_impact.py does it -- the result is only interpretable
@@ -366,6 +601,11 @@ def log_results(out_dir, config, config_path, args, model, device, manifest_csv,
             "seconds_per_epoch": round(wall_s / epochs_run, 1) if epochs_run else None,
             # Copied verbatim so the result is readable without opening the
             # yaml -- config_md5 above is what proves they match.
+            # data as well as loss/training: the Kaggle notebook rewrites
+            # batch_size (GPU memory) and num_workers, so a run logged without
+            # this cannot say what batch it actually trained at. The 2-epoch
+            # mid run on 2026-08-25 trained at batch 6 and did not record it.
+            "data": config["data"],
             "loss": config["loss"],
             "training": config["training"],
             # The best val row, whichever run produced it -- on a resume that
@@ -382,6 +622,59 @@ def log_results(out_dir, config, config_path, args, model, device, manifest_csv,
         return True
     except Exception as e:                      # noqa: BLE001 - never fatal
         print(f"  log_results: could not write {out_dir}: {e}", file=sys.stderr)
+        return False
+
+
+def plot_history(out_dir, train_loss_history, val_loss_history, best_row, loss_floor):
+    """Write loss_plot.png: train and val `total` against epoch.
+
+    Histories are lists of DICTS, so `total` is pulled out explicitly -- passing
+    them to plt.plot raised TypeError on 2026-08-24 after a finished run. Hence
+    also the try block: a plotting bug must not be the last thing a 12-hour run
+    does. X axis is the VAL row's own `epoch`, not enumerate(), so a resumed run
+    plots 40-60 rather than relabelling to 0-20.
+    """
+    try:
+        if len(val_loss_history) < 2:
+            return False                    # a single point is not a curve
+        epochs = [v["epoch"] for v in val_loss_history]
+        fig, ax = plt.subplots(figsize=(7, 4.5))
+        ax.plot(epochs, [t["total"] for t in train_loss_history], label="train")
+        ax.plot(epochs, [v["total"] for v in val_loss_history], label="val")
+
+        # The two reference lines that say whether the curve is any good. The
+        # floor is total_loss_floor(config), reachable only at exact
+        # reconstruction; the anchor is the do-nothing baseline measured over 300
+        # crops in experiments/results/2026-08-20-loss-anchor/. NOTE -2.24 was
+        # computed at the old shared tau=0.001; at tau_abs=0.01 it is -2.22. The
+        # 0.02 shift is invisible on this plot, but the constant is tau-dependent
+        # and hardcoded, so it needs recomputing if w, w_m or tau_abs move.
+        ax.axhline(loss_floor, ls=":", lw=1, color="grey")
+        ax.axhline(-2.24, ls="--", lw=1, color="crimson")
+        # Labels right-aligned inside the axes, not anchored to a data point --
+        # at epochs[0] the anchor label sat directly on top of both curves.
+        ax.text(0.995, loss_floor, f" floor {loss_floor:.0f} ", fontsize=8,
+                color="grey", ha="right", va="bottom", transform=ax.get_yaxis_transform())
+        ax.text(0.995, -2.24, " do-nothing anchor -2.24 ", fontsize=8, color="crimson",
+                ha="right", va="top", transform=ax.get_yaxis_transform())
+
+        if best_row and best_row.get("epoch") is not None:
+            ax.plot(best_row["epoch"], best_row["total"], "o", ms=7, mfc="none",
+                    color="black", label=f"best val {best_row['total']:.3f}")
+
+        ax.set_xlabel("epoch")
+        ax.set_ylabel("total loss")
+        # Integer ticks: epochs are counts, and the default locator was showing
+        # 0.5 and 1.5 on short runs.
+        ax.xaxis.set_major_locator(matplotlib.ticker.MaxNLocator(integer=True))
+        ax.legend(fontsize=8)
+        fig.tight_layout()
+        fig.savefig(out_dir / "loss_plot.png", dpi=130)
+        plt.close(fig)                      # or figures accumulate across calls
+        print(f"Wrote {out_dir}/loss_plot.png")
+        return True
+    except Exception as e:                  # noqa: BLE001 - never fatal
+        print(f"  plot_history: could not plot: {e}", file=sys.stderr)
         return False
 
 
@@ -489,19 +782,12 @@ def main():
                    Path("experiments/results") /
                    f"{date.today().isoformat()}-train-{args.split}")
     
-    train_manifest = csv_path / f"{SPLIT_MANIFESTS[args.split][0]}.csv"
+    train_manifest = csv_path / f"{SPLIT_MANIFESTS[args.split][0][0]}.csv"
     log_results(results_dir, config, config_path, args, model, device,
                 train_manifest, train_loss_history, val_loss_history, best_row,
                 wall_s, num_epochs, save_path)
-    if len(train_loss_history) > 10:
-        # Plot training and validation loss
-        plt.plot(train_loss_history, label="Training Loss")
-        plt.plot(val_loss_history, label="Validation Loss")
-        plt.xlabel("Epoch")
-        plt.ylabel("Loss")
-        plt.legend()
-        plt.savefig(results_dir /  "loss_plot.png")
-        plt.show()
+    plot_history(results_dir, train_loss_history, val_loss_history, best_row,
+                 loss_floor=total_loss_floor(config))
 
 if __name__ == "__main__":
     main()

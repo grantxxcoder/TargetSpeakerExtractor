@@ -1,14 +1,11 @@
 """Manifest row -> audio. Pure functions; `scripts/render_trials.py` is the writer.
 
-Kept a pure function of (row, config, corpus paths) so a PyTorch `Dataset` can call
-`render_trial` directly if B7's on-the-fly path is ever switched back on
-(decisions-m0.md 2026-08-15). Nothing here touches disk except reading source audio.
+Pure function of (row, config, corpus paths), so a Dataset could call it directly
+if B7's on-the-fly path is switched back on. The renderer draws NOTHING: same row
++ same corpora -> bit-identical audio, which is what makes a logged seed mean
+something.
 
-Every level, length and position comes from the manifest row. The renderer draws
-NOTHING: given the same row and the same corpora it produces bit-identical audio,
-which is what makes a logged seed mean something.
-
-The decisions this file implements, all in docs/decisions/decisions-m0.md:
+Decisions, all docs/decisions/decisions-m0.md:
 
   A1  2026-08-13  the reference is the target convolved with its OWN room, no
                   interferer and no noise -- "what the mic heard from that person".
@@ -194,23 +191,16 @@ def render_trial(row, cfg, flac_of, texts, noise_root, noise_split):
     """One manifest row -> the stems, in memory. Pure: no disk writes, no RNG
     beyond the enrollment EQ, which is seeded from the trial id.
 
-    Returns `(stems, meta)`. `stems` holds float64 arrays at `cfg["sample_rate"]`:
+    Returns `(stems, meta)`; stems are float64 at cfg["sample_rate"] -- mixture,
+    target (A1: through its own room, alone), enrollment (dry, A4).
 
-        mixture      what the model hears
-        target       A1's reference: the target through its own room, alone
-        enrollment   dry, no room (A4)
+    Level chain, in order: anchor -> target_loudness_lufs (the anchor is the
+    target, or the INTERFERER when the target is absent, 2026-08-11, so absent
+    trials cannot be spotted by loudness); interferer -> anchor - sir_db;
+    noise -> anchor - snr_db; sum, then A6's single common gain if it would clip.
 
-    Level chain, in the order it has to happen:
-
-      1. anchor -> `target_loudness_lufs`. The anchor is the target, or the
-         INTERFERER when the target is absent (2026-08-11), so absent trials sit
-         at the same volume as present ones and cannot be spotted by loudness.
-      2. interferer -> anchor level minus `sir_db`.
-      3. noise -> anchor level minus `snr_db`.
-      4. sum, then A6's single common gain if anything would clip.
-
-    Gains are computed on the un-clipped signals and applied once at the end, so
-    the target stem and the copy of it inside the mixture are scaled identically.
+    Gains are computed un-clipped and applied once at the end, so the target stem
+    and its copy inside the mixture scale identically.
     """
     sr = cfg["sample_rate"]
     length_s = float(row["mixture_length_s"])
@@ -276,9 +266,20 @@ def render_trial(row, cfg, flac_of, texts, noise_root, noise_split):
     common_gain = CLIP_CEILING / peak if peak > CLIP_CEILING else 1.0
     mixture *= common_gain
     target *= common_gain
+    # The interferer gets it too, now that it is written to disk. Without this
+    # `mixture == target + interferer + noise` stops holding whenever the clip
+    # guard fires, and the interferer-as-target direction would train against a
+    # signal that is not the one inside the mixture. It was correct to omit
+    # before: the stem was computed and discarded.
+    interferer *= common_gain
 
-    enrollment, eq_bands = render_enrollment(row, cfg, flac_of, meter,
-                                             target_lufs)
+    enrollment, eq_bands = render_enrollment(row, cfg, flac_of, meter, target_lufs)
+    # The interferer's own enrollment, for the second training direction: the
+    # same mixture asked for the OTHER speaker. Its EQ draw is seeded from a
+    # different string, or both enrollments in a trial would get the identical
+    # random curve and the two directions would share a channel signature.
+    interferer_enrollment, i_eq_bands = render_enrollment(
+        row, cfg, flac_of, meter, target_lufs, prefix="interferer_")
 
     meta = {
         "trial_id": row["trial_id"],
@@ -300,32 +301,41 @@ def render_trial(row, cfg, flac_of, texts, noise_root, noise_split):
         "interferer_text": " ".join(texts[u] for u in i_utts),
         "enrollment_eq": bool(int(row["enrollment_eq"])),
         "enrollment_eq_bands": eq_bands,
+        "interferer_enrollment_eq": bool(int(row["interferer_enrollment_eq"])),
+        "interferer_enrollment_eq_bands": i_eq_bands,
     }
-    return {"mixture": mixture, "target": target, "enrollment": enrollment}, meta
+    return {"mixture": mixture, "target": target, "enrollment": enrollment,
+            "interferer": interferer,
+            "interferer_enrollment": interferer_enrollment}, meta
 
 
-def render_enrollment(row, cfg, flac_of, meter, target_lufs):
+def render_enrollment(row, cfg, flac_of, meter, target_lufs, prefix=""):
     """The conditioning clip: dry, no room (A4), optionally EQ'd.
 
-    Levelled to `target_loudness_lufs` like the anchor. Not covered by any
-    decision -- see the renderer entry in decisions-m0.md 2026-08-16 -- but leaving
-    it at LibriSpeech's native level would put a spread of loudness on the
-    conditioning path for no reason, and level is a cue we close everywhere else.
+    `prefix` picks whose: "" = enrollment_* (target), "interferer_" = the other.
+    Same function on purpose -- a difference in how the two are built would itself
+    become a cue for which direction is being asked.
+
+    Levelled to `target_loudness_lufs`. Not covered by a decision (decisions-m0.md
+    2026-08-16), but LibriSpeech's native level would put a loudness spread on the
+    conditioning path, and level is a cue we close everywhere else.
     """
     sr = cfg["sample_rate"]
-    path = flac_of[row["enrollment_utt"]]
-    start = int(round(float(row["enrollment_offset_s"]) * sr))
-    n = int(round(float(row["enrollment_length_s"]) * sr))
+    path = flac_of[row[f"{prefix}enrollment_utt"]]
+    start = int(round(float(row[f"{prefix}enrollment_offset_s"]) * sr))
+    n = int(round(float(row[f"{prefix}enrollment_length_s"]) * sr))
     audio, file_sr = sf.read(path, dtype="float64", start=start, frames=n,
                              always_2d=False)
     if file_sr != sr:
         raise ValueError(f"{path} is {file_sr} Hz, expected {sr}")
 
     bands = []
-    if int(row["enrollment_eq"]):
-        # Seeded from the trial id so the curve is reproducible from the
-        # manifest alone, and independent of render order or worker count.
-        rng = np.random.default_rng(trial_seed(row["trial_id"]))
+    if int(row[f"{prefix}enrollment_eq"]):
+        # Seeded from the trial id (plus the prefix) so the curve is
+        # reproducible from the manifest alone and independent of render order
+        # or worker count -- and so the two enrollments in one trial get
+        # DIFFERENT curves rather than the same one.
+        rng = np.random.default_rng(trial_seed(row["trial_id"] + prefix))
         sos, bands = eq_curve(rng, sr)
         audio = apply_eq(audio, sos)
 

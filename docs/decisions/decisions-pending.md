@@ -1,131 +1,48 @@
-# Decisions needed before audio can be generated
+# Open decisions
 
-**Written 2026-08-10. Status 2026-08-13: one item left open.**
-
-- **C2** — how hard the task should be (floor word error rate on the raw mixture).
-  Needs the supervisor. Blocks nothing that can be done meanwhile.
-
-**Every other decision is made** and recorded in `docs/decisions/decisions-m0.md`. Group A
-is closed, so the renderer is unblocked. What remains is implementation, not choices:
-B12's two PRs, then the manifest rebuild carrying B9, B10, B4 and the interruption
-column.
-
-Plain wording first, the jargon term in brackets so it can be matched to
-`docs/data/data-construction-parameters.md`.
-
-Move each answer into `docs/decisions/decisions-m0.md` once made.
+**Written 2026-08-10.** Groups A–C were the pre-generation data decisions; all are
+closed except C2. Full reasoning for each lives in `decisions-m0.md` under its
+date. Group D holds open *modelling* questions, which have nowhere else to live;
+decisions actually taken go to `decisions-m1.md`.
 
 ---
 
-## A. Blocks the renderer
+## Still open
 
-### A1. *Decided 2026-08-13 — full reverberant, "what the mic heard". See `decisions-m0.md`.*
+- **C2 — how hard should the task be?** Floor word error rate on the raw mixture;
+  current plan targets 60–80 %. Needs the supervisor. Blocks nothing meanwhile,
+  but M0's floor/ceiling calibration is what answers it.
+- **A1 needs sign-off only, not a decision.** Reference is the full reverberant
+  target: separate and denoise, do not dereverberate. Removing a 0.6 s tail inside
+  a 300 ms causal window is not possible, and trying trades residue for artefacts,
+  which hurt recognition more. Dereverberation kept as an ablation if time allows.
 
-Pending supervisor sign-off. Dereverberation is an ablation only, if time allows.
+## Closed (A, B) — see `decisions-m0.md` for the reasoning
 
-### A2. *Decided 2026-08-11 — wrap around. See `decisions-m0.md`.*
+| id | decision | date |
+|---|---|---|
+| A1 | full reverberant reference, "what the mic heard" | 08-13 |
+| A2 | noise bed wraps around | 08-11 |
+| A3 | BS.1770 integrated loudness | 08-12 |
+| A4 | no room on the enrollment | 08-12 |
+| A5 | pad the tail by `t60_s` | 08-13 |
+| A6 | common-gain rescale at 0.95 | 08-13 |
+| B1 | `overlap_ratio` is a difficulty-dial setting, not a standalone decision. Narrow it **last**: its 0.7 ceiling is matched to REAL-TSE | 08-13 |
+| B2 | measure overlap from detected speech (Silero VAD 6.2.1, pinned) | 08-13 |
+| B3 | enrollment fixed 5 s, kept configurable | 08-12 |
+| B4 | eval carries the same absent fraction as train, scored on its own row | 08-13 |
+| B5 | Whisper `EnglishTextNormalizer` | 08-13 |
+| B6 | 500 eval trials generated, 200 the minimum scored | 08-13 |
+| B7 | per-epoch resampling off for the main run, kept as a switch | 08-13 |
+| B8 | enrollment from a different book | 08-11 |
+| B9 | 50 % both / 25 % absent / 25 % target-only; variable `target_activity_ratio` | 08-13 |
+| B10 | three enrollment tiers recorded per trial; eval pools redrawn. Executes B8's own documented contingency (60.2 % of speakers dropped out), not a reversal | 08-13 |
+| B11 | report a latency decay curve, never cap T60. Largely defused by A1 | 08-13 |
+| B12 | two regimes, sampler layer, no relational constraints. PR1/PR2 landed 08-14 | 08-13 |
+| B13 | stratified reporting per condition, no combinations, 100 trials per bucket | 08-13 |
 
-Numbers are kept in `decisions-m0.md`. The gap in numbering is deliberate: A3-A6
-keep their identifiers so earlier references stay valid.
-
-### A3. *Decided 2026-08-12 — BS.1770 integrated loudness. See `decisions-m0.md`.*
-
-### A4. *Decided 2026-08-12 — no room on the enrollment. See `decisions-m0.md`.*
-
-### A5. *Decided 2026-08-13 — yes, pad by `t60_s`. See `decisions-m0.md`.*
-
-### A6. *Decided 2026-08-13 — common-gain rescale at 0.95. See `decisions-m0.md`.*
-
-**Group A is closed.** The renderer is unblocked.
-
----
-
-## B. Needed before the real sets are generated
-
-### B1. *Closed 2026-08-13 — subsumed by the difficulty dial. See `decisions-m0.md`.*
-
-Not a standalone decision: `overlap_ratio` is one of the 14 parameters ranked in
-`docs/data/difficulty-dial.md`, adjustable on request once B12 lands. Recorded there
-as the narrowing to do **last**, because its 0.7 ceiling is deliberately matched to
-REAL-TSE and changing it diverges from the anchor.
-
-### B2. *Decided 2026-08-13 — measure from detected speech. See `decisions-m0.md`.*
-
-Detector to be named in the PR that adds it.
-
-### B3. *Decided 2026-08-12 — fixed 5 s, kept configurable. See `decisions-m0.md`.*
-
-### B4. *Decided 2026-08-13 — yes, same fraction as train, scored on their own row. See `decisions-m0.md`.*
-
-The fraction itself follows B9.
-
-### B5. *Decided 2026-08-13 — Whisper `EnglishTextNormalizer`. See `decisions-m0.md`.*
-
-### B6. *Decided 2026-08-13 — 500 generated, 200 the minimum scored. See `decisions-m0.md`.*
-
-### B7. *Decided 2026-08-13 — off for the main run, kept as a switch. See `decisions-m0.md`.*
-
-### B8. *Decided 2026-08-11 — different book. See `decisions-m0.md`.*
-
-### B9. *Decided 2026-08-13 — 50 % both / 25 % absent / 25 % target-only, and a variable target activity ratio. See `decisions-m0.md`.*
-
-Blocks the manifest rebuild until implemented. Sets B4's eval fraction at 0.25.
-
-### B10. *Decided 2026-08-13 — three enrollment tiers, recorded per trial; eval pools redrawn. See `decisions-m0.md`.*
-
-Not a reversal of B8: B8's cost note specified this fallback and its trigger. Folds
-into the PR3 rebuild.
-
-### B11. *Decided 2026-08-13 — report a latency decay curve, never cap T60. See `decisions-m0.md`.*
-
-Largely defused by A1: with a full reverberant reference the model is no longer asked
-to suppress a tail it has not heard.
-
-### B12. *Architecture decided 2026-08-13 — two regimes, sampler layer, no relational constraints. See `decisions-m0.md`.*
-
-**PR1 and PR2 landed 2026-08-14.** `src/data/sampling.py` holds the sampler;
-`build_manifest.py` draws a regime per trial and records it. PR3 (B9/B10/B4 rebuild)
-is next.
-
-One band was deliberately not applied: `overlap_ratio` keeps its full `[0.2, 0.7]`
-in `base`, because narrowing it diverges from the REAL-TSE anchor and needs
-supervisor agreement (`difficulty-dial.md` §3). `target_activity_ratio` likewise
-stays fixed until B9 decides what varying it means.
-
-Band values live in `docs/data/difficulty-dial.md` §2; the how-to is
-`docs/data/changing-the-data.md`.
-
-Two sub-questions the original entry raised, both now answered in `decisions-m0.md`:
-beta is dropped (no use case), and the wall-absorption ambiguity is resolved by
-**not** capping absorption — it is derived from `t60_s` and volume, so a cap would
-be a rejection rule, and rejection is what bends distributions. Raising the `t60_s`
-floor achieves the same realism gain without rejection (`difficulty-dial.md` §1).
-
-### B13. *Decided 2026-08-13 — per condition, no combinations, 100 trials per bucket. See `decisions-m0.md`.*
-
-One part deferred: the **interruption** condition. Nothing marks an interruption
-today, and defining one needs the turn-taking trials B9 introduces, so it is fixed
-during that rebuild rather than before it.
-
----
-
-## C. Ask the supervisor
-
-1. **A1 — decided, needs sign-off only.** Reference is what the mic heard from the
-   target (full reverberant): separate and denoise, do not dereverberate. Removing a
-   0.6 s tail from a 300 ms causal window is not possible, and attempting it trades
-   residue for artefacts, which are what degrade recognition most. Dereverberation
-   kept as an ablation if time allows. `decisions-m0.md` 2026-08-13.
-2. **How hard should the task be?** Measured as how badly an off-the-shelf
-   transcriber does on the raw mixture (**floor word error rate**). Too easy and
-   nothing distinguishes systems; too hard and nothing can be ranked. The current
-   plan targets 60–80 %. **Still open — nothing else here can settle it.**
-3. *B10 — decided 2026-08-13. Three enrollment tiers, recorded per trial. Not a
-   reversal of B8: B8's own cost note specified this fallback and the trigger for it,
-   and 60.2 % of speakers dropping out met that trigger. Worth mentioning, not
-   asking. See `decisions-m0.md`.*
-4. *B4 — answered 2026-08-12 and now fully decided. See `decisions-m0.md`.*
-5. *B11 — decided 2026-08-13, and largely defused by A1. See `decisions-m0.md`.*
+Two B12 items remain implementation, not decisions: `overlap_ratio` narrowing in
+`base` (needs supervisor agreement, one config line) and `length_mode`.
 
 ---
 
@@ -243,3 +160,162 @@ a richer dictionary is unlikely to, and D1 should not be scheduled.**
 Also worth confirming the near-uniformity across several trials before it is
 written up — measured on one so far, though the argument above says it is
 structural.
+
+### D3. Diagnose the conditioning failure before rebuilding anything
+
+**Status: three measurements, all unrun, all cheap, all runnable on
+`models/model_sir0.pt` on CPU — no contention with a live GPU run.**
+
+**The one number.** Every run has failed the same way: swapping a stranger's
+enrollment in changes the output by at most **15 %** (`val_enrol_sens_db`
+-8.25, epoch 7, `2026-08-27-train-sir0`). Five-sixths of the output is decided
+without reference to who was asked for. Architecture work should target that
+number; everything below is ranked by how much it moves it per unit of cost.
+
+**Why measure first.** The conditioning path has two halves — *build a cue* and
+*make the network use it* — and no run so far distinguishes which one fails.
+Rebuilding the wrong half is the expensive mistake available here.
+
+- **D3a — is the cue itself speaker-discriminative?** Compute the TF-Map output
+  for the true enrollment and for a rolled one, same mixture:
+  `||tf_true - tf_swap||^2 / ||tf_true||^2`. Same roll trick as
+  `diagnostic_accumulate()` in `scripts/train.py`, one layer upstream.
+  **This partitions the problem.** Cue barely moves -> nothing downstream can
+  help, fix the cue (D5). Cue moves a lot but the output does not -> the cue is
+  fine and the *injection path* is discarding it (D4).
+- **D3b — oracle-cue ceiling.** Replace the TF-Map channel with the clean
+  target's magnitude spectrogram and train briefly. Still cannot extract -> the
+  separator/mask is the bottleneck and conditioning is not the story. Extracts
+  well -> conditioning is confirmed as the bottleneck and the run gives its
+  ceiling. Upper-bound experiment, deliberately cheap.
+- **D3c — stratify every val metric by `same_gender`.** Free: the column is in
+  the manifest and `sir0_val` is 76 same-gender / 69 cross. `sir0_train` is
+  balanced 50/50 (680/680), which **caps but does not remove** the gender
+  shortcut: a model using pitch alone gets the cross-gender half right and coin
+  flips the rest, i.e. ~75 % correct with no enrollment at all. If quality and
+  sensitivity collapse on same-gender trials, the model is riding gender, not
+  identity — and that is invisible in the pooled numbers we currently log.
+
+### D4. Inject the speaker cue at every block, not once at the input
+
+**Status: proposal, not scheduled. Cheapest large change available. Gated on D3a.**
+
+**The structural problem.** `BSRNN_TFMAP.forward` concatenates the TF-Map as a
+third input channel, `SubbandNorm` projects it once through a 1x1 conv, and from
+there it must survive **six `BSNet` blocks — twelve LSTMs — of residual mixing**
+to reach the mask head. Nothing re-injects it. The extraction loss has to
+propagate identity backwards through that entire stack before the cue earns its
+place, which is a long credit path for a signal worth one third of one
+projection.
+
+**The proposal.** Derive a fixed-length embedding from the enrollment and apply
+FiLM at each block: `z <- gamma(e) * z + beta(e)`. Cite Perez et al., AAAI 2018
+for FiLM; in TSE the multiplicative-adaptation precedent is Delcroix et al.,
+"Improving speaker discrimination of target speech extraction with
+time-domain SpeakerBeam", ICASSP 2020. Roughly 400 k parameters from a 256-d
+embedding across six blocks — affordable against the 7.19 M / 25-27 M headroom.
+
+**Why this is ranked first.** It is the single largest divergence from TSE
+systems that demonstrably condition, and it does not require the cue itself to
+change — so it composes with whatever D3a says.
+
+**Two variants, and the cheap one needs no encoder at all. Run D4a before D4b.**
+
+- **D4a — re-inject the TF-Map itself at every block.** The TF-Map is already
+  `(B, 1, F, Tx)`: frequency-shaped and time-aligned with the feature map, so it
+  band-splits exactly like the mixture does. Project it per band to
+  `feature_dim` and add it into each of the six `BSNet` blocks. **The cue stays
+  parameter-free, so it cannot memorise anything** — only the projections are
+  learned. This isolates the dilution hypothesis with no new concepts and no new
+  failure modes, and it is the honest test of "the cue is fine, the network is
+  losing it".
+- **D4b — FiLM from a learned fixed-length embedding.** Strictly stronger and
+  strictly riskier; requires D5's encoder. Only worth it if D4a moves
+  `val_enrol_sens_db` and then stalls.
+
+**On the memorisation worry (raised 2026-08-28).** Adding speaker parameters
+risks the encoder learning the 1172 training voices rather than learning to
+extract. Three things already defuse it, and they should be stated in the
+write-up rather than discovered later:
+
+1. **The splits are speaker-disjoint by construction** (`speakers_from:` in
+   `generator.yaml`), so val speakers are never trained on. Memorisation shows
+   up directly as train extraction improving while val does not — *the
+   experiment already detects the failure mode.*
+2. **It is the standard setup in speaker verification.** x-vector and ECAPA-TDNN
+   are trained with exactly this closed-set classification loss and transfer to
+   unseen speakers; that transfer *is* speaker verification. The classification
+   head is discarded at test time.
+3. **Our data design already breaks the likelier confound.** The real risk is
+   the encoder latching onto channel rather than voice — LibriSpeech speakers
+   each have their own sessions. But the enrollment is dry (A4, no room) and
+   from a different book (B8) while the mixture is reverberant, so channel
+   matching is actively unavailable and voice is what is left.
+
+**The asymmetry that settles the ordering.** A model leaning too hard on the
+speaker cue can be regularised; a model that ignores the cue cannot be
+regularised into using it. The current failure is the second kind, so the risk
+is worth taking — behind D4a, which carries none of it.
+
+### D5. A speaker encoder with an auxiliary speaker-ID loss
+
+**Status: proposal, not scheduled. Larger than D4 and subsumes part of D1.**
+
+**The problem.** **No parameter in the model is devoted to speaker identity and
+no loss term rewards it.** TF-Map is deliberately parameter-free, and the M2
+objective is four terms about signal level and content (`L_pres`, `L_MR`,
+`L_gain`, `L_abs`). Identity is something we hope extraction discovers, never
+something we train for. SpEx+ (Ge et al., Interspeech 2020) is the standing
+evidence that the auxiliary speaker-classification loss is what makes
+conditioning stick rather than an optional extra.
+
+**The proposal.** A small encoder over the enrollment producing a 256-d
+embedding, trained jointly with a cross-entropy over the ~1172 training
+speakers, feeding D4's FiLM. **The enrollment is fully available before the
+stream starts, so this encoder may be non-causal and costs no streaming
+latency** — the objection that ruled out Zhang et al.'s eq. (3) does not apply
+to the enrollment side.
+
+**It completes the paper we already cite.** Zhang et al., ICASSP 2025 is
+*Multi-Level* Speaker Representation: we implemented the spectral level (eq. 2)
+and skipped the embedding level (eq. 3) for want of an encoder. Adding one makes
+eq. (3) available and the write-up becomes "we implemented the spectral level,
+measured it insufficient, and added the embedding level the paper specifies".
+
+**Constraints that are not negotiable.** The encoder must be a different model
+family from the ASR proxy, and the judge must never appear in it in any form
+(CLAUDE.md). If a pretrained speaker model is used rather than training from
+scratch, the family check must be recorded, not assumed.
+
+### D6. Two levers that are already built and currently switched off
+
+**Status: both are config changes, hours not days. Run alongside D3.**
+
+- **`lookahead_frames` is 0.** `lookahead_shift()` is implemented and tested; the
+  spec allows 200-300 ms and 16 frames is 128 ms. Ablate {0, 8, 16}. Free
+  performance we are declining to take.
+- **The residual branch `R` is unbounded and unconditioned.** In `Estimator`,
+  GLU bounds the mask but `res_heads` is a raw `Conv1d` added straight to the
+  masked spectrogram, so it can synthesise output **ignoring both the mixture
+  and the enrollment**. `residual_branch` is already a constructor flag; give it
+  an ablation arm like `ablate_w_m` / `ablate_w_g`.
+
+### D7. Status correction — D2 has effectively been run
+
+**`tfmap_scale: 16.0` in `bsrnn_baseline.yaml` is D2's temperature**, scale
+being 1/tau, so tau ~ 0.0625 — sharper than D2's sharpest proposed arm (0.05 was
+proposed as tau; 16 corresponds to 0.0625). The measurement in `TFMap`'s
+docstring confirms it worked mechanically: 619.6/628 frames effectively used
+before, top 50 frames carrying ~59 % after.
+
+**But it did not solve the problem, and the gain cannot be attributed to it.**
+Enrollment sensitivity went 2.6 % -> 15 %, which looks like a win, except that
+`tfmap_scale`, `both_directions` and the `sir0` split all changed between those
+two measurements. **Three variables, one number: unattributable.** An ablation
+arm on `tfmap_scale` alone is what would close D2 honestly.
+
+**Consequence for D1.** D2's stopping rule was "if sharpening the existing
+mechanism does not help, a richer dictionary is unlikely to, and D1 should not be
+scheduled". Sharpening helped but left 85 % of the output enrollment-blind, so
+D1 is **not** cleanly ruled out — but it remains M5-scale against D4 and D6,
+which are hours to days. Order by cost: D3, D6, D4, D5, then reconsider D1.

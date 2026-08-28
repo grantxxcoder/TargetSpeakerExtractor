@@ -229,9 +229,10 @@ a wall-time row in `docs/run_times.md`, and
 enough — `systemd-oomd` killed the editor and a terminal on 2026-08-24, before
 training had even been started. Close VSCode, or use server-class compute
 (`docs/decisions/specification.md`). `requirements.txt` pins a CPU torch and
-`docs/run_times.md` records no usable GPU here. The one measured row so far is
-CPU and smoke-sized — 243 s/epoch at batch 3 over 50 trials — which is a wiring
-timing, not a basis for projecting the full split.
+`docs/run_times.md` records no usable GPU here. The measured rows are all CPU
+and smoke-sized — best figure 277 s/epoch at batch 3 over 50 trials, from the
+30-epoch run (2.3 h); the 243 s/epoch row is a single epoch and includes
+startup. Wiring timings, not a basis for projecting the full split.
 
 **Judging the first curve.** The do-nothing anchor — emitting the mixture
 unchanged — scores `total = -2.24` at the config's `w` and `w_m`

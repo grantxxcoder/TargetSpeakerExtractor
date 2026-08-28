@@ -7,20 +7,16 @@ draw decided here. Reads file headers only, never audio samples.
 Transcripts are not copied into the manifest. They live in the utterance
 index, keyed by utterance id.
 
-B2 PR2 (decisions-m0.md 2026-08-15) split one quantity into two, and confusing them
-is the way to break this file:
+B2 PR2 (decisions-m0.md 2026-08-15) split one quantity into two; confusing them
+is how this file breaks:
 
-  FOOTPRINT  how much of the timeline a source's audio occupies, silence
-             included. Physical. Drives placement (`lay_out`, `best_onset`'s
-             slide range) and the "does it fit in the window" assertions.
-  SPEECH     how much of that is detected voice, from `data/index/vad_segments.csv`.
-             A measurement. Drives `target_activity`, `interferer_activity`,
-             `overlap_achieved` and `interrupted`.
+  FOOTPRINT  timeline the audio occupies, silence included. Drives PLACEMENT.
+  SPEECH     how much of that is detected voice (data/index/vad_segments.csv).
+             Drives target_activity, interferer_activity, overlap_achieved,
+             interrupted.
 
-They differ by ~14 %: a LibriSpeech file is only ~86 % speech, mostly a ~0.33 s
-pause before the reader starts. Before PR2 footprint was used for both, which
-overstated overlap by ~25 %. The audio is identical either way -- only the labels
-and the resulting placement change.
+They differ ~14 % (LibriSpeech is ~86 % speech). Using footprint for both
+overstated overlap by ~25 %.
 """
 
 from __future__ import annotations
@@ -59,6 +55,16 @@ COLUMNS = [
     "enrollment_utt", "enrollment_offset_s", "enrollment_length_s", "enrollment_eq",
     # B10: which of the three guard tiers supplied the enrollment clip.
     "enrollment_guard",
+    # SECOND training direction. Every trial carries one; where nobody
+    # interferes the enrolled speaker is a PHANTOM and the answer is silence. A
+    # trial is a whole trial -- no special-casing a missing field downstream.
+    # interferer_enrollment_speaker is deliberately separate from
+    # interferer_speaker ("who interferes, empty if nobody"): overloading it
+    # would change what every existing manifest means. decisions-m1.md 2026-08-26.
+    "interferer_enrollment_speaker", "interferer_enrollment_utt",
+    "interferer_enrollment_offset_s", "interferer_enrollment_length_s",
+    "interferer_enrollment_eq", "interferer_enrollment_guard",
+    "interferer_enrollment_phantom",
     "noise_clip", "noise_offset_s",
     "mixture_length_s", "sir_db", "snr_db", "target_loudness_lufs",
     "overlap_requested", "overlap_achieved",
@@ -415,6 +421,52 @@ def utt_index(utt_id):
     return int(utt_id.rsplit("-", 1)[1])
 
 
+def pick_interferer_enrollment(rng, interferer, target, speakers, sex,
+                               same_gender, by_speaker, book,
+                               interferer_chapter, interferer_run, enroll_len):
+    """The enrollment for the SECOND training direction, and whether it is a phantom.
+
+    Returns (speaker, utterance, guard_tier, is_phantom) or None.
+
+    WHY. Every mixture trains twice, asked for each speaker; an
+    enrollment-ignoring model must answer both the same and so cannot fit both.
+    Measured 2026-08-26: with one direction the model ignored the enrollment
+    entirely (8 % output movement on a swap), and neither the loss schedule nor
+    removing the loudness shortcut changed that. decisions-m1.md 2026-08-26.
+
+    PHANTOM. On `target_only`/`noise_only` nobody interferes, so a speaker who is
+    genuinely NOT in the audio is enrolled and the answer is silence -- the purest
+    target-absent example there is. Skipping those trials instead would drop the
+    absent rate ~28 % -> ~16 % and invalidate the w the loss was calibrated on.
+    Drawn under the SAME same-gender constraint as a real interferer, or the
+    enrolled speaker's sex would predict whether anyone is interfering.
+    """
+    phantom = interferer is None
+    if phantom:
+        pool = [s for s in speakers
+                if s != target and (sex[s] == sex[target]) == same_gender]
+        if not pool:
+            return None
+        speaker = str(rng.choice(pool))
+    else:
+        speaker = interferer
+
+    candidates = [u for u in by_speaker[speaker]
+                  if float(u["duration"]) >= enroll_len]
+    if not candidates:
+        return None
+
+    # Same three-tier guard as the target's enrollment, via the same function:
+    # the two directions must be constructed identically, or how the enrollment
+    # was made becomes a cue for which direction is being asked.
+    used = {u["utt"] for u in interferer_run}
+    chosen = pick_enrollment(rng, candidates, interferer_chapter, used, book)
+    if chosen is None:
+        return None
+    guard, utt = chosen
+    return speaker, utt, guard, phantom
+
+
 def pick_enrollment(rng, candidates, target_chapter, used_utts, book):
     """B10: the enrollment clip, and which guard tier supplied it.
 
@@ -474,10 +526,14 @@ def pick_enrollment(rng, candidates, target_chapter, used_utts, book):
 
 def build_trial(trial_id, split, sampling_cfg, speakers, sex, book, by_speaker,
                 by_chapter, chapters_of, noise, segs_of):
-    # `reg` is a fifth, dedicated stream: SeedSequence.spawn(5) yields the same
-    # first four children as spawn(4), so adding it moves no existing draw, and
-    # the regime can never shift the values of the parameters it selects.
-    pick, level, room, aug, reg = rngs(trial_id, 5)
+    # Dedicated streams: spawn(N) yields the same first children as spawn(N-1),
+    # so each addition is purely additive -- the same seed still yields
+    # byte-identical mixtures and only new columns appear. `reg` (5th, regime)
+    # and `ienr` (6th, 2026-08-26, interferer enrollment). Drawing either from
+    # `pick`/`aug` would shift every later draw and change the IDENTITY of every
+    # trial in every existing manifest, so mid, sir0 and the anchors would stop
+    # being comparable to anything built afterwards.
+    pick, level, room, aug, reg, ienr = rngs(trial_id, 6)
 
     # One regime per trial, then every band comes from it. None when the split
     # declares no regimes (the eval splits), in which case nothing is consumed
@@ -514,6 +570,7 @@ def build_trial(trial_id, split, sampling_cfg, speakers, sex, book, by_speaker,
     interferer_spans = []
     interferer = None
     enrollment, guard = None, ""
+    i_enrol_spk, i_enrollment, i_guard, i_phantom = None, None, "", False
 
     for _ in range(20):
         target = str(pick.choice(speakers))
@@ -562,6 +619,16 @@ def build_trial(trial_id, split, sampling_cfg, speakers, sex, book, by_speaker,
             interferer_speech, interferer_footprint = 0.0, 0.0
             interferer_onsets, i0, overlap_achieved = [], 0.0, 0.0
             interferer_spans = []
+            # Nobody interferes, so the second direction enrolls a PHANTOM: a
+            # speaker who is genuinely absent from this audio. The correct
+            # answer is silence, which makes it the cleanest possible
+            # target-absent example.
+            picked = pick_interferer_enrollment(
+                ienr, None, target, speakers, sex, same_gender, by_speaker,
+                book, None, [], enroll_len)
+            if picked is None:
+                continue
+            i_enrol_spk, i_enrollment, i_guard, i_phantom = picked
             break
 
         if has_target:
@@ -620,6 +687,13 @@ def build_trial(trial_id, split, sampling_cfg, speakers, sex, book, by_speaker,
         for u in interferer_run:
             interferer_onsets.append(t)
             t += float(u["duration"])
+
+        picked = pick_interferer_enrollment(
+            ienr, interferer, target, speakers, sex, same_gender, by_speaker,
+            book, interferer_chapter, interferer_run, enroll_len)
+        if picked is None:
+            continue
+        i_enrol_spk, i_enrollment, i_guard, i_phantom = picked
         break
     else:
         return None
@@ -636,6 +710,7 @@ def build_trial(trial_id, split, sampling_cfg, speakers, sex, book, by_speaker,
     interferer_pos = place_source(room, cfg, dims, mic)
 
     enroll_offset = pick.uniform(0, float(enrollment["duration"]) - enroll_len)
+    i_enroll_offset = ienr.uniform(0, float(i_enrollment["duration"]) - enroll_len)
 
     assert interferer is None or target != interferer
     assert enrollment["speaker"] == target
@@ -645,6 +720,15 @@ def build_trial(trial_id, split, sampling_cfg, speakers, sex, book, by_speaker,
     # B10 requires this explicitly: in the first two tiers it is automatic, in
     # the third it is the only thing separating enrollment from mixture.
     assert enrollment["utt"] not in {u["utt"] for u in target_run}
+    # the same three guarantees for the second direction
+    assert i_enrollment["speaker"] == i_enrol_spk
+    assert float(i_enrollment["duration"]) >= enroll_len >= 5.0
+    assert i_enrollment["utt"] not in {u["utt"] for u in interferer_run}
+    # a phantom must not be the target, or "the other speaker" is the same
+    # speaker and the two directions stop being different questions
+    assert i_enrol_spk != target
+    # phantom exactly when nobody interferes
+    assert i_phantom == (interferer is None)
     if interferer_run:
         assert interferer_onsets[-1] + float(interferer_run[-1]["duration"]) <= length + 1e-6
     if target_chapter is not None:
@@ -669,6 +753,13 @@ def build_trial(trial_id, split, sampling_cfg, speakers, sex, book, by_speaker,
         "interferer_speech_s": round(interferer_speech, 3),
         "interferer_footprint_s": round(interferer_footprint, 3),
         "interferer_activity": round(interferer_speech / length, 4),
+        "interferer_enrollment_speaker": i_enrol_spk,
+        "interferer_enrollment_utt": i_enrollment["utt"],
+        "interferer_enrollment_offset_s": round(i_enroll_offset, 4),
+        "interferer_enrollment_length_s": round(enroll_len, 3),
+        "interferer_enrollment_eq": int(ienr.random() < cfg["enrollment_eq_prob"]),
+        "interferer_enrollment_guard": i_guard,
+        "interferer_enrollment_phantom": int(i_phantom),
         "enrollment_utt": enrollment["utt"],
         "enrollment_offset_s": round(enroll_offset, 4),
         "enrollment_length_s": round(enroll_len, 3),
@@ -732,7 +823,21 @@ def main():
 
     ls_root = Path(config["paths"]["librispeech"])
     splits = yaml.safe_load(Path(config["paths"]["splits"]).read_text())
-    speakers = [str(s) for s in splits[args.split]]
+    # `speakers_from` lets a new split borrow an existing split's speaker list.
+    # splits.yaml is a GENERATED file, pinned before any data was made, and
+    # hand-editing it silently redefines what "eval" means -- so a split that
+    # only varies acoustics (sir0, which changes sir_db and nothing else) must
+    # NOT need its own entry there. Speaker-disjointness is inherited from
+    # whichever split is borrowed, so it cannot be broken by borrowing.
+    speaker_split = cfg.get("speakers_from", args.split)
+    if speaker_split not in splits:
+        sys.exit(f"speakers_from '{speaker_split}' is not in "
+                 f"{config['paths']['splits']}. Known: "
+                 f"{sorted(k for k in splits if k != 'meta' and k != 'counts')}")
+    speakers = [str(s) for s in splits[speaker_split]]
+    if speaker_split != args.split:
+        print(f"  speakers borrowed from '{speaker_split}' "
+              f"({len(speakers)} speakers)", file=sys.stderr)
 
     meta = read_speakers(ls_root)
     sex = {s: meta[s][0] for s in speakers}

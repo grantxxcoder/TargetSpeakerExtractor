@@ -306,3 +306,81 @@ splits:
   eval_private: {n_trials: 500,   noise_split: tt, regimes: null}
   smoke_train:  {n_trials: 50,    noise_split: tr}
   smoke_val:    {n_trials: 20,    noise_split: cv}
+  # sir0: see the block below `subsets:`. Symmetric target/interferer loudness.
+  # `speakers_from` borrows train's / val's speaker list so splits.yaml -- a
+  # generated, pinned file -- needs no hand edit. Speaker-disjointness is
+  # inherited from the borrowed split.
+  # sir_db is set at BOTH levels on purpose: the split-level value is what
+  # `hard` inherits, and the regimes block below stops `base` re-narrowing it.
+  # Everything else is identical to train, so this split differs in one axis.
+  sir0_train:
+    n_trials: 2000
+    noise_split: tr
+    speakers_from: train
+    sir_db: [-10.0, 10.0]
+    regimes:
+      weights: {base: 0.6, hard: 0.4}
+      base:
+        snr_db: [8.0, 20.0]
+        t60_s: [0.25, 0.5]
+        source_distance_m: [0.1, 2.0]
+        target_activity_ratio: [0.45, 0.78]
+  sir0_val:
+    n_trials: 200
+    noise_split: cv
+    speakers_from: val
+    sir_db: [-10.0, 10.0]
+    regimes:
+      weights: {base: 0.6, hard: 0.4}
+      base:
+        snr_db: [8.0, 20.0]
+        t60_s: [0.25, 0.5]
+        source_distance_m: [0.1, 2.0]
+        target_activity_ratio: [0.45, 0.78]
+
+# Mid-size prototyping split. NOT generated: these are deterministic,
+# condition-stratified SUBSETS of the manifests above, written by
+# scripts/make_subset_manifest.py and reading the already-rendered audio in
+# data/rendered/train and data/rendered/val. No new trials, no new audio.
+#
+# Exists because the 50-trial smoke split has only 20 speakers, and the failure
+# it produced was an enrolment-blind mute (decisions-m1.md 2026-08-25): the
+# model never learned to use the enrolment, so it could not tell target-present
+# from target-absent and muted everything. Speaker diversity is what that needs,
+# so subsetting train's 1172 speakers is the point -- widening smoke's 20 would
+# not have tested it.
+subsets:
+  mid_train: {n_trials: 2000, source: train, stratify_by: condition}
+  mid_val:   {n_trials: 200,  source: val,   stratify_by: condition}
+
+# ---------------------------------------------------------------------------
+# sir0: `mid` with ONE thing changed -- the target/interferer loudness ratio is
+# centred on zero instead of being 90 % target-louder.
+#
+# WHY. Measured 2026-08-25 on mid_train: 90 % of two-speaker trials have the
+# target LOUDER than the interferer (median +6 dB), because `regimes.base`
+# narrows sir_db to [0, 12]. So "keep the loud voice" answers the question ~90 %
+# of the time and needs no enrollment at all. Measured on the same data: plain
+# loudness identifies the dominant speaker 81.5 % of the time where the target
+# is 6+ dB louder, against 58 % for the speaker cue. The model has no reason to
+# learn conditioning and, measured, does not: swapping the enrollment moves its
+# output by 2.6 %.
+#
+# difficulty-dial.md (2026-08-13) ranked sir_db #1 of 14 and said it outright:
+# "At -5 dB the interferer is louder than the target, so nothing but the
+# enrollment can identify which voice to keep." It framed the narrowing as
+# DIFFICULTY relief. It is also RELEVANCE relief, and those are not the same
+# thing -- a task can be easy and still require the enrollment.
+#
+# [-10, 10] is symmetric, so the shortcut becomes a coin flip. Width kept wide
+# rather than [-6, 6] on purpose: it leaves easy trials (target +10 dB) for the
+# model to bootstrap on instead of making every trial equally hard. Realism cost
+# is real and acknowledged -- difficulty-dial.md calls -10 dB "plausible but
+# uncommon". decisions-m1.md 2026-08-25.
+#
+# `mid` is NOT replaced. It is the control arm: same model, same loss, only the
+# loudness distribution differs.
+splits_extra_note: |
+  sir0_train / sir0_val are declared under `splits:` above, not here -- they are
+  GENERATED trials (new audio), not subsets of an existing manifest like `mid`.
+# ---------------------------------------------------------------------------

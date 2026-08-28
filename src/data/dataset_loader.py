@@ -1,31 +1,23 @@
 """Manifest row -> waveform tensors. The read side of the data pipeline.
 
-Returns waveforms, never spectrograms: the STFT lives in the model so one
-waveform can feed all four resolutions the multi-resolution loss needs, and
-because a complex64 spectrogram is ~8x the size of the PCM_16 wav on disk
-(~185 GB for the train split against 27 GB). See decisions-m1.md 2026-08-18.
+Waveforms, never spectrograms: the STFT lives in the model so one waveform feeds
+all four loss resolutions, and a complex64 spectrogram is ~8x the PCM_16 on disk
+(~185 GB vs 27 GB for train).
 
-The decisions this file implements, all in docs/decisions/decisions-m1.md:
+Decisions, all decisions-m1.md 2026-08-18:
+  chunk_s = 4.0, matching CARTSE Track 1 (the only online causal TSE candidate).
+  Crop offsets uniform -- VAD-aware cropping measured and rejected, leakage 5.8 %
+  and confined to `hard` below target_activity 0.4.
+  `crop_absent` comes from the CROPPED target stem, not the manifest's clip-level
+  label: a 4 s crop of a `both` trial may hold no target speech, and target.wav is
+  exactly zero in silence, so the crop's own audio is exact ground truth.
 
-  2026-08-18  chunk_s = 4.0, matching CARTSE Track 1 -- the only online, causal
-              TSE system among the candidates.
-  2026-08-18  crop offsets are uniform. VAD-aware cropping was measured and
-              rejected: leakage is 5.8 %, and confined to the `hard` regime
-              below target_activity 0.4.
-  2026-08-18  `crop_absent` is computed from the cropped target stem, NOT from
-              the manifest's clip-level `target_absent`. The manifest describes
-              the whole clip; a 4 s crop of a `both` trial may contain no target
-              speech at all. target.wav is exactly zero when the target is
-              silent, so the crop's own audio is exact ground truth.
+Offsets derive from (seed, epoch, idx), not an ambient RNG -- reproducible, and it
+sidesteps each DataLoader worker holding its own RNG copy. Call set_epoch() each
+epoch or you re-crop the same window and use a sixth of the audio.
 
-Crop offsets derive from (seed, epoch, idx) rather than an ambient RNG: that is
-reproducible, and it sidesteps the num_workers problem where each worker process
-holds its own RNG copy. Call set_epoch() each epoch or every epoch re-crops the
-same window and you use a sixth of the audio.
-
-Returns CPU tensors. Moving to device is the training loop's job -- creating CUDA
-tensors in a forked DataLoader worker raises "Cannot re-initialize CUDA in forked
-subprocess".
+CPU tensors: creating CUDA tensors in a forked worker raises "Cannot
+re-initialize CUDA in forked subprocess".
 """
 
 from pathlib import Path
@@ -34,16 +26,36 @@ import numpy as np
 import pandas as pd
 import soundfile as sf
 import torch
+from torch.utils.data._utils.collate import default_collate
+
+
+def collate_pairs(batch):
+    """Flatten the per-trial lists, then collate normally.
+
+    Keeps train.py untouched: it still receives a flat batch of examples. Note
+    that `batch_size` therefore counts TRIALS, and a step sees twice as many
+    examples when both_directions is on -- which is what the GPU memory probe in
+    the Kaggle notebook measures, so it adapts on its own.
+    """
+    return default_collate([ex for group in batch for ex in group])
 
 
 class TrialDataset(torch.utils.data.Dataset):
-    def __init__(self, manifest_csv, data_root, split, chunk_s, sample_rate, seed, random_crop=True):
+    def __init__(self, manifest_csv, data_root, split, chunk_s, sample_rate, seed,
+                 random_crop=True, both_directions=False):
         self.data_root    = Path(data_root)
         self.split        = split                   
         self.chunk_s      = chunk_s        
         self.sample_rate  = sample_rate
         self.seed         = seed
         self.random_crop  = random_crop
+        # BOTH DIRECTIONS: one trial -> two examples, the same mixture asked for
+        # the target and for the other speaker. decisions-m1.md 2026-08-26.
+        # This is the ONLY thing in the data that makes reading the enrollment
+        # compulsory -- with one direction an enrollment-ignoring model fits
+        # every example, and measured, it did. `interferer_only` trials are the
+        # sharpest case: same audio, silence one way and a voice the other.
+        self.both_directions = both_directions
         self.chunk_frames = int(chunk_s * sample_rate)
         self.epoch        = 0                       
 
@@ -53,26 +65,44 @@ class TrialDataset(torch.utils.data.Dataset):
         return len(self.manifest_df)
 
     def __getitem__(self, idx):
-        # there are a couple of things that I need to get:
-        # 1. the mixture audio
-        # 2. the target speaker audio
-        # 3. the enrollment audio
+        """A LIST of examples, one per direction. Flattened by collate_pairs.
 
-        # Then there are a few things that are not necessary but are useful:
-        # 1. the meta data
-        # 2. the trial_id
-        # 3. the crop absent
+        A list rather than one dict so both directions of a trial are guaranteed
+        to land in the SAME batch: the contrast has to be inside each gradient
+        step, and shuffling flat indices would separate them.
+        """
+        out = [self._example(idx, "target")]
+        if self.both_directions:
+            out.append(self._example(idx, "interferer"))
+        return out
 
+    def _example(self, idx, which):
+        """One training example. `which` selects the direction:
+
+            "target"      target.wav                + enrollment.wav
+            "interferer"  interferer.wav            + interferer_enrollment.wav
+
+        Both read the SAME mixture crop -- same offset, same audio. That is the
+        point: the input is identical and only the enrollment differs.
+        """
         row = self.manifest_df.iloc[idx]
         trial_directory = self.data_root / "rendered" / self.split / row["trial_id"]
         mixture_directory = trial_directory / "mixture.wav"
         number_of_frames = sf.info(str(mixture_directory)).frames
 
+        # keyed on idx, not on the direction, so the two directions share a crop
         start_offset = self._crop_offset_start(idx, number_of_frames)
-        mixture_audio = self._read_in_wav(mixture_directory, start=start_offset, frames=self.chunk_frames)
-        target_audio = self._read_in_wav(trial_directory / "target.wav", start=start_offset, frames=self.chunk_frames)
-        enrollment_audio = self._read_in_wav(trial_directory / "enrollment.wav")
+        stem, enrol = (("target.wav", "enrollment.wav") if which == "target"
+                       else ("interferer.wav", "interferer_enrollment.wav"))
 
+        mixture_audio = self._read_in_wav(mixture_directory, start=start_offset, frames=self.chunk_frames)
+        target_audio = self._read_in_wav(trial_directory / stem, start=start_offset, frames=self.chunk_frames)
+        enrollment_audio = self._read_in_wav(trial_directory / enrol)
+
+        # Same rule as before, now applied to whichever stem is the target for
+        # this direction: the crop's own audio is the ground truth, never the
+        # manifest's clip-level label. A phantom interferer is silent for the
+        # whole clip, so this is exactly zero and the example is absent.
         crop_absent = bool(target_audio.abs().max() == 0)
         return {
             "mixture": mixture_audio,
@@ -80,6 +110,7 @@ class TrialDataset(torch.utils.data.Dataset):
             "enrollment": enrollment_audio,
             "crop_absent": crop_absent,
             "trial_id": str(row["trial_id"]),
+            "direction": which,
             "meta": {
                 "condition":        str(row["condition"]),
                 "clip_absent":      bool(row["target_absent"]),
@@ -88,6 +119,8 @@ class TrialDataset(torch.utils.data.Dataset):
                 "overlap_achieved": float(row["overlap_achieved"]),
                 "regime":           str(row["regime"]),
                 "same_gender":      float(row["same_gender"]),
+                "phantom":          bool(row.get("interferer_enrollment_phantom", 0))
+                                    and which == "interferer",
             },
         }
 

@@ -15,6 +15,23 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
 <!-- rows appended below by src/run_log.py -->
+| 2026-08-28 | `scripts/derive_w_g.py` | 200 crops x 4 systems, sir0 | 6 min | cpu, batch 4 |
+| 2026-08-27 | `scripts/train.py --split sir0` | 1,989 trials x 8 epochs, sir0 | 8.6 h | batch 3, cuda (Tesla T4), 3875 s/epoch. Kaggle. Added by hand: the row was written into the notebook log, not this file. |
+| 2026-08-27 | `scripts/render_trials.py --split sir0_val` | 200 trials rendered | 2 min | 8 workers, 16 kHz PCM_16 |
+| 2026-08-27 | `scripts/render_trials.py --split sir0_train` | 264 trials rendered **(failed)** | 3 min | 8 workers, 16 kHz PCM_16 |
+| 2026-08-26 | `scripts/render_trials.py --split sir0_val` | 200 trials rendered | 3 min | 8 workers, 16 kHz PCM_16 |
+| 2026-08-26 | `scripts/render_trials.py --split sir0_train` | 1,989 trials rendered | 31 min | 8 workers, 16 kHz PCM_16 |
+| 2026-08-26 | `scripts/train.py --split sir0` | 1,989 trials x 10 epochs, sir0 | 5.2 h | batch 6, cuda, 1869 s/epoch. w warmup 4+3, tfmap_scale 16. Kaggle T4; row copied from the session's own run_times.md. |
+| 2026-08-26 | `scripts/render_trials.py --split sir0_val` | 128 trials rendered | 81 s | 8 workers, 16 kHz PCM_16 |
+| 2026-08-26 | `scripts/render_trials.py --split sir0_train` | 1,989 trials rendered | 18 min | 8 workers, 16 kHz PCM_16 |
+| 2026-08-25 | `scripts/train.py --split mid` | 2,000 trials x 10 epochs, mid | 5.4 h | batch 6, cuda, 1950 s/epoch. w warmup 4+3. Kaggle T4; row copied by hand from the session output. |
+| 2026-08-25 | `scripts/train.py --split smoke` | 50 trials x 2 epochs, smoke | 11 min | batch 3, cpu, 337 s/epoch |
+| 2026-08-25 | `scripts/train.py --split mid` | 2,000 trials x 2 epochs, mid | 58 min | batch 6, cuda, 1739 s/epoch |
+| 2026-08-25 | `scripts/train.py --split smoke` | 50 trials x 2 epochs, smoke | 10 min | batch 3, cpu, 303 s/epoch |
+| 2026-08-25 | `scripts/make_kaggle_bundle.py` | 2,200 trials staged + zipped, `mid` | 3.5 min | zip-only: audio was already staged (0 copied, 8,800 current). A cold run adds the ~2.7 GB copy. Added by hand: the script does not use `run_log.timed`. |
+| 2026-08-24 | `scripts/train.py --split smoke` | 50 trials x 70 epochs, smoke | 4.8 h | batch 3, cpu, 246 s/epoch |
+| 2026-08-24 | `scripts/train.py --split smoke` | 50 trials x 2 epochs, smoke | 9 min | batch 3, cpu, 263 s/epoch |
+| 2026-08-24 | `scripts/train.py --split smoke` | 50 trials x 30 epochs, smoke | 2.3 h | batch 3, cpu, 277 s/epoch |
 | 2026-08-24 | `scripts/train.py --split smoke` | 50 trials x 5 epochs, smoke | 22 min | batch 3, cpu, 268 s/epoch |
 | 2026-08-24 | `scripts/train.py --split smoke` | 50 trials x 1 epochs, smoke | 4 min | batch 3, cpu, 243 s/epoch |
 | 2026-08-18 | `src/models/workbook.ipynb` — `measure_empty_crops()` | 3,000 trials x 3 epochs = 9,000 target crops, `train` | 3 min | ~21 ms/crop, 1 windowed read per crop, single-threaded. Added by hand: notebook cell, not a `run_log.py` script |

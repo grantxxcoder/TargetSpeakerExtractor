@@ -3,7 +3,25 @@ seed: 42
 data:
   sample_rate: 16000    # read by the loss (windows_ms -> n_fft) and the loader
   chunk_s: 4.0          # decisions-m1.md 2026-08-18 (CARTSE)
-  batch_size: 3        # decisions-m1.md 2026-08-18, provisional on GPU memory and should be 12
+  both_directions: true   # Train every trial TWICE: the same mixture asked for
+                        # the target, then for the other speaker. The only thing
+                        # in the data that makes reading the enrollment
+                        # compulsory -- with one direction, a model that ignores
+                        # it can fit every example, and measured, it did (output
+                        # moved 8 % on an enrollment swap). Needs interferer.wav
+                        # and interferer_enrollment.wav, so the split must be
+                        # rendered after 2026-08-26. NOTE batch_size then counts
+                        # TRIALS: a step sees 2x that many examples.
+                        # decisions-m1.md 2026-08-26.
+  num_workers: 0        # DataLoader workers. 0 on the laptop: 4 cores, already
+                        # saturated by the model. Raise on GPU (the Kaggle
+                        # notebook sets 4) or the wav reads starve the device.
+  batch_size: 3        # decisions-m1.md 2026-08-18, provisional on GPU memory
+                       # and should be 12. Still 3: the laptop has no usable GPU
+                       # (docs/run_times.md). Raise to 12 when running `--split
+                       # mid` or `full` on Kaggle -- and note w's absent-rate
+                       # calibration assumed batch 12, where ~1.5 % of batches
+                       # have no absent crop at the measured 0.297 absent rate.
    
 model:
   bands:                # task #1 — plan is inherited and unjustified, see decisions-m1.md
@@ -21,16 +39,62 @@ model:
     n_fft: 512          # 32 ms at 16 kHz (Yu et al., Interspeech 2023 §4.2), consider making this larger at 1024 as we have the budget for it
     hop: 128            # 8 ms
   lookahead_frames: 0   # 0-16. Each frame = one hop = 8 ms.
+  tfmap_scale: 16.0      # scale factor for the attention logits in TFMap, see src/models/conditioning.py
 
 loss:
   # M2 objective, decisions-m1.md 2026-08-20. Six deviations from CARTSE
   # recorded there; the deviations are in src/models/losses.py, the numbers here.
   w:     0.458          # weight on the absent half. Deviation 5: 0.297 absent
-                    # rate carried through CARTSE's eta = 2.0
+                    # rate carried through CARTSE's eta = 2.0. NOTE the measured
+                    # rate on mid_train is 0.3028 (val 0.2850), so this is
+                    # slightly off its own derivation. Not re-derived before the
+                    # warmup run: changing two things at once would make the
+                    # result uninterpretable. decisions-m1.md 2026-08-25.
+  w_schedule:           # Absent-branch warmup. WHY: the 2-epoch mid run learned
+                        # SILENCE before conditioning -- by epoch 1 the output
+                        # was already -18.5 dB below the mixture with enrolment
+                        # sensitivity -14.31 dB. With w = 0 the silence shortcut
+                        # pays nothing, so the only way down is to reconstruct
+                        # the target, which on `both` crops needs the enrolment.
+                        # See w_at_epoch() in scripts/train.py.
+                        # Delete this block to train at constant w.
+    w_start: 0.0        # w during warmup
+    warmup_epochs: 4    # epochs at w_start. A GUESS: no measurement says how
+                        # many steps conditioning needs. The end-of-warmup
+                        # val_enrol_sens_db is what tells you if 4 was enough.
+    ramp_epochs: 3      # then linear w_start -> w. Epochs 7+ train at full w.
   w_m:   9.62          # weight on L_MR inside the present branch. MEASURED at
                     # the do-nothing anchor over 300 crops, 2026-08-20:
                     # L_pres -5.909 dB, L_MR 0.1842, target ratio 0.3
-  tau:   0.001        # floor on both halves: caps the reward at 30 dB
+  w_g:   1.69           # weight on L_gain inside the present branch.
+                        # DERIVED, not chosen: scripts/derive_w_g.py over 200
+                        # sir0_val crops, 2026-08-28. Full numbers in
+                        # experiments/results/2026-08-28-wg-anchor-sir0/ and
+                        # decisions-m1.md 2026-08-28.
+                        # Muting the mixture to the epoch-7 checkpoint's level
+                        # BOUGHT 8.639 on the absent branch and a further 0.155
+                        # on L_MR, against zero opposition. Break-even is 1.242;
+                        # above that the mute costs more than it earns. 1.69 is
+                        # the geometric midpoint of [1.242, 2.297], so it sits
+                        # clear of both edges. Cross-check: the marginal bound
+                        # w/(1-w) = 0.845 agrees in magnitude.
+  gain_delta_db: 3.0    # L_gain deadzone half-width. Inside +-3 dB of the
+                        # target's level the term is exactly 0, so it spends no
+                        # gradient on errors nobody can hear.
+                        # NOTE dB, NOT percent: 10 % amplitude is 0.83 dB, which
+                        # is tighter than a listener can resolve. +-3 dB is an
+                        # amplitude range of 0.71x-1.41x.
+  ablate_w_g:   [0.0, 1.69, 2.30]   # 0 arm required. 1.69 = shipped value,
+                                    # 2.30 = the ceiling, i.e. the point past
+                                    # which level outweighs content
+  tau_pres: 0.001       # floor inside L_pres only: caps the present reward at
+                        # 30 dB. Was a single `tau` shared by both halves;
+                        # split 2026-08-25.
+  tau_abs:  0.01        # floor inside L_abs only: caps the SILENCE reward at
+                        # 20 dB. Measured to be powerless against the mute
+                        # collapse (the binding penalty is at the loud end, not
+                        # the quiet end) -- kept as a separate knob, not as a
+                        # fix. decisions-m1.md 2026-08-25.
   p:     0.3          # magnitude compression, Yu et al. Interspeech 2023 eq (3)
   windows_ms: [8, 16, 32, 64]   # multi-resolution window set, straddles the
                     # model's own 32 ms framing (Deviation 6)
