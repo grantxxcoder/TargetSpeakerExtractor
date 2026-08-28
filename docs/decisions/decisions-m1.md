@@ -1483,3 +1483,67 @@ same order.
   dataset single-direction.
 
 ---
+
+## 2026-08-28 — `L_gain` works. Current architecture FROZEN as the baseline
+
+**Decision: `BSRNN_TFMAP` as it stands at `38bf48f` — TF-Map concatenated once as
+a third input channel, no per-layer injection — is the baseline architecture for
+M2.** Every architecture change from here is measured against it. Recorded
+because the next change (D4a, per-block TF-Map re-injection) would otherwise
+leave no fixed point to compare to.
+
+Config `experiments/configs/bsrnn_baseline.yaml`, seed 42, split `sir0`,
+7,189,644 parameters, 32 bands. Run in progress on Kaggle T4; `w_g` = 1.69,
+`gain_delta_db` = 3.0, warmup 4 + ramp 3.
+
+### Why now: the mute is fixed, and it is measured at a matched epoch
+
+`w` is on the same schedule in both runs, so epoch 5 (`w` = 0.30533) compares
+like for like against `2026-08-27-train-sir0`, whose only difference is
+`w_g` = 0.
+
+| epoch 5, `w` = 0.305 | control (`w_g`=0) | this run (`w_g`=1.69) |
+|---|---|---|
+| output level, present crops | **-19.4 dB** re mixture | **-4.6 dB** |
+| `val_pres_abs_gap_db` | 2.06 | **2.63** |
+| `val_enrol_sens_db` | -10.41 (9.1 %) | **-9.81 (10.5 %)** |
+| `val_L_pres` | -1.942 | **-2.212** |
+| `val_L_MR` | 0.2490 | **0.2080** |
+
+**In plain terms: under the same silence pressure the old model went quiet and
+this one did not.** The target sits ~3.9 dB below the mixture in `sir0`
+(SIR ~ U[-10, 10]); this run's output sits at -4.6 dB, i.e. about right, while
+the control sat 15 dB below where the target actually is and called it
+separation. It also wins on reconstruction and detail, which `L_gain` was not
+designed to touch, and its selectivity gap already exceeds the control's own
+epoch-7 best of 2.45.
+
+**Caveats, both load-bearing.** The two level figures are *reconstructed* from
+`val_L_abs` and `val_pres_abs_gap_db`, not measured — they mix mean-of-dB with
+dB-of-mean and are worth about +-1 dB. Quote them as indicative; measure
+directly before they go in the thesis. And epoch 6 is the first at full
+`w` = 0.458, so this is 2/3 pressure, not full. The control had already
+collapsed by epoch 4-5, so the comparison holds, but confirm at epoch 7.
+
+### What this baseline is, and is not
+
+- **It is a strong extraction baseline.** No mute, correct output level,
+  improving reconstruction.
+- **It is a weak conditioning baseline.** 10.5 % enrolment sensitivity: roughly
+  seven eighths of the output is still decided without reference to who was
+  asked for. This is deliberate as a starting point — it makes D4a's effect
+  measurable — but it must never be described as "conditioning works".
+- **It is not yet the baseline of record.** Every number above is a training
+  diagnostic. The project's primary metric is live-model content fidelity
+  (`docs/data/metric-definitions.md`) and this checkpoint has never been scored
+  on it. **A baseline that exists only as a loss curve is not a baseline.**
+  Scoring it through the eval harness is the blocking next step.
+
+### Consequences
+
+- D4a (per-block TF-Map re-injection, parameter-free) is the first change
+  measured against this. See `decisions-pending.md` D4.
+- The `ablate_w_g` 0 arm is now also the architecture-baseline arm.
+- `2026-08-27-train-sir0` remains the control for the `L_gain` claim
+  specifically, not a general baseline: it is a muted model.
+
