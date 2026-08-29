@@ -573,10 +573,25 @@ and memory figures are unaffected.
   which is a real change to the optimisation and would need its own arm. A
   0.2 % longer crop is not.
 
-**Projected, NOT yet measured:** at 0.122 s/example, an epoch is
-`1989 x 2 x 0.122` = **486 s of compute against the measured 3875 s -> ~8x**,
-putting 10 epochs near **1.3 h instead of 10.8 h**. The confirming run is
-`--batch 3 --chunk-s 4.008 --amp-only`; it must land near 0.73 s/step.
+**CONFIRMED 2026-08-28.** Profiler: 0.674 s/step at batch 3 with
+`--chunk-s 4.008`, reproduced twice at 0.1 % spread, against a 0.73 s prediction.
+Then the real 2-epoch `sir0` run measured **505.7 s/epoch against 3875.2 s =
+7.66x**, beating even the optimistic end of the 3.9-7.0x range in E3d (the
+~516 s of unaccounted overhead evidently scales with compute rather than being
+fixed). 10 epochs is now **1.4 h instead of 10.8 h**.
+
+**Losses are unchanged.** Against the fp32 / `chunk_s` 4.0 run at the same seed,
+split and `w_g`, epoch 1 agrees on all twelve logged terms to within 3 % and is
+marginally *better* on most (`val_total` -1.4 %, `val_L_pres` -0.9 %,
+`val_L_MR` -2.0 %, gap +3.0 %). Epoch 0's *train* terms lag (`train_L_pres`
+-1.96 -> -1.42) while its *val* terms match to 4 % -- exactly the signature of
+`GradScaler` skipping its first optimiser steps while calibrating the loss
+scale: fewer updates early in the epoch, caught up by the time val is measured.
+Benign and expected.
+
+**Still untested: both epochs ran at `w` = 0.0.** The absent branch, and the
+mute pressure it creates, never engaged. fp16 behaviour through the `w` ramp
+(epochs 4-6) is not yet evidence.
 
 **Does not revive checkpointing.** Throughput per example was flat across the
 three unaligned sizes, and we have only one aligned point, so nothing yet

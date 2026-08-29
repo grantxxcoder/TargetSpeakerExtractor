@@ -1615,3 +1615,124 @@ precision the model was not trained in describes a model that does not exist.
   s/batch on Kaggle, 4.5 % of a step.
 - 189 tests pass. The 4.008 s crop and `amp: true` are both live in
   `bsrnn_baseline.yaml`, so the next run uses them.
+
+## 2026-08-28 — The 10-epoch `L_gain` run: conditioning finally works
+
+`experiments/results/2026-08-28-train-sir0-e10/`. `sir0`, seed 42, `w_g`=1.69,
+warmup 4+3, batch 3, fp32, 10.5 h on a T4 (pre-speed-fix).
+
+### In plain words
+
+**Blocking the model's escape route taught it to listen to the voice sample.**
+Swapping in a stranger's enrolment now changes the output by **37.6 %**, against
+2.9 % at the start of this run and 14.9 % for the control that had no `L_gain`.
+The model also finally knows when to speak: it is **7.1 dB louder on crops where
+the target is talking** than on crops where it is not, against 2.45 dB for the
+control.
+
+### Head-to-head at epoch 7, both at full `w` = 0.458
+
+| | control (`w_g`=0) | this run (`w_g`=1.69) |
+|---|---|---|
+| enrolment sensitivity | 14.95 % | **16.88 %** |
+| present/absent gap | 2.45 dB | **2.79 dB** |
+| **output level, present crops** | **-22.4 dB** re mixture | **-4.2 dB** |
+| `val_L_MR` | 0.254 | **0.212** |
+
+The target sits at ~-3.9 dB in `sir0`. **The control was 18 dB below where the
+target actually is — it had muted and called it separation.** This run sits at
+-4.2 dB, i.e. right.
+
+### The trajectory, and why it matters
+
+| epoch | `w` | enrol % | gap dB | e_pres dB |
+|---|---|---|---|---|
+| 3 | 0.000 | 5.3 | 1.63 | -3.77 |
+| 5 | 0.305 | 10.5 | 2.63 | -4.58 |
+| 7 | 0.458 | 16.9 | 2.79 | -4.22 |
+| 9 | 0.458 | **37.6** | **7.10** | -4.72 |
+
+**Conditioning improved as a CONSEQUENCE of removing the mute, not because
+anything in the conditioning path changed.** With silence available it was free
+— `L_pres` is scale-invariant, `L_MR` was measured to reward muting, `L_abs`
+rewards silence — so going quiet paid and using the enrolment did not. `L_gain`
+priced the escape; the model then had to actually discriminate. **The
+architecture was never the problem here; the objective was.** That is the
+defensible claim, and it is the strongest result the project has.
+
+### Three things this does NOT say
+
+1. **It is not converged.** `best_val` is epoch **9, the last one**, and
+   `early_stopped=False`. Enrolment sensitivity went 28.0 -> 37.6 % on the final
+   epoch alone; the curve is still climbing steeply. **Training longer is now the
+   cheapest available experiment** — 8.4 min/epoch after the speed fix.
+2. **`L_gain` did not achieve its literal objective.** It fell only 3.902 ->
+   3.782 (-3.1 %), so per-crop level error is still ~6.8 dB. The output level is
+   right *on average* (-4.72 vs -3.9 ideal) while individual crops remain badly
+   off — the model is not tracking level per utterance, it has just stopped
+   muting. The term worked as a *constraint*, not as a *regression target*.
+3. **Still no number on the project metric.** Every figure here is a training
+   diagnostic.
+
+### Consequences
+
+- **D4a drops in priority.** It was proposed when enrolment sensitivity read
+  10.5 % at epoch 5 of this same run and the diagnosis was "the network is
+  throwing the cue away". At 37.6 % that diagnosis no longer holds. 62 % of the
+  output is still enrolment-independent so there is headroom, but this is no
+  longer the emergency it looked like. Order now: **train longer, then score on
+  the metric, then reconsider D4a.**
+- The `w` warmup schedule is vindicated: every jump in enrolment sensitivity
+  tracks a `w` increase (5.7 -> 10.5 -> 21.0 % across epochs 4-6).
+- Epoch 7 is a visible regression on every diagnostic (21.0 -> 16.9 %, gap
+  3.69 -> 2.79) before recovering. Single-epoch noise at this scale; do not read
+  a trend into any one epoch.
+
+## 2026-08-29 — AMP validated over a full 10 epochs. Adopt it
+
+`experiments/results/2026-08-29-train-sir0-e10-amp/`. Same seed (42), split and
+`w_g` as the fp32 run; `amp: true` and `chunk_s` 4.008 are the two differences.
+
+**523.0 s/epoch against 3772.6 = 7.21x. Ten epochs in 1.45 h, was 10.5 h.**
+
+### The thing that needed testing, and passed
+
+The 2-epoch speed check only reached `w` = 0. **Epochs 4-9 — the `w` ramp and
+full silence pressure, where `L_abs` starts driving and the earlier model
+collapsed — had never run in fp16.** They now have: all 10 epochs completed,
+`mixed precision: ON (fp16 forward, fp32 loss)` confirmed in the log, and **zero
+NaN, inf or error mentions across the whole session**. The `1e-12` epsilons are
+safe behind the fp32 loss cast.
+
+### AMP vs fp32, enrolment sensitivity %, epochs 5-9
+
+|  | 5 | 6 | 7 | 8 | 9 |
+|---|---|---|---|---|---|
+| AMP | 8.5 | 24.1 | 20.4 | 28.2 | 31.9 |
+| fp32 | 10.5 | 21.0 | 16.9 | 28.0 | 37.6 |
+
+fp32 finishes ahead (37.6 vs 31.9 %, `val_total` -1.673 vs -1.413), **but the
+difference is inside the noise**:
+
+- mean |between-run gap| **2.9** points, against mean |within-run epoch-to-epoch
+  swing| **8.3**;
+- **the sign flips** — AMP is ahead at epochs 6, 7 and 8, behind at 5 and 9.
+
+A systematic precision penalty would not change sign three times. **Do not claim
+either run produced the better model.**
+
+**Caveat on that claim.** Epoch-to-epoch variance within one run is a *proxy*
+for run-to-run variance, not the same quantity, and n=2 runs supports no real
+statistics. Two variables also differ, not one (`amp` and `chunk_s`), though both
+are tiny perturbations. Settling it properly needs several seeds — which now
+costs 1.45 h each rather than 10.5.
+
+### Consequences
+
+- **Adopt AMP.** It is already the config default; this is the evidence for it.
+- Both runs have `best_val` at epoch **9, the last**, and neither early-stopped.
+  **Still not converged, in either precision.** Training longer remains the
+  cheapest experiment on the board.
+- `model_sir0.pt` stays the fp32 checkpoint on best `val_total`; the AMP one is
+  `model_sir0_amp-e10.pt`. See `models/README.md` — the choice is arbitrary
+  within noise.

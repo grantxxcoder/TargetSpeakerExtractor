@@ -70,18 +70,48 @@ def pick_index(dataset, index, trial_id):
 
 
 def load_checkpoint(model, checkpoint_path, config, device):
-    """Load weights, return provenance. Refuses a config mismatch: the audio
-    would come from a model whose shape the yaml no longer describes."""
+    """Load weights, return provenance.
+
+    SHAPE COMPATIBILITY IS DECIDED BY load_state_dict, not by comparing configs.
+    A hand-kept list of "shape keys" drifts: `tfmap_scale` (2026-08-26) changes
+    behaviour but no tensor shape, and a whole-dict comparison is worse still --
+    adding the loss key w_g on 2026-08-27 locked every existing checkpoint out of
+    this script. PyTorch is the authority; config drift is reported, not enforced.
+    """
     if not checkpoint_path.exists():
         raise SystemExit(f"no checkpoint at {checkpoint_path} -- train first, "
                          f"or pass --checkpoint")
     # weights_only=False: our own checkpoint carries the config dict. Never
     # point this at a file this project did not write.
     ckpt = torch.load(checkpoint_path, map_location=device, weights_only=False)
-    if ckpt.get("config") != config:
-        raise SystemExit(f"{checkpoint_path} was trained under a different "
-                         f"config -- pass the matching --config")
-    model.load_state_dict(ckpt["model"])
+    ckpt_config = ckpt.get("config") or {}
+
+    def flat(d, prefix=""):
+        for k, v in (d or {}).items():
+            if isinstance(v, dict):
+                yield from flat(v, f"{prefix}{k}.")
+            else:
+                yield f"{prefix}{k}", v
+
+    a, b = dict(flat(ckpt_config)), dict(flat(config))
+    drift = {k: (a.get(k), b.get(k)) for k in set(a) | set(b) if a.get(k) != b.get(k)}
+    # `model.*` drift changes what the weights MEAN even when they still load,
+    # so it is called out separately from loss/training drift, which does not.
+    model_drift = {k: v for k, v in drift.items() if k.startswith("model.")}
+    if model_drift:
+        print("  WARNING: the model config differs from the one this checkpoint "
+              "was trained under, so its output does NOT reflect what it learned:")
+        for k, (was, now) in sorted(model_drift.items()):
+            print(f"    {k}: trained={was!r}  now={now!r}")
+    elif drift:
+        print(f"  NOTE: config drift outside `model` (weights unaffected): "
+              f"{sorted(drift)}")
+
+    try:
+        model.load_state_dict(ckpt["model"])
+    except RuntimeError as e:
+        raise SystemExit(f"{checkpoint_path} does not fit the model this config "
+                         f"builds:\n{e}")
     return {
         "path": str(checkpoint_path),
         "trained_to_epoch": ckpt.get("epoch"),
@@ -188,7 +218,12 @@ def main():
     )
 
     idx = pick_index(dataset, args.index, args.trial_id)
-    sample = dataset[idx]
+    # [0] because __getitem__ returns a LIST of directions (decisions-m1.md
+    # 2026-08-26), and does so even at both_directions=False, which is the
+    # default above. [0] is the TARGET direction, which is what a listening
+    # check wants. This script predated that change and indexed the list as a
+    # dict.
+    sample = dataset[idx][0]
 
     # No DataLoader: one example needs no collation, and unsqueezing here keeps
     # the batch dim visible rather than hidden in a loader with batch_size=1.
@@ -317,10 +352,17 @@ def main():
             "levels_dbfs": dict(signal_levels),
         },
         "loss": {
-            "w": loss_fn.w, "w_m": loss_fn.wm, "tau": loss_fn.tau,
+            # tau was SPLIT into tau_pres/tau_abs on 2026-08-25; this still read
+            # loss_fn.tau and died with AttributeError after printing the report
+            # but before writing this file. w_g added at the same time.
+            "w": loss_fn.w, "w_m": loss_fn.wm, "w_g": loss_fn.wg,
+            "tau_pres": loss_fn.tau_pres, "tau_abs": loss_fn.tau_abs,
+            "gain_delta_db": loss_fn.gain_delta_db,
             "p": loss_fn.p, "windows_ms": list(loss_fn.windows),
-            # Floor is 10*log10(tau) dB, at exact reconstruction only.
-            "floor": round(10 * float(np.log10(loss_fn.tau)), 4),
+            # Per-branch floors, reached at exact reconstruction only. Two now,
+            # because the present and absent branches no longer share a tau.
+            "floor_pres": round(10 * float(np.log10(loss_fn.tau_pres)), 4),
+            "floor_abs": round(10 * float(np.log10(loss_fn.tau_abs)), 4),
             "model": {k: (None if isinstance(v, float) and np.isnan(v) else v)
                       for k, v in parts.items()},
             "pass_through_anchor": {k: (None if isinstance(v, float) and np.isnan(v) else v)
