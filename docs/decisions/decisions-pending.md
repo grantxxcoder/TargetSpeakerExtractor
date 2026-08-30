@@ -1,7 +1,7 @@
 # Open decisions
 
 **Written 2026-08-10.** Groups A–C were the pre-generation data decisions; all are
-closed except C2. Full reasoning for each lives in `decisions-m0.md` under its
+closed — C2 last, on 2026-08-30. Full reasoning for each lives in `decisions-m0.md` under its
 date. Group D holds open *modelling* questions, which have nowhere else to live;
 decisions actually taken go to `decisions-m1.md`.
 
@@ -9,9 +9,6 @@ decisions actually taken go to `decisions-m1.md`.
 
 ## Still open
 
-- **C2 — how hard should the task be?** Floor word error rate on the raw mixture;
-  current plan targets 60–80 %. Needs the supervisor. Blocks nothing meanwhile,
-  but M0's floor/ceiling calibration is what answers it.
 - **A1 needs sign-off only, not a decision.** Reference is the full reverberant
   target: separate and denoise, do not dereverberate. Removing a 0.6 s tail inside
   a 300 ms causal window is not possible, and trying trades residue for artefacts,
@@ -36,6 +33,7 @@ decisions actually taken go to `decisions-m1.md`.
 | B7 | per-epoch resampling off for the main run, kept as a switch | 08-13 |
 | B8 | enrollment from a different book | 08-11 |
 | B9 | 50 % both / 25 % absent / 25 % target-only; variable `target_activity_ratio` | 08-13 |
+| C2 | task difficulty accepted as measured: floor **57.4 %** on `eval_public` `both` (n=230), **65.2 %** on `sir0_val` (n=103); ceiling ~6 %. Straddles the 60–80 % target band, which was an aim, not a constraint. **Open consequence: which set defines the benchmark** — the two differ by 7.8 points because `eval_public` keeps the target-louder distribution and `sir0` is symmetric | 08-30 |
 | B10 | three enrollment tiers recorded per trial; eval pools redrawn. Executes B8's own documented contingency (60.2 % of speakers dropped out), not a reversal | 08-13 |
 | B11 | report a latency decay curve, never cap T60. Largely defused by A1 | 08-13 |
 | B12 | two regimes, sampler layer, no relational constraints. PR1/PR2 landed 08-14 | 08-13 |

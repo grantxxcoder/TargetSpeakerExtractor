@@ -2021,3 +2021,74 @@ combined, or a joint improvement cannot be attributed.
 speakers, still 1,989 rooms, still 1,989 pairs of sentences. It is not a
 substitute for rendering more trials, and the learning curve over dataset size
 is still the measurement that decides whether more are needed.
+
+## 2026-08-30 — C2 CLOSED. Task difficulty measured at n=230 and accepted
+
+The last open M0 item. Scored from `experiments/results/transcripts.csv`
+(`faster-whisper small.en`, int8 CPU, greedy, Whisper `EnglishTextNormalizer`
+per B5), which already held 1,220 trials transcribed clean and mixed. No new
+ASR was run — only the scoring, which had never been done at scale.
+
+### What C2 asks
+
+How hard the task should be, as two numbers: the **floor**, an off-the-shelf
+ASR's word error rate on the raw mixture (how much of the target is lost if you
+do nothing), and the **ceiling**, its WER on the clean target (the best anyone
+could do). The gap between them is the headroom the extractor works in. A floor
+too low makes the task trivial and the metric unable to separate systems; too
+high and everything scores badly and again nothing discriminates. The declared
+target band was 60-80 %.
+
+### Measured, `both` condition only
+
+| set | n | ceiling (clean) | floor (mixture) | mean SIR | interferer louder |
+|---|---|---|---|---|---|
+| `eval_public` | 230 | 6.1 % | **57.4 %** | +4.9 dB | 26 % |
+| `sir0_val` | 103 | 5.8 % | **65.2 %** | -0.7 dB | 54 % |
+
+**Decision: the measured range 57.4-65.2 % is accepted as the task difficulty.**
+It straddles the lower edge of the 60-80 % band, and the band was a target set
+before any data existed, not a constraint. Nothing is re-rendered and
+`overlap_ratio` stays un-narrowed (B1 says narrow it last).
+
+Plain reading of 57.4 %: for every 100 words the target speaker said, about 57
+come out wrong. The failure is not mush — inspected on
+`eval_public-42-000132`, the ASR transcribes the target perfectly for 17 words
+and then **switches to the interferer's sentence**. The number is measuring "the
+machine listened to the wrong person", which is exactly what the extractor is
+built to prevent. The 51-point gap from 6.1 % to 57.4 % is the room available.
+
+### This corrects the number of record by 19 points
+
+`RESULTS.md` carried **76.4 %** from a 12-trial pilot. At n=230 it is **57.4 %**.
+B6's 200-trial minimum exists for exactly this reason and the pilot was always
+labelled as model-selection evidence, not the answer — but 76.4 % had already
+been quoted as "the task's real floor" and must not be used again.
+
+### Two things that must travel with the number
+
+1. **Never quote the pooled figure.** `eval_public` pooled is 40.7 %, dragged
+   down by `target_only` (floor 7.1 %, because with no interferer the "mixture"
+   is already near-clean). The task's floor is the `both` row, always.
+2. **The eval set and the training set are not the same difficulty.** Training
+   is on `sir0`, symmetric by construction; `eval_public` keeps the original
+   distribution where the target is the louder voice 74 % of the time. That is
+   an 7.8-point difference in floor and it is a train/eval mismatch, not a
+   measurement artefact. **Which set defines the benchmark is still open** and
+   is now the more important question than the difficulty itself. Rendering a
+   symmetric eval set costs ~2 min for 500 trials if the answer is the second.
+
+### Consequences
+
+- **C2 moves to closed in `decisions-pending.md`.** Accepted 2026-08-30; the
+  supervisor conversation the item called for should confirm it rather than
+  re-open it, and the eval-set question above is what that conversation is
+  actually about.
+- `eval_private` is also fully transcribed (500 trials) and stays held back. It
+  was not scored here and must not be used for calibration.
+- Absent trials carry no reference text, so they are not WER at all — they are
+  the invented-words check, where `small.en` emits "you" on digital silence
+  (8/8, 2026-08-28).
+- The ceiling is ~6 %, not ~3 %: `small.en` on reverberant LibriSpeech is worse
+  than the pilot suggested. Any claim of the form "we recovered X % of the
+  ceiling" must use 6.1 %.

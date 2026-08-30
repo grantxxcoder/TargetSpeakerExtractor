@@ -68,6 +68,19 @@ SPLIT_FILES = {
 TRIAL_FILES = ["mixture.wav", "target.wav", "enrollment.wav",
                "interferer.wav", "interferer_enrollment.wav", "meta.json"]
 
+# The enrollment bank (scripts/render_enrollment_bank.py, 2026-08-30), DISCOVERED
+# rather than listed: it holds as many files as the K it was rendered with, and
+# data.enrollment_variants picks among them at train time. A hardcoded list would
+# fail the same way TRIAL_FILES was about to -- 9 of the 15 files in a banked
+# trial are bank files, so a K=4 sir0_train would upload 2.55 GB short, look
+# complete, and die at TrialDataset construction one Kaggle session later.
+#
+# Optional on purpose: an evaluation split has no bank and must not need one.
+# `random_crop=False` forces enrollment_variants to 1, so val reads
+# enrollment.wav and a bank there would be dead weight in the upload.
+BANK_PATTERNS = ["enrollment_v*.wav", "interferer_enrollment_v*.wav",
+                 "enrollment_bank.json"]
+
 
 def git_commit() -> str:
     """Repo commit, or a clear marker. Stamped into the bundle so a Kaggle run,
@@ -123,16 +136,34 @@ def stage_data(out: Path, split: str) -> None:
                 copy_if_changed(f, out / "data/manifests" / f.name)
 
         ids = pd.read_csv(man)["trial_id"].tolist()
+        banked = 0
         for tid in ids:
-            for fn in TRIAL_FILES:
-                s = REPO / "data/rendered" / audio_dir / tid / fn
+            trial_dir = REPO / "data/rendered" / audio_dir / tid
+            names = list(TRIAL_FILES)
+            bank = sorted({f.name for pat in BANK_PATTERNS
+                           for f in trial_dir.glob(pat)})
+            names += bank
+            if bank:
+                banked += 1
+            for fn in names:
+                s = trial_dir / fn
                 if not s.exists():
                     sys.exit(f"missing rendered file {s}")
                 if copy_if_changed(s, out / "data/rendered" / audio_dir / tid / fn):
                     copied += 1
                 else:
                     skipped += 1
-        print(f"  {stem}: {len(ids)} trials from rendered/{audio_dir}")
+        # All-or-nothing per split. A bank on SOME trials is worse than none:
+        # the loader falls back to v00 wherever files are missing, so the
+        # augmentation would silently apply to part of the set and the run would
+        # not be the arm its config claims.
+        if banked and banked != len(ids):
+            sys.exit(f"{stem}: {banked} of {len(ids)} trials have an enrollment "
+                     f"bank. Finish it (scripts/render_enrollment_bank.py "
+                     f"--split {stem}) or delete the partial one -- a partial "
+                     f"bank makes the run un-attributable.")
+        note = f", enrollment bank on all {banked}" if banked else ""
+        print(f"  {stem}: {len(ids)} trials from rendered/{audio_dir}{note}")
     print(f"  audio files: {copied} copied, {skipped} already current")
 
 

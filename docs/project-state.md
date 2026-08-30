@@ -69,7 +69,8 @@ The trustworthy figure is 37.6 % at epoch 9, and 41.7 % at epoch 14.
 - Tell speech from silence: ~7 dB louder when the target is talking than when
   it is not, against 2.45 dB for the control.
 - Train 10 epochs in 1.45 h, checkpoint, and resume without losing state.
-- **Transcribe for evaluation.** Offline ASR chosen: `faster-whisper small.en`.
+- **Transcribe for evaluation, and say how hard the task is.** Offline ASR
+  chosen (`faster-whisper small.en`) and C2 closed at n=230.
 
 ## Cannot
 
@@ -87,7 +88,6 @@ None of these exist, and none can be cut:
 
 - **No judge decided.** Gates the entire metric milestone (M4).
 - No metric harness, no benchmark, no comparison table.
-- No floor/ceiling WER at scale — measured on 15 trials, needs 200 (B6).
 - AMI untouched — the only real-audio check in the project.
 
 They need *a* trained model, not a good one. **They are not blocked on
@@ -95,12 +95,31 @@ generalisation and should not wait for it.**
 
 ## Offline ASR — chosen 2026-08-28
 
-`small.en`, int8 on CPU, greedy, Whisper `EnglishTextNormalizer`.
-Ceiling (clean target) **4.0 %** WER, floor (raw mixture) **64.6 %** pooled —
-but **76.4 % on the `both` condition**, which is the real floor, and lands near
-the top of C2's 60–80 % target band. `tiny.en`'s floor exceeds 100 % (it invents
-words); `medium.en` is better but 2.7x the cost across every pass.
-**n ≤ 15 — model-selection evidence, not the C2 answer.**
+`small.en`, int8 on CPU, greedy, Whisper `EnglishTextNormalizer`. `tiny.en`'s
+floor exceeds 100 % (it invents words); `medium.en` is better but 2.7x the cost
+across every pass.
+
+**C2 is closed, 2026-08-30.** Scored at n=230 on `both` trials — the condition
+that has an interferer to remove, and the only row that should ever be quoted:
+
+| set | ceiling (clean) | floor (raw mixture) |
+|---|---|---|
+| `eval_public` (n=230) | 6.1 % | **57.4 %** |
+| `sir0_val` (n=103) | 5.8 % | **65.2 %** |
+
+**Plain reading:** of every 100 words the target says, ~57 come out wrong if you
+do nothing, against ~6 wrong on clean audio. **That 51-point gap is the room the
+extractor has to work in.** And the errors are not mush: inspected on one trial,
+the ASR transcribes the target perfectly for 17 words and then switches to the
+*other speaker's* sentence — which is exactly the failure the model exists to fix.
+
+Accepted at this range. **This replaces the 76.4 % that was quoted from a
+12-trial pilot; it was wrong by 19 points.**
+
+**The open consequence is bigger than the number.** Training is on `sir0`, which
+is symmetric by construction, while `eval_public` keeps the original
+distribution where the target is the louder voice 74 % of the time. Which set
+defines the benchmark is undecided, and that is the supervisor conversation.
 
 Known artefact: `small.en` emits the word "you" on digital silence, 8 of 8 absent
 trials. Filter it before counting invented words.

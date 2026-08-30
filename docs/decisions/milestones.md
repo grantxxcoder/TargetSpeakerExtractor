@@ -67,7 +67,8 @@ Decisions — all closed except C2, which needs the supervisor:
 - [X] ~~**B10** — three enrollment tiers (`book` / `chapter` / `utterance`) recorded
       per trial; eval pools redrawn to balance the tier mix. Executes B8's own
       documented contingency rather than reversing it~~
-- [ ] **C2** — how hard the task should be (floor WER); needs the supervisor. Blocks
+- [x] **C2** — how hard the task should be (floor WER). **Closed 2026-08-30**:
+      floor 57.4 % (`eval_public` `both`, n=230), ceiling 6.1 %. Accepted. Blocks
       nothing that can be done meanwhile
 
 B12 implementation, before the rebuild:
@@ -179,7 +180,8 @@ Pilot calibration, before freezing any range:
       A1–A6 properties could not do. Weight it honestly: subjective, one listener,
       40 of 21,208 trials (0.19 %), and the trial ids were not recorded, so the same
       40 cannot be re-listened to~~
-- [ ] Floor and ceiling WER measured; aim for a 60–80 % floor. **Now the M0 blocker**
+- [x] Floor and ceiling WER measured; aim for a 60–80 % floor. **Done 2026-08-30**:
+      57.4 % / 6.1 % at n=230, accepted. decisions-m1.md. Was the M0 blocker
       and what C2 needs, since the listen is closed
 
 Housekeeping:
@@ -288,7 +290,21 @@ discovering it is broken at hour 11 of a 12-hour Kaggle session costs a week.
 
 ## M2 — Baseline trained · target Sep 17 (weeks 5–6)
 
-**Status 2026-08-24. Started early: the loop works on `smoke`, nothing is
+**Status 2026-08-30. M2's proof is met and the milestone is functionally
+complete — but the checkpoint it produced memorises its training set.** A run on
+`sir0` (1,989 trials) converged and early-stopped of its own accord at epoch 24,
+best at 14. Held-out separation peaked at 2.14 dB and then fell to −0.17 dB,
+below pass-through, while training separation improved every single epoch. The
+diagnosis is data volume, not architecture: **a 7.19 M-parameter model has enough
+capacity to memorise 1,989 scenes**, so adding capacity would make it worse.
+Two augmentations were built in response (enrolment bank D8a, SIR/SNR remix D8b,
+both `decisions-m1.md` 2026-08-30) and are running as separate arms. Compute,
+batch size, early stopping and the `L_gain` re-run are all closed below. Still
+open in M2: the band-plan and `w_m` ablations, and `w`'s re-derivation at
+batch 3.
+
+Superseded status, 2026-08-24, kept for the record —
+**Started early: the loop works on `smoke`, nothing is
 converged, and `--split full` cannot run on this laptop.** 31 epochs total on the
 50-trial smoke split — 30 in one run, then epochs 29-30 via `--resume`.
 `models/model_smoke.pt` is at epoch 29, `best_val -12.9296`.
@@ -306,26 +322,47 @@ val set (`random_crop=False`, so that spread is the weights moving, not crop
 noise). At batch 3 over 50 trials with `drop_last=True` that is 16 optimiser
 steps per epoch.
 
-- [ ] **Converged checkpoint from conventional training** (SI-SDR +
-      multi-resolution STFT). Smoke only so far
+- [X] ~~**Converged checkpoint from conventional training** (SI-SDR +
+      multi-resolution STFT). **2026-08-29**,
+      `experiments/results/2026-08-29-train-sir0-e50-resume/`: sir0, seed 42,
+      requested 50 epochs, **early-stopped at 24 on a fixed val set, best epoch
+      14** (`val_total` −2.178). Convergence is real and the proof below is met.
+      **But it converged to an OVERFITTED optimum** — train separation went
+      2.97 → 5.51 dB while held-out fell 1.52 → −0.17 dB, i.e. worse than
+      pass-through. It is the M2 baseline and it memorises. decisions-m1.md
+      2026-08-29~~
 - [X] ~~Training curves and final losses logged with config, commit hash, seed,
       date — `log_results()` writes `meta.yaml` + per-epoch wide `history.csv`
       (train and val on one row, plus `lr`, which is what distinguishes a plateau
       from a scheduler step). Never raises: a logging bug must not discard a
       finished run~~
-- [ ] **Compute is the blocker, not the code.** 15.7 GB RAM with VSCode open is
+- [X] ~~**Compute resolved — Kaggle T4, and the step is 7.2x faster.** 523 s/epoch
+      at batch 3 over 1,989 trials (`run_times.md` 2026-08-29) against 3,773
+      before the fp16 tensor-core frame alignment and AMP, so 10 epochs is
+      **1.45 h, was 10.5 h**. The laptop is still GPU-less and is used for
+      rendering and CPU evaluation only. decisions-m1.md 2026-08-28. Original
+      note kept below for the record:~~
+- [X] ~~**Compute is the blocker, not the code.** 15.7 GB RAM with VSCode open is
       not enough — `systemd-oomd` killed the editor on 2026-08-24 before training
       started. `requirements.txt` pins a CPU torch. The one measured row in
       `run_times.md` is **277 s/epoch** at batch 3 over 50 trials on CPU (2.3 h
       for 30 epochs — the 243 s/epoch row is a 1-epoch run and includes startup,
       so prefer the 30-epoch figure). Smoke timing: **must not be extrapolated**
-      to 19,938 trials. Server-class
-      compute or Kaggle is required, which makes the M1 resume proof urgent
-- [ ] **`batch_size` is still 12-on-paper, 3-in-config.** `decisions-m1.md`
-      2026-08-18 chose 12; the config says 3 with a comment saying it should be
-      12, pending the GPU-memory measurement `measure_train_cost.py` exists to
-      make. The absent-crop rate that sets `w` was derived at batch 12
-- [ ] **Early stopping will not fire as configured.** `patience: 10` resets on
+      to 19,938 trials. Server-class compute or Kaggle is required, which makes the M1 resume proof urgent~~
+- [X] ~~**`batch_size` — MEASURED, and 3 is the answer.** 12 OOMs on a 14.6 GiB
+      T4; the Kaggle notebook's probe steps down until one fwd+bwd+step fits and
+      writes the winner into the config that trains. So 3 is a measured ceiling,
+      not a laptop compromise, and the 2026-08-18 choice of 12 is superseded.
+      **Consequence that survives and is still open:** `w` = 0.458 was calibrated
+      against an absent-crop rate derived at batch 12 and has never been
+      re-derived at 3~~
+- [X] ~~**Early stopping DID fire — the 2026-08-24 prediction was wrong.**
+      2026-08-29 requested 50 epochs, ran 15 (epochs 10–24), `early_stopped:
+      true`, patience 10, best epoch 14. No minimum-delta threshold was needed:
+      once `L_gain` closed the mute, val stopped creeping downward and began
+      genuinely degrading, so patience had a real signal to detect. The original
+      analysis, correct for the smoke run it was made on, is kept below:~~
+- [X] ~~**Early stopping will not fire as configured.** `patience: 10` resets on
       *any* improvement, and best-val keeps creeping down by less than the noise
       (blocks of 5 epochs: -8.636, -9.495, -10.276, -12.301, -12.706, -12.900,
       then -12.9296 on resume — a 0.03 gain against a 0.42 sd). Left alone this
@@ -339,10 +376,12 @@ steps per epoch.
       the mixture on present crops; `L_MR` flat for 30 epochs. **Superseded by the
       2026-08-27 sir0 run**, which reproduced it at 40x the data (95 %, −22.4 dB)
       and traced the cause to the objective. See `decisions-m1.md` 2026-08-27/28~~
-- [ ] **Re-run with `L_gain` on** (`w_g = 1.69`, derived 2026-08-28). Fresh, not a
-      resume: resuming skips the warm-up where `L_gain` runs at full strength, and
-      the ablation arms would not be comparable. `--epochs 10` — 8 gives only one
-      epoch at the full objective
+- [X] ~~**Re-run with `L_gain` on — done 2026-08-28**, exactly as specified:
+      `experiments/results/2026-08-28-train-sir0-e10/`, fresh (not a resume),
+      `--epochs 10`, `w_g` 1.69. **The mute closed and conditioning followed** —
+      an enrolment swap moved the output **37.6 %** against 14.9 % for the
+      `w_g`=0 control, and the output sits at −4.2 dB where the target is at
+      −3.9, against the control's −22.4 dB. decisions-m1.md 2026-08-28~~
 
 **Proof:** a checkpoint in `experiments/results/` that reproduces its own
 reported numbers from its config.
@@ -392,7 +431,11 @@ Drafted during M2, finished here now that there is a real system to point it at.
       is finalised. **Floor is 200 scored trials** (B6/B13: 100 per bucket across a
       two-way split); 500 are generated, and scoring more later extends the set
       rather than replacing it
-- [ ] **Floor and ceiling measured** (unprocessed mixture; clean target)
+- [X] ~~**Floor and ceiling measured** (unprocessed mixture; clean target) —
+      **2026-08-30**, n=230 `both` trials on `eval_public`: floor **57.4 %**,
+      ceiling **6.1 %**; `sir0_val` 65.2 % / 5.8 % at n=103. C2 accepted at this
+      range. Scored from `transcripts.csv`, no new ASR run. decisions-m1.md
+      2026-08-30~~
 - [ ] Text reference condition wired: extractor → off-the-shelf ASR → text →
       judge, with its text floor and text ceiling
 - [ ] Prompt-sensitivity ablation run
