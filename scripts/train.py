@@ -517,6 +517,9 @@ def get_data_loaders(split, csv_path, data_path, config):
     # from before the bank existed. Absent key = 1 = the old behaviour, so older
     # configs and checkpoints are unaffected. decisions-m1.md 2026-08-30.
     enrollment_variants = int(config["data"].get("enrollment_variants", 1))
+    # Per-epoch SIR/SNR re-draw. Train only, and the dataset pins it off on any
+    # fixed set anyway. Absent key = False = the pre-2026-08-30 behaviour.
+    remix_gains = bool(config["data"].get("remix_gains", False))
 
     csv_train = csv_path / f"{train_manifest}.csv"
     csv_val = csv_path / f"{val_manifest}.csv"
@@ -530,6 +533,7 @@ def get_data_loaders(split, csv_path, data_path, config):
         seed=config["seed"],
         both_directions=both_directions,
         enrollment_variants=enrollment_variants,
+        remix_gains=remix_gains,
     )
 
     val_dataset = TrialDataset(

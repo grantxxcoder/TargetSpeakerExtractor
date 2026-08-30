@@ -15,6 +15,7 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
 <!-- rows appended below by src/run_log.py -->
+| 2026-08-30 | `scripts/render_enrollment_bank.py --split sir0_train --variants 4` | 1,889 trials x 4 variants | 46 min | 8 workers, 16 kHz PCM_16 |
 | 2026-08-30 | `scripts/render_enrollment_bank.py --split sir0_train --variants 4` | 100 trials x 4 variants | 2 min | 8 workers, 16 kHz PCM_16. TIMING RUN: `--limit 100` of 1,989. |
 | 2026-08-29 | `scripts/train.py --split sir0 --epochs 50 --resume` | 1,989 trials x 15 epochs (resumed at 10, early-stopped at 24), sir0 | 2.20 h | batch 3, cuda (Tesla T4), **527.8 s/epoch**. AMP. Requested 50, ran 15: early stop, patience 10, best epoch 14. Kaggle; expanded by hand from the session's own run_times.md, which recorded the same run as `15 epochs / 2.2 h / 528 s per epoch`. |
 | 2026-08-29 | `scripts/train.py --split sir0` | 1,989 trials x 10 epochs, sir0 | 1.45 h | batch 3, cuda (Tesla T4), **523.0 s/epoch**. AMP + `chunk_s` 4.008. **7.21x** the fp32 run's 3773 s/epoch. |

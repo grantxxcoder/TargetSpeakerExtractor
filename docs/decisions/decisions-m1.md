@@ -1908,3 +1908,116 @@ supported if the **train/held-out separation gap at a matched epoch narrows**.
 Held-out `L_pres` improving is the outcome that matters; `val_enrol_sens_db`
 alone is not admissible evidence here, for the reason recorded on 2026-08-29 —
 it rose through the last collapse.
+
+## 2026-08-30 — Per-epoch SIR/SNR remix (D8b). No re-render needed
+
+Second response to the 2026-08-29 overfitting entry, and it composes with the
+enrollment bank above. Implemented, tested, unrun.
+
+### The idea in one line
+
+Every trial's loudness balance was a random draw made once, on 2026-08-26, and
+then frozen into `mixture.wav`. **The ingredients are still on disk, so the draw
+can be made again at load time** — same voices, same words, same room, different
+difficulty, every epoch.
+
+### Why it needs no new audio
+
+`render_trial` sums three signals, and two of them are written out, so the third
+is recoverable:
+
+    noise = mixture - target - interferer
+
+**Exactly, on every trial**, including the 69 of 1,989 (3.5 %) where A6's clip
+guard fired — because A6 applies its common gain to the mixture *and* both stems
+(`render_trial` step 4), so the equality survives it. An earlier draft of this
+entry claimed those trials needed dividing by `common_gain` first; they do not,
+and no `meta.json` read is required.
+
+The rebuild is then two scalar multiplies:
+
+    interferer *= 10 ** ((sir_rendered - sir_new) / 20)
+    noise      *= 10 ** ((snr_rendered - snr_new) / 20)
+    mixture     = target + interferer + noise
+
+**Only the mixture changes.** `target.wav` is the training reference and is
+returned untouched, unless the new sum would clip — in which case it takes the
+same common gain the mixture does, which is A6's own rule and keeps the
+output/reference level relationship `L_gain` measures intact. Applied to the
+crop rather than the clip, because the crop is all the loader has; recorded as a
+deviation from the renderer, which guards per clip.
+
+### The new levels are RESAMPLED FROM THE MANIFEST, not from generator.yaml
+
+Each trial borrows another trial's `(sir_db, snr_db)` from **the same difficulty
+regime**. Three reasons, and they are the argument for the design:
+
+1. Every value is one the generator actually produced, so no epoch can train on
+   an out-of-distribution mixture. Sampling from declared ranges could.
+2. The regime mix and any within-regime correlation between SIR and SNR survive
+   for free.
+3. It needs no second copy of the sampling config to drift from the one the
+   manifest was built with. `sir0_train` overrides `sir_db` at the split level to
+   `[-10, 10]` while the `hard` regime is derived rather than declared, so a
+   re-implementation of that resolution is exactly the kind of duplicate that
+   goes stale.
+
+**This does not reopen the loudness shortcut.** `sir0` is a *symmetric* range,
+not a pinned value; the shortcut came from the `base` regime's asymmetric
+`[0, 12]`, where the target was louder 90 % of the time. Drawing from the same
+symmetric pool preserves the property the split exists to enforce.
+
+### Which trials are eligible, and why the rest are not
+
+| condition | n | SIR redrawn | SNR redrawn |
+|---|---|---|---|
+| `both` | 984 | yes | yes |
+| `target_only` | 513 | no interferer to rebalance | yes |
+| `interferer_only` | 376 | no | no |
+| `noise_only` | 116 | no | no |
+
+**1,497 of 1,989 trials (75.3 %) get the augmentation.** The target-absent
+quarter passes through as rendered: on those the loudness anchor is the
+interferer or the noise itself (2026-08-11), so the recorded numbers are not
+target-relative and re-applying them would be meaningless arithmetic.
+
+### The I/O cost is negative, not positive
+
+The remix needs both speaker stems, so it adds one windowed read per trial. But
+`__getitem__` was restructured to read the shared mixture crop **once** instead
+of once per direction — the two directions share the crop by construction, so
+the second read was always a duplicate.
+
+| | windowed reads per trial |
+|---|---|
+| before | 6 (mixture x2, target, interferer, enrollment x2) |
+| after, remix on | **5** |
+
+Unmeasured for this change. The recorded loader cost is 0.044 s/batch, 4.5 % of
+a step (2026-08-28), and `scripts/profile_step.py` is what would settle it.
+
+### Consequences
+
+- `data.remix_gains`, default `false` = the pre-2026-08-30 behaviour. Pinned off
+  on any fixed set: `random_crop=False` forces it off, so validation never
+  changes difficulty and its curve stays readable.
+- **`meta["sir_db"]` and `meta["snr_db"]` now report the REALISED levels**, which
+  differ from the manifest whenever the remix fired. Any stratified diagnostic
+  therefore describes the audio the model heard, not the audio on disk.
+- `CLIP_CEILING` is duplicated in `dataset_loader.py` rather than imported, to
+  keep scipy and pyloudnorm out of every DataLoader worker. A test pins the two
+  values together.
+- Restructuring `__getitem__` is behaviour-preserving when the remix is off, and
+  a test asserts the returned tensors are unchanged.
+
+### How it will be judged
+
+Same rule as the bank: `remix_gains` on vs off, same seed and split, and the
+claim is supported if the **train/held-out separation gap at a matched epoch
+narrows**. The two are separable arms and should be run as such before being
+combined, or a joint improvement cannot be attributed.
+
+**What it does not do.** It varies difficulty, not diversity: still 1,172
+speakers, still 1,989 rooms, still 1,989 pairs of sentences. It is not a
+substitute for rendering more trials, and the learning curve over dataset size
+is still the measurement that decides whether more are needed.

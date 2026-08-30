@@ -30,6 +30,16 @@ data:
                         # stops being a fixed waveform to memorise. Requires
                         # scripts/render_enrollment_bank.py to have run on the
                         # split. decisions-m1.md 2026-08-30.
+  remix_gains: true    # Rebuild the mixture each epoch at another trial's SIR
+                        # and SNR, drawn from the same difficulty regime. TRAIN
+                        # ONLY -- a val set that changed difficulty per epoch
+                        # would make its own curve unreadable. false = the
+                        # mixture exactly as rendered, i.e. every run up to
+                        # 2026-08-29. Needs no new audio: the noise bed comes
+                        # back as mixture - target - interferer, and only the
+                        # mixture changes, never the reference. Costs one extra
+                        # windowed read per trial and saves a duplicate one.
+                        # decisions-m1.md 2026-08-30.
   num_workers: 0        # DataLoader workers. 0 on the laptop: 4 cores, already
                         # saturated by the model. Raise on GPU (the Kaggle
                         # notebook sets 4) or the wav reads starve the device.
