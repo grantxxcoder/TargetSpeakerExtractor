@@ -148,3 +148,25 @@ training:
   lr_factor: 0.5        # ReduceLROnPlateau on val total
   lr_patience: 3        # must stay < patience or training stops before the
                         # lr ever drops
+
+  # MODEL SELECTION -- which epoch's weights get kept, and when to stop. This is
+  # NOT the training objective and it is never backpropagated: validation runs
+  # under no_grad. `w` = 0.458 balances GRADIENTS between the two branches; it
+  # was never derived to rank finished models, and ranking with it kept a
+  # checkpoint at 1.13 dB held-out separation when the same run reached 2.36 dB
+  # (remix arm, 2026-08-30). decisions-m1.md 2026-08-30.
+  select_on: present_branch   # present_branch | total | separation.
+                              # `total` = the pre-2026-08-30 behaviour, kept so
+                              # the old runs remain reproducible.
+                              # `separation` = L_pres alone; available and NOT
+                              # advised -- it is blind to absent crops, which
+                              # are a quarter of the trials.
+  select_abs_max: -10.0       # Silence bar, in L_abs. An epoch is only eligible
+                              # to be kept if it is at least this quiet on
+                              # target-absent crops. A CONSTRAINT rather than a
+                              # second weighting: "quiet enough, then the best
+                              # separator". null disables it.
+  keep_top_k: 3               # Also keep the k best eligible epochs as
+                              # model_<split>_e{NNN}.pt. Insurance: the criterion
+                              # is a judgement call, and re-scoring a run later
+                              # needs the weights to still exist. 0 disables.

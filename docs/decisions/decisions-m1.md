@@ -2092,3 +2092,73 @@ been quoted as "the task's real floor" and must not be used again.
 - The ceiling is ~6 %, not ~3 %: `small.en` on reverberant LibriSpeech is worse
   than the pilot suggested. Any claim of the form "we recovered X % of the
   ceiling" must use 6.1 %.
+
+## 2026-08-30 — D3a: the cue carries identity and the network amplifies it. Conditioning is NOT the bottleneck
+
+`experiments/results/2026-08-30-cue-diag-sir0/`, `scripts/diagnose_cue.py`.
+200 fixed crops of `sir0_val`, `model_sir0_e50es.pt` (epoch 14), CPU, 14 min.
+
+### The measurement
+
+Roll the enrollment within the batch and measure the SAME statistic at two
+points one layer apart — `||a_true - a_swap||^2 / ||a_true||^2` — so the two
+stages are comparable rather than merely similar.
+
+| stratum | n | cue moves | output moves |
+|---|---|---|---|
+| all | 200 | **28.6 %** | **48.2 %** |
+| same-gender trials | 131 | 26.8 % | 44.4 % |
+| cross-gender trials | 69 | 31.0 % | 56.1 % |
+
+### The partition, and it is the third branch
+
+The conditioning path has two halves and no previous run distinguished them.
+**Neither half is failing.** Swapping a stranger's enrollment moves the cue by
+28.6 %, so the cue plainly carries identity; the output then moves by 48.2 %,
+i.e. **the network amplifies the cue rather than discarding it.**
+
+The standing diagnosis since 2026-08-25 — "the network is throwing the cue
+away" — is wrong, measured. The ~2.3 dB held-out ceiling is in the **separator
+or the objective**, not in getting speaker identity into the network.
+
+### Consequences for the D-list
+
+- **D4a (re-inject the TF-Map at every block) — DROP.** It exists to fix
+  dilution of the cue across six BSNet blocks. There is no dilution to fix: the
+  cue survives and is amplified. Its ranking as "cheapest large change" was
+  conditional on D3a, and D3a says no.
+- **D5 (speaker encoder + auxiliary speaker-ID loss) — DEMOTE.** The argument
+  was that no parameter is devoted to identity. True, and it turns out not to be
+  the binding constraint. Not refuted, but no longer indicated.
+- **D2 (attention temperature) — ANSWERED WITHOUT RUNNING IT.** The softmax now
+  blends **138 of 628** enrollment frames, max weight 0.067 against a uniform
+  0.00159. The 2026-08-25 measurement that motivated D2 had it blending ~620 of
+  628. `tfmap_scale` = 16 already did what the temperature sweep was going to
+  test. Close it.
+- **D1 (learned dictionary) — DROP the premise.** D1 and D2 shared one
+  hypothesis: more selective matching against enrollment content improves
+  extraction. The matching is already selective and extraction is still capped.
+
+### D3c, and a correction
+
+Sensitivity is **higher on cross-gender trials (56.1 %) than same-gender
+(44.4 %)**. That is the direction a pitch shortcut produces: where the two
+speakers differ in gender the enrollment's identity matters more to the output.
+It is a weak signal, not proof — but it is not nothing, and `sir0_train`'s 50/50
+gender balance caps rather than removes the shortcut (a model using pitch alone
+scores ~75 % correct with no enrollment at all).
+
+**Correction:** a 24-crop smoke run of the same script read the opposite
+ordering (same-gender 44.9 % vs cross-gender 37.1 %) and was briefly described
+as showing no pitch reliance. At n=200 the ordering reverses. The 24-crop figure
+was noise and must not be quoted.
+
+### Caveats
+
+- One checkpoint, one split. The cue half needs no trained model (TFMap is
+  parameter-free) so it generalises across checkpoints; the output half does not.
+- `same_gender` describes whether a trial's TARGET and INTERFERER share a
+  gender, not the gender of the rolled-in enrollment. It is the right
+  stratification for detecting a pitch shortcut and is not a statement about the
+  swap itself.
+- This says where the ceiling is NOT. It does not say where it is.

@@ -16,6 +16,8 @@ then read `["config"]` and `["best_row"]` if this file goes stale.
 | `model_sir0_wg0-e7.pt` | `2026-08-27-train-sir0` | 7 | none | -8.25 dB (14.9 %) | **the control.** No `L_gain`, and it MUTED — output sits ~22 dB below the mixture where the target is at ~-3.9. Keep: it is the comparison arm for the `L_gain` claim, not a spare. |
 | `model_sir0_e50es.pt` | `2026-08-29-train-sir0-e50-resume` | 14 | 1.69 | -3.80 dB (41.7 %) | best epoch of the resumed run, and the lowest `val_total` on record (-2.178). **Overfit — read the note below before using it.** |
 | `model_sir0_e50es_last.pt` | same | 24 | 1.69 | -0.98 dB (79.9 %) — **not a win, see note** | last epoch before early stop. Val extraction ended WORSE than passing the mixture through. |
+| **`model_sir0_C-bankremix-e11.pt`** | `2026-08-30-train-sir0-C-bank-remix` | **11** | 1.69 | — | **BEST HELD-OUT SEPARATION on record, 2.35 dB.** Arm C: `enrollment_variants` 4 + `remix_gains`. Use for estimates and evaluation. |
+| `model_sir0_A-remix-e14.pt` | `2026-08-30-train-sir0-A-remix` | 14 | 1.69 | — | Arm A: `remix_gains` only. **1.13 dB, and NOT representative of its own run** — epoch 10 reached 2.36 dB and was never saved. |
 
 Both runs: `sir0`, seed 42, batch 3, `chunk_s` 4.0, fp32 (pre-speed-fix).
 Neither used AMP. decisions-m1.md 2026-08-28.
@@ -60,3 +62,28 @@ gap is the absent branch, not extraction. Decide deliberately before switching.
 | `model_sir0_wg0-e7.pt` | **the control arm for the `L_gain` claim** — the last run without the term. The "`L_gain` closed the mute" result is a comparison against this and nothing else. |
 | `model_sir0_e50es.pt` | the current baseline, epoch 14. |
 | `model_sir0_e50es_last.pt` | epoch 24, the fully-overfit endpoint. The *evidence* for the overfitting result: the numbers are in `history.csv`, but demonstrating a model that scores worse than pass-through needs the weights. |
+| `model_sir0_C-bankremix-e11.pt` | **the best separator the project has produced.** The one to point evaluation at. |
+| `model_sir0_A-remix-e14.pt` | the remix-only ablation arm's only surviving weights. Weak, and kept for that reason: it is the *demonstration* of the checkpoint-selection bug, not a model to use. |
+
+
+## The 2026-08-30 augmentation arms, and a warning about arm A
+
+Both bundles (`kaggle_out/`, `kaggle_out_c/`) were deleted 2026-08-30 after the
+histories, configs and run-time rows were preserved into
+`experiments/results/2026-08-30-train-sir0-{A-remix,C-bank-remix}/`.
+
+| checkpoint | epoch | held-out sep | that run's actual PEAK |
+|---|---|---|---|
+| `model_sir0_C-bankremix-e11.pt` | 11 | **2.35 dB** | 2.35 dB — epoch 11, the rule got this one right |
+| `model_sir0_e50es.pt` (control) | 14 | 2.14 dB | 2.23 dB at epoch 5 |
+| `model_sir0_A-remix-e14.pt` | 14 | 1.13 dB | **2.40 dB at epoch 10 — never saved** |
+
+**Do not score `model_sir0_A-remix-e14.pt` as "what the remix achieves".** It was
+selected by the pre-2026-08-30 `val_total` rule, which the entry above already
+warns is not a safe ranking — most of the gap is the absent branch, not
+extraction. On arm A that cost a full dB. `training.select_on` and
+`training.keep_top_k` now prevent it; the lost epoch needs a re-run to recover.
+
+**And neither augmentation raised the ceiling.** Peaks of 2.23 / 2.40 / 2.35 dB
+across control / A / C sit inside the epoch-to-epoch swing (0.31-0.52 dB). The
+result is negative and is logged as such in decisions-m1.md 2026-08-30.

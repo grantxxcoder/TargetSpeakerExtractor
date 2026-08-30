@@ -294,6 +294,58 @@ def epoch_report(sums, counts, w, wm, wg):
     }
 
 
+def selection_score(val_loss, config):
+    """The number that decides which epoch's weights we KEEP. Not a loss.
+
+    WHY THIS IS NOT `val_total`. The training objective and the model-selection
+    rule are different jobs. `w` = 0.458 was derived from the absent-crop rate
+    (CARTSE's eta) to balance GRADIENTS between the two branches; it was never
+    derived to rank finished models, and used that way it ranks them badly.
+
+    Measured 2026-08-30 across three runs: at control epoch 14 the absent branch
+    contributes 0.458 x -11.699 = -5.358 to `val_total` while the whole present
+    branch contributes +3.180, so the total keeps falling as the model gets
+    quieter on absent crops long after separation has stopped improving. On the
+    remix arm that cost a real model -- `val_total` kept epoch 14 at 1.13 dB
+    held-out separation when epoch 10 of the same run reached 2.36 dB.
+
+    `present_branch` is the same combination the loss applies to target-present
+    crops, with the absent branch removed rather than reweighted. Silence is
+    handled by an eligibility bar (see `selection_eligible`) rather than by a
+    second arbitrary exchange rate between two quantities that are not
+    commensurable. decisions-m1.md 2026-08-30.
+    """
+    mode = str(config["training"].get("select_on", "present_branch"))
+    if mode == "total":
+        return float(val_loss["total"])          # pre-2026-08-30 behaviour
+    if mode == "present_branch":
+        w_m = float(config["loss"]["w_m"])
+        w_g = float(config["loss"].get("w_g", 0.0))
+        return float(val_loss["L_pres"] + w_m * val_loss["L_MR"]
+                     + w_g * val_loss.get("L_gain", 0.0))
+    if mode == "separation":
+        # L_pres alone. Available, and NOT the default: it is computed only on
+        # target-present crops, so absent behaviour is unconstrained by it.
+        # Measured 2026-08-30, it picks epoch 4-5 where L_abs is -5.1 to -6.3
+        # against -10 to -12 elsewhere -- a model that separates well and then
+        # keeps talking when nobody is there, on the quarter of trials that have
+        # no target at all.
+        return float(val_loss["L_pres"])
+    raise ValueError(f"training.select_on: unknown mode {mode!r}. "
+                     "Known: present_branch, total, separation.")
+
+
+def selection_eligible(val_loss, config):
+    """Whether an epoch is allowed to be kept at all -- the silence bar.
+
+    A CONSTRAINT, not another weighted sum: "must be quiet enough, then be the
+    best separator". A weighted sum would just invent a second exchange rate of
+    the kind that caused the problem in the first place. `null` disables it.
+    """
+    bar = config["training"].get("select_abs_max", None)
+    return True if bar is None else float(val_loss["L_abs"]) <= float(bar)
+
+
 def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_debug=False, save_path=None, config=None, scheduler=None, start_epoch=0, best_val=float("inf"), best_row=None):
     model.to(device)
     val_loss_history = []
@@ -305,6 +357,11 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
     loss_fn = build_loss_fn(config)
     grad_clip = float(config["training"]["grad_clip"])
     patience = int(config["training"]["patience"])
+    keep_top_k = int(config["training"].get("keep_top_k", 3))
+    kept = []          # (score, epoch) for the top-k checkpoints still on disk
+    print(f"  selecting on `{config['training'].get('select_on', 'present_branch')}`"
+          f", silence bar L_abs <= {config['training'].get('select_abs_max', 'none')}"
+          f", keeping top {keep_top_k}")
     epochs_since_best = 0
     # Fixed for the whole run. Every `total` reported anywhere uses this, so the
     # curve is one objective even while the schedule moves the training w.
@@ -448,9 +505,35 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
                 "seed": config["seed"],
             }, last_path)
 
-        # Save the model if it has the best validation loss so far.
-        if val_loss["total"] < best_val:
-            best_val = val_loss["total"]
+        # Keep this epoch's weights if it is the best SELECTION SCORE so far --
+        # which is not `val_total`. See selection_score() for why, and for the
+        # measurement that forced the change (decisions-m1.md 2026-08-30).
+        score = selection_score(val_loss, config)
+        eligible = selection_eligible(val_loss, config)
+        # TOP-K INSURANCE. The criterion is a judgement call and this run's
+        # history can be re-scored later, but only if the weights still exist.
+        # Before 2026-08-30 just best-and-last were kept, so when the criterion
+        # turned out to be wrong the good checkpoints were already gone and the
+        # only recovery was a re-run. 87 MB each; keep a few.
+        if save_path and keep_top_k > 0:
+            # Deliberately NOT gated on `eligible`: on a run too short to ever
+            # clear the silence bar these are the only weights that survive, and
+            # the flag below is what tells you which ones cleared it.
+            kept.append((score, epoch))
+            kept.sort()
+            rank_path = Path(save_path).with_name(
+                f"{Path(save_path).stem}_e{epoch:03d}.pt")
+            torch.save({"model": model.state_dict(), "epoch": epoch,
+                        "score": score, "eligible": eligible, "row": val_loss,
+                        "config": config, "seed": config["seed"]}, rank_path)
+            for _, dropped in kept[keep_top_k:]:
+                stale = Path(save_path).with_name(
+                    f"{Path(save_path).stem}_e{dropped:03d}.pt")
+                stale.unlink(missing_ok=True)
+            del kept[keep_top_k:]
+
+        if eligible and score < best_val:
+            best_val = score
             best_row = val_loss
             epochs_since_best = 0
             if save_path:
@@ -474,6 +557,19 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
                           f"without improving on {best_val:.4f}")
                 break
 
+    # NO EPOCH CLEARED THE SILENCE BAR, so `save_path` was never written and the
+    # run would otherwise finish looking successful with no best checkpoint. Say
+    # so loudly and point at the weights that do exist, rather than silently
+    # relaxing the bar -- a run that never got quiet enough is a result about the
+    # run, not a reason to lower the standard behind the user's back.
+    if best_row is None:
+        print(f"WARNING: no epoch met training.select_abs_max="
+              f"{config['training'].get('select_abs_max')} on L_abs, so no best "
+              f"checkpoint was written. The top-{keep_top_k} by score and "
+              f"_last.pt are on disk; kept epochs: "
+              f"{sorted(e for _, e in kept)}. Either the run is too short to "
+              f"reach the bar or the bar is wrong for this split.",
+              file=sys.stderr)
 
     return train_loss_history, val_loss_history, best_row
 
@@ -677,6 +773,14 @@ def log_results(out_dir, config, config_path, args, model, device, manifest_csv,
             # `or {}` because a checkpoint predating best_row has none.
             "best_val": {k: (best_row or {}).get(k) for k in
                          ["epoch", "total", "L_pres", "L_MR", "L_abs", "lr"]},
+            # WHAT CHOSE that row. Without it a checkpoint cannot be compared
+            # with one selected under a different rule, and runs either side of
+            # 2026-08-30 were selected differently.
+            "selection": {
+                "select_on": config["training"].get("select_on", "present_branch"),
+                "select_abs_max": config["training"].get("select_abs_max", None),
+                "keep_top_k": config["training"].get("keep_top_k", 3),
+            },
             "final_train": train_loss_history[-1] if train_loss_history else {},
             "checkpoint": str(save_path),
         }, sort_keys=False))

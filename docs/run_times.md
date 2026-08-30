@@ -15,6 +15,13 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
 <!-- rows appended below by src/run_log.py -->
+| 2026-08-30 | `scripts/train.py --split sir0` | 1,989 trials x 22 epochs (early-stopped, best 11), sir0 | 3.4 h | batch 3, cuda (T4), **549 s/epoch**. Arm C: bank + remix. Copied by hand from the Kaggle session's own run_times.md before deleting the bundle. |
+| 2026-08-30 | `scripts/train.py --split sir0` | 1,989 trials x 25 epochs, sir0 | 3.9 h | batch 3, cuda (T4), **568 s/epoch**. Arm A: remix only. Copied by hand from the Kaggle session's own run_times.md before deleting the bundle. |
+| 2026-08-30 | `scripts/render_enrollment_bank.py --split sir0_train --variants 4` | 1,889 trials x 4 variants (100 already done, skipped) | 46 min | 8 workers, 16 kHz PCM_16. Full split. |
+| 2026-08-30 | `scripts/make_estimates.py` | 200 trials, sir0 | 25 min | cpu, whole-clip |
+| 2026-08-30 | `scripts/diagnose_cue.py` | 200 crops, sir0 | 14 min | cpu, batch 4 |
+| 2026-08-30 | `scripts/diagnose_cue.py` | 24 crops, sir0 | 80 s | cpu, batch 4 |
+| 2026-08-30 | `scripts/diagnose_cue.py` | 24 crops, sir0 | 81 s | cpu, batch 4 |
 | 2026-08-30 | `scripts/render_enrollment_bank.py --split sir0_train --variants 4` | 1,889 trials x 4 variants | 46 min | 8 workers, 16 kHz PCM_16 |
 | 2026-08-30 | `scripts/render_enrollment_bank.py --split sir0_train --variants 4` | 100 trials x 4 variants | 2 min | 8 workers, 16 kHz PCM_16. TIMING RUN: `--limit 100` of 1,989. |
 | 2026-08-29 | `scripts/train.py --split sir0 --epochs 50 --resume` | 1,989 trials x 15 epochs (resumed at 10, early-stopped at 24), sir0 | 2.20 h | batch 3, cuda (Tesla T4), **527.8 s/epoch**. AMP. Requested 50, ran 15: early stop, patience 10, best epoch 14. Kaggle; expanded by hand from the session's own run_times.md, which recorded the same run as `15 epochs / 2.2 h / 528 s per epoch`. |
@@ -62,7 +69,6 @@ one of these as a measured figure.**
 |---|---|---|---|
 | `render_trials.py --split train` | 19,938 trials | ~78 min | 100 trials measured at 23.4 s, 8 workers |
 | `render_trials.py`, all six splits | 21,208 trials / ~27 GB | ~83 min | same rate, 1.26 MB per trial measured |
-| `render_enrollment_bank.py --split sir0_train --variants 4` | 1,989 trials / +1.9 GB | ~38 min | 100 trials measured at 2 min, 8 workers |
 
 Move a row up to the table above once it has actually run — the script does that
 for itself; delete the projection by hand.
