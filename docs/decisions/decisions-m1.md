@@ -1736,3 +1736,87 @@ costs 1.45 h each rather than 10.5.
 - `model_sir0.pt` stays the fp32 checkpoint on best `val_total`; the AMP one is
   `model_sir0_amp-e10.pt`. See `models/README.md` — the choice is arbitrary
   within noise.
+
+## 2026-08-29 — Trained longer. It memorises the training set
+
+`experiments/results/2026-08-29-train-sir0-e50-resume/`. Resumed the AMP epoch-9
+checkpoint, `sir0`, seed 42, `w_g`=1.69, batch 3, `amp: true`, target epoch 50.
+Ran epochs 10-24 and **early-stopped on patience 10**; best `val_total` at epoch
+**14**, −2.178. 15 epochs in 2.20 h at 527.8 s/epoch.
+
+### In plain words
+
+Both `L_gain` runs stopped with their best score on the last epoch and neither
+early-stopped, so **"just train it longer" was the cheapest experiment on the
+board** and this run was it. It answered the question, and the answer is that
+there is nothing left to gain from more epochs on this data: the model spends
+them learning the 1,989 training trials by heart. It gets better every epoch on
+audio it has already seen and steadily worse on audio it has not.
+
+### The two curves that diverge
+
+Separation, as SI-SDR in dB (`L_pres` negated, higher better):
+
+| epoch | train | held-out | gap |
+|---|---|---|---|
+| 10 | 2.97 | 1.52 | 1.45 |
+| 12 | 3.24 | 2.18 | 1.06 |
+| **14** | **3.38** | **2.14** | **1.24** |
+| 17 | 3.70 | 1.46 | 2.24 |
+| 20 | 4.53 | 0.98 | 3.55 |
+| 24 | **5.51** | **−0.17** | **5.68** |
+
+Train improves monotonically across all 15 epochs. Held-out improves for four,
+then falls the rest of the way — and **by epoch 24 it is below the pass-through
+anchor**, i.e. worse than not running the model at all. `L_gain` splits the same
+way: 2.92 → 1.51 on train, 3.77 → 5.79 held-out. The generalisation gap widens
+by a factor of four.
+
+### The headline that moved for a bad reason
+
+`val_enrol_sens_db` went −3.66 → −0.98 dB, i.e. **43 % → 80 %** output movement
+on an enrolment swap, climbing all the way through the collapse. Taken alone that
+reads as conditioning tripling. It is not. **An output that has stopped
+resembling the target moves a lot when you perturb its input, and the diagnostic
+cannot tell that apart from discrimination.**
+
+**Consequence for the write-up: `val_enrol_sens_db` is only interpretable
+alongside held-out `L_pres`.** Quote 37.6 % (epoch 9) and 41.7 % (epoch 14).
+Never quote the 80 %.
+
+### What this rules out, and what it rules in
+
+**Rules out an under-capacity architecture.** A 7.19 M-parameter model that can
+drive training separation to 5.51 dB on 1,989 trials is not too small for the
+task; it is too large for the data. This inverts the standing instinct that the
+backbone needs replacing — **a bigger or richer model overfits sooner, not
+later.** It does not rule out a *better-shaped* model; it rules out a bigger one
+as the response to this particular result.
+
+**Rules in data volume as the binding constraint.** Random cropping already
+varies the window per epoch (`_crop_offset_start` keys on `(seed, epoch, idx)`)
+and `both_directions` already doubles the examples, so the effective set is about
+24,000 four-second crops and it still memorises. 19,938 trials are rendered but
+only 1,989 are in `sir0`, which is the split where the loudness shortcut is
+closed — so the larger set has to be re-rendered symmetric, not just pointed at.
+
+### Consequences
+
+- **`models/model_sir0.pt` should now be the epoch-14 checkpoint**, not epoch 9
+  of the e10 run. Everything after epoch 14 is a worse model on held-out data.
+- **Next training run is more data, not more epochs and not more parameters.**
+  ~5,000 `sir0` trials is ~1,315 s/epoch, so 20 epochs in 7.3 h — inside Kaggle's
+  cap. Retrain from scratch: resuming would carry the memorisation forward.
+- **Two regularisers are free and currently off.** `weight_decay` is 0.0 by
+  explicit choice (`bsrnn_baseline.yaml`) and there is no dropout anywhere. Both
+  are config-level. Neither substitutes for data, but both are one line.
+- **Early stopping fired, contradicting the M2 checklist note** that it would not
+  fire as configured. `patience: 10` on `val_total` stopped the run at 24 from a
+  best of 14. That checklist item can be closed.
+- **The held-out margin over doing nothing is thin.** Best held-out separation is
+  2.14 dB. The pass-through anchor of +1.59 dB was measured by a different
+  protocol (`derive_w_g.py`, 200 fixed crops) than the validation loop, so the
+  two are not directly subtractable — **re-run the anchor script on the epoch-14
+  checkpoint before quoting any "beats doing nothing by X dB" figure.**
+- Not logged as an ablation arm: the run is a resume of the AMP run, so it shares
+  its seed and its history. It is one trajectory, not an independent sample.
