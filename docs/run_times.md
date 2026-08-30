@@ -15,7 +15,8 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
 <!-- rows appended below by src/run_log.py -->
-| 2026-08-29 | `scripts/train.py --split sir0 --epochs 50 --resume` | 1,989 trials x 15 epochs (resumed at 10, early-stopped at 24), sir0 | 2.20 h | batch 3, cuda (Tesla T4), **527.8 s/epoch**. AMP. Requested 50, ran 15: early stop, patience 10, best epoch 14. |
+| 2026-08-30 | `scripts/render_enrollment_bank.py --split sir0_train --variants 4` | 100 trials x 4 variants | 2 min | 8 workers, 16 kHz PCM_16. TIMING RUN: `--limit 100` of 1,989. |
+| 2026-08-29 | `scripts/train.py --split sir0 --epochs 50 --resume` | 1,989 trials x 15 epochs (resumed at 10, early-stopped at 24), sir0 | 2.20 h | batch 3, cuda (Tesla T4), **527.8 s/epoch**. AMP. Requested 50, ran 15: early stop, patience 10, best epoch 14. Kaggle; expanded by hand from the session's own run_times.md, which recorded the same run as `15 epochs / 2.2 h / 528 s per epoch`. |
 | 2026-08-29 | `scripts/train.py --split sir0` | 1,989 trials x 10 epochs, sir0 | 1.45 h | batch 3, cuda (Tesla T4), **523.0 s/epoch**. AMP + `chunk_s` 4.008. **7.21x** the fp32 run's 3773 s/epoch. |
 | 2026-08-28 | `scripts/train.py --split sir0` | 1,989 trials x 10 epochs, sir0 | 10.5 h | batch 3, cuda (Tesla T4), 3773 s/epoch. The `w_g`=1.69 run. fp32, pre-speed-fix. |
 | 2026-08-28 | `scripts/train.py --split sir0` | 1,989 trials x 2 epochs, sir0 | 17 min | batch 3, cuda (Tesla T4), **505.7 s/epoch**. First run with `chunk_s` 4.008 + `amp: true`. **7.66x** the 2026-08-27 row's 3875 s/epoch, same batch, same GPU. Kaggle. |
@@ -60,6 +61,7 @@ one of these as a measured figure.**
 |---|---|---|---|
 | `render_trials.py --split train` | 19,938 trials | ~78 min | 100 trials measured at 23.4 s, 8 workers |
 | `render_trials.py`, all six splits | 21,208 trials / ~27 GB | ~83 min | same rate, 1.26 MB per trial measured |
+| `render_enrollment_bank.py --split sir0_train --variants 4` | 1,989 trials / +1.9 GB | ~38 min | 100 trials measured at 2 min, 8 workers |
 
 Move a row up to the table above once it has actually run — the script does that
 for itself; delete the projection by hand.

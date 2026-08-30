@@ -1820,3 +1820,91 @@ closed — so the larger set has to be re-rendered symmetric, not just pointed a
   checkpoint before quoting any "beats doing nothing by X dB" figure.**
 - Not logged as an ablation arm: the run is a resume of the AMP run, so it shares
   its seed and its history. It is one trajectory, not an independent sample.
+
+## 2026-08-30 — Enrollment bank: rotate the identity cue per epoch (D8a)
+
+Response to the 2026-08-29 overfitting entry. Implemented, tested, unrun.
+
+### The specific hole it closes
+
+`enrollment.wav` is rendered once and read **in full** on every epoch
+(`dataset_loader._example`, no crop on the enrollment path). So across the 24
+epochs of the 2026-08-29 run, every trial presented the model with the *same
+5 s waveform* as its identity cue. Random cropping does not touch this: it
+rotates the mixture window, i.e. it resamples the same acoustic scene, while
+the thing the model is supposed to generalise over — who is speaking — stayed
+bit-identical.
+
+**That makes "this exact waveform -> this exact voice" a lookup table over 1,989
+entries, and fitting it is sufficient to explain the observed failure**: training
+separation 2.97 -> 5.51 dB while held-out fell 1.52 -> -0.17 dB. Val speakers are
+disjoint by construction (`splits.yaml`), so the table transfers nothing.
+
+### What was built
+
+`scripts/render_enrollment_bank.py` renders K enrollment recordings per trial per
+direction, `enrollment_v00.wav` .. `v{K-1}.wav`; `dataset_loader` picks one per
+`(seed, epoch, idx, direction)`; `data.enrollment_variants` in the config selects
+K. **Additive only** — mixtures, targets and interferers are untouched, so no
+existing audio, manifest or checkpoint is invalidated.
+
+Variants are distinct **utterances** by the same speaker, not distinct windows of
+one utterance: different sentences, usually a different chapter or book, and a
+different recording session. A window of the same utterance would leave the
+channel and the session identical and is the weak version of this fix.
+
+### Five properties that are deliberate, not incidental
+
+1. **`v00` reproduces `enrollment.wav` byte for byte** — same utterance, same
+   offset, same EQ seed. Verified over 24 banks. Without this, `K=1` vs `K=4`
+   would compare two different renders and nothing could be attributed to the
+   augmentation.
+2. **Every variant is levelled to the trial's own `target_loudness_lufs`**, so
+   which variant is in play cannot be read off loudness. Verified: spread
+   under 3 dB across a bank. Level is a cue closed everywhere else and this does
+   not reopen it.
+3. **The B8/B10 guard tiers are applied per variant**, through the *same*
+   `pick_enrollment` the manifest builder uses, re-evaluated at each draw with
+   the already-taken utterances removed. Measured on 12 trials: 32 book-tier,
+   40 chapter-tier, 24 utterance-tier draws. The content-leak guarantee holds
+   variant by variant rather than only for the first.
+4. **Each variant gets its own EQ curve** (the CARTSE channel-gap augmentation,
+   Li & Seki 2026, already in the renderer), seeded from `trial_id#v{k}`. So the
+   bank varies channel as well as content.
+5. **Validation never rotates.** `random_crop=False` forces
+   `enrollment_variants` to 1, so val reads `enrollment.wav` itself. A val set
+   that moved would make every val number in the project's history incomparable,
+   and it is the held-out curve that this whole change is trying to move.
+
+### Cost, and why K defaults to 4
+
+`(K-1) x 2 x ~160 kB` per trial. K=4 on `sir0_train` is **+1.9 GB, ~45 % on top
+of the split**, and **~38 min to render** (measured: 100 trials in 2 min, 8
+workers). K=8 would double the addition. 4 gives each variant roughly 4-5
+appearances over a 20-epoch run, which is enough to break a fixed lookup; the
+binding constraint on raising it is the Kaggle dataset upload, not the renderer.
+
+Every `sir0_train` speaker has at least 10 utterances of >= 5 s (median 109), so
+no speaker is short of candidates at K=4. Speakers who cannot fill a bank get a
+shorter one and the loader falls back to `v00`; the script reports the count
+rather than padding with repeats, because a silent repeat would weaken the
+augmentation exactly where the speaker is rarest.
+
+### What this is NOT
+
+**Not a substitute for more scenes.** It varies the identity cue and nothing
+else: the same 1,989 speaker pairs, rooms, noise beds and SIR/SNR draws remain.
+It attacks one memorisation route, the one that is cheapest to close and most
+specific to the conditioning failure this project has been chasing since
+2026-08-25. Expect it to narrow the train/held-out gap, not to eliminate it.
+
+**Not yet evidence of anything.** 9 unit tests pass and the renderer is verified
+on real data; no training run has used it.
+
+### How it will be judged
+
+Run `K=1` and `K=4` from scratch on the same seed and split. The claim is
+supported if the **train/held-out separation gap at a matched epoch narrows**.
+Held-out `L_pres` improving is the outcome that matters; `val_enrol_sens_db`
+alone is not admissible evidence here, for the reason recorded on 2026-08-29 —
+it rose through the last collapse.

@@ -21,6 +21,15 @@ data:
                         # rendered after 2026-08-26. NOTE batch_size then counts
                         # TRIALS: a step sees 2x that many examples.
                         # decisions-m1.md 2026-08-26.
+  enrollment_variants: 4  # Enrollment bank size, TRAINING ONLY -- val always
+                        # reads variant 0, which IS enrollment.wav, so val stays
+                        # comparable with every run before the bank existed.
+                        # 1 = the single rendered clip, i.e. every run up to
+                        # 2026-08-29. >1 rotates through K distinct utterances by
+                        # the same speaker, one per epoch, so the identity cue
+                        # stops being a fixed waveform to memorise. Requires
+                        # scripts/render_enrollment_bank.py to have run on the
+                        # split. decisions-m1.md 2026-08-30.
   num_workers: 0        # DataLoader workers. 0 on the laptop: 4 cores, already
                         # saturated by the model. Raise on GPU (the Kaggle
                         # notebook sets 4) or the wav reads starve the device.

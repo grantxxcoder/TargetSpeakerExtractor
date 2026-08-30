@@ -16,6 +16,12 @@ Offsets derive from (seed, epoch, idx), not an ambient RNG -- reproducible, and 
 sidesteps each DataLoader worker holding its own RNG copy. Call set_epoch() each
 epoch or you re-crop the same window and use a sixth of the audio.
 
+`enrollment_variants` > 1 additionally rotates the CUE per epoch, reading one of
+K enrollment recordings rendered by scripts/render_enrollment_bank.py. The crop
+rotation alone does not do this: it resamples the same scene, so the identity
+cue stayed a fixed waveform across all 24 epochs of the 2026-08-29 run and was
+memorisable. decisions-m1.md 2026-08-30.
+
 CPU tensors: creating CUDA tensors in a forked worker raises "Cannot
 re-initialize CUDA in forked subprocess".
 """
@@ -42,7 +48,7 @@ def collate_pairs(batch):
 
 class TrialDataset(torch.utils.data.Dataset):
     def __init__(self, manifest_csv, data_root, split, chunk_s, sample_rate, seed,
-                 random_crop=True, both_directions=False):
+                 random_crop=True, both_directions=False, enrollment_variants=1):
         self.data_root    = Path(data_root)
         self.split        = split                   
         self.chunk_s      = chunk_s        
@@ -56,10 +62,26 @@ class TrialDataset(torch.utils.data.Dataset):
         # every example, and measured, it did. `interferer_only` trials are the
         # sharpest case: same audio, silence one way and a voice the other.
         self.both_directions = both_directions
+        # ENROLLMENT BANK: 1 = the single rendered enrollment.wav, i.e. the
+        # behaviour every run up to 2026-08-29 had. >1 rotates through
+        # enrollment_v00..v{K-1}.wav, which are distinct UTTERANCES by the same
+        # speaker, each with its own EQ curve and all levelled identically.
+        # v00 reproduces enrollment.wav exactly, so K=1 and a bank of 1 are the
+        # same data and the arm is a clean ablation.
+        self.enrollment_variants = int(enrollment_variants)
+        # random_crop=False marks a FIXED evaluation set. The crop is pinned, and
+        # the cue is pinned with it -- to `enrollment.wav` itself, not to
+        # whichever variant epoch 0 happens to draw. That is what keeps a val
+        # number comparable with every run from before the bank existed, and it
+        # means an eval split needs no bank rendered at all.
+        if not random_crop:
+            self.enrollment_variants = 1
         self.chunk_frames = int(chunk_s * sample_rate)
         self.epoch        = 0                       
 
         self.manifest_df = pd.read_csv(manifest_csv)
+        if self.enrollment_variants > 1:
+            self._check_bank()
 
     def __len__(self):
         return len(self.manifest_df)
@@ -97,7 +119,8 @@ class TrialDataset(torch.utils.data.Dataset):
 
         mixture_audio = self._read_in_wav(mixture_directory, start=start_offset, frames=self.chunk_frames)
         target_audio = self._read_in_wav(trial_directory / stem, start=start_offset, frames=self.chunk_frames)
-        enrollment_audio = self._read_in_wav(trial_directory / enrol)
+        enrollment_audio = self._read_in_wav(
+            self._enrollment_path(trial_directory, idx, enrol, which))
 
         # Same rule as before, now applied to whichever stem is the target for
         # this direction: the crop's own audio is the ground truth, never the
@@ -147,6 +170,52 @@ class TrialDataset(torch.utils.data.Dataset):
         epoch = self.epoch if self.random_crop else 0
         rng = np.random.default_rng((self.seed, epoch, idx))
         return int(rng.integers(0, max_start + 1))
+
+    def _enrollment_path(self, trial_directory, idx, name, which):
+        """Which of the speaker's enrollment recordings to condition on this epoch.
+
+        Keyed on the DIRECTION as well as (seed, epoch, idx), unlike the crop
+        offset, which is deliberately shared so both directions see identical
+        mixture audio. The two enrollments are different speakers entirely, so
+        tying their variant choice together would buy nothing and would halve
+        the number of distinct (target cue, interferer cue) pairs the model sees.
+
+        Never reached on a fixed set: `random_crop=False` forces
+        `enrollment_variants` to 1 in the constructor, so validation reads
+        `enrollment.wav` and its curve stays readable across epochs.
+        """
+        if self.enrollment_variants <= 1:
+            return trial_directory / name
+        stream = 0 if which == "target" else 1
+        rng = np.random.default_rng((self.seed, self.epoch, idx, stream))
+        k = int(rng.integers(0, self.enrollment_variants))
+        path = trial_directory / f"{name[:-4]}_v{k:02d}.wav"
+        if not path.exists():
+            # A speaker with few long utterances legitimately gets a short bank
+            # (render_enrollment_bank.py reports how many), so fall back DOWN to
+            # variant 0 rather than failing the run -- but only after the
+            # constructor has confirmed a bank exists at all. A missing bank is
+            # a configuration error and must not be papered over here.
+            return trial_directory / f"{name[:-4]}_v00.wav"
+        return path
+
+    def _check_bank(self):
+        """Fail at construction, not at epoch 1, if the bank is not on disk.
+
+        `enrollment_variants` changes what data a run trains on, so a config
+        claiming a bank that is not there would produce a history.csv that is
+        unreadable next to its own config -- the same reason `amp` is
+        config-driven.
+        """
+        first = self.manifest_df.iloc[0]["trial_id"]
+        probe = (self.data_root / "rendered" / self.split / first
+                 / "enrollment_v00.wav")
+        if not probe.exists():
+            raise FileNotFoundError(
+                f"enrollment_variants={self.enrollment_variants} but {probe} is "
+                "missing. Render the bank first:\n"
+                f"  python scripts/render_enrollment_bank.py --split {self.split} "
+                f"--variants {self.enrollment_variants}")
 
     def set_epoch(self, epoch):
         # call this at the top of each training epoch to ensure that the random cropping is consistent across all samples in the dataset. This is important for reproducibility and to ensure that the model sees the same data in each epoch.

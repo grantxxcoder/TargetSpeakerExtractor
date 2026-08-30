@@ -511,6 +511,12 @@ def get_data_loaders(split, csv_path, data_path, config):
     # recorded with the run; absent key = the old single-direction behaviour, so
     # older configs and checkpoints are unaffected. decisions-m1.md 2026-08-26.
     both_directions = bool(config["data"].get("both_directions", False))
+    # Rotate the enrollment recording per epoch. TRAIN ONLY, on purpose: the val
+    # set has to be fixed or its curve cannot be read across epochs, and pinning
+    # it to variant 0 (= enrollment.wav) keeps val numbers comparable with runs
+    # from before the bank existed. Absent key = 1 = the old behaviour, so older
+    # configs and checkpoints are unaffected. decisions-m1.md 2026-08-30.
+    enrollment_variants = int(config["data"].get("enrollment_variants", 1))
 
     csv_train = csv_path / f"{train_manifest}.csv"
     csv_val = csv_path / f"{val_manifest}.csv"
@@ -523,6 +529,7 @@ def get_data_loaders(split, csv_path, data_path, config):
         sample_rate=config["data"]["sample_rate"],
         seed=config["seed"],
         both_directions=both_directions,
+        enrollment_variants=enrollment_variants,
     )
 
     val_dataset = TrialDataset(
