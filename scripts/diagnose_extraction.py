@@ -23,7 +23,7 @@ This runs the two tests that actually settle it, on a saved checkpoint.
             quiet when they do not. Near zero means it is equally quiet in both
             cases -- the mute.
 
-REFERENCE (smoke, 20 speakers, epoch 95, decisions-m1.md 2026-08-25):
+REFERENCE (smoke, 20 speakers, epoch 95, decisions-m2.md 2026-08-25):
     enrolment sensitivity   -17.15 dB      (output moved 2% of its energy)
     L_pres cost of a swap    +0.62 dB
     discrimination gap       +1.34 dB      (equally quiet either way)

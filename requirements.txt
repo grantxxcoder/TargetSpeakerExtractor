@@ -44,7 +44,7 @@ seaborn==0.13.2
 # --- tests ---------------------------------------------------------------
 pytest==9.1.1
 
-# --- offline ASR for floor/ceiling WER (decisions-m1.md 2026-08-28) ---
+# --- offline ASR for floor/ceiling WER (decisions-m3.md 2026-08-28) ---
 faster-whisper==1.2.1        # small.en, int8, CPU
 jiwer==4.0.0                 # WER
 whisper-normalizer==0.1.15   # B5's EnglishTextNormalizer

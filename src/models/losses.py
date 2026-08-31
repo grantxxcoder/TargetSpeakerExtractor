@@ -4,7 +4,7 @@ import numpy as np
 from src.models.stft import STFT
 
 class LossBSRNN:
-    """Loss terms for the M2 objective. decisions-m1.md 2026-08-20.
+    """Loss terms for the M2 objective. decisions-m2.md 2026-08-20.
 
     Arg order is (reference, s_output) throughout -- the reverse of the usual
     (pred, target) convention, so keep it consistent. The reference is the
@@ -78,7 +78,7 @@ class LossBSRNN:
 
         Nothing else in the objective opposes a mute: L_pres is scale-invariant
         (Deviation 1), L_abs rewards silence, and L_MR was measured to REWARD
-        muting, not penalise it (decisions-m1.md 2026-08-28). Deviation 7, ours.
+        muting, not penalise it (decisions-m2.md 2026-08-28). Deviation 7, ours.
 
         Symmetric and minimised AT correct level, so unlike the bug Deviation 1
         fixed there is no gain direction that pays without bound. The deadzone
@@ -105,7 +105,7 @@ class LossBSRNN:
         unnormalised non-dB units and making the silence weight unknowable.
 
         `windows` is in MILLISECONDS. Scale-VARIANT but it does NOT pin the
-        output gain, despite what decisions-m1.md 2026-08-20 claimed: muting the
+        output gain, despite what decisions-m2.md 2026-08-20 claimed: muting the
         mixture ~21 dB IMPROVES it, 0.2735 -> 0.2438 (200 sir0_val crops,
         2026-08-28). Levels are pinned by _loss_gain_match; this prices detail.
         """
@@ -145,7 +145,7 @@ class LossBSRNN:
         return summation / len(windows)         # the 1/I in eq (3)
 
     def __call__(self, s_target, s_output, x_input, crop_absent):
-        """The full M2 objective. decisions-m1.md 2026-08-20.
+        """The full M2 objective. decisions-m2.md 2026-08-20.
 
             L = (1 - w) * mean_present[ L_pres + wm * L_MR + wg * L_gain ] + w * mean_absent[ L_abs ]
 

@@ -218,7 +218,7 @@ def main():
     )
 
     idx = pick_index(dataset, args.index, args.trial_id)
-    # [0] because __getitem__ returns a LIST of directions (decisions-m1.md
+    # [0] because __getitem__ returns a LIST of directions (decisions-m2.md
     # 2026-08-26), and does so even at both_directions=False, which is the
     # default above. [0] is the TARGET direction, which is what a listening
     # check wants. This script predated that change and indexed the list as a

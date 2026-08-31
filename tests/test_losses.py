@@ -2,7 +2,7 @@
 
 A loss function's failure mode is silence: the wrong objective still returns a
 finite number, still decreases, and still produces a model. So each test pins
-one decision from decisions-m1.md (2026-08-20) to a property that would break if
+one decision from decisions-m2.md (2026-08-20) to a property that would break if
 the code drifted.
 
 Two of these are not hygiene, they are the reason the file exists:
@@ -306,7 +306,7 @@ def test_call_gradients_are_finite(loss, absent_idx):
 
 
 # ---------------------------------------------------------------------------
-# L_gain, the deadzone level match. Added 2026-08-27, decisions-m1.md.
+# L_gain, the deadzone level match. Added 2026-08-27, decisions-m2.md.
 #
 # The term exists because L_pres is scale-invariant and therefore blind to the
 # mute the 2026-08-27 sir0 run collapsed into. These tests pin the three

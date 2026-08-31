@@ -1,4 +1,4 @@
-"""The TF-Map logit scale. decisions-m1.md 2026-08-25.
+"""The TF-Map logit scale. decisions-m2.md 2026-08-25.
 
 WHY THESE TESTS EXIST
 ---------------------

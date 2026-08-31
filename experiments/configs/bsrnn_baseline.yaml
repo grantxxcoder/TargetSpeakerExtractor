@@ -20,7 +20,7 @@ data:
                         # and interferer_enrollment.wav, so the split must be
                         # rendered after 2026-08-26. NOTE batch_size then counts
                         # TRIALS: a step sees 2x that many examples.
-                        # decisions-m1.md 2026-08-26.
+                        # decisions-m2.md 2026-08-26.
   enrollment_variants: 3  # 4 until 2026-08-31; lowered to 3 to buy upload budget
                         # for the 5,000-trial render. The bank costs
                         # (K-1) x 2 x ~160 kB per trial, so K=4 -> K=3 saves
@@ -37,7 +37,7 @@ data:
                         # the same speaker, one per epoch, so the identity cue
                         # stops being a fixed waveform to memorise. Requires
                         # scripts/render_enrollment_bank.py to have run on the
-                        # split. decisions-m1.md 2026-08-30.
+                        # split. decisions-m2.md 2026-08-30.
   remix_gains: true    # Rebuild the mixture each epoch at another trial's SIR
                         # and SNR, drawn from the same difficulty regime. TRAIN
                         # ONLY -- a val set that changed difficulty per epoch
@@ -47,7 +47,7 @@ data:
                         # back as mixture - target - interferer, and only the
                         # mixture changes, never the reference. Costs one extra
                         # windowed read per trial and saves a duplicate one.
-                        # decisions-m1.md 2026-08-30.
+                        # decisions-m2.md 2026-08-30.
   num_workers: 0        # DataLoader workers. 0 on the laptop: 4 cores, already
                         # saturated by the model. Raise on GPU (the Kaggle
                         # notebook sets 4) or the wav reads starve the device.
@@ -77,14 +77,14 @@ model:
   tfmap_scale: 16.0      # scale factor for the attention logits in TFMap, see src/models/conditioning.py
 
 loss:
-  # M2 objective, decisions-m1.md 2026-08-20. Six deviations from CARTSE
+  # M2 objective, decisions-m2.md 2026-08-20. Six deviations from CARTSE
   # recorded there; the deviations are in src/models/losses.py, the numbers here.
   w:     0.458          # weight on the absent half. Deviation 5: 0.297 absent
                     # rate carried through CARTSE's eta = 2.0. NOTE the measured
                     # rate on mid_train is 0.3028 (val 0.2850), so this is
                     # slightly off its own derivation. Not re-derived before the
                     # warmup run: changing two things at once would make the
-                    # result uninterpretable. decisions-m1.md 2026-08-25.
+                    # result uninterpretable. decisions-m2.md 2026-08-25.
   w_schedule:           # Absent-branch warmup. WHY: the 2-epoch mid run learned
                         # SILENCE before conditioning -- by epoch 1 the output
                         # was already -18.5 dB below the mixture with enrolment
@@ -105,7 +105,7 @@ loss:
                         # DERIVED, not chosen: scripts/derive_w_g.py over 200
                         # sir0_val crops, 2026-08-28. Full numbers in
                         # experiments/results/2026-08-28-wg-anchor-sir0/ and
-                        # decisions-m1.md 2026-08-28.
+                        # decisions-m2.md 2026-08-28.
                         # Muting the mixture to the epoch-7 checkpoint's level
                         # BOUGHT 8.639 on the absent branch and a further 0.155
                         # on L_MR, against zero opposition. Break-even is 1.242;
@@ -129,7 +129,7 @@ loss:
                         # 20 dB. Measured to be powerless against the mute
                         # collapse (the binding penalty is at the loud end, not
                         # the quiet end) -- kept as a separate knob, not as a
-                        # fix. decisions-m1.md 2026-08-25.
+                        # fix. decisions-m2.md 2026-08-25.
   p:     0.3          # magnitude compression, Yu et al. Interspeech 2023 eq (3)
   windows_ms: [8, 16, 32, 64]   # multi-resolution window set, straddles the
                     # model's own 32 ms framing (Deviation 6)
@@ -178,7 +178,7 @@ training:
   # under no_grad. `w` = 0.458 balances GRADIENTS between the two branches; it
   # was never derived to rank finished models, and ranking with it kept a
   # checkpoint at 1.13 dB held-out separation when the same run reached 2.36 dB
-  # (remix arm, 2026-08-30). decisions-m1.md 2026-08-30.
+  # (remix arm, 2026-08-30). decisions-m2.md 2026-08-30.
   select_on: present_branch   # present_branch | total | separation.
                               # `total` = the pre-2026-08-30 behaviour, kept so
                               # the old runs remain reproducible.

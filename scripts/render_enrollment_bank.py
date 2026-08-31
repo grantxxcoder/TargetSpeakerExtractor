@@ -15,7 +15,7 @@ disjoint (`splits.yaml`), so the table is worth nothing there.
 A bank of distinct enrollment UTTERANCES -- different sentences, different
 recording sessions, each with its own EQ curve -- removes the fixed waveform to
 memorise. Random cropping of the mixture does not do this: it resamples the same
-scene, it does not vary the identity cue. decisions-m1.md 2026-08-30.
+scene, it does not vary the identity cue. decisions-m2.md 2026-08-30.
 
 WHAT IS PRESERVED, DELIBERATELY
 -------------------------------

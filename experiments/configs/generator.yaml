@@ -356,7 +356,7 @@ splits:
 # data/rendered/train and data/rendered/val. No new trials, no new audio.
 #
 # Exists because the 50-trial smoke split has only 20 speakers, and the failure
-# it produced was an enrolment-blind mute (decisions-m1.md 2026-08-25): the
+# it produced was an enrolment-blind mute (decisions-m2.md 2026-08-25): the
 # model never learned to use the enrolment, so it could not tell target-present
 # from target-absent and muted everything. Speaker diversity is what that needs,
 # so subsetting train's 1172 speakers is the point -- widening smoke's 20 would
@@ -388,7 +388,7 @@ subsets:
 # rather than [-6, 6] on purpose: it leaves easy trials (target +10 dB) for the
 # model to bootstrap on instead of making every trial equally hard. Realism cost
 # is real and acknowledged -- difficulty-dial.md calls -10 dB "plausible but
-# uncommon". decisions-m1.md 2026-08-25.
+# uncommon". decisions-m2.md 2026-08-25.
 #
 # `mid` is NOT replaced. It is the control arm: same model, same loss, only the
 # loudness distribution differs.
