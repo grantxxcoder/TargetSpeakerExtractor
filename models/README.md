@@ -20,7 +20,7 @@ then read `["config"]` and `["best_row"]` if this file goes stale.
 | `model_sir0_A-remix-e14.pt` | `2026-08-30-train-sir0-A-remix` | 14 | 1.69 | — | Arm A: `remix_gains` only. **1.13 dB, and NOT representative of its own run** — epoch 10 reached 2.36 dB and was never saved. |
 
 Both runs: `sir0`, seed 42, batch 3, `chunk_s` 4.0, fp32 (pre-speed-fix).
-Neither used AMP. decisions-m1.md 2026-08-28.
+Neither used AMP. decisions-m2.md 2026-08-28.
 
 **`model_sir0.pt` vs `model_sir0_amp-e10.pt`.** The fp32 run scores better on
 every headline (val_total -1.673 vs -1.413, enrolment 37.6 vs 31.9 %), so it stays
@@ -86,4 +86,4 @@ extraction. On arm A that cost a full dB. `training.select_on` and
 
 **And neither augmentation raised the ceiling.** Peaks of 2.23 / 2.40 / 2.35 dB
 across control / A / C sit inside the epoch-to-epoch swing (0.31-0.52 dB). The
-result is negative and is logged as such in decisions-m1.md 2026-08-30.
+result is negative and is logged as such in decisions-m2.md 2026-08-30.

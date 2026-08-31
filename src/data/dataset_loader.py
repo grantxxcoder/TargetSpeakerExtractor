@@ -20,7 +20,7 @@ epoch or you re-crop the same window and use a sixth of the audio.
 K enrollment recordings rendered by scripts/render_enrollment_bank.py. The crop
 rotation alone does not do this: it resamples the same scene, so the identity
 cue stayed a fixed waveform across all 24 epochs of the 2026-08-29 run and was
-memorisable. decisions-m1.md 2026-08-30.
+memorisable. decisions-m2.md 2026-08-30.
 
 `remix_gains` rebuilds the mixture per epoch at a different SIR and SNR, so the
 same trial is a different DIFFICULTY each time it is seen. Together the two
@@ -69,7 +69,7 @@ class TrialDataset(torch.utils.data.Dataset):
         self.seed         = seed
         self.random_crop  = random_crop
         # BOTH DIRECTIONS: one trial -> two examples, the same mixture asked for
-        # the target and for the other speaker. decisions-m1.md 2026-08-26.
+        # the target and for the other speaker. decisions-m2.md 2026-08-26.
         # This is the ONLY thing in the data that makes reading the enrollment
         # compulsory -- with one direction an enrollment-ignoring model fits
         # every example, and measured, it did. `interferer_only` trials are the
@@ -95,7 +95,7 @@ class TrialDataset(torch.utils.data.Dataset):
         # REMIX: rebuild the mixture each epoch at another trial's SIR and SNR.
         # False = the mixture exactly as rendered, i.e. every run up to
         # 2026-08-29. Pinned off on a fixed evaluation set for the same reason
-        # the crop and the cue are. decisions-m1.md 2026-08-30.
+        # the crop and the cue are. decisions-m2.md 2026-08-30.
         self.remix_gains = bool(remix_gains) and random_crop
 
         self.manifest_df = pd.read_csv(manifest_csv)

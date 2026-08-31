@@ -4,16 +4,19 @@
 closed — C2 last, on 2026-08-30. Full reasoning for each lives in `decisions-m0.md` under its
 date. Group D holds open *modelling* questions, Group E the training-speed
 work, and Group J the *judge and metric* questions; decisions
-actually taken go to `decisions-m1.md`.
+actually taken go to the decision log of the milestone they belong to —
+`decisions-m1.md` (architecture), `decisions-m2.md` (training), `decisions-m3.md`
+(conventional evaluation), `decisions-m4.md` (the metric and the judge).
 
 ---
 
 ## Still open
 
-- **J1 — must the judge be full-duplex speech-to-speech, or is audio-in enough?**
-  Gates the judge shortlist and therefore all of M4. See Group J.
-- **J2 — which judge, and the open-weight anchor.** The cost half is now
-  answered (~$5-25); what remains is reproducibility. See Group J.
+- **J2 — which judge, and the open-weight anchor.** The cost half is answered
+  (~$5-25); what remains is reproducibility and the candidate gate. **No longer
+  blocked — J1 closed 2026-08-31.** See Group J.
+- **J3 — the ICR overlap threshold.** Declared `count>=2` with a sensitivity
+  sweep, not yet signed off. See Group J.
 - **A1 needs sign-off only, not a decision.** Reference is the full reverberant
   target: separate and denoise, do not dereverberate. Removing a 0.6 s tail inside
   a 300 ms causal window is not possible, and trying trades residue for artefacts,
@@ -53,7 +56,7 @@ Two B12 items remain implementation, not decisions: `overlap_ratio` narrowing in
 
 *Added 2026-08-19. This file was written for M0 data decisions; group D extends it
 to open modelling questions, which have nowhere else to live. Decisions actually
-taken go to `decisions-m1.md`.*
+taken go to the milestone log they belong to, usually `decisions-m2.md`.*
 
 ### D1. Phoneme-template speaker cue as an alternative to TF-Map
 
@@ -172,7 +175,7 @@ discard it. **D4a and D1 are dropped, D5 is demoted, D2 is closed** (the softmax
 now blends 138 of 628 frames against ~620 before `tfmap_scale`). D3c ran with
 it: cross-gender sensitivity 56.1 % vs same-gender 44.4 %, a weak signal of
 gender reliance. Look at the separator or the objective instead.
-`scripts/diagnose_cue.py`, decisions-m1.md 2026-08-30. Original text follows.
+`scripts/diagnose_cue.py`, decisions-m2.md 2026-08-30. Original text follows.
 
 ### D3. Diagnose the conditioning failure before rebuilding anything
 
@@ -339,7 +342,7 @@ which are hours to days. Order by cost: D3, D6, D4, D5, then reconsider D1.
 
 *Added 2026-08-28. Group D is modelling; this is engineering. Both are open
 questions with nowhere else to live. Anything actually decided goes to
-`decisions-m1.md`.*
+`decisions-m2.md`.*
 
 ### E1. `batch_size: 3` is a memory ceiling, not a preference
 
@@ -774,8 +777,10 @@ are the decisions with the longest lead time in the project.
 
 ### J1. Must the judge be full-duplex speech-to-speech, or is audio-in enough?
 
-**Status: OPEN, and it gates the judge shortlist. Recommendation below, not yet
-taken.**
+**Status: CLOSED 2026-08-31 — audio-in / text-out. The recommendation below was
+taken.** Reasoning, the three gains, the cost and the ~50-trial full-duplex
+confirmation run are in `decisions-m4.md` 2026-08-31. The analysis below is kept
+as the argument that produced the decision.
 
 **The tension.** CLAUDE.md and spec note 10 both say the objective is what a
 "**live speech-to-speech model** (Gemini Live and similar)" recovers. Read
@@ -868,3 +873,41 @@ catch a degenerate EXTRACTOR. **A degenerate JUDGE is indistinguishable from it
 in the numbers.** Choose the anchor for instruction-following on a
 transcription-style prompt, not for conversational ability.
 
+
+### J3. The ICR overlap threshold — declared, not signed off
+
+**Status: OPEN. A value is declared so the metric is computable; it needs
+sign-off before the first published judge result.**
+
+`metric-definitions.md` 3.2 defines ICR as "content-word overlap between `r` and
+`d`, excluding words that also appear in `t`, thresholded" and requires the
+threshold to be **fixed in advance with its sensitivity reported**. It does not
+say what the threshold is. Two candidate rules:
+
+| rule | statement | problem |
+|---|---|---|
+| **`count>=2`** | ≥2 interferer-exclusive content words appear in `r` | insensitive to how much the interferer said |
+| `frac>=θ` | that count as a fraction of the interferer-exclusive words available | scale-dependent on the interferer's utterance length, which varies per trial by construction |
+
+**Declared: `count>=2`.** One shared content word between a response and the
+interferer is coincidence at the rate English repeats nouns; two is signal. The
+fraction rule varies with a property of the trial rather than of the system,
+which makes it the worse primary and the better secondary. Both are computed and
+reported, with a sweep over counts 1/2/3/5 and fractions 0.05–0.50, per 3.2's
+sensitivity requirement.
+
+**Two things to settle at sign-off.**
+
+1. **Trials where the interferer said nothing the target did not also say** carry
+   no evidence of contamination either way. They are **excluded** from ICR, not
+   scored as clean — scoring them clean would dilute the rate towards zero with
+   trials that could never have fired. The exclusion count is reported.
+2. **The floor row's ICR is partly set by construction, not measured.** The judge
+   never sees the enrolment, so on an unprocessed two-speaker mixture it cannot
+   know which speaker is the target and will pick one. That makes the floor's ICR
+   tend towards a coin flip. This is the correct behaviour and it *is* the
+   finding — doing nothing gets you the wrong speaker half the time — but it must
+   be stated when the floor row is quoted, not discovered in a results table. The
+   fixed prompt must therefore **not** instruct the judge to choose a speaker
+   ("the clearest voice", "the loudest speaker"): that hands the extractor's job
+   to the judge and turns a measurement into an instruction.

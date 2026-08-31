@@ -181,7 +181,7 @@ Pilot calibration, before freezing any range:
       40 of 21,208 trials (0.19 %), and the trial ids were not recorded, so the same
       40 cannot be re-listened to~~
 - [x] Floor and ceiling WER measured; aim for a 60–80 % floor. **Done 2026-08-30**:
-      57.4 % / 6.1 % at n=230, accepted. decisions-m1.md. Was the M0 blocker
+      57.4 % / 6.1 % at n=230, accepted. decisions-m3.md 2026-08-30. Was the M0 blocker
       and what C2 needs, since the listen is closed
 
 Housekeeping:
@@ -206,7 +206,7 @@ Housekeeping:
 
 **Status 2026-08-24. M1 is functionally complete, ten days ahead of the Sep 3
 target.** Every architecture decision is logged in `decisions-m1.md`
-(2026-08-18 to 08-20). `scripts/train.py` runs, early-stops, checkpoints, plots,
+(2026-08-18 to 08-19); the training objective is `decisions-m2.md` 2026-08-20. `scripts/train.py` runs, early-stops, checkpoints, plots,
 writes `history.csv` + `meta.yaml`, and **resume is proven** — see below. The
 proof item that gates this milestone is therefore closed.
 
@@ -232,7 +232,7 @@ cold-vs-warm context mismatch.
       reduction claim is unaffected. **Quote 7.19 M in the thesis**~~
 - [X] ~~Target-absent training and channel-gap enrollment augmentation
       (Li & Seki, 2026) — target-absent is `L_abs` + the loader's `crop_absent`
-      (`decisions-m1.md` 2026-08-20); channel-gap enrollment EQ is
+      (`decisions-m2.md` 2026-08-20); channel-gap enrollment EQ is
       `src/data/render.py:152`, cited in-file~~
 - [X] ~~YAML config committed — `experiments/configs/bsrnn_baseline.yaml`. No
       training hyperparameter is a command-line flag; `--epochs` overrides only~~
@@ -253,7 +253,7 @@ cold-vs-warm context mismatch.
 
 Built alongside, not on the original list:
 - [X] ~~Objective implemented and its anchor measured — `src/models/losses.py`,
-      three terms and six deviations from CARTSE (`decisions-m1.md` 2026-08-20);
+      three terms and six deviations from CARTSE (`decisions-m2.md` 2026-08-20);
       do-nothing anchor over 300 crops in
       `experiments/results/2026-08-20-loss-anchor/`, which is where `w_m = 9.62`
       comes from~~
@@ -280,7 +280,7 @@ Built alongside, not on the original list:
       `total` moves only 0.005 (−2.4197 vs −2.4150). Re-measure on a converged
       checkpoint: if the gap grows it argues for warm-state or longer-context
       training; if it shrinks it is retired with evidence. Needs a
-      `decisions-m1.md` entry either way
+      `decisions-m2.md` entry either way
 
 **Proof:** a 1-epoch run that completes, is killed, and resumes cleanly.
 **Why resume is a checklist item and not an implementation detail:**
@@ -298,7 +298,7 @@ below pass-through, while training separation improved every single epoch. The
 diagnosis is data volume, not architecture: **a 7.19 M-parameter model has enough
 capacity to memorise 1,989 scenes**, so adding capacity would make it worse.
 Two augmentations were built in response (enrolment bank D8a, SIR/SNR remix D8b,
-both `decisions-m1.md` 2026-08-30) and are running as separate arms. Compute,
+both `decisions-m2.md` 2026-08-30) and are running as separate arms. Compute,
 batch size, early stopping and the `L_gain` re-run are all closed below. Still
 open in M2: the band-plan and `w_m` ablations, and `w`'s re-derivation at
 batch 3.
@@ -329,7 +329,7 @@ steps per epoch.
       14** (`val_total` −2.178). Convergence is real and the proof below is met.
       **But it converged to an OVERFITTED optimum** — train separation went
       2.97 → 5.51 dB while held-out fell 1.52 → −0.17 dB, i.e. worse than
-      pass-through. It is the M2 baseline and it memorises. decisions-m1.md
+      pass-through. It is the M2 baseline and it memorises. decisions-m2.md
       2026-08-29~~
 - [X] ~~Training curves and final losses logged with config, commit hash, seed,
       date — `log_results()` writes `meta.yaml` + per-epoch wide `history.csv`
@@ -340,7 +340,7 @@ steps per epoch.
       at batch 3 over 1,989 trials (`run_times.md` 2026-08-29) against 3,773
       before the fp16 tensor-core frame alignment and AMP, so 10 epochs is
       **1.45 h, was 10.5 h**. The laptop is still GPU-less and is used for
-      rendering and CPU evaluation only. decisions-m1.md 2026-08-28. Original
+      rendering and CPU evaluation only. decisions-m2.md 2026-08-28. Original
       note kept below for the record:~~
 - [X] ~~**Compute is the blocker, not the code.** 15.7 GB RAM with VSCode open is
       not enough — `systemd-oomd` killed the editor on 2026-08-24 before training
@@ -375,13 +375,13 @@ steps per epoch.
       93 % of the total's movement was the absent half; output RMS −24.9 dB below
       the mixture on present crops; `L_MR` flat for 30 epochs. **Superseded by the
       2026-08-27 sir0 run**, which reproduced it at 40x the data (95 %, −22.4 dB)
-      and traced the cause to the objective. See `decisions-m1.md` 2026-08-27/28~~
+      and traced the cause to the objective. See `decisions-m2.md` 2026-08-27/28~~
 - [X] ~~**Re-run with `L_gain` on — done 2026-08-28**, exactly as specified:
       `experiments/results/2026-08-28-train-sir0-e10/`, fresh (not a resume),
       `--epochs 10`, `w_g` 1.69. **The mute closed and conditioning followed** —
       an enrolment swap moved the output **37.6 %** against 14.9 % for the
       `w_g`=0 control, and the output sits at −4.2 dB where the target is at
-      −3.9, against the control's −22.4 dB. decisions-m1.md 2026-08-28~~
+      −3.9, against the control's −22.4 dB. decisions-m2.md 2026-08-28~~
 
 **Proof:** a checkpoint in `experiments/results/` that reproduces its own
 reported numbers from its config.
@@ -414,6 +414,9 @@ the divergence table in M5.
 Drafted during M2, finished here now that there is a real system to point it at.
 
 - [ ] LCF-WER, ICR, NRR implemented
+- [ ] **J3 — the ICR overlap threshold signed off.** `count>=2` declared with a
+      sensitivity sweep; the exclusion rule and the floor row's
+      by-construction ICR both need stating. decisions-pending.md J3
 - [ ] **Write B4's scoring rule into `metric-definitions.md`** — decided
       2026-08-13: absent trials are excluded from the main score and reported as
       their own invented-speech row, never folded into the headline. The decision is
@@ -423,10 +426,25 @@ Drafted during M2, finished here now that there is a real system to point it at.
       system (decisions-m0.md 2026-08-13)
 - [ ] Judge harness: fixed prompt, fixed response ASR, pinned model IDs, k≥3
       repeats, **input modality recorded per trial**, cost/compute logging
-- [ ] Judge decided and its cost model resolved — closed API (money) or
-      self-hosted open-weight (GPU-hours contending with training quota).
-      **Currently unresolved**; this is the gating question for the whole
-      milestone
+- [X] ~~**Judge CLASS decided — audio-in / text-out, not full-duplex.**
+      2026-08-31, J1 closed: LCF measures the judge's audio encoder, not its
+      duplexing, so full duplex is not required. Deletes the
+      response-transcription ASR from the measuring instrument. Carries a
+      ~50-trial full-duplex confirmation run as part of the decision.
+      decisions-m4.md 2026-08-31~~
+- [X] ~~**Cost model resolved** — not a budget question. ~$4 for the audio
+      condition at 200 trials x k=3 x 4 systems, ~$25 including the
+      prompt-sensitivity ablation. decisions-pending.md J2~~
+- [ ] **Judge MODEL chosen — J2a (closed, headline) and J2b (open-weight
+      anchor).** No longer blocked. Decided by the candidate gate below rather
+      than by argument
+- [ ] **Candidate gate run before any judge is committed to** — ~20 present +
+      5 absent trials x {ceiling, floor} per candidate. Ceiling tests whether the
+      judge can report clean speech at all (offline ASR reference: 6.1 %); floor
+      tests whether it can FAIL, i.e. whether it has any dynamic range on this
+      task; absent tests whether it invents words on silence. A candidate with a
+      good ceiling and no floor-to-ceiling gap cannot rank systems. This is the
+      milestone Gate below, measured early and cheaply
 - [ ] Trial-set size fixed to that budget, on a spreadsheet, before the harness
       is finalised. **Floor is 200 scored trials** (B6/B13: 100 per bucket across a
       two-way split); 500 are generated, and scoring more later extends the set
@@ -434,7 +452,7 @@ Drafted during M2, finished here now that there is a real system to point it at.
 - [X] ~~**Floor and ceiling measured** (unprocessed mixture; clean target) —
       **2026-08-30**, n=230 `both` trials on `eval_public`: floor **57.4 %**,
       ceiling **6.1 %**; `sir0_val` 65.2 % / 5.8 % at n=103. C2 accepted at this
-      range. Scored from `transcripts.csv`, no new ASR run. decisions-m1.md
+      range. Scored from `transcripts.csv`, no new ASR run. decisions-m3.md
       2026-08-30~~
 - [ ] Text reference condition wired: extractor → off-the-shelf ASR → text →
       judge, with its text floor and text ceiling
@@ -504,7 +522,7 @@ week 12.
 - [ ] Every result traceable to config + commit hash + seed + date
 - [ ] Every borrowed method cited
 - [ ] Every deviation and cut recorded in the milestone decision logs
-      (`decisions-m0.md`, `decisions-m1.md`, and any later ones)
+      (`decisions-m0.md` through `decisions-m4.md`)
 - [ ] Approximate-ceiling caveat stated wherever AMI numbers appear
 - [ ] Modality recorded on every judge result, and the cross-modality caveat
       (`docs/data/metric-definitions.md` §3.5) stated wherever audio and text rows
@@ -545,7 +563,7 @@ tick as written.
       (`metric-definitions.md` §4)
 - [ ] Novelty positioning — source: `literature/novelty-review-contrastive-phonetic-cue.md`
 
-**Ch 3 Methodology** — source: `decisions-m0.md`, `decisions-m1.md`
+**Ch 3 Methodology** — source: `decisions-m0.md`, `decisions-m1.md`, `decisions-m2.md`
 - [ ] Data construction: mixtures, rooms, levels, absent trials, VAD-measured overlap
 - [ ] Reference signal is the full reverberant target (A1), with the consequence stated
 - [ ] Architecture: the nine component subsections in `architecture.tex`
@@ -561,9 +579,10 @@ tick as written.
       (c) ±3 dB deadzone, and why percent is the wrong unit (10 % = 0.83 dB);
       (d) per-trial anchor, and why a dataset mean was rejected (automatic gain
       control, and it contradicts A1). Caveats to state, not bury: RMS not BS.1770,
-      and present crops only. `decisions-m1.md` 2026-08-27.
+      and present crops only. `decisions-m2.md` 2026-08-27.
 - [ ] Training setup — objective, chunk, batch, seed and schedule now exist in
-      `bsrnn_baseline.yaml` and `decisions-m1.md`; still unlogged are the
+      `bsrnn_baseline.yaml`, `decisions-m1.md` (chunk, batch) and `decisions-m2.md`
+      (objective, schedule); still unlogged are the
       `batch_size` 3-vs-12 resolution and the compute actually used
 - [ ] Metric definition: LCF-WER, ICR, NRR; judge protocol and modality recording
 

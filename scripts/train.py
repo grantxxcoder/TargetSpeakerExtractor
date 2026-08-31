@@ -54,7 +54,7 @@ def build_loss_fn(config):
 
 
 def w_at_epoch(config, epoch):
-    """The absent-branch weight for this epoch. decisions-m1.md 2026-08-25.
+    """The absent-branch weight for this epoch. decisions-m2.md 2026-08-25.
 
     WHY. On the 2-epoch `mid` run the model had muted to -18.5 dB by epoch 1,
     enrolment sensitivity -14.31 dB: it learned silence before conditioning.
@@ -275,7 +275,7 @@ def epoch_report(sums, counts, w, wm, wg):
     that trained this epoch -- otherwise `total` is a different objective each
     epoch and the curve falls with the schedule alone, corrupting both
     ReduceLROnPlateau and best-checkpoint selection. The training w is its own
-    column. decisions-m1.md 2026-08-25.
+    column. decisions-m2.md 2026-08-25.
     """
     n_present, n_absent = counts["present"], counts["absent"]
     L_pres = sums["L_pres"] / n_present if n_present else float("nan")
@@ -313,7 +313,7 @@ def selection_score(val_loss, config):
     crops, with the absent branch removed rather than reweighted. Silence is
     handled by an eligibility bar (see `selection_eligible`) rather than by a
     second arbitrary exchange rate between two quantities that are not
-    commensurable. decisions-m1.md 2026-08-30.
+    commensurable. decisions-m2.md 2026-08-30.
     """
     mode = str(config["training"].get("select_on", "present_branch"))
     if mode == "total":
@@ -507,7 +507,7 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
 
         # Keep this epoch's weights if it is the best SELECTION SCORE so far --
         # which is not `val_total`. See selection_score() for why, and for the
-        # measurement that forced the change (decisions-m1.md 2026-08-30).
+        # measurement that forced the change (decisions-m2.md 2026-08-30).
         score = selection_score(val_loss, config)
         eligible = selection_eligible(val_loss, config)
         # TOP-K INSURANCE. The criterion is a judgement call and this run's
@@ -605,13 +605,13 @@ def get_data_loaders(split, csv_path, data_path, config):
     (train_manifest, train_audio), (val_manifest, val_audio) = SPLIT_MANIFESTS[split]
     # Every trial trained twice, once per speaker. Config-driven so the arm is
     # recorded with the run; absent key = the old single-direction behaviour, so
-    # older configs and checkpoints are unaffected. decisions-m1.md 2026-08-26.
+    # older configs and checkpoints are unaffected. decisions-m2.md 2026-08-26.
     both_directions = bool(config["data"].get("both_directions", False))
     # Rotate the enrollment recording per epoch. TRAIN ONLY, on purpose: the val
     # set has to be fixed or its curve cannot be read across epochs, and pinning
     # it to variant 0 (= enrollment.wav) keeps val numbers comparable with runs
     # from before the bank existed. Absent key = 1 = the old behaviour, so older
-    # configs and checkpoints are unaffected. decisions-m1.md 2026-08-30.
+    # configs and checkpoints are unaffected. decisions-m2.md 2026-08-30.
     enrollment_variants = int(config["data"].get("enrollment_variants", 1))
     # Per-epoch SIR/SNR re-draw. Train only, and the dataset pins it off on any
     # fixed set anyway. Absent key = False = the pre-2026-08-30 behaviour.

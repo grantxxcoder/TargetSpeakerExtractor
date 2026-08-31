@@ -1,7 +1,9 @@
 # Where the project is — 2026-08-30
 
-Plain-language status. Numbers in `decisions/decisions-m1.md`, dates and
-checklists in `decisions/milestones.md`.
+Plain-language status. Numbers in the milestone decision logs
+(`decisions/decisions-m1.md` architecture, `-m2` training, `-m3` conventional
+evaluation, `-m4` the metric and judge); dates and checklists in
+`decisions/milestones.md`.
 
 **Submission 2026-11-05. Experiment freeze 2026-10-14 — about 6.4 weeks.**
 
@@ -86,12 +88,20 @@ The trustworthy figure is 37.6 % at epoch 9, and 41.7 % at epoch 14.
 
 None of these exist, and none can be cut:
 
-- **No judge decided.** Gates the entire metric milestone (M4).
 - No metric harness, no benchmark, no comparison table.
+- No judge MODEL picked (J2a closed / J2b open-weight anchor). No longer an open
+  argument — it is now a ~1-hour candidate gate.
 - AMI untouched — the only real-audio check in the project.
 
 They need *a* trained model, not a good one. **They are not blocked on
 generalisation and should not wait for it.**
+
+**Unblocked 2026-08-31 — J1 closed: the judge is audio-in / text-out.** LCF
+measures the judge's audio encoder, not its turn-taking, so full duplex is not
+required. This also deletes the response-transcription ASR from the measuring
+instrument. Carries a ~50-trial full-duplex confirmation run so the deviation
+from the stated objective is bought off rather than argued away.
+`decisions-m4.md` 2026-08-31.
 
 ## Offline ASR — chosen 2026-08-28
 

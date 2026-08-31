@@ -1,7 +1,9 @@
 # Decision Log — M0 (data preparation)
 
 **Closed 2026-08-18.** Covers the spec, the metric framing and every
-data-construction decision. New decisions go in `decisions-m1.md`; open
+data-construction decision. Later decisions are split by milestone:
+`decisions-m1.md` (architecture), `decisions-m2.md` (training), `decisions-m3.md`
+(conventional evaluation), `decisions-m4.md` (the metric and the judge). Open
 questions stay in `decisions-pending.md`.
 
 Renamed from `decisions.md` on 2026-08-18 when the log was split by milestone.

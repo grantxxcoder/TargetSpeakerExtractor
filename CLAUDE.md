@@ -65,9 +65,16 @@ real conversational TSE.
 - Never present our numbers as comparable to published REAL-TSE results.
   Different data, different metric, different protocol. Any borrowed
   method or metric must be cited as borrowed, and the difference noted in
-  a code comment and in the current milestone's decision log
-  (docs/decisions/decisions-m1.md; earlier milestones are kept in
-  decisions-m0.md).
+  a code comment and in the decision log of the milestone the decision
+  belongs to. One file per milestone, in docs/decisions/:
+  decisions-m0.md (spec + data construction, closed),
+  decisions-m1.md (architecture + training infrastructure, closed),
+  decisions-m2.md (training objective and every training run),
+  decisions-m3.md (conventional evaluation: the offline ASR, SI-SDR,
+  DNSMOS, offline WER, latency),
+  decisions-m4.md (LCF: the three scores, the judge, the prompt, the
+  anchors). Open questions stay in decisions-pending.md until taken.
+  File it by SUBJECT, not by the date it happened to be decided.
 - Every live-model (judge) result must record the exact model ID, the
   exact prompt, the input modality (audio or text), and the run date.
   Closed models change silently, so comparisons across dates are invalid
