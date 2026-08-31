@@ -15,6 +15,7 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
 <!-- rows appended below by src/run_log.py -->
+| 2026-08-31 | `scripts/render_trials.py --split sir0_train` | 4,976 trials rendered | 1.2 h | 8 workers, 16 kHz PCM_16 |
 | 2026-08-30 | `scripts/train.py --split sir0` | 1,989 trials x 22 epochs (early-stopped, best 11), sir0 | 3.4 h | batch 3, cuda (T4), **549 s/epoch**. Arm C: bank + remix. Copied by hand from the Kaggle session's own run_times.md before deleting the bundle. |
 | 2026-08-30 | `scripts/train.py --split sir0` | 1,989 trials x 25 epochs, sir0 | 3.9 h | batch 3, cuda (T4), **568 s/epoch**. Arm A: remix only. Copied by hand from the Kaggle session's own run_times.md before deleting the bundle. |
 | 2026-08-30 | `scripts/render_enrollment_bank.py --split sir0_train --variants 4` | 1,889 trials x 4 variants (100 already done, skipped) | 46 min | 8 workers, 16 kHz PCM_16. Full split. |
