@@ -30,7 +30,11 @@ pyroomacoustics==0.10.1       # shoebox RIRs, Sabine T60 feasibility check
 pyloudnorm==0.2.0             # BS.1770 integrated loudness (decisions.md 2026-08-12)
 
 # --- training ------------------------------------------------------------
-tqdm==4.70.0                  # per-epoch progress bar in scripts/train.py
+tqdm==4.70.0                  # NO LONGER used by scripts/train.py -- its progress
+                              # bars were removed 2026-08-31 (they emitted one line
+                              # per batch and buried the per-epoch numbers). Pin
+                              # kept because notebooks/kaggle_train_mid.ipynb still
+                              # imports it.
 
 # --- analysis notebook (src/exploratory/data_setup.ipynb) ----------------
 pandas==3.0.5
@@ -44,4 +48,14 @@ pytest==9.1.1
 faster-whisper==1.2.1        # small.en, int8, CPU
 jiwer==4.0.0                 # WER
 whisper-normalizer==0.1.15   # B5's EnglishTextNormalizer
+
+# --- ICR content-word filtering (decisions-m4.md 2026-08-31) --------------
+# Used ONCE, to snapshot the English stopword list into
+# src/live_model_metric/stopwords_nltk_english.txt. The metric reads that file,
+# never nltk at runtime: nltk.download() is a network fetch that fails on Kaggle
+# with networking off, and the list changes between releases. Reinstall only to
+# re-snapshot, and log it if the list changes.
+nltk==3.10.3                 # 198 english stopwords, snapshotted 2026-08-31
+# transitive, recorded because requirements.txt pins exactly:
+#   defusedxml==0.7.1  joblib==1.6.0  cloudpickle==3.1.2
 

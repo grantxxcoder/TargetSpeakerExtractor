@@ -37,7 +37,8 @@ no data generation, no analysis.
 
 1. **Settings -> Accelerator -> GPU** (T4 or P100).
 2. **Add data ->** two datasets: the audio for the split you are training
-   (from `kaggle_data_<split>.zip`, ~2.9 GB, upload once per split) and `tse-code`
+   (from `kaggle_data_<split>.zip`, ~15 GB for the 4,976-trial sir0 split as of
+   2026-08-31, upload once per split) and `tse-code`
    (from `kaggle_code.zip`, small, re-upload whenever the code changes). Separate
    so a one-line fix never costs a 2.9 GB upload. Set `SPLIT`, `DATA_DIR` and
    `CODE_DIR` below to match — copy the paths from the right-hand **Input** panel.
@@ -76,9 +77,14 @@ across a config change, so do not edit the knobs between sessions.
 cells.append(code(r'''
 # ============================== KNOBS ==============================
 SPLIT       = "sir0"  # "mid" = 90% target-louder (control) | "sir0" = symmetric
-EPOCHS      = 10      # 12 h GPU cap. At the measured 1950 s/epoch, 10 ~= 5.4 h.
-                      # 10 not 6: the mid control ran 10, and the 4+3 schedule
-                      # only reaches full w at epoch 6, so 6 would stop mid-ramp.
+EPOCHS      = 25      # 12 h GPU cap. sir0_train is 4,976 trials as of
+                      # 2026-08-31 (was 1,989), so ~1,360 s/epoch PROJECTED from
+                      # the measured 523-568 at 1,989 -- about 29 epochs fit a
+                      # session. 25 leaves headroom and patience 10 will stop it
+                      # earlier if it turns. The previous best epoch (14 at 1,989
+                      # trials) was ~18,600 optimiser steps, which at 4,976
+                      # trials lands near epoch 6, so 25 is ~4x past it.
+                      # Run EPOCHS = 2 first for a measured s/epoch.
 BATCH_SIZE  = 12      # CEILING, not a promise. 12 OOMs on a 14.6 GiB T4; the
                       # probe below steps down until one fwd+bwd+step fits and
                       # writes the winner into the config that trains.
@@ -282,10 +288,16 @@ cells.append(code(r'''
 # in /kaggle/working.
 #
 # train.py prints one CSV row per epoch on STDOUT, with the same columns as
-# history.csv. tqdm's progress bars go to STDERR. They are kept apart on
-# purpose: the stdout block below is a valid history.csv, so if this session
-# dies you can select it, paste it into a .csv, and lose nothing. history.csv
-# itself is only written when training *finishes*.
+# history.csv. The human-readable per-epoch term breakdown goes to STDERR
+# (it replaced tqdm's progress bars on 2026-08-31, which emitted one line per
+# batch and buried everything else). They are kept apart on purpose: the stdout
+# block below is a valid history.csv, so if this session dies you can select it,
+# paste it into a .csv, and lose nothing. history.csv itself is only written
+# when training *finishes*.
+#
+# Read the `gap(val-train)` column in the stderr breakdown, not `total`: both
+# totals fell the whole way through the 2026-08-29 run while held-out
+# separation collapsed below pass-through.
 #
 # -u as well as train.py's own flush=True: stdout is a pipe here, and a killed
 # session must not lose rows to a buffer.

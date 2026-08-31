@@ -1549,3 +1549,111 @@ was noise and must not be quoted.
   stratification for detecting a pitch shortcut and is not a statement about the
   swap itself.
 - This says where the ceiling is NOT. It does not say where it is.
+
+---
+
+## 2026-08-31 — Response to memorisation: 5,000 trials, weight decay on, bank K=3
+
+**Three config changes, one hypothesis.** The 2026-08-29 run memorised its
+training set (see that entry): train separation improved every epoch, 2.97 →
+5.51 dB, while held-out peaked at 2.14 dB and fell to −0.17 dB, below
+pass-through. The diagnosis was **data volume, not architecture** — 1,989 trials
+is not enough for 7.19 M parameters. These changes act on that.
+
+| setting | was | now | file |
+|---|---|---|---|
+| `splits.sir0_train.n_trials` | 2,000 | **5,000** | `generator.yaml` |
+| `training.weight_decay` | 0.0 | **1.0e-4** | `bsrnn_baseline.yaml` |
+| `data.enrollment_variants` | 4 | **3** | `bsrnn_baseline.yaml` |
+
+### Why 5,000 and not more
+
+**It is the diagnostic size, not the maximum.** 2.5x data is enough to answer
+"does the train/held-out gap narrow". If it does not narrow at 2.5x, the
+data-volume diagnosis is wrong and a bigger render would have been wasted
+effort and upload. Scale to 10,000 only after 5,000 confirms it.
+
+Projected from the measured 523–568 s/epoch at 1,989 trials: **~1,360 s/epoch,
+so ~29 epochs fit one ~12 h Kaggle session.** The previous best epoch (14) sat at
+~18,600 optimiser steps; at 5,000 trials that is around **epoch 6**, so 25–29
+epochs gives roughly 4–5x headroom past where the model previously turned.
+
+### Why weight decay, and the confound it creates
+
+`weight_decay` was 0.0. AdamW's 0.01 default would decay every LSTM weight,
+which is why it was refused before; **1e-4 is two orders below that,
+deliberately timid.**
+
+**CONFOUND, stated rather than discovered later: this run changes data volume AND
+regularisation together, so an improvement cannot be attributed between them.**
+Accepted, because both attack the same hypothesis (too much capacity for the
+data available) and a workable checkpoint matters more than a clean ablation with
+six weeks to the freeze.
+
+**Correction to `project-state.md`, which called weight decay and dropout "the
+two free regularisers... both config-level".** Only one is. **There is no dropout
+anywhere in `src/models/`, `bsrnn_baseline.yaml` or `scripts/train.py`** —
+adding it means editing the architecture frozen on 2026-08-28, which is its own
+arm, not a free config flip.
+
+### Why the bank drops to K=3
+
+Purely to buy upload budget. The bank costs (K−1) × 2 × ~160 kB per trial, so
+K=4 → K=3 saves 320 kB/trial, **~1.6 GB at 5,000 trials.**
+
+**This is a change to a measured setting.** The arm that established the bank
+used K=4 (2026-08-30), so this run cannot be compared to that arm on the bank
+axis alone. Untested whether 3 rotations regularise as well as 4.
+
+### Disk: the projection in `run_times.md` was wrong by 2.6x
+
+`run_times.md` projects **1.26 MB/trial**. Measured on `sir0_train`, it is
+**3.25 MB/trial** — 6.3 GB for 1,989 trials — because sir0 renders the interferer
+stem *and* two enrolment banks:
+
+| component | share |
+|---|---|
+| mixture + target + interferer stems | 56 % |
+| target enrolment bank | 24 % |
+| interferer enrolment bank | 24 % |
+
+So 5,000 trials is **~15 GB, not ~6 GB**, and upload is the binding constraint
+rather than render time or disk.
+
+### Two things that will bite silently
+
+**`sir0_val` must NOT be re-rendered.** The whole comparison is against the
+08-29 baseline and is only valid if the validation set is byte-identical. Only
+the *train* manifest is rebuilt. The old 1,989-trial manifest is archived to
+`data/manifests/archive/` because `build_manifest.py` overwrites in place, and
+without it the 08-29/08-30 runs lose the manifest they trained against.
+
+**All 5,000 must be rendered fresh; the existing 1,989 cannot be reused.**
+Editing `generator.yaml` changes its `config_md5`, and `render_trials.py`
+records that hash and refuses to extend a directory built under a different one.
+That refusal is correct: the manifest fixes every level, position and onset, so
+every row now describes different audio.
+
+**The `w` warmup is defined in EPOCHS, not steps.** `warmup_epochs: 4` +
+`ramp_epochs: 3` means full `w` at epoch 7 — ~9,300 steps at 1,989 trials, but
+~23,300 at 5,000. That is a **2.5x longer warmup in real terms**, silently. The
+warmup exists to stop the early mute so longer is likely safer rather than
+harmful, but it is a genuine difference from the baseline, and the config already
+flags `warmup_epochs` as "A GUESS".
+
+### What to watch
+
+**The train/held-out gap, not the total.** Both totals fell the whole way through
+the run that overfitted. The gap on `L_pres` was 1.24 dB at the old best epoch
+and 5.68 dB by epoch 24. **Confirmation looks like: the gap stays near 1 dB while
+held-out separation climbs past 2.14 dB.** The per-epoch breakdown printed to
+stderr now shows that column directly (see the logging change below).
+
+### Logging changed in the same commit
+
+`tqdm` removed from `scripts/train.py`. At ~1,666 batches per epoch it emitted
+more lines than the whole rest of the run and buried the per-epoch numbers.
+Replaced by `format_epoch_breakdown()`, which prints the train/val/gap table once
+per epoch **to stderr** — stdout still carries one CSV row per epoch and must stay
+a valid `history.csv` so a killed Kaggle session can be recovered by pasting it
+into a file.

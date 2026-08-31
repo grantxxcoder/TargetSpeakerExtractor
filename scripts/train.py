@@ -15,7 +15,6 @@ import sys
 from collections import defaultdict
 from datetime import date
 from torch.utils.data import DataLoader
-from tqdm import tqdm
 import matplotlib
 # Agg BEFORE pyplot: the backend is fixed at import, and Kaggle is headless.
 matplotlib.use("Agg")
@@ -126,6 +125,40 @@ def history_row(tr, va):
     return ([va["epoch"]] + [tr[k] for k in HISTORY_FIELDS]
             + [va[k] for k in HISTORY_FIELDS] + [va["lr"], va.get("w", float("nan"))]
             + [va.get(k, float("nan")) for k in VAL_DIAGNOSTICS])
+
+
+def format_epoch_breakdown(epoch, num_epochs, tr, va, epoch_seconds, w_trained):
+    """The per-epoch term breakdown, for STDERR. Replaced tqdm on 2026-08-31.
+
+    Why this shape. Progress bars emitted one line per batch, which at 1,666
+    batches an epoch buried the only output that matters. This prints once per
+    epoch instead, and shows the thing the run is actually being judged on.
+
+    `gap` is val minus train, so it is POSITIVE when the model does worse on
+    audio it has not seen, and GROWING gap = memorising. That is the number to
+    watch, not `total`: in the 2026-08-29 run both totals fell the whole way
+    down while held-out separation collapsed below pass-through
+    (decisions-m2.md 2026-08-29). L_pres is negated SI-SDR, so a train L_pres of
+    -5.51 against a val +0.17 is the 5.68 dB gap that run ended with.
+
+    Goes to stderr on purpose: stdout carries one CSV row per epoch and must
+    stay a valid history.csv so a killed Kaggle session can be recovered by
+    pasting it into a file. See scripts/make_kaggle_notebook.py.
+    """
+    lines = [
+        f"epoch {epoch + 1}/{num_epochs}  {epoch_seconds:.0f} s  "
+        f"lr {va['lr']:.2e}  w_trained {w_trained:.3f}",
+        f"  {'term':<7} {'train':>10} {'val':>10} {'gap(val-train)':>15}",
+    ]
+    for term in ("total", "L_pres", "L_MR", "L_gain", "L_abs"):
+        train_value, val_value = tr[term], va[term]
+        lines.append(f"  {term:<7} {train_value:>10.4f} {val_value:>10.4f} "
+                     f"{val_value - train_value:>15.4f}")
+    lines.append(f"  crops   train {tr['n_present']} present / {tr['n_absent']} absent"
+                 f"   val {va['n_present']} / {va['n_absent']}")
+    lines.append(f"  diag    enrol_sens {va.get('enrol_sens_db', float('nan')):.2f} dB"
+                 f"   pres_abs_gap {va.get('pres_abs_gap_db', float('nan')):.2f} dB")
+    return "\n".join(lines)
 
 
 def diagnostic_accumulate(diag, model, mixture, enrollment, s_output, crop_absent,
@@ -395,12 +428,12 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
 
         model.train()
         sums, counts = defaultdict(float), defaultdict(int)
+        epoch_start = time.time()
         # TRAINING LOSS
-        # leave=False so a finished epoch's bar is erased and the scrollback
-        # keeps only the per-epoch print, not one stale bar per epoch.
-        pbar = tqdm(train_loader, desc=f"epoch {epoch+1}/{num_epochs} train",
-                    unit="batch", leave=False, dynamic_ncols=True)
-        for batch in pbar:
+        # No progress bar: at ~1,666 batches an epoch it emitted more lines than
+        # the whole rest of the run and buried the per-epoch numbers. The
+        # breakdown printed at the end of the epoch replaces it (2026-08-31).
+        for batch in train_loader:
             mixture, target, enrollment, crop_absent = unpack(batch, device)
 
             optimizer.zero_grad()
@@ -428,14 +461,7 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
             scaler.update()
 
             add_parts(sums, counts, parts)
-            # Running epoch loss, not this batch's: the batch number swings on
-            # how many present/absent crops the shuffle happened to put in it.
-            # Same recombination as the epoch report, so the bar converges to
-            # the number that gets logged.
-            pbar.set_postfix_str(
-                f"loss {epoch_report(sums, counts, w_report, loss_fn.wm, loss_fn.wg)['total']:.4f}")
 
-        pbar.close()
         epoch_loss = epoch_report(sums, counts, w_report, loss_fn.wm, loss_fn.wg)
         train_loss_history.append(epoch_loss)
 
@@ -445,8 +471,7 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
         val_sums, val_counts = defaultdict(float), defaultdict(int)
         diag = defaultdict(float)
         with torch.no_grad():
-            for batch in tqdm(val_loader, desc=f"epoch {epoch+1}/{num_epochs} val",
-                              unit="batch", leave=False, dynamic_ncols=True):
+            for batch in val_loader:
                 mixture, target, enrollment, crop_absent = unpack(batch, device)
 
                 # Val runs in the same precision as training on purpose: a
@@ -477,6 +502,12 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
         if epoch == start_epoch:
             print(",".join(history_header()), flush=True)
         print(",".join(str(v) for v in history_row(epoch_loss, val_loss)), flush=True)
+
+        # Human-readable twin of the row above, on STDERR so stdout stays a
+        # valid history.csv. Replaced the tqdm bars on 2026-08-31.
+        print(format_epoch_breakdown(epoch, num_epochs, epoch_loss, val_loss,
+                                     time.time() - epoch_start, loss_fn.w),
+              file=sys.stderr, flush=True)
 
         if scheduler is not None:
             scheduler.step(val_loss["total"])

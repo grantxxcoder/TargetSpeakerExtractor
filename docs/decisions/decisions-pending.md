@@ -17,6 +17,10 @@ actually taken go to the decision log of the milestone they belong to —
   blocked — J1 closed 2026-08-31.** See Group J.
 - **J3 — the ICR overlap threshold.** Declared `count>=2` with a sensitivity
   sweep, not yet signed off. See Group J.
+- **J4 — PROPOSAL: a metric *system* (normalised requirement axes, composed and
+  plotted) rather than metrics in isolation.** Diagnosis accepted; ranking by
+  polygon area rejected as order-dependent, and the baseline normalisation must
+  be floor-to-ceiling rather than percentage change. See Group J.
 - **A1 needs sign-off only, not a decision.** Reference is the full reverberant
   target: separate and denoise, do not dereverberate. Removing a 0.6 s tail inside
   a 300 ms causal window is not possible, and trying trades residue for artefacts,
@@ -911,3 +915,166 @@ sensitivity requirement.
    fixed prompt must therefore **not** instruct the judge to choose a speaker
    ("the clearest voice", "the loudest speaker"): that hands the extractor's job
    to the judge and turns a measurement into an instruction.
+
+### J4. PROPOSAL — a metric *system*: normalised requirement axes, composed, plotted
+
+**Status: OPEN, proposed 2026-08-31 (Grant's idea). Not a decision yet. The
+diagnosis is right, the normalisation and the composition rule both need
+changing before it is defensible, and one part of it as pitched is unsound.**
+
+**The problem it solves, and it is real.** LCF-WER, ICR, NRR, SI-SDR,
+DNSMOS-P808, offline WER and latency is seven numbers, and B13 requires each of
+them broken out per condition — so the honest results table is roughly 35 cells
+per system. **Nobody can rank two models by reading 35 cells**, and a thesis that
+asks the reader to is failing to make its own argument. There is currently no
+defined way in this project to say "model A is holistically better than model B",
+only "A is better on this row".
+
+### The proposal
+
+1. The user declares **n requirements** for their speech model (e.g. *Speaker
+   learning*, *Sound separation*, *Content fidelity*), placed as n equally
+   spaced axes on a circle.
+2. Each requirement is fed by **several underlying metrics**. Example given for
+   *Speaker learning*: (a) how many words of the estimate appear in the
+   interferer's speech, (b) how long the model tracked the interferer during
+   target silence, (c) the same during target speech.
+3. Each metric is scored **relative to a declared baseline** (a real or
+   hypothetical reference model), so the axis is an improvement, not a raw unit.
+4. Radius = how good: **out toward the rim is better**, near the centre is worse.
+5. Two models are overlaid on one chart, and the **shape** shows what each is
+   good and bad at.
+6. **Ranking by total area** enclosed, plus ranking by a single axis or by a
+   group of axes.
+
+**Declared axiom (keep it, it is the right instinct):** every metric admitted to
+the system must be able to rank two models against each other and say which is
+better.
+
+### What is right about it
+
+**It makes two-sidedness structural rather than a convention.**
+`metric-definitions.md` 4 already requires LCF-WER, ICR and NRR to *always* be
+reported together, because suppressing everything wins on ICR and passing
+everything through wins on NRR. Today that is enforced by discipline. On an axis
+plot you cannot show one without the others — they are spokes of the same figure.
+That is a genuine strengthening of an existing commitment, not decoration.
+
+**Baseline-relative axes are correct**, and the anchors already exist:
+`metric-definitions.md` 3.4 makes floor (unprocessed mixture) and ceiling (clean
+target) mandatory on every results table.
+
+**Grouping metrics into requirement classes is worth it for the viva.** "Better
+at holding onto the right speaker, worse at avoiding processing artefacts" is a
+sentence a reader can carry; seven numbers is not.
+
+### Three things that must change first
+
+**1. RANKING BY AREA IS UNSOUND. Do not do it.** Radar-polygon area depends on
+the *order the axes are drawn in*, which is arbitrary. For n equally spaced axes
+with radii `r_i`:
+
+```
+Area = ½ · sin(2π/n) · Σ_i r_i · r_{i+1}
+```
+
+Only **adjacent** pairs multiply, so a model strong on two neighbouring axes
+scores more area than one equally strong on two opposite axes. Concretely, n=4:
+
+| model | scores in drawn order | Σ r_i·r_{i+1} | area |
+|---|---|---|---|
+| X | 1, 1, 0, 0 | 1 | > 0 |
+| Y | 1, 0, 1, 0 | 0 | **exactly 0** |
+
+**Identical multisets of scores, and Y encloses no area at all.** The ranking came
+from where the labels were placed, not from the models. Worse, this is the exact
+failure mode `metric-definitions.md` 4 was designed against: a score with a free
+parameter (axis order) that can be tuned to change the winner is a gameable
+score, and REAL-TSE had to swap its official metric after the fact for a
+comparable reason.
+
+**Fix: keep the picture, take the ranking from an explicit weighted mean of the
+normalised axis scores.** Order-invariant, the weights are visible and arguable,
+and the chart still does the job it is good at — showing shape.
+
+**2. "Percentage increase over baseline" breaks on signed and dB quantities.**
+The worked example in the proposal is do-nothing SI-SDR **−2.12 dB** and model
+**5.15 dB**. Percentage change between them is `(5.15 − −2.12)/(−2.12) = −343 %`
+— a negative number for an improvement, because the denominator is negative.
+Undefined at baseline = 0, and meaningless for any quantity that crosses zero.
+
+**Fix: normalise to the floor–ceiling interval**, which is dimensionless,
+well-defined for signed and dB quantities, and reuses anchors the protocol
+already mandates:
+
+```
+s = (x − floor) / (ceiling − floor)        clipped to [0, 1]
+```
+
+`s = 0` is "doing nothing", `s = 1` is "the best achievable on this judge". For a
+lower-is-better metric the interval simply runs the other way — WER with
+floor 57.4 % and ceiling 6.1 % gives `s = (57.4 − x) / (57.4 − 6.1)`. Same
+formula, so every axis is on one comparable scale and "toward the rim is better"
+is true by construction rather than by per-metric convention.
+
+**3. The axiom needs strengthening.** "Can rank two models" is *ordinal*, and an
+ordinal metric cannot be placed at a radius — knowing a model is 2nd of 3 does
+not tell you how far out to draw it. The real requirement is that each metric be
+**monotone in goodness and cardinally normalised**, which item 2 supplies.
+
+### Two design questions to settle before building
+
+**Which mean, and it matters more than it looks.** An arithmetic mean (and area,
+and any sum) lets a model **compensate**: superb LCF-WER hides catastrophic NRR,
+which is precisely the degenerate mute this project already caught once. A
+**geometric mean** `(Π s_i)^(1/n)` collapses to zero if the model is at floor on
+*any* axis, so it cannot be gamed by trading one requirement away. **That is the
+mathematically principled version of the two-sidedness rule** and is the
+recommended headline; report the arithmetic mean beside it, and state which is
+the headline. Needs a decision on flooring `s_i` so one axis at exactly 0 does
+not erase an otherwise-informative model.
+
+**User-defined weights are a gaming surface.** Configurable requirements and
+weights are good in a *tool* and fatal in a *benchmark*: if anyone can reweight,
+anyone can make their model win. **The benchmark must publish one fixed,
+pre-registered weighting, frozen before results are seen**, exactly as the prompt,
+the normaliser and the ASR are frozen. The configurable version is a separate
+exploration mode, labelled as not the benchmark number.
+
+### Scope, so this does not balloon six weeks from freeze
+
+**This is a presentation and composition layer, not a new metric.** It does not
+change LCF-WER, ICR or NRR, and it cannot invalidate them — which is what makes
+it cheap. Realistic size: one module that takes the existing per-condition scores
+plus a frozen weighting file, and emits the figure and the composite. It is a
+Chapter 4 figure and a ranking rule, not a rebuild.
+
+**Honest framing for the write-up.** Radar charts are old and are criticised in
+the visualisation literature, largely for the area problem above — so the
+contribution is *not* the chart. The contribution is **a composition rule for TSE
+evaluation**: floor/ceiling-normalised axes, grouped into declared requirement
+classes, aggregated by a compensation-resistant mean, under a pre-registered
+weighting. Claim that, not the picture.
+
+**Consider a dot/parallel-coordinates companion plot.** Same data, no area
+artefact, exact values readable. The radar answers "what shape is this model";
+the dot plot answers "by how much". Cheap to emit both from the same numbers.
+
+### Open sub-questions
+
+- Does **latency** belong on a quality axis at all? It is a **constraint** with a
+  200–300 ms budget, not a dimension to trade off — put it on the radar and a
+  model can win on shape by being fast and mediocre. Probably a pass/fail gate
+  plus B11's decay curve, kept off the composite.
+- The proposed *Speaker learning* metrics (b) and (c) — time spent tracking the
+  interferer during target silence and during target speech — **are not built and
+  are not in `metric-definitions.md`.** They need a definition and a
+  ground-truth source (the VAD index gives per-speaker activity, so this is
+  feasible) before they can be axes.
+- How do axes behave for a model **below the floor**? The 08-29 checkpoint at
+  epoch 24 was *worse than pass-through*. Clipping at 0 hides that; allowing
+  negative radii breaks the plot. Probably clip, and flag "at or below
+  do-nothing" on the axis label.
+- Does the composite get reported **per B13 condition** as well as pooled? It
+  must, or the composite becomes the aggregate-that-appears-alone that B13
+  forbids.
