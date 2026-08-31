@@ -1,4 +1,4 @@
-"""The absent-branch warmup schedule. decisions-m1.md 2026-08-25.
+"""The absent-branch warmup schedule. decisions-m2.md 2026-08-25.
 
 Pure arithmetic, so it is cheap to pin exactly -- and worth pinning, because an
 off-by-one here changes which epochs the model can earn a reward for silence in,

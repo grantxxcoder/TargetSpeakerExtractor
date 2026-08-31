@@ -60,7 +60,7 @@ COLUMNS = [
     # trial is a whole trial -- no special-casing a missing field downstream.
     # interferer_enrollment_speaker is deliberately separate from
     # interferer_speaker ("who interferes, empty if nobody"): overloading it
-    # would change what every existing manifest means. decisions-m1.md 2026-08-26.
+    # would change what every existing manifest means. decisions-m2.md 2026-08-26.
     "interferer_enrollment_speaker", "interferer_enrollment_utt",
     "interferer_enrollment_offset_s", "interferer_enrollment_length_s",
     "interferer_enrollment_eq", "interferer_enrollment_guard",
@@ -432,7 +432,7 @@ def pick_interferer_enrollment(rng, interferer, target, speakers, sex,
     enrollment-ignoring model must answer both the same and so cannot fit both.
     Measured 2026-08-26: with one direction the model ignored the enrollment
     entirely (8 % output movement on a swap), and neither the loss schedule nor
-    removing the loudness shortcut changed that. decisions-m1.md 2026-08-26.
+    removing the loudness shortcut changed that. decisions-m2.md 2026-08-26.
 
     PHANTOM. On `target_only`/`noise_only` nobody interferes, so a speaker who is
     genuinely NOT in the audio is enrolled and the answer is silence -- the purest

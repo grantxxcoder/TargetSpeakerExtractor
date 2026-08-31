@@ -1,4 +1,4 @@
-"""Measure L_gain at four anchors and derive w_g. decisions-m1.md 2026-08-28.
+"""Measure L_gain at four anchors and derive w_g. decisions-m2.md 2026-08-28.
 
     ../tse_venv/bin/python scripts/derive_w_g.py --split sir0 \
         --checkpoint kaggle_out/models/model_sir0.pt
@@ -128,7 +128,7 @@ def derive(stats, w, wm):
         out["suggested_w_g"] = suggested
         out["note"] = (f"usable window [{break_even:.3f}, {ceiling:.3f}]. "
                        f"Suggested {suggested:.3f} (geometric midpoint). "
-                       f"Record the choice in decisions-m1.md before training.")
+                       f"Record the choice in decisions-m2.md before training.")
     return out
 
 

@@ -1,17 +1,22 @@
 # Open decisions
 
 **Written 2026-08-10.** Groups A–C were the pre-generation data decisions; all are
-closed except C2. Full reasoning for each lives in `decisions-m0.md` under its
-date. Group D holds open *modelling* questions, which have nowhere else to live;
-decisions actually taken go to `decisions-m1.md`.
+closed — C2 last, on 2026-08-30. Full reasoning for each lives in `decisions-m0.md` under its
+date. Group D holds open *modelling* questions, Group E the training-speed
+work, and Group J the *judge and metric* questions; decisions
+actually taken go to the decision log of the milestone they belong to —
+`decisions-m1.md` (architecture), `decisions-m2.md` (training), `decisions-m3.md`
+(conventional evaluation), `decisions-m4.md` (the metric and the judge).
 
 ---
 
 ## Still open
 
-- **C2 — how hard should the task be?** Floor word error rate on the raw mixture;
-  current plan targets 60–80 %. Needs the supervisor. Blocks nothing meanwhile,
-  but M0's floor/ceiling calibration is what answers it.
+- **J2 — which judge, and the open-weight anchor.** The cost half is answered
+  (~$5-25); what remains is reproducibility and the candidate gate. **No longer
+  blocked — J1 closed 2026-08-31.** See Group J.
+- **J3 — the ICR overlap threshold.** Declared `count>=2` with a sensitivity
+  sweep, not yet signed off. See Group J.
 - **A1 needs sign-off only, not a decision.** Reference is the full reverberant
   target: separate and denoise, do not dereverberate. Removing a 0.6 s tail inside
   a 300 ms causal window is not possible, and trying trades residue for artefacts,
@@ -36,6 +41,7 @@ decisions actually taken go to `decisions-m1.md`.
 | B7 | per-epoch resampling off for the main run, kept as a switch | 08-13 |
 | B8 | enrollment from a different book | 08-11 |
 | B9 | 50 % both / 25 % absent / 25 % target-only; variable `target_activity_ratio` | 08-13 |
+| C2 | task difficulty accepted as measured: floor **57.4 %** on `eval_public` `both` (n=230), **65.2 %** on `sir0_val` (n=103); ceiling ~6 %. Straddles the 60–80 % target band, which was an aim, not a constraint. **Open consequence: which set defines the benchmark** — the two differ by 7.8 points because `eval_public` keeps the target-louder distribution and `sir0` is symmetric | 08-30 |
 | B10 | three enrollment tiers recorded per trial; eval pools redrawn. Executes B8's own documented contingency (60.2 % of speakers dropped out), not a reversal | 08-13 |
 | B11 | report a latency decay curve, never cap T60. Largely defused by A1 | 08-13 |
 | B12 | two regimes, sampler layer, no relational constraints. PR1/PR2 landed 08-14 | 08-13 |
@@ -50,7 +56,7 @@ Two B12 items remain implementation, not decisions: `overlap_ratio` narrowing in
 
 *Added 2026-08-19. This file was written for M0 data decisions; group D extends it
 to open modelling questions, which have nowhere else to live. Decisions actually
-taken go to `decisions-m1.md`.*
+taken go to the milestone log they belong to, usually `decisions-m2.md`.*
 
 ### D1. Phoneme-template speaker cue as an alternative to TF-Map
 
@@ -160,6 +166,16 @@ a richer dictionary is unlikely to, and D1 should not be scheduled.**
 Also worth confirming the near-uniformity across several trials before it is
 written up — measured on one so far, though the argument above says it is
 structural.
+
+### D3 — RUN 2026-08-30. ANSWERED: conditioning is not the bottleneck
+
+**D3a measured over 200 `sir0_val` crops: the cue moves 28.6 % on an enrollment
+swap and the output moves 48.2 %.** The network amplifies the cue, it does not
+discard it. **D4a and D1 are dropped, D5 is demoted, D2 is closed** (the softmax
+now blends 138 of 628 frames against ~620 before `tfmap_scale`). D3c ran with
+it: cross-gender sensitivity 56.1 % vs same-gender 44.4 %, a weak signal of
+gender reliance. Look at the separator or the objective instead.
+`scripts/diagnose_cue.py`, decisions-m2.md 2026-08-30. Original text follows.
 
 ### D3. Diagnose the conditioning failure before rebuilding anything
 
@@ -326,7 +342,7 @@ which are hours to days. Order by cost: D3, D6, D4, D5, then reconsider D1.
 
 *Added 2026-08-28. Group D is modelling; this is engineering. Both are open
 questions with nowhere else to live. Anything actually decided goes to
-`decisions-m1.md`.*
+`decisions-m2.md`.*
 
 ### E1. `batch_size: 3` is a memory ceiling, not a preference
 
@@ -573,10 +589,25 @@ and memory figures are unaffected.
   which is a real change to the optimisation and would need its own arm. A
   0.2 % longer crop is not.
 
-**Projected, NOT yet measured:** at 0.122 s/example, an epoch is
-`1989 x 2 x 0.122` = **486 s of compute against the measured 3875 s -> ~8x**,
-putting 10 epochs near **1.3 h instead of 10.8 h**. The confirming run is
-`--batch 3 --chunk-s 4.008 --amp-only`; it must land near 0.73 s/step.
+**CONFIRMED 2026-08-28.** Profiler: 0.674 s/step at batch 3 with
+`--chunk-s 4.008`, reproduced twice at 0.1 % spread, against a 0.73 s prediction.
+Then the real 2-epoch `sir0` run measured **505.7 s/epoch against 3875.2 s =
+7.66x**, beating even the optimistic end of the 3.9-7.0x range in E3d (the
+~516 s of unaccounted overhead evidently scales with compute rather than being
+fixed). 10 epochs is now **1.4 h instead of 10.8 h**.
+
+**Losses are unchanged.** Against the fp32 / `chunk_s` 4.0 run at the same seed,
+split and `w_g`, epoch 1 agrees on all twelve logged terms to within 3 % and is
+marginally *better* on most (`val_total` -1.4 %, `val_L_pres` -0.9 %,
+`val_L_MR` -2.0 %, gap +3.0 %). Epoch 0's *train* terms lag (`train_L_pres`
+-1.96 -> -1.42) while its *val* terms match to 4 % -- exactly the signature of
+`GradScaler` skipping its first optimiser steps while calibrating the loss
+scale: fewer updates early in the epoch, caught up by the time val is measured.
+Benign and expected.
+
+**Still untested: both epochs ran at `w` = 0.0.** The absent branch, and the
+mute pressure it creates, never engaged. fp16 behaviour through the `w` ramp
+(epochs 4-6) is not yet evidence.
 
 **Does not revive checkpointing.** Throughput per example was flat across the
 three unaligned sizes, and we have only one aligned point, so nothing yet
@@ -654,3 +685,229 @@ The planned arms alone (`ablate_w_m` 3, `ablate_w_g` 3, lookahead 3, plus D4a
 and a `tfmap_scale` arm to close D2) are ~12 runs. **Speed converts directly
 into how many questions the thesis can answer**, and Kaggle's ~12 h session cap
 makes the 10k-trial run multi-session at today's rate and single-session at 3x.
+
+### D9. ASR cross-entropy as a differentiable content proxy
+
+**Status: proposal, deferred. This is M5, which is CUTTABLE and the first thing
+to cut. Raised 2026-08-30.**
+
+**The origin.** The idea was first put as "transcribe the output each epoch,
+compute WER, add it to the loss and hold it constant through the next epoch".
+That specific mechanism does nothing: **a term that does not vary with the
+weights has zero gradient**, so backprop would produce identical updates and only
+the printed loss would change. Recomputing per batch does not rescue it either —
+WER passes through `argmax`/beam search and edit distance, neither of which is
+differentiable. Recorded because the reasoning is the useful part, not the
+conclusion.
+
+**The working version.** Push the estimate through a FROZEN ASR and take the
+cross-entropy of its token distribution against the known transcript,
+teacher-forced. No decoding, so no `argmax`; the gradient flows through
+continuous logits into the mask. CLAUDE.md names this directly: "training uses
+differentiable proxies (frozen-ASR/SSL feature matching, optionally ASR
+cross-entropy)". Feature matching against the clean target's ASR-encoder
+features is the cheaper sibling and needs no text at all.
+
+**The rigorous version of the original idea exists**: minimum-WER training
+(Prabhavalkar et al., ICASSP 2018) optimises expected WER by sampling hypotheses
+and using a score-function estimator rather than a true gradient. Expensive and
+finicky; cross-entropy is the usual choice for a reason.
+
+**Hard constraint.** The proxy ASR must NOT be `small.en` — that is the
+evaluation scorer, and training against your own evaluator makes the offline WER
+meaningless (CLAUDE.md rule 2). A different model family, recorded not assumed,
+and never the judge in any form.
+
+**Where WER DOES belong right now, and it is free:** as a model-SELECTION
+criterion. It cannot make gradients but it ranks finished models perfectly well,
+and `training.select_on` (2026-08-30) now has a defined place for it. Scoring
+four or five candidate epochs through estimates -> ASR -> WER and checking
+whether the present-branch proxy ranks them the same way is one afternoon and a
+thesis table either way.
+
+### D10. Penalise resembling the INTERFERER, not just missing the target
+
+**Status: proposal, unscheduled. The best remaining model-side idea, and the
+only one aimed at extraction-vs-enhancement. Raised 2026-08-30.**
+
+**The problem.** `L_pres` maximises SI-SDR to the target, which buckets every
+error together — interferer leakage, residual noise and artefacts are one
+undifferentiated residual. For THIS project they are not equally bad: **the
+interferer's words are the worst possible error**, because a live judge
+transcribes them as the target's speech. Demonstrated on
+`eval_public-42-000132`, where the ASR reads the target correctly for 17 words
+and then transcribes the interferer's sentence verbatim.
+
+**The proposal.** An explicit repulsion term against `interferer.wav`, which is
+already rendered per trial and already loaded (`both_directions`). Weight
+interferer leakage above other residual error, so the objective prefers a noisy
+extraction over a clean confusion.
+
+**Why it fits this project specifically.** It is the training-side mirror of
+**ICR** (`metric-definitions.md` 3.2), which the metric already defines as "the
+score that makes the metric two-sided, and the one an offline WER-based metric
+structurally cannot see". Objective and metric would then measure the same
+failure, which is a clean thing to write up.
+
+**What must be checked before building it.** `L_pres` already counts interferer
+energy as error, so the term is partly redundant; what it adds is a WEIGHTING,
+and the ablation has to show the weighting earns its place (0 arm required, as
+for `w_m` and `w_g`). It also risks a new degenerate solution — output silence
+resembles neither speaker — which `L_gain` now blocks but which must be
+re-verified, not assumed.
+
+**MEASURE FIRST, and it costs nothing extra.** `interferer_text` is in every
+`meta.json`, so transcribing the estimates yields WER against the target AND
+content overlap against the interferer in the same pass. That says whether
+leakage is actually the dominant error before any term is written to fix it.
+Ordering: measure ICR, then decide.
+
+**Evidence that the model is NOT purely enhancing** (2026-08-30): an enrolment
+swap moves the output 48.2 % (D3a) where a pure enhancer would move 0 %;
+`both_directions` requires two different answers from one mixture; `sir0` removes
+the loudness shortcut. The worry is a matter of degree — 52 % of the output is
+still enrolment-independent — not a yes/no.
+
+---
+
+## Group J — the judge and the metric
+
+Raised 2026-08-30. M4 is 1 item done of 9 and the judge gates the rest, so these
+are the decisions with the longest lead time in the project.
+
+### J1. Must the judge be full-duplex speech-to-speech, or is audio-in enough?
+
+**Status: CLOSED 2026-08-31 — audio-in / text-out. The recommendation below was
+taken.** Reasoning, the three gains, the cost and the ~50-trial full-duplex
+confirmation run are in `decisions-m4.md` 2026-08-31. The analysis below is kept
+as the argument that produced the decision.
+
+**The tension.** CLAUDE.md and spec note 10 both say the objective is what a
+"**live speech-to-speech model** (Gemini Live and similar)" recovers. Read
+strictly that requires full duplex. But `metric-definitions.md` 3.1's own
+mechanism does not:
+
+> A live speech-to-speech model consumes audio through a learned audio encoder
+> over a much wider distribution, and appears to be more sensitive to the
+> artefacts of the processing itself than to the interfering speech it removed.
+
+**The property being measured is the AUDIO ENCODER, not the duplexing.** An
+audio-in / text-out LLM has exactly that encoder and exactly that wide training
+distribution. Nothing in LCF-WER, ICR or NRR reads the judge's turn-taking.
+3.1 step 2 already permits a text response -- "*If* the model responds in audio,
+transcribe the response" -- so audio output is optional in the protocol as
+written.
+
+**What relaxing it buys.**
+
+1. **A much wider field.** Ultravox, Voxtral and Qwen3-Omni all qualify;
+   full-duplex narrows it to roughly Moshi and the closed APIs.
+2. **One fewer component in the measuring instrument.** A text response removes
+   the response-ASR entirely. 3.1 step 2 calls that ASR "a component of the
+   measuring instrument, and changing it invalidates comparisons" -- so deleting
+   it removes a whole class of invalidation.
+3. **Cheaper and faster** on both the API and the self-hosted side.
+4. **Ultravox is the closest conceptual fit**: it skips the separate ASR stage,
+   which is precisely the property 1 hypothesises about.
+
+**What it costs.** It is a deviation from the stated objective and must be
+argued, not assumed. The defensible sentence is: *we used an audio-in model
+because the measurement depends on the audio encoder rather than on duplexing*.
+If that argument is not made explicitly in the write-up, a reviewer is entitled
+to say the thesis measured something other than what it set out to.
+
+**Recommendation: relax it, and record the argument above.** But it needs
+supervisor sign-off, because it edits the project's stated objective rather than
+an implementation detail.
+
+### J2. Which judge -- and the open-weight anchor is about reproducibility, not cost
+
+**Status: OPEN. The cost half is ANSWERED and was smaller than assumed.**
+
+**The cost model M4 asks for, measured 2026-08-30.**
+`gemini-3.1-flash-live-preview` publishes $0.005/min audio in, $0.018/min audio
+out, $4.50/1M text out, with a free tier. Trials are ~18 s, and M4's protocol is
+200 trials x k=3 repeats x 4 systems = 2,400 calls:
+
+| | |
+|---|---|
+| audio in, 720 min | $3.60 |
+| text out, ~0.12M tokens | $0.54 |
+| **audio condition total** | **~$4.14** |
+| with audio responses instead | ~$15 |
+| plus a prompt-sensitivity ablation | ~$25 all in |
+
+**So M4's "closed API (money) or self-hosted open-weight (GPU-hours)" is not a
+budget question.** ~$25 is noise, and the free tier covers the pilot. Take the
+closed API for the headline.
+
+**The open-weight anchor is still required, for a different reason.** Both
+candidate Gemini IDs are marked `preview` and preview models get deprecated. If
+the headline judge disappears before submission the primary result becomes
+unreproducible -- which is why CLAUDE.md already demands the exact model ID and
+run date on every judge result. The anchor exists so someone can reproduce the
+headline in two years, not to save $25. **That is the argument to make in the
+write-up; a cost argument would be weaker and also false.** Published prices
+carry expiry dates too ("through December 31, 2026"), so record the price
+alongside the ID.
+
+**Compute for a self-hosted anchor is no longer contended.** M4 worried about
+GPU-hours competing with training quota; training is being stopped (2026-08-30),
+so the Kaggle T4 is free. A 3B model in fp16 fits it and 2,400 short generations
+is one session. The laptop cannot do it -- no usable GPU, and CPU generation puts
+the full protocol at about a day of wall clock -- but it can run a 20-trial
+pilot.
+
+**The gate that must be applied to EVERY judge candidate, open or closed.**
+Score the **ceiling condition first**: feed the clean target audio and read
+LCF-WER. The offline ASR ceiling is 6.1 %. If a judge cannot reliably report
+clean speech, the judge is the bottleneck and every system comparison beneath it
+is noise. Roughly 20 trials and an hour, and it disqualifies candidates before
+any of them cost a benchmark run.
+
+**Why this gate matters more for open-weight candidates.** On FullDuplexBench,
+task adherence is 1.26/5 for Moshi and 3.82/5 for Qwen2.5-Omni. Our prompt is
+trivial -- "report what you heard" -- but a judge that wanders off-prompt,
+refuses, or chats instead of reporting lands in **NRR**, which was designed to
+catch a degenerate EXTRACTOR. **A degenerate JUDGE is indistinguishable from it
+in the numbers.** Choose the anchor for instruction-following on a
+transcription-style prompt, not for conversational ability.
+
+
+### J3. The ICR overlap threshold — declared, not signed off
+
+**Status: OPEN. A value is declared so the metric is computable; it needs
+sign-off before the first published judge result.**
+
+`metric-definitions.md` 3.2 defines ICR as "content-word overlap between `r` and
+`d`, excluding words that also appear in `t`, thresholded" and requires the
+threshold to be **fixed in advance with its sensitivity reported**. It does not
+say what the threshold is. Two candidate rules:
+
+| rule | statement | problem |
+|---|---|---|
+| **`count>=2`** | ≥2 interferer-exclusive content words appear in `r` | insensitive to how much the interferer said |
+| `frac>=θ` | that count as a fraction of the interferer-exclusive words available | scale-dependent on the interferer's utterance length, which varies per trial by construction |
+
+**Declared: `count>=2`.** One shared content word between a response and the
+interferer is coincidence at the rate English repeats nouns; two is signal. The
+fraction rule varies with a property of the trial rather than of the system,
+which makes it the worse primary and the better secondary. Both are computed and
+reported, with a sweep over counts 1/2/3/5 and fractions 0.05–0.50, per 3.2's
+sensitivity requirement.
+
+**Two things to settle at sign-off.**
+
+1. **Trials where the interferer said nothing the target did not also say** carry
+   no evidence of contamination either way. They are **excluded** from ICR, not
+   scored as clean — scoring them clean would dilute the rate towards zero with
+   trials that could never have fired. The exclusion count is reported.
+2. **The floor row's ICR is partly set by construction, not measured.** The judge
+   never sees the enrolment, so on an unprocessed two-speaker mixture it cannot
+   know which speaker is the target and will pick one. That makes the floor's ICR
+   tend towards a coin flip. This is the correct behaviour and it *is* the
+   finding — doing nothing gets you the wrong speaker half the time — but it must
+   be stated when the floor row is quoted, not discovered in a results table. The
+   fixed prompt must therefore **not** instruct the judge to choose a speaker
+   ("the clearest voice", "the loudest speaker"): that hands the extractor's job
+   to the judge and turns a measurement into an instruction.

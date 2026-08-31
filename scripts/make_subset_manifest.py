@@ -8,7 +8,7 @@ enrolment-blind mute: swapping a crop's enrolment moved the output by -17.15 dB
 and cost only 0.62 dB of L_pres, so the model was not doing target extraction at
 all. It could not tell target-present from target-absent, and under a single
 shared output gain the mute is the genuinely optimal answer to the objective.
-See docs/decisions/decisions-m1.md 2026-08-25.
+See docs/decisions/decisions-m2.md 2026-08-25.
 
 Learning to use the enrolment needs speaker diversity, which trial count alone
 does not buy. `train` already has 19,938 trials over 1,172 speakers and is

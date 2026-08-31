@@ -1,106 +1,171 @@
-# Where the project is — 2026-08-28
+# Where the project is — 2026-08-30
 
-Plain-language status. Numbers in `decisions/decisions-m1.md`, dates and
-checklists in `decisions/milestones.md`.
+Plain-language status. Numbers in the milestone decision logs
+(`decisions/decisions-m1.md` architecture, `-m2` training, `-m3` conventional
+evaluation, `-m4` the metric and judge); dates and checklists in
+`decisions/milestones.md`.
 
-**Submission 2026-11-05. Experiment freeze 2026-10-14 — about 6.5 weeks.**
+**Submission 2026-11-05. Experiment freeze 2026-10-14 — about 6.4 weeks.**
 
 ---
 
 ## In one paragraph
 
-Data is built. The model runs on a GPU and has learned **who** to listen for, but
-not **how** to output them — it turns everything down instead of separating. That
-was traced to the training objective, not the model or the data, and a fourth
-loss term (`L_gain`) was added 2026-08-27 and weighted 2026-08-28. It has not
-been trained with yet. Nothing downstream of the model — metric, benchmark,
-comparison table — has been started, and those cannot be cut.
+The objective is fixed and it worked. The model no longer mutes, it listens to
+the voice sample, and training is 7.2x faster than a week ago. But the run that
+was supposed to settle "just train it longer" instead found the next wall:
+**the model memorises the 1,989 training trials.** It keeps getting better on
+data it has seen and steadily worse on data it has not. That is a data-volume
+problem, not an architecture problem, and it means adding capacity would make
+things worse, not better. Nothing downstream of the model — metric, judge,
+benchmark, comparison table — has been started, and none of it can be cut.
+
+## What changed since 2026-08-28
+
+1. **`L_gain` worked.** Blocking the mute taught the model to use the enrolment.
+   Swapping in a stranger's voice sample now moves the output **37.6 %**, against
+   14.9 % for the no-`L_gain` control. Output level sits at −4.2 dB where the
+   target actually is (−3.9 dB); the control sat at −22.4 dB, i.e. it had gone
+   silent and called that separation.
+2. **Training is 7.2x faster.** 523 s/epoch against 3,773. Ten epochs is now
+   **1.45 h, was 10.5 h.** Three changes; the one that mattered was lengthening
+   the crop by 8 ms so fp16 tensor-core kernels align (4.44x on its own).
+   Validated over a full 10 epochs in fp16 — no NaNs, and the score difference
+   against fp32 is inside run-to-run noise.
+3. **The "train longer" experiment ran and answered the question — badly.**
+   See below.
+
+## The finding that matters: it memorises
+
+`2026-08-29-train-sir0-e50-resume`. Resumed at epoch 10, ran to 24, early-stopped
+on patience, 2.2 h. Best epoch **14**.
+
+| | epoch 10 | epoch 14 (best) | epoch 24 |
+|---|---|---|---|
+| separation on **training** data (`L_pres`, dB) | 2.97 | 3.38 | **5.51** |
+| separation on **held-out** data (dB) | 1.52 | 2.14 | **−0.17** |
+| gap between them | 1.45 | 1.24 | **5.68** |
+
+**Read the two rows in opposite directions.** On audio it has already seen the
+model improves every single epoch, all fourteen of them. On audio it has not seen
+it improves for four epochs, then falls apart — by epoch 24 it is *worse than
+handing the mixture through untouched*. The level-matching term shows the same
+split: better on train (2.92 → 1.51), worse on held-out (3.77 → 5.79).
+
+That is textbook overfitting, and it has a specific cause: **1,989 trials is not
+enough data for a 7.2 M-parameter model.** Random crops already vary per epoch,
+so the effective set is roughly 24,000 four-second examples — still small.
+
+**A headline that improved for a bad reason.** Enrolment sensitivity kept
+climbing right through the collapse, 43 % → 80 %. That is not conditioning
+getting better. A model whose output has stopped resembling the target will move
+a lot when you change its input, for no useful reason. **Do not quote the 80 %.**
+The trustworthy figure is 37.6 % at epoch 9, and 41.7 % at epoch 14.
 
 ## Can
 
 - Run causally, streaming-compatible. Measured, not assumed.
-- **Identify the target from a 5 s sample**: a stranger's sample moves the output
-  39 %, up from 18 %. And on `sir0`, where "keep the louder voice" no longer works.
-- Beat doing nothing: +3.33 dB against the raw mixture's +1.59 dB, so **1.73 dB
-  of real separation**.
-- Tell speech from silence — 94 % of the way to the best score that earns.
-- Train, checkpoint and resume without losing optimiser/scheduler state.
+- **Identify the target from a 5 s sample.** 37.6 % enrolment sensitivity, on
+  `sir0`, where "keep the louder voice" no longer works.
+- **Output at roughly the right volume** — the mute is closed.
+- Tell speech from silence: ~7 dB louder when the target is talking than when
+  it is not, against 2.45 dB for the control.
+- Train 10 epochs in 1.45 h, checkpoint, and resume without losing state.
+- **Transcribe for evaluation, and say how hard the task is.** Offline ASR
+  chosen (`faster-whisper small.en`) and C2 closed at n=230.
 
 ## Cannot
 
-- **Separate well.** 1.73 dB is small, and only 0.81 dB of it came in 8 epochs.
-- **Output at the right volume.** ~21 dB below where the target should be, even
-  when the target is speaking. It whispers the mixture.
-- **Be trusted by its own loss curve.** Total fell −1.14 → −8.52, but **95 % of
-  that was the silence half**.
-
-## Why
-
-**Nothing in the objective told it to stay loud.** The separation term is blind
-to volume by design (it was written that way to stop an amplification exploit),
-the silence term's best score is "output nothing", and `L_MR` — the one term
-believed to police volume — was **measured to reward the mute**. Going quiet was
-a free win. The model optimised the loss correctly; the loss was wrong.
-
-That is why the fix is not architectural.
-
-## The fix
-
-`L_gain`: *"be about as loud as the target actually was, ±3 dB."* Symmetric (no
-runaway volume direction), deadzone (no gradient on inaudible errors), anchored
-per trial (a dataset average would just teach constant-volume output).
-
-**`w_g = 1.69`, derived not guessed** (`scripts/derive_w_g.py`, 200 sir0_val
-crops). Below 1.24 the mute still pays. An independent marginal argument gives
-0.85, agreeing in magnitude.
-
-**It does not cause separation — it removes the alternative to it.**
+- **Generalise.** The single biggest open problem, and it is new as of yesterday.
+- **Separate well.** Best held-out separation ~2.1 dB, against ~1.6 dB for doing
+  nothing on the same data. The margin is thin.
+- **Match level per utterance.** `L_gain` fell only 3 % over its whole run. It
+  works as a *constraint on going silent*, not as a level regression target.
+- **Be scored on the thing this project is about.** Every number above is a
+  training diagnostic. There is still no measurement on the live-model metric.
 
 ## Not started
 
-None of these exist, and all are un-cuttable:
+None of these exist, and none can be cut:
 
-- No offline ASR chosen (`src/eval/`, `src/baselines/`, `src/live_model_metric/`
-  are empty).
-- No floor/ceiling WER — the last open M0 item, and what the supervisor needs for
-  "how hard should the task be".
-- No judge decided. Gates the whole metric milestone.
-- No metric harness, benchmark or comparison table.
+- No metric harness, no benchmark, no comparison table.
+- No judge MODEL picked (J2a closed / J2b open-weight anchor). No longer an open
+  argument — it is now a ~1-hour candidate gate.
 - AMI untouched — the only real-audio check in the project.
 
-They need *a* trained model, not a good one. They are not blocked on separation.
+They need *a* trained model, not a good one. **They are not blocked on
+generalisation and should not wait for it.**
+
+**Unblocked 2026-08-31 — J1 closed: the judge is audio-in / text-out.** LCF
+measures the judge's audio encoder, not its turn-taking, so full duplex is not
+required. This also deletes the response-transcription ASR from the measuring
+instrument. Carries a ~50-trial full-duplex confirmation run so the deviation
+from the stated objective is bought off rather than argued away.
+`decisions-m4.md` 2026-08-31.
+
+## Offline ASR — chosen 2026-08-28
+
+`small.en`, int8 on CPU, greedy, Whisper `EnglishTextNormalizer`. `tiny.en`'s
+floor exceeds 100 % (it invents words); `medium.en` is better but 2.7x the cost
+across every pass.
+
+**C2 is closed, 2026-08-30.** Scored at n=230 on `both` trials — the condition
+that has an interferer to remove, and the only row that should ever be quoted:
+
+| set | ceiling (clean) | floor (raw mixture) |
+|---|---|---|
+| `eval_public` (n=230) | 6.1 % | **57.4 %** |
+| `sir0_val` (n=103) | 5.8 % | **65.2 %** |
+
+**Plain reading:** of every 100 words the target says, ~57 come out wrong if you
+do nothing, against ~6 wrong on clean audio. **That 51-point gap is the room the
+extractor has to work in.** And the errors are not mush: inspected on one trial,
+the ASR transcribes the target perfectly for 17 words and then switches to the
+*other speaker's* sentence — which is exactly the failure the model exists to fix.
+
+Accepted at this range. **This replaces the 76.4 % that was quoted from a
+12-trial pilot; it was wrong by 19 points.**
+
+**The open consequence is bigger than the number.** Training is on `sir0`, which
+is symmetric by construction, while `eval_public` keeps the original
+distribution where the target is the louder voice 74 % of the time. Which set
+defines the benchmark is undecided, and that is the supervisor conversation.
+
+Known artefact: `small.en` emits the word "you" on digital silence, 8 of 8 absent
+trials. Filter it before counting invented words.
 
 ## Compute
 
-8 epochs on 1,989 trials = 8.6 h on a T4 at batch 3 (2026-08-27). The full
-19,938-trial set is ~10x that per epoch, which does not fit a 12 h session.
-Decision: use a smaller training set. Batch size is still 3 where the config says
-12 — an untested lever.
+523 s/epoch at 1,989 trials on a Kaggle T4, batch 3. Scaling the training set is
+the obvious response to overfitting, and it is affordable: **5,000 trials is
+~1,315 s/epoch, so 20 epochs in 7.3 h** — inside Kaggle's ~12 h cap. 19,938
+trials would be ~2.9 h/epoch and does not fit. Rendering a larger `sir0` set is
+~31 min per 2,000 trials locally.
+
+Batch size is still 3 where the config's comment says 12 — untested, and it must
+stay pinned at 3 for any resume, because `train.py` refuses a resume whose config
+differs from the checkpoint's.
 
 ## Next
 
-1. ~~Derive `w_g`~~ — done 2026-08-28, 1.69.
-2. Fresh run on Kaggle, `--split sir0 --epochs 10`. **Not** a resume: resuming at
-   epoch 8 skips the warm-up, which is where `L_gain` runs at full strength with
-   the silence pressure off, and the ablation arms would not be comparable.
-   8 epochs gives only 1 at full objective; 10 gives 3.
-3. Then decide about the architecture.
+1. **More data, not more model.** Render a larger `sir0` split (~5,000 trials)
+   and retrain from scratch. This is the direct test of the diagnosis: if the
+   train/held-out gap narrows, the finding is confirmed and the ceiling moves.
+2. **The two free regularisers, in the same run or before it.** `weight_decay`
+   is 0.0 and there is no dropout. Both are config-level and cost nothing.
+3. **Start the metric work in parallel, on the epoch-14 checkpoint.** It does not
+   need a better model, and it is the project's actual contribution. Decide the
+   judge first — everything in M4 queues behind it.
 
-**Watch `pres_abs_gap_db`, not the total.** It should widen — loud when the target
-speaks, quiet when it does not. Both ends rising together is a pass-through.
+**Watch the train/held-out gap, not the total.** Both totals fell the whole way
+through the run that overfitted.
 
 ## The open architecture question
 
-The instinct that the architecture is wrong is worth taking seriously but cannot
-be tested yet: **it has never been trained against a working objective.** Step 2
-is that test.
-
-Justifies a change: separation still flat once the volume cheat is closed **and**
-the gap widening (so the term worked and the problem is elsewhere). Does not: a
-high loss, or slow progress in 8 epochs.
-
-Note the cost first. The research plan says a fundamentally new architecture on
-Kaggle in this timeframe "invites a bad viva". Changing the *conditioning* (D1,
-`decisions-pending.md`) is cheap and additive; changing the *backbone* means
-retraining from zero with 6.5 weeks left and no metric harness. Make that
-distinction, not "change the architecture".
+Still open, and the answer has moved *against* changing anything. The instinct
+was "the architecture is too weak." The measurement says the opposite: the model
+has enough capacity to memorise its training set. **A bigger or richer model
+overfits sooner.** Conditioning changes (D1/D4a in `decisions-pending.md`) are
+cheap and additive and remain reasonable; replacing the backbone means
+retraining from zero with six weeks left and no metric harness. Keep that
+distinction — it is not "change the architecture", it is which half.
