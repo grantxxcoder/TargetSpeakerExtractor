@@ -282,10 +282,16 @@ cells.append(code(r'''
 # in /kaggle/working.
 #
 # train.py prints one CSV row per epoch on STDOUT, with the same columns as
-# history.csv. tqdm's progress bars go to STDERR. They are kept apart on
-# purpose: the stdout block below is a valid history.csv, so if this session
-# dies you can select it, paste it into a .csv, and lose nothing. history.csv
-# itself is only written when training *finishes*.
+# history.csv. The human-readable per-epoch term breakdown goes to STDERR
+# (it replaced tqdm's progress bars on 2026-08-31, which emitted one line per
+# batch and buried everything else). They are kept apart on purpose: the stdout
+# block below is a valid history.csv, so if this session dies you can select it,
+# paste it into a .csv, and lose nothing. history.csv itself is only written
+# when training *finishes*.
+#
+# Read the `gap(val-train)` column in the stderr breakdown, not `total`: both
+# totals fell the whole way through the 2026-08-29 run while held-out
+# separation collapsed below pass-through.
 #
 # -u as well as train.py's own flush=True: stdout is a pipe here, and a killed
 # session must not lose rows to a buffer.

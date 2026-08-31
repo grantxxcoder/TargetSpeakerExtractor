@@ -30,7 +30,11 @@ pyroomacoustics==0.10.1       # shoebox RIRs, Sabine T60 feasibility check
 pyloudnorm==0.2.0             # BS.1770 integrated loudness (decisions.md 2026-08-12)
 
 # --- training ------------------------------------------------------------
-tqdm==4.70.0                  # per-epoch progress bar in scripts/train.py
+tqdm==4.70.0                  # NO LONGER used by scripts/train.py -- its progress
+                              # bars were removed 2026-08-31 (they emitted one line
+                              # per batch and buried the per-epoch numbers). Pin
+                              # kept because notebooks/kaggle_train_mid.ipynb still
+                              # imports it.
 
 # --- analysis notebook (src/exploratory/data_setup.ipynb) ----------------
 pandas==3.0.5
