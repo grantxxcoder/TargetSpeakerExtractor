@@ -1,0 +1,86 @@
+\section{Metrics}
+\label{sec:metrics}
+This section describes the evaluation metrics used to assess the performance of a trained target speaker extraction model. These metrics are where the main contribution of the work lies. The particular use case of the TSE model designed in this work is to extract target speech, from a mixture of target and interfering speech, where the model has to be setup to handle the following cases:
+\begin{itemize}
+    \item \textbf{Case 1:} Target speech is present, interfering speech is present, and background noise is present.
+    \begin{itemize}
+        \item \textbf{Case 1a:} Interfering speaker interrupts the target speaker, i.e. the target speaker is cut off by the interfering speaker.
+        \item \textbf{Case 1b:} Interfering speaker speaks over the target speaker, i.e. the target speaker is still speaking while the interfering speaker is also speaking.
+        \item \textbf{Case 1c:} Turn-taking, i.e. the target speaker and interfering speaker take turns speaking, with no overlap and space between them.
+        \item \textbf{Case 1d:} Target speaker louder/softer than interfering speaker, and speaks for longer/shorter than interfering speaker.
+    \end{itemize}
+    \item \textbf{Case 2:} Target speech is present, interfering speech is absent, and background noise is present.
+    \item \textbf{Case 3:} Target speech is absent, interfering speech is present, and background noise is present.
+    \item \textbf{Case 4:} Target speech is absent, interfering speech is absent, and background noise is present.
+\end{itemize}
+Since the main task is intelligibility of the target speaker and not necessarily the \textit{quality} of the target speaker, the metrics that are designed in this section aim to reflect that objective. The metrics are designed for the purposes of using the BSRNN model in conjunction with a live speech-to-speech model, such as Gemini Live \cite{google2026geminilive}. Such a model is not a transcriber: it consumes audio through a learned encoder trained over a far wider distribution than read speech, and it is prompted rather than decoded. The metrics are therefore meant to show how well the model will translate as part of a live conversational system, and hence are designed to be used in conjunction with that system.
+
+\subsection{Trial definitions}
+\label{sec:trial}
+Each trial passed through the model at evaluation produces a 4-tuple $(y_x, y_{\hat{s}}, y_s, y_d)$ where $y_x$ is the input mixture speech transcription, $y_{\hat{s}}$ is the estimated target speech transcription, $y_s$ is the true target speech transcription, and $y_d$ is the interferer speech transcription. The subscripts follow the audio notation of Section~\ref{sec:objective}: $x$ is the mixture, $s$ the target reference and $\hat{s}$ the model output, with $d$ denoting the interfering speech and $y_{(\cdot)}$ the transcription of a signal. These transcriptions are created in two ways in this project: (1) by using an automatic speech recognition (ASR) system \cite{faster_whisper,radford2023whisper} to transcribe the audio to act as a baseline transcriber, and (2) by making use of a live speech-to-speech model that accepts the audio and outputs a transcription which is prompted with a standard prompt to transcribe the audio found in Appendix~\ref{app:prompt}. The tuple therefore does not represent necessarily the true transcriptions, but rather what the model/transcriber produces. To avoid confusion, the true transcriptions as found in LibriSpeech will be denoted with a star, e.g. $y^\star_s$
+
+
+\subsection{Text normalisation}
+\label{sec:normalisation}
+To standardise the transcriptions created by the different methods, a text normalisation process is applied to the audio transcriptions. Specifically, using the \texttt{whisper} library \cite{whisper_normalizer}, the \texttt{EnglishTextNormaliser} package, seen in Appendix~C of \cite{radford2023whisper}, is used to output the transcriptions into lower case, remove punctuation, expand contractions, standardise the spelling of numbers, and remove any non-alphanumeric characters. This is done to ensure that the transcriptions are comparable across different methods of transcription.
+
+
+\subsection{Live-model Content Fidelity Word Error Rate}
+\label{sec:lcfwer}
+The Live-model Content Fidelity Word Error Rate (LCF-WER) is a metric based off of the arithmetic of the standard Word Error Rate (WER) metric, but applied to a live-model transcription of the audio instead of a standard transcription. It is explicitly labelled as such as the standard WER metric is referenced in the training procedure, and is not associated with the live-model transcription. The standard WER metric is defined as follows:
+\begin{equation}
+    \text{WER} = \frac{S + D + I}{N}
+\end{equation}
+where $S$ is the number of substitutions, $D$ is the number of deletions, $I$ is the number of insertions, and $N$ is the total number of words in the reference. It is essentially a minimum edit-distance formula, where the number of edits required to change a reference text into the proposed text is divided by the number of words in the reference text. However, there is one flaw in this approach that is required for our metrics to highlight: the broad classes of substitutions, deletions, and insertions do not demonstrate the nuance of how these errors can occur. The LCF-WER is used to represent that fact that the classes of errors are specific to live model transcription. 
+
+
+\subsection{Interferer Content Rate}
+\label{sec:icr}
+The Interferer Content Rate (ICR) is the first metric used to highlight one particular nuance of the LCF-WER metric: a substitution can occur when the model hallucinates a word that is not present in the reference, or the substitution can occur with the model hearing the right word, but from the wrong speaker. The idea for the ICR metric is to highlight the latter case, where the model has heard the correct word, but from the wrong speaker. This will help determine if our model is following speakers, or making up words that are not present in the reference. 
+
+\paragraph{Content Words.} The ICR metric needs to identify which words are likely to be words that are not filler words that a model can easily hallucinate. Let $\mathcal{C}(\cdot)$ map a normalised transcription to the \emph{set} of content words it contains,                                      
+ \begin{equation}                                                                                                                             
+ \mathcal{C}(y) = \big\{\, w \in \textup{words}(y) \;:\; w \notin \mathcal{S} \,\big\},                                                       
+ \label{eq:contentwords}                                                                                                                      
+ \end{equation}                                                                                                                               
+ where $\mathcal{S}$ is a fixed stopword list, taken from the NLTK English stopword corpus \cite{bird2009nltk}. Function words are removed because almost any two English sentences share them, so an overlap counted over these words would rather count as grammatical issues than content. These content words will be used to make interferer-exclusive bag of words of which will indicate which words the model picks up from the interfering speaker. 
+
+ \paragraph{Interferer-exclusive content.}                                                                                                    
+Firstly, if both the target and interfer say the same word, it is not possible to know which speaker the model heard, thus these words are not considered unique to the interferer. Let $\mathcal{D}$ be the unique content words of the interferer that are not present in the target,
+ \begin{equation}                                                                                                                             
+    \mathcal{D} = \mathcal{C}(y_d) \setminus \mathcal{C}(y_s),                                                                       
+ \label{eq:exclusive}                                                                                                                         
+ \end{equation}                                                                                                                               
+ and the words that will be considered as leaked from the interferer are the intersection of the model output, $y_{\hat{s}}$ and the interferer-exclusive content words, $\mathcal{D}$,                                                                          
+ \begin{equation}                                                                                                                             
+ \mathcal{L}(y_{\hat{s}}) = \mathcal{C}(y_{\hat{s}}) \cap \mathcal{D}.                                                                                            
+ \label{eq:leaked}                                                                                                                            
+ \end{equation}                                                                                                                               
+ Write $\ell = |\mathcal{L}(y_{\hat{s}})|$ for the number of words leaked on a trial and $a = |\mathcal{D}|$ for the number of possible unique words to leak. If a trial has $a=0$, then the trial is not considered in the ICR metric, as there are no unique words to leak.
+
+The contribution that this paper makes is to turn the ICR metric into a rate, as sentences are varying lengths, and thus the amount of leaked words changes with the length of the sentence. The rate secondly helps to answer the following situation: should the model that is finally chosen leak fewer words frequently, or leak more words infrequently. The rating definition is aimed to answer that question, and is defined as follows:
+
+\paragraph{The rate.}                                                                                                                        
+The rate can be reported at several thresholds. For a set of trials $\mathcal{T}$, and a threshold $k$ of leaked words in a trial, the ICR metric is defined as the fraction of trials in which the number of leaked words $\ell$ is greater than or equal to $k$,                
+\begin{equation}                                                                                                                             
+\textup{ICR}@k                                                                                                                               
+= \frac{\big|\{\, i \in \mathcal{T}_k \;:\; \ell_i \ge k \,\}\big|}                                                                        
+        {|\mathcal{T}_k|},                                                                                                                  
+\qquad                                                                                                                                       
+\mathcal{T}_k = \{\, i \in \mathcal{T} \;:\; a_i \ge k \,\}.                                                                                 
+\label{eq:icrk}                                                                                                                              
+\end{equation}                                                                                                                               
+Lower percentages are better.                                                                      
+                                                                                                                                            
+The eligible set $\mathcal{T}_k$ depends on $k$, and this is deliberate. If in a trial there is only one exclusive content word available, it is impossible to achieve $\textup{ICR}@2$, so if we keep this trial in the denominator it would skew the results. 
+
+\subsection{Non-Response Rate}
+\label{sec:nrr}
+
+\subsection{Anchors}                                  
+\label{sec:anchors}
+% floor, ceiling, text floor, text ceiling; a bare score is meaningless
+
+\subsection{Reporting protocol}                       
+\label{sec:reporting}
+% stratification (B13); k>=3 repeats with CIs; what every judge result records
