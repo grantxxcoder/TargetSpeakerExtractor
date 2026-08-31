@@ -199,3 +199,122 @@ It measures **leaked content**, not **detected presence**. A judge that says
 "another voice was talking" without quoting it scores 0, correctly — no content
 leaked. That is intended, and worth stating so the row is not read as "the judge
 did not notice the interferer".
+
+---
+
+## 2026-08-31 — NRR design: an empty response is the signal, not pattern matching
+
+**Decision: the prompt instructs the judge — *if you cannot identify any speech,
+return nothing* — and a non-response is an empty response.** No sentinel token,
+no pattern list. `metric-definitions.md` 3.3 defines NRR as the "fraction of
+trials where the model declines, reports hearing nothing, returns silence, or
+produces a refusal" but does not say how that is decided. This is how.
+
+**Why emptiness and not a sentinel token.** A sentinel (`######`, checked before
+normalisation) was drafted first and rejected as needless complexity. **The
+offline ASR already returns empty on silence**, so emptiness gives ONE detection
+rule that serves both the ASR stand-in and the prompted judge; a sentinel would
+have needed two rules and a token to document, pin and defend against API
+mangling. The distinction a sentinel would have bought — telling a deliberate
+"no speech" signal apart from an empty response caused by an API error or
+truncation — **belongs at the transport layer, not in the metric**: record the
+call's finish reason, and treat a failed call as a missing measurement to retry,
+not as a trial that scored.
+
+### What NRR is for, in order of actual strength
+
+**1. It detects judge malfunction.** NRR on clean target audio *is* the judge's
+own defect rate — it declined on perfect input. Nothing else in the metric set
+can see that, and J2 warns that a degenerate judge is indistinguishable from a
+degenerate extractor in the numbers.
+
+**2. It separates "declined" from "misheard"** — a failure mode that exists only
+because the judge is a conversational model rather than a transcriber. An ASR
+always outputs something; a live model can refuse, hit a safety filter, or judge
+the audio unusable. LCF-WER lumps those in with a bad transcription.
+
+**3. It stops a mute scoring perfectly on ICR** — the reason 3.3 gives, and the
+weakest of the three, because **LCF-WER already scores a mute ~100 %** (all
+deletions) and the deletion rate identifies it as suppression. Do not defend NRR
+on this ground alone; the obvious reply is "but WER already catches that".
+
+**It is a tripwire, not a quality measure.** It will not rank two working systems
+and must never be quoted as if a one-point difference means something.
+
+### Why pattern matching was rejected — measured, not assumed
+
+The obvious detector searches the response for refusal phrases. Run against the
+**ground-truth texts** of `eval_public`, those phrases match **38 of 500 trials —
+7.6 %**:
+
+| pattern | matches in reference text |
+|---|---|
+| `nothing` | 23 |
+| `there is/was no` | 11 |
+| `i cannot / can't` | 4 |
+| `no speech/voice/sound` | 1 |
+
+Ground truth a pattern detector would have scored as a refusal:
+
+> *"nothing would satisfy him that could not stand cross-examination"*
+> *"there was no man sir, his troubled blue eyes glanced…"*
+
+**The speakers say these words.** A correct, verbatim transcription would have
+been recorded as a non-response, at a false-positive rate exceeding the metric's
+entire range.
+
+**CORRECTION TO A NUMBER REPORTED IN CONVERSATION.** A pattern-matching draft
+gave NRR floor **4.78 %** / ceiling **3.91 %** on `condition=both`. Re-measured,
+both are **0.00 %**. Those figures were entirely false positives — every one a
+pattern match on real speech. Do not quote them.
+
+### The rule
+
+| response | verdict |
+|---|---|
+| empty after normalising | non-response — `silence` |
+| in the artefact set (`you`, `thank you`, …) | non-response — `artefact` |
+| anything else | a real report; score it |
+
+**The artefact set exists only for the offline-ASR stand-in.** `small.en` cannot
+be instructed and emits `you` on digital silence, measured 8 of 8 absent trials
+(`decisions-m3.md` 2026-08-28). A prompted judge returns nothing and lands in
+`silence`.
+
+**NRR is per trial, not per second.** One trial, one yes/no. A trial where 2 of
+30 words came back is a real report that scores badly on LCF-WER, not a
+non-response. How much was lost is LCF-WER's deletion rate.
+
+### Absent trials are excluded, inside the metric
+
+Where the target never speaks, reporting nothing is the **correct** answer, so
+counting it as a non-response inverts the score. An earlier draft reported
+**32.8 % NRR on clean target audio** for exactly this reason, driven entirely by
+the 145 absent trials. `compute_nrr` therefore **requires** the target texts and
+excludes empty-reference trials itself, so a caller cannot forget. Absent trials
+are measured by the invented-speech row instead (B4).
+
+### Two consequences to carry
+
+**A prose refusal is NOT detected, deliberately.** A judge that ignores the
+instruction and declines in prose scores as a bad transcription. Catching it
+needs the rejected pattern list. **Non-compliance is handled by disqualifying the
+judge** — `silence_compliance()` measures it on silent input and belongs in the
+J2 candidate gate beside ceiling LCF-WER.
+
+**NRR must be read as a delta from the ceiling.** `system_attributable_nrr()`
+names the subtraction so it is not skipped.
+
+### Status: dormant until a judge exists
+
+With the offline ASR standing in, NRR is **0.00 % on all 355 present trials at
+both floor and ceiling** — a transcriber always returns words when the audio
+contains speech. So unlike LCF-WER and ICR, **NRR carries no information until a
+real prompted judge can decline.** Built and tested; cannot be exercised before
+J2 closes. Read the zeros as "not yet measurable", not as a result.
+
+**Still open:** off-prompt chat — a judge that answers the content instead of
+reporting it ("what time is the meeting" → "I don't have access to your
+calendar"). Matches no rule, is not empty, and is not detectable without
+reintroducing the false-positive problem. To be checked by hand on the judge
+pilot and recorded as a known blind spot.
