@@ -314,7 +314,19 @@ splits:
   # `hard` inherits, and the regimes block below stops `base` re-narrowing it.
   # Everything else is identical to train, so this split differs in one axis.
   sir0_train:
-    n_trials: 2000
+    n_trials: 5000        # 2,000 until 2026-08-31. Raised because the 1,989-trial
+                          # run memorised its training set: train separation
+                          # improved every epoch while held-out fell below
+                          # pass-through (decisions-m2.md 2026-08-29). 2.5x is the
+                          # DIAGNOSTIC size, not the maximum -- it is enough to
+                          # answer "does the train/held-out gap narrow", and if it
+                          # does not, the data-volume diagnosis is wrong and a
+                          # bigger render would have been wasted. ~16 GB rendered,
+                          # ~1,360 s/epoch projected from the measured 540 at
+                          # 1,989, so ~29 epochs fit one Kaggle session.
+                          # sir0_val STAYS AT 200 and must not be re-rendered:
+                          # the whole comparison is against the 08-29 baseline and
+                          # is only valid if the val set is byte-identical.
     noise_split: tr
     speakers_from: train
     sir_db: [-10.0, 10.0]

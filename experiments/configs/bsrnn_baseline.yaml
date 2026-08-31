@@ -21,7 +21,15 @@ data:
                         # rendered after 2026-08-26. NOTE batch_size then counts
                         # TRIALS: a step sees 2x that many examples.
                         # decisions-m1.md 2026-08-26.
-  enrollment_variants: 4  # Enrollment bank size, TRAINING ONLY -- val always
+  enrollment_variants: 3  # 4 until 2026-08-31; lowered to 3 to buy upload budget
+                        # for the 5,000-trial render. The bank costs
+                        # (K-1) x 2 x ~160 kB per trial, so K=4 -> K=3 saves
+                        # 320 kB/trial, ~1.6 GB at 5,000 trials. Untested whether
+                        # 3 rotations regularise as well as 4 -- the arm that
+                        # measured the bank used K=4 (decisions-m2.md 2026-08-30),
+                        # so this is a change to a measured setting and the run
+                        # cannot be compared to that arm on the bank axis alone.
+                        # Enrollment bank size, TRAINING ONLY -- val always
                         # reads variant 0, which IS enrollment.wav, so val stays
                         # comparable with every run before the bank existed.
                         # 1 = the single rendered clip, i.e. every run up to
@@ -143,8 +151,24 @@ training:
   epochs: 100
   patience: 10
   grad_clip: 5.0
-  weight_decay: 0.0     # AdamW defaults to 0.01, which would decay every LSTM
-                        # weight. Recorded as a choice, not inherited silently.
+  weight_decay: 1.0e-4  # 0.0 until 2026-08-31. Turned on as the second half of
+                        # the response to memorisation: more data attacks the
+                        # numerator, weight decay attacks the capacity. AdamW's
+                        # 0.01 default would decay every LSTM weight, which is
+                        # why it was refused before -- 1e-4 is two orders below
+                        # that, deliberately timid.
+                        # CONFOUND, stated: this run changes data volume AND
+                        # regularisation together, so an improvement cannot be
+                        # attributed between them. Accepted because both attack
+                        # the same hypothesis (too much capacity for the data)
+                        # and a workable checkpoint matters more than a clean
+                        # ablation with 6 weeks to freeze. decisions-m2.md
+                        # 2026-08-31.
+                        # NOTE dropout is NOT the other "free regulariser":
+                        # no dropout exists in src/models/ or this config, so
+                        # adding it means editing the architecture frozen on
+                        # 2026-08-28. project-state.md's claim that both are
+                        # config-level is wrong.
   lr_factor: 0.5        # ReduceLROnPlateau on val total
   lr_patience: 3        # must stay < patience or training stops before the
                         # lr ever drops
