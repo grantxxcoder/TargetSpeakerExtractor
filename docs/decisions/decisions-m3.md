@@ -306,3 +306,111 @@ NRR is 0.0 % at the floor and 1.0 % for the model. It remains near-useless with
 an ASR standing in for the judge, because a transcriber cannot decline — the one
 non-zero entry is the degenerate trial above. Read it as "not yet measurable",
 not as a result.
+
+---
+
+## 2026-09-01 — SIR/SAR added. The artefact hypothesis is NOT supported in the form predicted
+
+**Implemented** `src/live_model_metric/separation.py`, 12 tests. Splits what an
+estimate contains beyond the target into **interference** (the model failed to
+remove it) and **artefact** (the model invented it). Borrowed from the BSS_EVAL
+decomposition of Vincent et al. (2006); scale-invariant framing after Le Roux et
+al. (2019). Both cited as borrowed.
+
+**Method.** The estimate is projected onto the span of the three true sources.
+Whatever no scaled combination of them explains was not in the microphone signal,
+so the model created it. **Artefact is defined by elimination, not subtraction** —
+plain subtraction would give `estimate - mixture`, which is large for any working
+extractor and measures nothing useful.
+
+Requires all three clean sources (`noise = mixture - target - interferer`, as the
+loader already derives it), so it is **computable on constructed mixtures only,
+never on AMI**.
+
+### Three design decisions, taken
+
+1. **Scale-invariant**, so the scores are commensurable with the training
+   objective's SI-SDR.
+2. **Noise counts as a source, not as artefact.** Noise leaking through is a
+   failure to remove something that was genuinely present; calling it invention
+   would be wrong, and the hypothesis is about *processing* artefacts.
+3. **Scaling only, no allowed filter.** BSS_EVAL variants permit a filter before
+   calling the residual an artefact; the stricter scaling-only form is used, and
+   the reference is already the reverberant target so the honest filtering is
+   done.
+
+**A bug the tests caught.** An absolute epsilon in the denominator made SAR
+*not* scale-invariant — it swung 17 dB under a 7.5x gain, because when the
+artefact part is near zero the score becomes a function of the estimate's gain
+rather than its content. Fixed by flooring the denominator **relative** to the
+numerator with `TAU = 1e-3`, the same value and reasoning as `tau_pres` in the
+training objective. This caps every score at **+30 dB** and makes the scores
+exactly scale-invariant across a 1000x gain range.
+
+### Measured on the 5,000-trial checkpoint, sir0_val `both`, n=103
+
+| | change vs doing nothing |
+|---|---|
+| SIR (interferer removed) | **+4.33 dB** |
+| SAR (artefact avoided) | **-19.66 dB** |
+| SDR (the net) | +1.98 dB |
+
+Absolute SAR of the model output: **+10.34 dB**, where +30 dB is the artefact-free
+ceiling. So roughly **9 % of the output's energy is invented** — the artefact is
+real and substantial.
+
+**Consistency check:** SDR +1.98 dB against +1.99 dB computed independently with
+a separate SI-SDR implementation. Two code paths, 0.01 dB apart.
+
+### THE PREDICTION FAILED, and this is the finding
+
+The stated prediction was: if processing artefacts are what damage the listener,
+word-error improvement will correlate with SAR.
+
+| | correlation with LCF-WER improvement |
+|---|---|
+| delta SDR | **+0.20** (marginal at n=103, p about 0.04) |
+| delta SIR | +0.16 (not significant) |
+| **delta SAR** | **-0.05 (null)** |
+
+**Trial-level artefact severity does not predict trial-level word errors.** The
+artefact hypothesis of `metric-definitions.md` 1 is **not supported in that
+form.** Recorded as a failed prediction rather than quietly dropped.
+
+### What is actually happening: the model does not adapt
+
+| bucket | dSIR | dSAR | dSDR | dLCF-WER |
+|---|---|---|---|---|
+| easy, floor <25 % | +3.80 | -17.45 | +1.34 | **-4.2 (worse)** |
+| medium | +4.06 | -18.33 | +1.69 | -0.6 |
+| hard | +5.06 | -21.05 | +2.53 | +9.0 |
+| very hard >100 % | +4.32 | -21.41 | +2.24 | **+23.1 (better)** |
+
+**The signal columns are flat; only the outcome swings.** The model applies the
+same transform to easy and hard trials alike. The easy-trial regression is
+therefore *not* the model producing worse artefacts there — **the same artefact
+costs nothing when there was a lot of interference to remove, and costs dearly
+when there was not.** The trade lives in the input, not the output.
+
+It is not structurally incapable of adapting — it sees the mixture and the
+enrolment — it empirically **does not**, because `L_pres` is an average over
+crops in which suppression pays and artefact costs the same everywhere. No
+per-trial decision ever enters. See `decisions-pending.md` D11.
+
+### The result this actually produces
+
+**No signal-domain measure meaningfully predicts what the listener recovered.**
+The best, delta SDR, explains about **4 % of the variance** in word-error
+improvement. That is the divergence claim quantified, and it is a more general
+statement than a rank inversion.
+
+Caveats that must travel with it: n=103, so only delta SDR is marginally
+significant; and this is measured **through an ASR, not a live model**, so the
+live-model correlation is a separate open question.
+
+### Reading SAR without being misled
+
+**Delta SAR always looks catastrophic and that is an artefact of the reference.**
+The mixture is artefact-free *by construction* — it is exactly the sum of the
+sources — so it sits at the +30 dB ceiling and any processing whatsoever drops
+below it. **Quote the absolute SAR (+10.34 dB), not the delta.**

@@ -21,47 +21,98 @@ of the judge. The one thing still missing is the judge itself: no live-model
 measurement has been taken, and that is now the only thing between here and the
 project's actual result.
 
-## What changed since 2026-08-28
+## What changed since 2026-08-30
 
-1. **`L_gain` worked.** Blocking the mute taught the model to use the enrolment.
-   Swapping in a stranger's voice sample now moves the output **37.6 %**, against
-   14.9 % for the no-`L_gain` control. Output level sits at −4.2 dB where the
-   target actually is (−3.9 dB); the control sat at −22.4 dB, i.e. it had gone
-   silent and called that separation.
-2. **Training is 7.2x faster.** 523 s/epoch against 3,773. Ten epochs is now
-   **1.45 h, was 10.5 h.** Three changes; the one that mattered was lengthening
-   the crop by 8 ms so fp16 tensor-core kernels align (4.44x on its own).
-   Validated over a full 10 epochs in fp16 — no NaNs, and the score difference
-   against fp32 is inside run-to-run noise.
-3. **The "train longer" experiment ran and answered the question — badly.**
-   See below.
+1. **The memorisation diagnosis was tested and confirmed.** `sir0_train` was
+   re-rendered at **4,976 trials** (2.5x), `weight_decay` turned on at 1e-4 and the
+   enrolment bank dropped to K=3. 18 epochs of a requested 25, early-stopped,
+   6.2 h at 1,244 s/epoch. `decisions-m2.md` 2026-09-01.
+2. **All three of the project's own metrics are built and tested.** LCF-WER, ICR
+   and NRR, 51 tests, judge-agnostic with the transcriber swappable. Validated by
+   reproducing the C2 floor and ceiling exactly. `decisions-m4.md` 2026-08-31.
+3. **SIR/SAR added**, which splits residual interference from invented artefact.
+   12 tests. `decisions-m3.md` 2026-09-01.
+4. **The first system row exists.** The trained model has been scored end to end
+   on its own metrics for the first time — see the results table below.
+5. **J1 closed:** the judge is audio-in / text-out, not full-duplex.
 
-## The finding that matters: it memorises
+## The 5,000-trial run
 
-`2026-08-29-train-sir0-e50-resume`. Resumed at epoch 10, ran to 24, early-stopped
-on patience, 2.2 h. Best epoch **14**.
+`experiments/results/2026-09-01-train-sir0-5000/`, checkpoint
+`models/model_sir0_5000-e7.pt`. Best epoch **7**.
+
+| | 1,989 trials (08-29) | **4,976 trials (09-01)** |
+|---|---|---|
+| best held-out separation | 2.14 dB | **2.58 dB** |
+| **margin over doing nothing** (1.59 dB) | 0.55 dB | **0.99 dB** |
+| gap at the best epoch | 1.24 dB | **1.08 dB** |
+| gap at the last epoch | 5.68 dB (ep 24) | 4.16 dB (ep 18) |
+| epochs to match the old best | 14 | **2** |
+
+**The margin over doing nothing nearly doubled.** That is the honest framing:
+2.58 sounds close to 2.14, but doing nothing already scores 1.59 dB, so what the
+extractor *adds* is what matters. It also reaches in two epochs what previously
+took fourteen.
+
+**Still data-limited, not at capacity.** Train separation improved monotonically
+all 18 epochs, 2.30 → 5.64 dB, and never plateaued, while held-out peaked at
+epoch 7 and fell to 1.48 dB. That is the data-limited signature, not the
+capacity-limited one — so more data would help again. **But 2.5x bought only
++0.44 dB, so a further doubling will buy less**, for ~5 h of preparation and a
+33 GB upload. Decided against; the extractor is not the contribution.
+
+**Conditioning did not improve.** Enrolment sensitivity −3.79 dB at the selected
+epoch against −3.80 dB before. More data bought separation, not conditioning.
+**Do not quote the −1.53 dB reached by epoch 17** — held-out separation was
+collapsing over those same epochs, the same "headline moving for a bad reason"
+pattern as 08-29.
+
+## The finding that matters: it hurts trials that were already easy
+
+Measured on the first system row, n=103. Grouped by how bad the unprocessed
+mixture was:
+
+| mixture difficulty | n | change in LCF-WER | ΔSIR | ΔSAR |
+|---|---|---|---|---|
+| easy, floor <25 % | 22 | **−4.2 pts WORSE** | +3.80 | −17.45 |
+| medium, 25–60 % | 27 | −0.6 | +4.06 | −18.33 |
+| hard, 60–100 % | 27 | +9.0 better | +5.06 | −21.05 |
+| very hard, >100 % | 27 | **+23.1 better** | +4.32 | −21.41 |
+
+**The two signal columns are flat while the outcome swings by 27 points.** The
+model applies the same transform to every trial — it does not adapt. So the
+easy-trial regression is *not* worse artefacts there: **the same artefact costs
+nothing when there was a lot of interference to remove, and costs dearly when
+there was not.** The trade lives in the input, not the output.
+
+Overall: 43 trials improved (mean +29 pts), 31 worsened (mean −16), 29 unchanged.
+The regressions cancel most of the gains, which is why the aggregate moves 6.1
+points while single trials move by over 100.
+
+**And no signal-domain measure predicts the outcome.** The best, ΔSDR, explains
+about **4 %** of the variance in word-error improvement (n=103, through an ASR).
+That is the divergence claim quantified — a more general statement than a rank
+inversion. `decisions-m3.md` 2026-09-01.
+
+**A prediction that failed, recorded as such.** ΔSAR correlates with word-error
+improvement at **−0.05**, i.e. not at all. Trial-level artefact severity does not
+predict trial-level word errors, so the artefact hypothesis of
+`metric-definitions.md` §1 is not supported *in that form*.
+
+## Superseded: the memorisation finding, 2026-08-29
+
+Kept because it is what the 5,000-trial run was built to test. `1,989` trials,
+best epoch 14, collapsed by epoch 24.
 
 | | epoch 10 | epoch 14 (best) | epoch 24 |
 |---|---|---|---|
-| separation on **training** data (`L_pres`, dB) | 2.97 | 3.38 | **5.51** |
+| separation on **training** data (dB) | 2.97 | 3.38 | **5.51** |
 | separation on **held-out** data (dB) | 1.52 | 2.14 | **−0.17** |
-| gap between them | 1.45 | 1.24 | **5.68** |
+| gap | 1.45 | 1.24 | **5.68** |
 
-**Read the two rows in opposite directions.** On audio it has already seen the
-model improves every single epoch, all fourteen of them. On audio it has not seen
-it improves for four epochs, then falls apart — by epoch 24 it is *worse than
-handing the mixture through untouched*. The level-matching term shows the same
-split: better on train (2.92 → 1.51), worse on held-out (3.77 → 5.79).
-
-That is textbook overfitting, and it has a specific cause: **1,989 trials is not
-enough data for a 7.2 M-parameter model.** Random crops already vary per epoch,
-so the effective set is roughly 24,000 four-second examples — still small.
-
-**A headline that improved for a bad reason.** Enrolment sensitivity kept
-climbing right through the collapse, 43 % → 80 %. That is not conditioning
-getting better. A model whose output has stopped resembling the target will move
-a lot when you change its input, for no useful reason. **Do not quote the 80 %.**
-The trustworthy figure is 37.6 % at epoch 9, and 41.7 % at epoch 14.
+By epoch 24 it was *worse than handing the mixture through untouched*. Diagnosis:
+1,989 trials is not enough for a 7.2 M-parameter model. **Confirmed by the run
+above.**
 
 ## Can
 
@@ -78,6 +129,10 @@ The trustworthy figure is 37.6 % at epoch 9, and 41.7 % at epoch 14.
   tested (51 tests), judge-agnostic, with the transcriber swappable. Validated
   by reproducing the C2 floor/ceiling exactly.
 - **Beat doing nothing by ~1 dB** on held-out data, against 0.55 dB a week ago.
+- **Separate interference from artefact.** SIR/SAR decomposition implemented
+  (`separation.py`, 12 tests). The model removes interferer well (**SIR +4.33 dB**)
+  while inventing a lot (**absolute SAR +10.34 dB**, i.e. ~9 % of output energy is
+  invented). Constructed data only — needs the clean sources, so never on AMI.
 - **Be scored end to end on its own metrics.** First system row taken 2026-09-01:
   LCF-WER 65.2 → **59.1 %**, ICR@2 67.0 → **54.4 %** against a 5.8 % / 0.0 %
   ceiling. It captures ~10 % of the word-error headroom and ~19 % of the leakage
@@ -95,6 +150,11 @@ The trustworthy figure is 37.6 % at epoch 9, and 41.7 % at epoch 14.
 - **Be scored on a LIVE model.** The three metrics now produce real system
   numbers, but through an offline ASR standing in for the judge. No live-model
   measurement exists.
+- **Adapt to how hard the trial is.** Measured 2026-09-01: SIR and SAR change are
+  essentially FLAT across easy-to-hard trials (+3.80 to +4.32, −17.45 to −21.41)
+  while the word-error outcome swings −4.2 to +23.1. It applies one transform to
+  everything, so the same artefact is a bad trade on easy trials and a good one on
+  hard ones. `decisions-pending.md` D11 carries the fixes.
 
 ## Not started
 
@@ -114,6 +174,41 @@ required. This also deletes the response-transcription ASR from the measuring
 instrument. Carries a ~50-trial full-duplex confirmation run so the deviation
 from the stated objective is bought off rather than argued away.
 `decisions-m4.md` 2026-08-31.
+
+## The results table
+
+**Every metric value the project has, in one place.** Add columns as metrics are
+built and rows as models are made. `sir0_val`, `condition=both`, n=103, scored
+2026-09-01. **The listener is an offline ASR standing in for the judge — no
+live-model number exists yet.**
+
+Lower is better for LCF-WER, ICR and NRR. Higher is better for SDR, SIR and SAR.
+
+| system | LCF-WER | ICR@2 | mean leak | NRR | SDR | SIR | SAR |
+|---|---|---|---|---|---|---|---|
+| **1. Floor** — do nothing | 65.2 % | 67.0 % | 51.3 % | 0.0 % | −1.12 | −1.12 | +30.00 |
+| **2. Baseline** — `model_sir0_5000-e7.pt` | **59.1 %** | **54.4 %** | **39.1 %** | 1.0 % | +0.86 | +3.21 | **+10.34** |
+| **3. Extension** — artefact-penalty retrain | — | — | — | — | — | — | — |
+| **4. Ceiling** — clean target | 5.8 % | 0.0 % | 0.0 % | 0.0 % | +30.00 | +30.00 | +30.00 |
+
+**Headroom captured by the baseline:** LCF-WER **10.3 %**, ICR@2 **18.8 %**, mean
+leakage **23.8 %**.
+
+**How to read the three signal columns.** +30 dB is the ceiling in all of them,
+set by `TAU = 1e-3`. The floor's **SAR is +30 by construction** — the mixture is
+exactly the sum of the sources, so it invents nothing — which means **ΔSAR always
+looks catastrophic and must never be quoted.** Use the absolute value: the
+baseline's +10.34 dB means about **9 % of its output energy is invented**.
+
+**What the row 2 numbers say in one line.** The model removes the interferer
+reasonably well (SIR −1.12 → +3.21) at the cost of inventing a lot (SAR +30 →
++10.34), and the net signal gain (+1.98 dB) buys only 6.1 points of word error.
+
+**Caveats that travel with this table.** Offline ASR, not a judge. `sir0_val` is
+symmetric by construction, so it is harder than `eval_public`. NRR is structurally
+near-zero until a real judge can decline. `decisions-m3.md` 2026-09-01.
+
+---
 
 ## Offline ASR — chosen 2026-08-28
 
@@ -148,11 +243,20 @@ trials. Filter it before counting invented words.
 
 ## Compute
 
-523 s/epoch at 1,989 trials on a Kaggle T4, batch 3. Scaling the training set is
-the obvious response to overfitting, and it is affordable: **5,000 trials is
-~1,315 s/epoch, so 20 epochs in 7.3 h** — inside Kaggle's ~12 h cap. 19,938
-trials would be ~2.9 h/epoch and does not fit. Rendering a larger `sir0` set is
-~31 min per 2,000 trials locally.
+**Measured, 2026-09-01: 1,244 s/epoch at 4,976 trials** on a Kaggle T4, batch 3.
+18 epochs took 6.2 h, so ~25 epochs fits the ~12 h cap. The earlier projection of
+~1,315 s/epoch was 6 % high. 19,938 trials would still not fit.
+
+Local preparation costs, all measured on 2026-08-31 rather than projected:
+render 4,976 trials **1.2 h**, enrolment bank at K=3 **1.5 h**, bundle and zip
+**~47 min**, and the split occupies **15 GB**. Note `run_times.md` projected
+1.26 MB/trial and the real figure is **3.25 MB/trial**, because sir0 renders the
+interferer stem and two enrolment banks.
+
+**A render is cheaper than it looks.** Raising `n_trials` *appends* trials rather
+than resampling — the first 1,989 came back byte-identical — so `render_trials.py`
+skips what exists and only the new trials cost anything. Its `config_md5` refusal
+is a conservative guard, not evidence the audio changed.
 
 Batch size is still 3 where the config's comment says 12 — untested, and it must
 stay pinned at 3 for any resume, because `train.py` refuses a resume whose config
@@ -165,10 +269,15 @@ differs from the checkpoint's.
    argument: score the ceiling, the floor and a few silent trials on each
    candidate and read whether it can report clean speech, whether it can fail,
    and whether it stays quiet when there is nothing to hear.
-2. **Score the 5,000-trial checkpoint on the metrics that exist.** Render
-   estimates, transcribe them, and produce the first system row for LCF-WER and
-   ICR. Costs nothing and needs no judge.
-3. **Do NOT render more data.** It would still help — the model is data-limited,
+2. ~~**Score the 5,000-trial checkpoint on the metrics that exist.**~~ **DONE
+   2026-09-01** — see the results table. Next in this line is the mix-back sweep
+   (`decisions-pending.md` D11), which turns one checkpoint into a family of
+   systems for the divergence curve and needs no retraining.
+3. **A result already exists without a judge, and should be written up.** No
+   signal-domain measure predicts what the listener recovered: the best, ΔSDR,
+   explains ~4 % of the variance in word-error improvement (n=103, through an
+   ASR). That is the divergence claim quantified.
+4. **Do NOT render more data.** It would still help — the model is data-limited,
    not at capacity — but 2.5x bought +0.44 dB and a further 2x will buy less,
    for ~5 h of rendering and a 33 GB upload. `decisions-m2.md` 2026-09-01.
 
@@ -177,10 +286,23 @@ through the run that overfitted.
 
 ## The open architecture question
 
-Still open, and the answer has moved *against* changing anything. The instinct
-was "the architecture is too weak." The measurement says the opposite: the model
-has enough capacity to memorise its training set. **A bigger or richer model
-overfits sooner.** Conditioning changes (D1/D4a in `decisions-pending.md`) are
-cheap and additive and remain reasonable; replacing the backbone means
-retraining from zero with six weeks left and no metric harness. Keep that
-distinction — it is not "change the architecture", it is which half.
+**Unchanged on size, but there is now a live question about the OUTPUT.**
+
+On size the answer still points *against* changing anything: the model has enough
+capacity to memorise its training set, so a bigger or richer one overfits sooner.
+Conditioning changes (D1/D4a in `decisions-pending.md`) stay cheap and additive.
+Replacing the backbone means retraining from zero. That distinction holds — it is
+not "change the architecture", it is which half.
+
+**What is new is the masking question.** The model invents ~9 % of its output
+energy (absolute SAR +10.34 dB), and **a mask can only attenuate bins that
+already exist; it cannot synthesise.** The artefacts are therefore imperfect
+attenuation — spectral holes, musical noise, phase damage — which is a property of
+the parameterisation, not of the weights.
+
+M5's artefact-penalty retrain is the experiment that tests it, and **both outcomes
+are results.** If artefact falls without suppression falling, masking was merely
+being applied too aggressively. **If SAR cannot improve without giving up SIR,
+that is evidence masking is the wrong output parameterisation for this task** —
+the argument for a mapping or generative output, reportable even though building
+the replacement is out of scope before the freeze. `milestones.md` M5.

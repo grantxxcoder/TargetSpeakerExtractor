@@ -466,6 +466,157 @@ not, the metric is too noisy to detect system differences — fix before M5.
 
 ## M5 — Second model · target Oct 14 (week 10) · CUTTABLE
 
+**Scope changed 2026-09-01: the second model is now an ARTEFACT-PENALTY retrain,
+not a proxy-objective fine-tune.** Same architecture, same data, same base
+checkpoint, one extra loss term — still a controlled A/B, and now aimed at a
+cause this project has actually measured rather than at a borrowed idea.
+
+### Why the change
+
+The 2026-09-01 measurement (`decisions-m3.md`) found the extractor invents a
+great deal — absolute SAR **+10.34 dB**, roughly **9 % of output energy** that was
+in none of the sources — and that it applies the same transform to easy and hard
+trials alike, so on easy trials it degrades audio that was already intelligible.
+
+**The cause is in the objective.** `L_pres` collects residual interference and
+invented artefact into a single denominator, where they cost the same per unit of
+energy. The model is therefore never told that inventing is worse than failing to
+remove. **This project has all three clean sources at training time, so that split
+is computable and the term is possible.**
+
+### The term: one weight inside `L_pres`, not a second loss
+
+**`L_pres`'s denominator is ALREADY the sum of the two piles**, exactly and
+verifiably. The three components are mutually orthogonal, so
+
+```
+||s_hat - alpha*s||^2  ==  ||e_interf||^2 + ||e_artif||^2
+```
+
+checked numerically to six decimal places on 2026-09-01, with all cross inner
+products at 1e-12. `L_pres`'s `alpha*s` IS the projection onto the target.
+
+So the two piles currently cost **exactly the same per unit of energy, 1:1**. That
+is the thing to change, and the change is a single ratio:
+
+```
+L_sep = -10 log10(  ||alpha*s||^2
+                  / ( ||e_interf||^2 + BETA*||e_artif||^2 + tau*||alpha*s||^2 ) )
+```
+
+`BETA` states how much more damaging invented energy is than leaked energy.
+
+**Why this beats adding a separate `L_artif` term.** Four reasons, the second
+decisive:
+
+1. **`BETA = 1` recovers `L_pres` EXACTLY**, by the algebra above. The control arm
+   is the existing baseline with no re-derivation, and every previous run stays
+   comparable.
+2. **It removes the degenerate attractor.** A separate artefact term scores
+   *perfectly* on pass-through — the mixture invents nothing, so `s_hat = x` wins
+   it outright, a new pull toward doing nothing structurally identical to the mute
+   of 2026-08-25. With `BETA` inside the ratio, pass-through's interference term
+   is enormous and it can never win. **The pass-through collapse risk largely
+   disappears.**
+3. **No new anchor derivation.** `w_m` and `w_g` needed break-even tables because
+   they reconcile terms in *different units*. `BETA` is dimensionless inside an
+   already-calibrated ratio, so it needs none.
+4. **One number, still in dB**, same `tau` behaviour, same scale as every
+   `L_pres` ever reported.
+
+**What it actually encourages.** The model's only lever is the mask, and a
+gentler, smoother mask means less artefact and more residual interference.
+`BETA` sets where on that curve the optimum sits. Unlike an inference-time
+mix-back gain, it lets the model choose *where in time and frequency* to be
+gentle.
+
+**Differentiable and cheap.** A 3x3 normal-equations solve per crop;
+`torch.linalg.solve` carries gradients and the cost is negligible beside the
+BSRNN forward pass. **No new data** — `interferer.wav` is rendered and the loader
+already derives `noise = mixture - target - interferer`.
+
+### Choosing BETA — screen it for free before spending training time
+
+**It is one new hyperparameter, and the only one.** But it does not have to be
+guessed, and it must not be swept blind at 6.2 h per arm.
+
+**Step 1, free: use the D11 mix-back sweep as a screening test.** Blending the
+mixture back at inference walks the *same* trade-off curve — more mixture means
+more interference and less artefact — with no retraining. **If the sweep's optimum
+sits at `alpha < 1`, gentler is better and `BETA > 1` is worth training. If the
+optimum is `alpha = 1`, `BETA > 1` will probably not help and roughly 25 h of
+Kaggle time has been saved.** Run this first.
+
+**Step 2, if screening says go: ablate, as `w_m` and `w_g` were.** `BETA` in
+{1, 2, 4, 8}, with `BETA = 1` the free control. Select on held-out LCF-WER, which
+is the quantity actually being optimised for. Four arms at 6.2 h is ~25 h, so
+three or four Kaggle sessions — budget it before starting.
+
+**Step 3, as a sanity check only: estimate BETA from the measurement.** The
+instrument now exists to regress word-error against the two energies separately
+and read `BETA` off as the ratio of their coefficients. **Do not trust it yet:**
+the 2026-09-01 correlations were weak — delta SAR against word-error improvement
+was **-0.05**, i.e. null — so a naive regression would return `BETA` near or below
+1, saying "artefacts do not matter". That may be true, may be an artefact of
+n=103, and may be an artefact of scoring through an ASR rather than the judge.
+**Use it to check the ablation's answer, never to replace it.**
+
+### Open design questions
+
+- **Rank-deficient crops.** On `target_only` and `noise_only` crops the source
+  basis is degenerate. Apply the decomposition to present crops with a genuine
+  interferer only; elsewhere fall back to `BETA = 1`, which is exactly today's
+  `L_pres`.
+- **Absent crops.** Excluded, as the other present-branch terms are.
+- **Reporting.** `L_sep` at `BETA = 1` must be logged alongside whatever `BETA`
+  trained, so the curve stays readable against the historical `L_pres`.
+
+### Checklist
+
+- [ ] **D11 mix-back sweep run first as the screening test.** No `BETA` training
+      until it says gentler is better
+- [ ] `L_sep` implemented with `BETA = 1` verified to reproduce `L_pres` bit for
+      bit on a fixed crop — the ablation is worthless without that
+- [ ] Applied to present crops with a genuine interferer only
+- [ ] `BETA` ablated over {1, 2, 4, 8}, selected on held-out LCF-WER
+- [ ] Fine-tuned from `models/model_sir0_5000-e7.pt`, everything else held fixed
+- [ ] Scored into row 3 of the results table in `project-state.md`
+- [ ] Reported as **evidence about masking**, not merely as a better model
+
+### Why this is a rebuke of the masking parameterisation
+
+Worth stating as the argument, because it is the reason this is interesting rather
+than merely corrective. **A mask can only attenuate time-frequency bins that
+already exist; it cannot synthesise.** The artefacts are the by-product of
+imperfect attenuation — spectral holes, musical noise, phase damage. A term that
+penalises invention specifically therefore pressures the model toward gentler,
+smoother masks.
+
+**So the experiment has two possible outcomes and both are results.** If artefact
+falls without suppression falling, masking was simply being applied too
+aggressively. **If SAR cannot be improved without giving up SIR, that is evidence
+masking is the wrong output parameterisation for this task** — which is the
+argument for a mapping or generative output, and a finding worth reporting even
+though building that replacement is out of scope before the freeze.
+
+### Checklist
+
+- [ ] `w_a` derived from measured anchors, **including pass-through**, before any
+      training run
+- [ ] `L_artif` implemented with the double-count stated in the config comment
+- [ ] Applied to present crops with a genuine interferer only
+- [ ] Fine-tuned from `models/model_sir0_5000-e7.pt`, everything else held fixed
+- [ ] Scored on all metrics into row 3 of the results table in `project-state.md`
+- [ ] Reported as **evidence about masking**, not merely as a better model
+
+*(Superseded plan, kept for the record: a frozen-encoder feature-matching proxy
+fine-tune. Dropped because the artefact penalty targets a cause measured in this
+project's own data, whereas the proxy was borrowed from PS4 and would have needed
+its own anchor work regardless. Speaker-similarity and target-activity
+auxiliaries remain available if time allows.)*
+
+Original wording follows for the record.
+
 Proxy-objective fine-tune from the M2 checkpoint. Same architecture, same data,
 same base checkpoint, different training objective — a controlled A/B, not a new
 architecture.

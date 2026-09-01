@@ -17,6 +17,9 @@ actually taken go to the decision log of the milestone they belong to —
   blocked — J1 closed 2026-08-31.** See Group J.
 - **J3 — the ICR overlap threshold.** Declared `count>=2` with a sensitivity
   sweep, not yet signed off. See Group J.
+- **D11 — inference-time mix-back.** A measuring instrument for the divergence
+  result, explicitly NOT a fix to the model. Carries the real strategies
+  (learned gate, differentiable artefact penalty). See Group D.
 - **J4 — PROPOSAL: a metric *system* (normalised requirement axes, composed and
   plotted) rather than metrics in isolation.** Diagnosis accepted; ranking by
   polygon area rejected as order-dependent, and the baseline normalisation must
@@ -1078,3 +1081,74 @@ the dot plot answers "by how much". Cheap to emit both from the same numbers.
 - Does the composite get reported **per B13 condition** as well as pooled? It
   must, or the composite becomes the aggregate-that-appears-alone that B13
   forbids.
+
+### D11. Inference-time mix-back: a measuring instrument, NOT a fix to the model
+
+**Status: OPEN. Raised 2026-09-01. Grant's objection is recorded and accepted —
+this is a cheap post-hoc patch rather than a strategy for fixing the process.
+Kept because its value as an INSTRUMENT is separate from its value as a fix.**
+
+**The proposal.** Blend the model's output back with its own input at inference,
+`s_alpha = alpha * s_hat + (1 - alpha) * x`. `alpha = 1` is the current model,
+`alpha = 0` is doing nothing. Costs one multiply-add per sample, adds **zero
+algorithmic latency** (output sample n needs only input sample n), and requires
+no retraining because `alpha` is not a model parameter. All values of `alpha`
+come from a single forward pass.
+
+**Why it was proposed.** The 2026-09-01 measurement found the model applies the
+same transform regardless of difficulty — SIR improvement 3.80 to 4.32 dB and SAR
+degradation -17.45 to -21.41 dB are essentially flat across easy-to-hard trials —
+while the word-error outcome swings from -4.2 to +23.1 points. A single global
+knob is therefore the right *shape* of intervention, because the model's signal
+behaviour is constant.
+
+### The objection, which stands
+
+**This does not fix anything.** It trades away the model's benefit on hard trials
+to stop it hurting easy ones, using a constant chosen offline. The model still
+cannot tell the two cases apart, still produces the same artefacts, and still has
+no mechanism to modulate itself. A single global `alpha` is a compromise, not a
+capability.
+
+**So it must not be presented as an improvement to the extractor.** In any
+results table it is *the extractor with a mix-back gain*, one system and a
+parameter, never five systems.
+
+### Why it is still worth running: it is the divergence instrument
+
+The sweep produces a family of systems from one checkpoint, walking the
+artefact-versus-residue trade in a controlled way — letting the mixture back in
+raises SAR and lowers SIR by construction. That family is what M6's divergence
+result needs, and it needs no training and no second architecture. **Its value is
+as a measurement, and it should be described that way.**
+
+Cost is transcription, not compute: alpha = 0 and 1 are already transcribed, so 5
+values over 200 trials is ~600 new transcriptions, about 30 min of CPU.
+
+### The actual strategies, if the underlying problem is to be fixed
+
+Recorded so the cheap version does not crowd them out. In rough order of
+principle:
+
+**1. A learned, input-conditioned gate.** Have the model predict its own
+`alpha`, per frame, from the mixture — filter hard where there is interferer
+energy to remove, barely at all where there is not. This is the principled form
+of the same idea: it gives the model the capability the global knob fakes. Small
+head, needs retraining, and it directly addresses "the model cannot tell the
+cases apart".
+
+**2. A differentiable artefact penalty in the objective.** The deeper cause is
+that `L_pres` collects residual interference and invented artefact into one
+denominator, so per unit of energy they cost the same. **This project has all
+three clean sources, so the SIR/SAR split is computable at training time**, and
+a term penalising the artefact residue specifically is therefore possible. That
+attacks the cause rather than the symptom, and is the strongest M5 candidate on
+the table.
+
+**3. Reconsider whether aggressive masking is the right output parameterisation
+at all.** The artefacts are a property of masking. This is the expensive option
+and is almost certainly out of scope before the freeze.
+
+**Recommendation: run the sweep as an instrument for M6, and log option 2 as the
+modelling response.** Do not let the sweep be written up as the answer to the
+easy-trial regression.
