@@ -211,3 +211,98 @@ aggressive: harder masking removes the interferer (fewer insertions) and
 introduces artefacts (more substitutions). So the decomposition is a cheap probe
 of the artefact-versus-residue trade-off that `metric-definitions.md` 1
 hypothesises about, and it needs no metric beyond the one already defined.
+
+---
+
+## 2026-09-01 — FIRST system row on the project's own metrics, and the model hurts easy trials
+
+**The first end-to-end measurement of a trained extractor on LCF-WER, ICR and
+NRR.** Everything before this was floor/ceiling anchors. Offline ASR standing in
+for the judge, so this is not a live-model result — but the pipeline is proven
+end to end and the numbers are real.
+
+Checkpoint `models/model_sir0_5000-e7.pt` (4,976-trial run, `decisions-m2.md`
+2026-09-01). Estimates in `experiments/results/2026-09-01-est-sir0-5000/`, 200
+trials, CPU, whole-clip single forward pass. `sir0_val`, `condition=both`, n=103.
+
+| system | LCF-WER | sub | del | ins | ICR@2 | mean leak | NRR |
+|---|---|---|---|---|---|---|---|
+| floor (unprocessed mixture) | 65.2 % | 32.9 | 9.3 | 23.1 | 67.0 % | 51.3 % | 0.0 % |
+| **the model** | **59.1 %** | 28.1 | **12.6** | 18.4 | **54.4 %** | **39.1 %** | 1.0 % |
+| ceiling (clean target) | 5.8 % | 3.4 | 0.7 | 1.7 | 0.0 % | 0.0 % | 0.0 % |
+
+**Headroom captured:** LCF-WER **10.3 %** of the 59.4-point band; ICR@2 **18.8 %**
+of its 67-point band; mean leakage **23.8 %**.
+
+**The model is better at removing the interferer than at making the target
+intelligible** — it captures roughly twice as much ICR headroom as LCF-WER
+headroom. That asymmetry is invisible to a word error rate on its own and is the
+first concrete thing ICR has told us that LCF-WER could not.
+
+### The finding: it helps hard trials and HURTS easy ones
+
+| floor difficulty | n | mean change in LCF-WER | trials improved |
+|---|---|---|---|
+| easy, floor <25 % | 22 | **−4.2 pts (worse)** | 18 % |
+| medium, 25–60 % | 27 | −0.6 pts | 44 % |
+| hard, 60–100 % | 27 | +9.0 pts better | 37 % |
+| very hard, >100 % | 27 | **+23.1 pts better** | 63 % |
+
+`correlation(floor WER, improvement) = +0.33`. Overall: **43 trials improved
+(mean +29 pts), 31 worsened (mean −16 pts), 29 unchanged.** The regressions
+cancel most of the gains, which is why the aggregate moves only 6.1 points while
+individual trials move by 100+.
+
+**This is the artefact-versus-residue trade-off, measured.** On an easy trial
+there is little interferer to remove, so nearly everything the extractor does is
+introduce distortion. On a hard trial the interferer dominates and removing it
+more than pays for the distortion. **The optimum is therefore not "always
+filter"**, which is the direct motivation for the mixture/estimate interpolation
+sweep.
+
+**The error decomposition says the same thing from another angle.** Insertions
+fell 23.1 -> 18.4 (interferer removed) and substitutions 32.9 -> 28.1, but
+**deletions ROSE 9.3 -> 12.6** — the extractor removes some of the target along
+with the interferer.
+
+### A divergence result already exists, without a judge
+
+On these same 103 trials, whole-clip SI-SDR improved by a **mean of +1.99 dB**
+(median +1.40, better on 78 % of trials) — a clean win by the conventional
+measure. The content metric says the model made **30 % of trials worse**, and
+systematically the easy ones.
+
+**Conventional signal quality and content fidelity disagree on this model, on
+this data, today.** That is a miniature of the thesis's central claim, obtained
+before the judge exists. It must be labelled as measured through an ASR rather
+than a live model, and the SI-SDR figure here is whole-clip and unfloored, so it
+is NOT the same quantity as the `L_pres` reported in training.
+
+### What the good cases look like
+
+Worth keeping for the write-up. `sir0_val-42-000152`, SIR +9.9 dB: the
+unprocessed mixture had the transcriber report the interferer's entire sentence
+before the target's, WER 195 %, 15 leaked words. The model's output transcribed
+**word-for-word correct, WER 0 %, 0 leaked**.
+
+`sir0_val-42-000050`, SIR +0.9 dB, is the more diagnostic one: near-equal
+loudness and the interferer **interleaved throughout** rather than prepended.
+WER 138 % -> 18 %, leaked 17 -> 0, and the residual errors are mishearings
+(`snare` for `snake`) rather than leakage. The model could not have solved that
+by keeping the louder voice or by taking the first speaker.
+
+### One genuine defect
+
+`sir0_val-42-000145`, floor WER 40 % -> 100 %. The output transcribes as
+`the the the the the the the the the the the the the the` — a **degenerate
+collapse on a single trial**, on a trial that was already easy. NRR caught it
+(1.0 % against the floor's 0.0 %), which is the metric doing its job on the
+first system it has ever scored. Listen to the file: if the output is mush
+rather than speech this is a stability bug, not a quality issue.
+
+### Status of the third metric
+
+NRR is 0.0 % at the floor and 1.0 % for the model. It remains near-useless with
+an ASR standing in for the judge, because a transcriber cannot decline — the one
+non-zero entry is the degenerate trial above. Read it as "not yet measurable",
+not as a result.

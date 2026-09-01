@@ -1,5 +1,45 @@
-% TODO: appendix title
-\chapter{[Appendix title]}
-\label{app:a}
+\chapter{Evaluation protocol details}
+\label{app:protocol}
 
-% TODO
+\section{Prompt for live-model transcription}
+\label{app:prompt}
+
+% TODO: fill in once the judge model is chosen. The prompt must be reproduced
+% here EXACTLY as issued, including whitespace, because the metric is defined
+% against a fixed prompt and prompt wording is a known source of variance.
+%
+% Two wordings are required, differing only by the minimum change needed to be
+% grammatical across input modalities ("what you heard" for audio input,
+% "what you received" for text input). Both are published.
+%
+% The prompt must NOT instruct the judge to choose between speakers -- for
+% example "report the clearest voice" -- because speaker selection is the
+% extractor's task, and instructing it hands that task to the judge instead.
+
+\emph{To be completed once the judge model is selected.}
+
+\section{Pinned components of the measuring instrument}
+\label{app:pinned}
+
+% TODO: complete the judge row once selected. Every judge result must record
+% the exact model identifier, the exact prompt, the input modality and the run
+% date, because closed models change without notice.
+
+\begin{table}[h]
+  \mytable
+  \begin{tabularx}{\textwidth}{@{}lL@{}}
+    \toprule
+    Component & Identity \\
+    \midrule
+    Text normaliser        & \texttt{whisper-normalizer} 0.1.15, \texttt{EnglishTextNormalizer} \cite{whisper_normalizer,radford2023whisper} \\
+    Baseline transcriber   & \texttt{faster-whisper} 1.2.1, \texttt{small.en}, int8 quantisation, greedy decoding \cite{faster_whisper,radford2023whisper} \\
+    Word error rate        & \texttt{jiwer} 4.0.0 \cite{jiwer} \\
+    Stopword list          & \texttt{NLTK} English stopwords \cite{bird2009nltk}, snapshotted into the source tree so the list cannot change with a library upgrade \\
+    Judge model            & \emph{to be recorded} \\
+    Random seed            & 42 \\
+    \bottomrule
+  \end{tabularx}
+  \caption{Components of the evaluation instrument, pinned by version. A change
+           to any row invalidates comparison with numbers reported before it.}
+  \label{tab:pinned}
+\end{table}

@@ -1,0 +1,598 @@
+<title>M2 Status — Trained Model and Metrics</title>
+<style>
+  :root {
+    --ground:        #f8f6f3;
+    --surface:       #ffffff;
+    --surface-sunk:  #f1eee9;
+    --line:          #ddd8d1;
+    --line-strong:   #c3bcb2;
+    --text:          #1d2128;
+    --text-soft:     #5b6470;
+    --text-faint:    #8b939d;
+    --accent:        #2f6d92;
+    --accent-soft:   #e3edf3;
+    --done:          #3d7355;
+    --done-soft:     #e3ede7;
+    --signal:        #9a6f14;
+    --signal-soft:   #f3ebd9;
+    --risk:          #a2433a;
+    --risk-soft:     #f4e4e2;
+
+    --serif: ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif;
+    --sans:  ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono:  ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:        #14161c;
+      --surface:       #1b1e26;
+      --surface-sunk:  #101218;
+      --line:          #2b3038;
+      --line-strong:   #3d434d;
+      --text:          #e8e6e2;
+      --text-soft:     #a4adb8;
+      --text-faint:    #737d89;
+      --accent:        #6aa8cd;
+      --accent-soft:   #1c2c38;
+      --done:          #6fae8a;
+      --done-soft:     #1a2620;
+      --signal:        #d3a851;
+      --signal-soft:   #2a2317;
+      --risk:          #d97f74;
+      --risk-soft:     #2c1d1b;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:        #14161c;
+    --surface:       #1b1e26;
+    --surface-sunk:  #101218;
+    --line:          #2b3038;
+    --line-strong:   #3d434d;
+    --text:          #e8e6e2;
+    --text-soft:     #a4adb8;
+    --text-faint:    #737d89;
+    --accent:        #6aa8cd;
+    --accent-soft:   #1c2c38;
+    --done:          #6fae8a;
+    --done-soft:     #1a2620;
+    --signal:        #d3a851;
+    --signal-soft:   #2a2317;
+    --risk:          #d97f74;
+    --risk-soft:     #2c1d1b;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 940px; margin: 0 auto; padding: 0 28px 96px; }
+  .prose { max-width: 68ch; }
+
+  /* ---- masthead ---- */
+  .masthead {
+    border-bottom: 2px solid var(--text);
+    padding: 56px 0 20px;
+    margin-bottom: 40px;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    margin-bottom: 22px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(34px, 5.5vw, 52px);
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+    margin: 0 0 16px;
+    text-wrap: balance;
+  }
+  .standfirst {
+    font-family: var(--serif);
+    font-size: clamp(17px, 2.2vw, 20px);
+    line-height: 1.5;
+    color: var(--text-soft);
+    max-width: 60ch;
+    margin: 0;
+  }
+
+  /* ---- verdict strip ---- */
+  .verdict {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(138px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    margin: 36px 0 56px;
+  }
+  .vcell { background: var(--surface); padding: 16px 18px; }
+  .vlabel {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-bottom: 8px;
+  }
+  .vnum {
+    font-family: var(--mono);
+    font-size: 26px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+  }
+  .vnote { font-size: 12.5px; color: var(--text-soft); margin-top: 5px; line-height: 1.4; }
+  .is-done { color: var(--done); }
+  .is-signal { color: var(--signal); }
+  .is-risk { color: var(--risk); }
+
+  /* ---- sections ---- */
+  section { margin-bottom: 60px; }
+  h2 {
+    font-family: var(--serif);
+    font-size: 27px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0 0 6px;
+    text-wrap: balance;
+  }
+  .sub {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 20px;
+  }
+  h3 {
+    font-family: var(--sans);
+    font-size: 15px;
+    font-weight: 650;
+    margin: 28px 0 8px;
+    letter-spacing: -0.005em;
+  }
+  p { margin: 0 0 14px; }
+  a { color: var(--accent); }
+  strong { font-weight: 650; }
+  code {
+    font-family: var(--mono);
+    font-size: 0.87em;
+    background: var(--surface-sunk);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 1px 4px;
+  }
+
+  /* ---- the segment-bar motif: speech spans against silence ---- */
+  .track {
+    display: flex;
+    gap: 2px;
+    height: 9px;
+    margin: 10px 0 0;
+  }
+  .seg { flex: 1; background: var(--line-strong); opacity: 0.35; border-radius: 1px; }
+  .seg.on { background: var(--done); opacity: 1; }
+  .seg.part { background: var(--signal); opacity: 1; }
+
+  /* ---- milestone ladder ---- */
+  .ladder { border-top: 1px solid var(--line); }
+  .rung {
+    display: grid;
+    grid-template-columns: 86px 1fr 150px;
+    gap: 18px;
+    padding: 15px 0;
+    border-bottom: 1px solid var(--line);
+    align-items: baseline;
+  }
+  .rung-id {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+  .rung-name { font-size: 14.5px; }
+  .rung-name em { color: var(--text-soft); font-style: normal; display: block; font-size: 13px; margin-top: 2px; }
+  .rung-when {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-soft);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  .rung.now { background: var(--accent-soft); margin: 0 -14px; padding-left: 14px; padding-right: 14px; }
+  .rung.now .rung-id { color: var(--accent); }
+
+  /* ---- tables ---- */
+  .scroll { overflow-x: auto; margin: 18px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; min-width: 460px; }
+  th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    font-weight: 500;
+    padding: 0 14px 8px 0;
+    border-bottom: 1px solid var(--line-strong);
+    white-space: nowrap;
+  }
+  td {
+    padding: 9px 14px 9px 0;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+
+  /* ---- inventory columns ---- */
+  .cols {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(258px, 1fr));
+    gap: 26px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    padding: 20px 22px 22px;
+  }
+  .card h3 { margin-top: 0; }
+  .card ul { margin: 0; padding-left: 17px; }
+  .card li { margin-bottom: 7px; font-size: 13.5px; line-height: 1.5; }
+  .card li:last-child { margin-bottom: 0; }
+  .tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    padding: 2.5px 7px;
+    border-radius: 2px;
+    vertical-align: 1.5px;
+  }
+  .t-done   { background: var(--done-soft);   color: var(--done); }
+  .t-signal { background: var(--signal-soft); color: var(--signal); }
+  .t-risk   { background: var(--risk-soft);   color: var(--risk); }
+
+  /* ---- callout ---- */
+  .note {
+    border-left: 3px solid var(--accent);
+    background: var(--surface);
+    padding: 16px 20px;
+    margin: 22px 0;
+  }
+  .note.warn { border-left-color: var(--risk); }
+  .note p:last-child { margin-bottom: 0; }
+  .note-h {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-bottom: 7px;
+  }
+
+  /* ---- ordered next steps ---- */
+  ol.steps { list-style: none; counter-reset: s; padding: 0; margin: 0; }
+  ol.steps > li {
+    counter-increment: s;
+    display: grid;
+    grid-template-columns: 34px 1fr;
+    gap: 16px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  ol.steps > li::before {
+    content: counter(s);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    border: 1px solid var(--line-strong);
+    border-radius: 50%;
+    width: 26px; height: 26px;
+    display: grid; place-items: center;
+    font-variant-numeric: tabular-nums;
+  }
+  ol.steps h3 { margin: 0 0 4px; }
+  ol.steps p { margin: 0; font-size: 13.5px; color: var(--text-soft); }
+
+  footer {
+    border-top: 1px solid var(--line);
+    padding-top: 20px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--text-faint);
+    line-height: 1.7;
+  }
+
+  @media (max-width: 620px) {
+    .rung { grid-template-columns: 62px 1fr; }
+    .rung-when { grid-column: 2; text-align: left; }
+  }
+</style>
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow">
+      <span>Real-time Target Speaker Extraction</span>
+      <span>Status 1 Sep 2026</span>
+      <span>M2 &middot; Trained model + metrics</span>
+    </div>
+    <h1>The filter works, the measuring instrument is built, and one decision is holding up the actual result.</h1>
+    <p class="standfirst">The model is trained and beats doing nothing. The three measurements that
+    form this project's main contribution are implemented and tested. What has not happened yet is
+    the measurement the whole project exists to make &mdash; because that needs a live assistant
+    model to be chosen, and that choice is the one remaining blocker.</p>
+  </header>
+
+  <section class="prose">
+    <div class="sub">Start here</div>
+    <h2>What the project is, without any terminology.</h2>
+    <p>When you speak to a voice assistant and somebody else is talking nearby, the assistant often
+    hears the wrong person. This project builds a <strong>filter</strong> that sits in front of the
+    assistant and tries to keep only the voice you care about, throwing the other voice away. The
+    filter is given a five-second sample of the person it should listen for, and must work in real
+    time as the audio arrives.</p>
+
+    <p>That much is a known problem with known solutions. <strong>The novel part of this project is
+    how you judge whether the filter worked.</strong> The usual approach is to measure how clean the
+    filtered audio sounds. This project argues that is the wrong test, because what actually matters
+    is whether the assistant <em>understood the right words</em>. Those two things can come apart:
+    audio that sounds worse to a human ear can be easier for a machine to transcribe, and audio that
+    sounds cleaner can be harder, because the filtering process leaves behind its own distortions.</p>
+
+    <div class="note">
+      <div class="note-h">The one-sentence contribution</div>
+      <p>The contribution is <strong>a way of measuring</strong> how much of what the target person
+      said a live assistant actually recovered &mdash; not a better filter. The filter exists so
+      that there is something to measure.</p>
+    </div>
+  </section>
+
+  <div class="verdict">
+    <div class="vcell">
+      <div class="vlabel">Metrics implemented</div>
+      <div class="vnum is-done">3 of 3</div>
+      <div class="vnote">51 automated tests &middot; reproduce known figures exactly</div>
+    </div>
+    <div class="vcell">
+      <div class="vlabel">Model trained</div>
+      <div class="vnum is-done">Yes</div>
+      <div class="vnote">from scratch &middot; no pretrained weights</div>
+    </div>
+    <div class="vcell">
+      <div class="vlabel">Beats doing nothing by</div>
+      <div class="vnum is-done">0.99 dB</div>
+      <div class="vnote">up from 0.55 dB a week ago &middot; nearly doubled</div>
+    </div>
+    <div class="vcell">
+      <div class="vlabel">Training data</div>
+      <div class="vnum is-done">4,976</div>
+      <div class="vnote">constructed trials, up from 1,989</div>
+    </div>
+    <div class="vcell">
+      <div class="vlabel">Assistant model chosen</div>
+      <div class="vnum is-risk">No</div>
+      <div class="vnote">the single blocker for the headline result</div>
+    </div>
+    <div class="vcell">
+      <div class="vlabel">To experiment freeze</div>
+      <div class="vnum is-signal">6 wks</div>
+      <div class="vnote">14 Oct &middot; submission 5 Nov</div>
+    </div>
+  </div>
+
+  <section class="prose">
+    <div class="sub">The measurements</div>
+    <h2>Three numbers, because any one of them alone can be cheated.</h2>
+    <p>The assistant is played some audio and asked to report what it heard. Its answer is then
+    compared against what the target person actually said &mdash; which is known exactly, because
+    these recordings are assembled deliberately rather than collected in the wild.</p>
+
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th>Measurement</th><th>The question it asks</th><th>Why it has to exist</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Word error rate</td>
+            <td>How many of the target's words came back wrong or missing?</td>
+            <td>The headline number. But it cannot tell you <em>why</em> a word was wrong.</td>
+          </tr>
+          <tr>
+            <td><strong>Interferer content rate</strong></td>
+            <td>Did the <em>other</em> person's words sneak through and get reported as if they were
+            the target's?</td>
+            <td><strong>The genuinely new one.</strong> A word error rate counts a wrong word the
+            same whether the other speaker leaked through or the machine simply mis-heard. This
+            separates them.</td>
+          </tr>
+          <tr>
+            <td>Non-response rate</td>
+            <td>Did the assistant give up and report nothing at all?</td>
+            <td>A filter that outputs pure silence scores <em>perfectly</em> on the measurement
+            above, because nothing leaked. This stops that from being rewarded.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>All three are implemented, covered by 51 automated tests, and validated by reproducing a
+    figure measured earlier in the project to the decimal place. Two of them already produce real
+    numbers using ordinary transcription software in place of the live assistant. The third only
+    becomes meaningful once a real assistant is in the loop, because ordinary transcription software
+    is incapable of declining to answer.</p>
+
+    <div class="note">
+      <div class="note-h">Why the second measurement matters, in numbers</div>
+      <p>On unprocessed audio &mdash; two people talking, no filtering &mdash; <strong>52 % of
+      recordings hand the assistant at least two of the wrong person's distinctive words</strong>. On
+      clean audio it is <strong>0 %</strong>, across 230 recordings, with no false alarms at all. And
+      when the target says nothing while the other person talks, the unfiltered figure rises to
+      <strong>100 %</strong>. That failure is invisible to a conventional word error rate.</p>
+    </div>
+  </section>
+
+  <section class="prose">
+    <div class="sub">The model</div>
+    <h2>More training data confirmed the diagnosis, and the improvement is real but modest.</h2>
+    <p>Two weeks ago the model was found to be <em>memorising</em> its training examples: it kept
+    improving on recordings it had already seen while getting steadily worse on new ones. The
+    diagnosis was that there was simply not enough training data. That was tested this week by
+    generating two and a half times as much, and <strong>the diagnosis was confirmed</strong>.</p>
+
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th>&nbsp;</th><th>Before (1,989 recordings)</th><th>Now (4,976 recordings)</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Separation achieved on unseen audio</td><td class="num">2.14 dB</td><td class="num">2.58 dB</td></tr>
+          <tr><td><strong>Improvement over doing nothing</strong></td><td class="num">0.55 dB</td><td class="num"><strong>0.99 dB</strong></td></tr>
+          <tr><td>Memorisation gap, at its best point</td><td class="num">1.24 dB</td><td class="num">1.08 dB</td></tr>
+          <tr><td>Training rounds needed to match the old best</td><td class="num">14</td><td class="num">2</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>The important row is the second. Doing nothing at all already achieves 1.59 dB, so the fair
+    question is what the filter <em>adds</em> &mdash; and that has nearly doubled. The last row says
+    the model now learns in two rounds what previously took fourteen, which is what more data is
+    supposed to buy.</p>
+
+    <p>It is still not perfect. The model still eventually starts memorising, just later and from a
+    better peak. It remains limited by how much data is available rather than by its own size, so
+    more data would help again &mdash; but two and a half times the data bought only 0.44 dB, so a
+    further doubling would buy less, for roughly five hours of preparation and a 33 GB upload.
+    <strong>That is not where the remaining time should go.</strong></p>
+  </section>
+
+  <section class="prose">
+    <div class="sub">Context for the numbers</div>
+    <h2>How this compares in resources to the published system it is measured against.</h2>
+    <p>A reasonable question is whether a filter that improves things by about 1 dB is any good.
+    The table below is the honest context. <strong>It compares what went in, not what came out.</strong></p>
+
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th>&nbsp;</th><th>CARTSE &amp; the challenge baselines</th><th>This project</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Who built it</td><td>Industry research lab, multiple authors</td><td><strong>One student</strong></td></tr>
+          <tr><td>Starting point</td><td>Established toolchain</td><td><strong>Written from scratch</strong></td></tr>
+          <tr><td>Pretrained weights</td><td>&mdash;</td><td><strong>None</strong></td></tr>
+          <tr><td>Model size</td><td class="num">25&ndash;27 M parameters</td><td class="num">7.2 M &middot; 3.5&times; smaller, deliberately</td></tr>
+          <tr><td>Training rounds</td><td class="num">200</td><td class="num">18</td></tr>
+          <tr><td>Examples per step</td><td class="num">12</td><td class="num">3</td></tr>
+          <tr><td><strong>Rough training budget</strong></td><td class="num">~2,400 units</td><td class="num"><strong>~54 units &middot; roughly 40&times; less</strong></td></tr>
+          <tr><td>Hardware</td><td>Research compute</td><td>One free 12-hour GPU session at a time</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note">
+      <div class="note-h">How to read that table, and how not to</div>
+      <p>This is a comparison of <strong>resources, not results</strong>. The two systems are trained
+      on different data, evaluated by a different metric, and run under a different protocol, so
+      their scores are <em>not</em> comparable and are never presented as such anywhere in this
+      project. The point of the table is narrower: the gap in performance is overwhelmingly
+      explained by roughly forty times less training, a quarter of the model size, and no pretrained
+      starting point &mdash; not by the quality of the implementation.</p>
+    </div>
+  </section>
+
+  <section class="prose">
+    <div class="sub">Stated plainly</div>
+    <h2>What has not been done, so it is not mistaken for progress.</h2>
+    <div class="cols">
+      <div class="card">
+        <h3>The headline measurement <span class="tag t-risk">Blocker</span></h3>
+        <p>Not a single measurement has yet been taken with a real live assistant. Every number in
+        this report uses ordinary transcription software as a stand-in. This is the project's actual
+        result and it has not started, because the assistant model has not been chosen.</p>
+      </div>
+      <div class="card">
+        <h3>The model on its own metric <span class="tag t-signal">In progress</span></h3>
+        <p>The trained filter has not yet been scored on the three measurements above &mdash; only
+        the unfiltered and perfect-audio reference points have. This costs nothing and is running now.</p>
+      </div>
+      <div class="card">
+        <h3>Real recordings <span class="tag t-signal">Open</span></h3>
+        <p>All work so far uses deliberately assembled recordings. A smaller set of real meeting
+        audio is planned as a transfer check and has not been touched.</p>
+      </div>
+      <div class="card">
+        <h3>Comparison against another system <span class="tag t-signal">Open</span></h3>
+        <p>One existing off-the-shelf filter should be run on this project's own data, so the
+        argument does not rest on a single system.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="prose">
+    <div class="sub">What happens next</div>
+    <h2>In order, and the first one needs a decision.</h2>
+    <ol class="ladder">
+      <li>
+        <h3>Choose the live assistant model &mdash; needs sign-off</h3>
+        <p>This is the only real blocker. The choice is now a one-hour experiment rather than an open
+        argument: each candidate is played clean audio (can it report accurately?), unfiltered audio
+        (can it fail?), and silence (does it stay quiet?). A candidate that cannot do all three
+        cannot be used. Cost is negligible &mdash; roughly &pound;20 for the full evaluation.</p>
+        <p>One point does need agreement, because it narrows the stated objective: the assistant will
+        be given audio and asked to reply in <em>text</em> rather than speech. The property being
+        measured is how the assistant <em>hears</em>, and nothing in the three measurements depends
+        on it speaking back. Relaxing this widens the field of usable models considerably and removes
+        a component from the measuring instrument. To keep the original claim honest, a small
+        confirmation run on a genuine speech-to-speech model is planned alongside.</p>
+      </li>
+      <li>
+        <h3>Score the trained filter on the three measurements</h3>
+        <p>Free, needs no assistant, running in the background now. Produces the first result for an
+        actual system rather than just reference points.</p>
+      </li>
+      <li>
+        <h3>Produce the divergence result &mdash; the thesis's central claim</h3>
+        <p>Vary one setting on the existing filter to produce a family of systems, then show that
+        ranking them by conventional audio quality gives a <em>different order</em> than ranking them
+        by what the assistant actually understood. Needs no retraining.</p>
+      </li>
+      <li>
+        <h3>Do not generate more training data</h3>
+        <p>It would still help, but the return is diminishing and the filter is not the contribution.
+        Recorded as a decision so it is not revisited by reflex.</p>
+      </li>
+    </ol>
+  </section>
+
+  <footer>
+    Real-time Target Speaker Extraction &middot; M2 status, 1 September 2026<br>
+    Sources: <code>docs/decisions/decisions-m2.md</code>, <code>decisions-m3.md</code>,
+    <code>decisions-m4.md</code>, <code>docs/project-state.md</code><br>
+    Every figure above is measured on this project's own data and code. No number is projected.
+    43 days to experiment freeze, 14 Oct.
+  </footer>
+
+</div>

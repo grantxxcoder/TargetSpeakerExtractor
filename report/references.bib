@@ -105,3 +105,123 @@
   pages     = {933--941},
   year      = {2017}
 }
+
+
+% ---------------------------------------------------------------------------
+% Evaluation instrument: transcription, normalisation, scoring
+% ---------------------------------------------------------------------------
+
+@inproceedings{radford2023whisper,
+  author    = {Radford, Alec and Kim, Jong Wook and Xu, Tao and Brockman, Greg
+               and McLeavey, Christine and Sutskever, Ilya},
+  title     = {Robust Speech Recognition via Large-Scale Weak Supervision},
+  booktitle = {Proceedings of the 40th International Conference on Machine
+               Learning ({ICML})},
+  series    = {Proceedings of Machine Learning Research},
+  volume    = {202},
+  pages     = {28492--28518},
+  year      = {2023},
+  note      = {Also arXiv:2212.04356. The English text normaliser used in this
+               work is defined in Appendix C}
+}
+
+% The implementation actually used, not the reference implementation: a
+% CTranslate2 reimplementation of Whisper. Cited as software because the
+% decoding behaviour and the int8 quantisation are properties of this build.
+% TODO: confirm the author line; the project lists an organisation, not a
+% named author, and the release notes carry no citation block.
+@misc{faster_whisper,
+  author       = {{SYSTRAN}},
+  title        = {faster-whisper: Faster {Whisper} transcription with
+                  {CTranslate2}},
+  year         = {2026},
+  note         = {Version 1.2.1. Accessed: 2026-08-31},
+  howpublished = {\url{https://github.com/SYSTRAN/faster-whisper}}
+}
+
+% The normaliser is Whisper's, packaged for standalone use. Cite
+% radford2023whisper for the algorithm and this for the pinned build.
+% TODO: confirm the author line before submission.
+@misc{whisper_normalizer,
+  author       = {{whisper-normalizer contributors}},
+  title        = {whisper-normalizer: Standalone text normalisation from
+                  {OpenAI} {Whisper}},
+  year         = {2026},
+  note         = {Version 0.1.15. Implements the {EnglishTextNormalizer} of
+                  \cite{radford2023whisper}. Accessed: 2026-08-31},
+  howpublished = {\url{https://pypi.org/project/whisper-normalizer/}}
+}
+
+% TODO: confirm the author line.
+@misc{jiwer,
+  author       = {{jiwer contributors}},
+  title        = {jiwer: Evaluate automatic speech recognition},
+  year         = {2026},
+  note         = {Version 4.0.0. Accessed: 2026-08-31},
+  howpublished = {\url{https://github.com/jitsi/jiwer}}
+}
+
+@book{bird2009nltk,
+  author    = {Bird, Steven and Klein, Ewan and Loper, Edward},
+  title     = {Natural Language Processing with Python},
+  publisher = {O'Reilly Media},
+  year      = {2009},
+  note      = {The English stopword list is taken from the {NLTK} stopwords
+               corpus and snapshotted into this project's source tree so the
+               list cannot change with a library upgrade}
+}
+
+% ---------------------------------------------------------------------------
+% The held-out judge
+% ---------------------------------------------------------------------------
+
+% The judge is not yet chosen (see the decision log). This entry stands in for
+% the closed-API candidate so the text compiles.
+% TODO before submission: replace with the EXACT model identifier actually
+% used, the run date and the published price, and re-verify the URL. A judge
+% result is invalid without the exact model ID, because closed models change
+% silently.
+@misc{google2026geminilive,
+  author       = {{Google DeepMind}},
+  title        = {{Gemini} {Live} {API}},
+  year         = {2026},
+  note         = {Accessed: 2026-08-31. Exact model identifier to be recorded
+                 with each result},
+  howpublished = {\url{https://ai.google.dev/gemini-api/docs/live}}
+}
+
+% ---------------------------------------------------------------------------
+% Conventional metrics reported alongside, for the divergence comparison
+% ---------------------------------------------------------------------------
+
+@inproceedings{leroux2019sisdr,
+  author    = {Le Roux, Jonathan and Wisdom, Scott and Erdogan, Hakan and
+               Hershey, John R.},
+  title     = {{SDR} -- Half-baked or Well Done?},
+  booktitle = {Proceedings of the {IEEE} International Conference on Acoustics,
+               Speech and Signal Processing ({ICASSP})},
+  pages     = {626--630},
+  year      = {2019}
+}
+
+@article{vincent2006bsseval,
+  author  = {Vincent, Emmanuel and Gribonval, R{\'e}mi and F{\'e}votte, C{\'e}dric},
+  title   = {Performance Measurement in Blind Audio Source Separation},
+  journal = {{IEEE} Transactions on Audio, Speech, and Language Processing},
+  volume  = {14},
+  number  = {4},
+  pages   = {1462--1469},
+  year    = {2006},
+  note    = {Source of the decomposition into interference and artefact ratios
+             ({SIR} and {SAR})}
+}
+
+@inproceedings{reddy2021dnsmos,
+  author    = {Reddy, Chandan K. A. and Gopal, Vishak and Cutler, Ross},
+  title     = {{DNSMOS}: A Non-Intrusive Perceptual Objective Speech Quality
+               Metric to Evaluate Noise Suppressors},
+  booktitle = {Proceedings of the {IEEE} International Conference on Acoustics,
+               Speech and Signal Processing ({ICASSP})},
+  pages     = {6493--6497},
+  year      = {2021}
+}
