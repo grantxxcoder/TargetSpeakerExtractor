@@ -78,6 +78,11 @@ The trustworthy figure is 37.6 % at epoch 9, and 41.7 % at epoch 14.
   tested (51 tests), judge-agnostic, with the transcriber swappable. Validated
   by reproducing the C2 floor/ceiling exactly.
 - **Beat doing nothing by ~1 dB** on held-out data, against 0.55 dB a week ago.
+- **Be scored end to end on its own metrics.** First system row taken 2026-09-01:
+  LCF-WER 65.2 → **59.1 %**, ICR@2 67.0 → **54.4 %** against a 5.8 % / 0.0 %
+  ceiling. It captures ~10 % of the word-error headroom and ~19 % of the leakage
+  headroom, and it **hurts trials that were already easy** — the
+  artefact-versus-residue trade-off, measured. `decisions-m3.md` 2026-09-01.
 
 ## Cannot
 
@@ -87,8 +92,9 @@ The trustworthy figure is 37.6 % at epoch 9, and 41.7 % at epoch 14.
   nothing. The margin is ~1 dB — better than it was, still thin.
 - **Match level per utterance.** `L_gain` fell only 3 % over its whole run. It
   works as a *constraint on going silent*, not as a level regression target.
-- **Be scored on the thing this project is about.** Every number above is a
-  training diagnostic. There is still no measurement on the live-model metric.
+- **Be scored on a LIVE model.** The three metrics now produce real system
+  numbers, but through an offline ASR standing in for the judge. No live-model
+  measurement exists.
 
 ## Not started
 
