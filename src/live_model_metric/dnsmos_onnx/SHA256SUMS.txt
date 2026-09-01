@@ -1,0 +1,10 @@
+# DNSMOS ONNX models, snapshotted from microsoft/DNS-Challenge
+# retrieved 2026-09-01 from DNSMOS/ and DNSMOS/pDNSMOS/
+# Pinned because DNSMOS is a learned model and drifts between releases.
+# p_sig_bak_ovr.onnx is the PERSONALISED P.835 model -- the correct one for
+# target speaker extraction. It must be paired with the personalised
+# polynomial coefficients in dnsmos.py.
+
+9246480c58567bc6affd4200938e77eef49468c8bc7ed3776d109c07456f6e91  model_v8.onnx  224,860 bytes
+9e3a197449ca2177f0997afec3bd6b890117ce2f17b89d6eea7fa0d47272c81c  p_sig_bak_ovr.onnx  1,157,962 bytes
+269fbebdb513aa23cddfbb593542ecc540284a91849ac50516870e1ac78f6edd  sig_bak_ovr.onnx  1,157,965 bytes

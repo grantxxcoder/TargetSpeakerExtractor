@@ -931,7 +931,7 @@ diagnosis is right, the normalisation and the composition rule both need
 changing before it is defensible, and one part of it as pitched is unsound.**
 
 **The problem it solves, and it is real.** LCF-WER, ICR, NRR, SI-SDR,
-DNSMOS-P808, offline WER and latency is seven numbers, and B13 requires each of
+DNSMOS (P.835 since 2026-09-01), offline WER and latency is seven numbers, and B13 requires each of
 them broken out per condition — so the honest results table is roughly 35 cells
 per system. **Nobody can rank two models by reading 35 cells**, and a thesis that
 asks the reader to is failing to make its own argument. There is currently no

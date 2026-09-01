@@ -163,7 +163,7 @@ spec note 10 permits either as the extractor's output. Build both from the
 start: retrofitting a second path through a harness that assumes audio is
 more work than allowing for it now.
 
-**Conventional metrics alongside.** SI-SDR, DNSMOS-P808, offline ASR WER —
+**Conventional metrics alongside.** SI-SDR, DNSMOS-P808, offline ASR WER — (amended 2026-09-01 to P.835, see metric-definitions.md §6) —
 computed on the same trials, specifically so the benchmark study can show
 where they diverge from LCF.
 

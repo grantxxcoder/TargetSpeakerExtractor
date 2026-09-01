@@ -398,7 +398,7 @@ Evaluated with the metrics that already exist, because the new one does not yet.
 This is deliberate: these numbers become the "conventional metrics" column of
 the divergence table in M5.
 
-- [ ] SI-SDR, DNSMOS-P808, offline ASR WER on the held-out constructed set
+- [ ] SI-SDR, DNSMOS-P.835 + P.808, offline ASR WER on the held-out constructed set
 - [ ] Measured algorithmic latency + RTF against the ~200–300 ms budget
 - [ ] Listen to the outputs. Characterise the artefacts qualitatively — this is
       what tells you whether the artefact hypothesis in
@@ -698,7 +698,7 @@ The thesis's central finding. Runs immediately as M5 checkpoints land — it is
 scoring, not training, so it does not need its own week.
 
 - [ ] Baseline and second model both scored on LCF-WER / ICR / NRR
-- [ ] Both scored on SI-SDR / DNSMOS-P808 / offline WER on the same trials
+- [ ] Both scored on SI-SDR / DNSMOS-P.835 + P.808 / offline WER on the same trials
 - [ ] All anchors present: audio floor, audio ceiling, text floor, text ceiling
 - [ ] **≥1 off-the-shelf pretrained TSE system** scored alongside. No training
       cost, and it is what stops the divergence claim from resting on n=2

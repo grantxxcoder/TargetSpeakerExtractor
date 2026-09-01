@@ -243,8 +243,41 @@ set to the budget, on a spreadsheet, before writing the harness.
 ## 6. Relationship to existing metrics
 
 We report LCF-WER/ICR/NRR as the primary result, and conventional metrics
-alongside — SI-SDR, DNSMOS-P808, and offline ASR WER — **specifically to
-show where they diverge.** The divergence is a result, not a nuisance:
+alongside — SI-SDR, the SIR/SAR decomposition, **DNSMOS-P.835 and DNSMOS-P.808**
+and offline ASR WER — **specifically to show where they diverge.**
+
+**Amended 2026-09-01: report BOTH P.835 and P.808.** The original wording named
+P.808 alone, which loses the point of §4, and the first amendment named P.835
+alone, which loses the field's current convention. The history is why:
+
+| variant | role in the REAL-TSE story |
+|---|---|
+| **DNSMOS-P.835** (Reddy et al., 2022) — returns `SIG`, `BAK`, `OVRL` | **`OVRL` is the score that got gamed** |
+| **DNSMOS-P.808** (Reddy et al., 2021) — returns one score | **the replacement the organisers switched to** |
+
+Reporting both lets the write-up say plainly: *here is the metric that was gamed,
+and here is the metric that replaced it, measured on the same audio.* Neither
+alone supports that sentence, and the second model costs one extra inference pass.
+
+P.835 additionally returns `SIG` and `BAK` separately, which map onto the
+signal-domain SIR/SAR split — `BAK` for interference removed, `SIG` for artefacts
+introduced — giving a perceptual and a signal decomposition of the same trade.
+
+Three rules fixed with it:
+
+- **Absent trials are excluded.** "Speech quality" is undefined when nobody
+  speaks, so those trials are dropped as they are from LCF-WER (B4), not scored.
+- **Scores are averaged over segments.** DNSMOS operates on windows of about 9 s
+  and trials run 15–20 s, so the per-trial score is the mean over its segments.
+- **The ONNX model is pinned and snapshotted**, with its hash recorded. DNSMOS is
+  a learned model and can drift between releases — the same failure mode the
+  normaliser and the stopword list are pinned against.
+
+**DNSMOS is reported as the exhibit, not as a metric we trust.** It is the only
+score here with a gradient, and therefore the only one that can be attacked by
+optimisation — which is precisely what §4 is about. It is included to be
+disagreed with, and the write-up must say so, or a reader will reasonably ask why
+we report a metric we spend §4 criticising. The divergence is a result, not a nuisance:
 demonstrating that a system can improve offline WER while worsening LCF-WER
 is the empirical justification for the whole metric.
 

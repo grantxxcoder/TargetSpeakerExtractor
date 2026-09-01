@@ -182,17 +182,40 @@ built and rows as models are made. `sir0_val`, `condition=both`, n=103, scored
 2026-09-01. **The listener is an offline ASR standing in for the judge — no
 live-model number exists yet.**
 
-Lower is better for LCF-WER, ICR and NRR. Higher is better for SDR, SIR and SAR.
+**Content metrics** (lower is better):
 
-| system | LCF-WER | ICR@2 | mean leak | NRR | SDR | SIR | SAR |
-|---|---|---|---|---|---|---|---|
-| **1. Floor** — do nothing | 65.2 % | 67.0 % | 51.3 % | 0.0 % | −1.12 | −1.12 | +30.00 |
-| **2. Baseline** — `model_sir0_5000-e7.pt` | **59.1 %** | **54.4 %** | **39.1 %** | 1.0 % | +0.86 | +3.21 | **+10.34** |
-| **3. Extension** — artefact-penalty retrain | — | — | — | — | — | — | — |
-| **4. Ceiling** — clean target | 5.8 % | 0.0 % | 0.0 % | 0.0 % | +30.00 | +30.00 | +30.00 |
+| system | LCF-WER | ICR@2 | mean leak | NRR |
+|---|---|---|---|---|
+| **1. Floor** — do nothing | 65.2 % | 67.0 % | 51.3 % | 0.0 % |
+| **2. Baseline** — `model_sir0_5000-e7.pt` | **59.1 %** | **54.4 %** | **39.1 %** | 1.0 % |
+| **3. Extension** — per-band gate (D13) | — | — | — | — |
+| **4. Ceiling** — clean target | 5.8 % | 0.0 % | 0.0 % | 0.0 % |
+
+**Signal metrics** (higher is better, dB, ceiling +30 by construction):
+
+| system | SDR | SIR | SAR |
+|---|---|---|---|
+| **1. Floor** | −1.12 | −1.12 | +30.00 |
+| **2. Baseline** | +0.86 | **+3.21** | **+10.34** |
+| **3. Extension** | — | — | — |
+| **4. Ceiling** | +30.00 | +30.00 | +30.00 |
+
+**Perceptual metrics** (higher is better, 1–5, DNSMOS personalised):
+
+| system | P808 | SIG | BAK | OVRL |
+|---|---|---|---|---|
+| **1. Floor** | 2.913 | **4.090** | 2.031 | **2.497** |
+| **2. Baseline** | 2.937 | **3.366** | **2.266** | **2.237** |
+| **3. Extension** | — | — | — | — |
+| **4. Ceiling** | 3.550 | 4.175 | 3.592 | 3.429 |
 
 **Headroom captured by the baseline:** LCF-WER **10.3 %**, ICR@2 **18.8 %**, mean
 leakage **23.8 %**.
+
+**Ceilings are not perfect, in any of the three families.** LCF-WER's ceiling is
+5.8 % not 0 %, DNSMOS `OVRL`'s is 3.43 not 5, because the reference is the
+*reverberant* target (A1) and neither the ASR nor DNSMOS was built for
+reverberation. **Never quote a score without its ceiling.**
 
 **How to read the three signal columns.** +30 dB is the ceiling in all of them,
 set by `TAU = 1e-3`. The floor's **SAR is +30 by construction** — the mixture is
@@ -203,6 +226,22 @@ baseline's +10.34 dB means about **9 % of its output energy is invented**.
 **What the row 2 numbers say in one line.** The model removes the interferer
 reasonably well (SIR −1.12 → +3.21) at the cost of inventing a lot (SAR +30 →
 +10.34), and the net signal gain (+1.98 dB) buys only 6.1 points of word error.
+
+**THE DIVERGENCE, measured 2026-09-01.** Content improved by **6.1 points** of
+LCF-WER while perceptual quality got **worse** — DNSMOS `OVRL` 2.497 → 2.237.
+**A human listener would say the model damaged the audio; the listener recovered
+more of the words.** The conventional perceptual metric would have rejected a
+system that measurably helps the downstream task, which is precisely the failure
+mode this project exists to demonstrate.
+
+**Two instruments agree on the mechanism.** `SIG` fell 0.72 while `BAK` rose only
+0.24 — perceptual confirmation of the signal-domain finding that the artefact
+introduced outweighs the interference removed. `SIG` behaves as the perceptual
+analogue of SAR, `BAK` of SIR.
+
+**And `P808` is flat (+0.02)** — the metric the REAL-TSE organisers switched *to*
+is nearly blind to what this model does, while `OVRL`, the one that was gamed,
+moves. Worth reporting about both.
 
 **Caveats that travel with this table.** Offline ASR, not a judge. `sir0_val` is
 symmetric by construction, so it is harder than `eval_public`. NRR is structurally

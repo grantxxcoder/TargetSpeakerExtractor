@@ -489,3 +489,110 @@ not read individual interior alpha values.**
 And note what it *is*: the signal moved perfectly smoothly across five settings
 while the content outcome jumped around. That is another instance of this
 project's central claim, obtained for free.
+
+---
+
+## 2026-09-01 — DNSMOS added, and it disagrees with the content metric
+
+**Implemented** `src/live_model_metric/dnsmos.py`. Four scores per clip, all 1-5
+and higher-is-better: `P808`, and `SIG` / `BAK` / `OVRL` from P.835. Ported from
+`microsoft/DNS-Challenge`, `DNSMOS/dnsmos_local.py`, retrieved 2026-09-01.
+Reddy et al. (2021) for P.808, Reddy et al. (2022) for P.835, both cited as
+borrowed.
+
+**Non-intrusive: it needs only the degraded audio.** No clean reference, no
+transcript. **It is therefore the only quality metric in this project that can be
+run on AMI**, which makes it load-bearing for the real-audio transfer check rather
+than merely another column.
+
+### Validated against the reference implementation
+
+The reference script's own class was run against the port on the same clip:
+
+| | reference | port | difference |
+|---|---|---|---|
+| P808 | 2.146801 | 2.146801 | 2.4e-07 |
+| SIG | 3.196597 | 3.196597 | 4.4e-16 |
+| BAK | 3.030237 | 3.030237 | 0 |
+| OVRL | 2.196043 | 2.196043 | 4.4e-16 |
+
+Exact on three, float32 rounding on the fourth, same segment count. **The numbers
+are DNSMOS's, not an interpretation of DNSMOS.**
+
+### Both variants, and why
+
+`metric-definitions.md` 6 amended 2026-09-01 to report **both**. The original
+named P.808 alone, losing the point of 4; a first amendment named P.835 alone,
+losing the field's convention. The history is the reason:
+
+| variant | role |
+|---|---|
+| **P.835** -> `SIG`, `BAK`, `OVRL` | **`OVRL` is the score that got gamed** |
+| **P.808** -> one score | **the replacement the organisers switched to** |
+
+### Three implementation facts that were easy to get wrong
+
+1. **Personalised is a SEPARATE MODEL FILE**, not merely different coefficients:
+   `pDNSMOS/sig_bak_ovr.onnx` against `DNSMOS/sig_bak_ovr.onnx`. Model and
+   coefficient set must match. **Personalised is correct here, because target
+   speaker extraction IS personalised speech enhancement** — the distinction
+   exists precisely because in this task the right output removes a speaker, and
+   the standard model can score that removal as damage.
+2. **The polynomial correction applies to P.835 only.** P.808 is used raw. The
+   raw P.835 outputs are not MOS scores, and skipping the correction produces
+   plausible but wrong numbers with no error.
+3. **Short clips are LOOPED, not zero-padded** — the reference doubles the audio
+   until it fills one 9.01 s segment, because silence would be scored as bad
+   audio. Does not trigger on 15-20 s trials but is replicated faithfully.
+
+Models snapshotted to `src/live_model_metric/dnsmos_onnx/` (2.5 MB) with SHA-256
+recorded, for the same reason the normaliser and stopword list are pinned: DNSMOS
+is a learned model and drifts between releases. `librosa==1.0.0` added, needed to
+match the reference mel filterbank exactly.
+
+### Measured, sir0_val `both`, n=103, personalised
+
+| system | P808 | SIG | BAK | OVRL |
+|---|---|---|---|---|
+| floor (do nothing) | 2.913 | **4.090** | 2.031 | **2.497** |
+| **the model** | 2.937 | **3.366** | **2.266** | **2.237** |
+| ceiling (clean target) | 3.550 | 4.175 | 3.592 | 3.429 |
+| **change, floor -> model** | **+0.02** | **-0.72** | **+0.24** | **-0.26** |
+
+### The SIG/BAK prediction held: two instruments, one conclusion
+
+Predicted from the SAR result: `BAK` up (suppression works), `SIG` down
+(artefacts). **Both happened, and SIG fell three times as far as BAK rose.**
+
+So **`SIG` corresponds to artefacts introduced and `BAK` to interference
+removed**, empirically, which is the perceptual analogue of the signal-domain
+SAR/SIR split. The model invents ~9 % of its output energy (SAR +10.34 dB), and
+an independent human-perception model agrees that the damage outweighs the
+cleanup.
+
+### THE DIVERGENCE, and it runs opposite to the prediction
+
+| | direction |
+|---|---|
+| LCF-WER | 65.2 % -> **59.1 %**, **better by 6.1 points** |
+| DNSMOS OVRL | 2.497 -> **2.237**, **worse by 0.26** |
+
+**A human listener would say the model made the audio worse. The listener
+recovered more of the words.**
+
+The stated prediction was the reverse — DNSMOS rising while content fell.
+**Recorded as another failed prediction.** The direction observed is arguably the
+stronger result: **the conventional perceptual metric would have rejected a system
+that measurably helps the downstream task**, which is exactly the failure mode
+`metric-definitions.md` 1 argues conventional metrics have.
+
+### Two further observations
+
+**P808 is flat, +0.02.** The metric the organisers switched *to* is close to blind
+to what this model does, while `OVRL` — the one that was gamed — moves. Worth
+stating about both.
+
+**The ceiling is 3.43 of 5, not near-perfect**, because the reference is the
+*reverberant* target (A1) and DNSMOS was trained on denoising, not
+dereverberation. Same lesson as the offline ASR ceiling at 6.1 % rather than 0 %:
+**the instrument's own ceiling must be quoted with any score.**
