@@ -242,6 +242,26 @@ live-model number exists yet.**
 | **3. Extension** | — | — | — | — |
 | **4. Ceiling** | 3.550 | 4.175 | 3.592 | 3.429 |
 
+**Latency and throughput** (a property of the model, so the floor and ceiling
+rows do not apply — they are not models). 80 ms chunks, i5-1135G7, 4 threads:
+
+| system | RTF mean | RTF p99 | latency mean | latency p99 | keeps up |
+|---|---|---|---|---|---|
+| **2. Baseline** | **0.528** | 0.706 | **162.2 ms** | 176.5 ms | **yes** |
+| **3. Extension** | — | — | — | — | — |
+
+Requirements: **RTF < 1** (else the input backlog grows without bound) and
+**latency < 200–300 ms**. Latency = 80 ms chunk + 40 ms model lookahead + 42.2 ms
+compute. Per-chunk max was 58.2 ms against the 80 ms deadline, so no chunk
+overran. **The RTF deadline is the tighter constraint** — meeting it satisfies the
+latency budget automatically.
+
+Two caveats. **This is an estimate, not a streaming measurement**: the model has
+no stateful path, so chunks are processed independently and the output discarded,
+giving 10–20 % error. And the **GPU figure is outstanding** — the spec assumes
+server-class compute, so the GPU number is the one that supports the claim and
+CPU is the pessimistic case.
+
 **Headroom captured by the baseline:** LCF-WER **10.3 %**, ICR@2 **18.8 %**, mean
 leakage **23.8 %**.
 
