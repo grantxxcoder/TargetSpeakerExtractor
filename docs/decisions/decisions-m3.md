@@ -596,3 +596,91 @@ stating about both.
 *reverberant* target (A1) and DNSMOS was trained on denoising, not
 dereverberation. Same lesson as the offline ASR ceiling at 6.1 % rather than 0 %:
 **the instrument's own ceiling must be quoted with any score.**
+
+---
+
+## 2026-09-01 — RTF and end-to-end latency measured. It keeps up on a laptop CPU
+
+Closes the M3 item "measured algorithmic latency + RTF against the ~200-300 ms
+budget". `scripts/measure_rtf.py`, result in
+`experiments/results/2026-09-01-rtf-cpu/rtf.json`.
+
+### Two numbers, one measurement
+
+| | definition | requirement |
+|---|---|---|
+| **RTF** | processing time / audio duration | **< 1**, else the backlog grows without bound |
+| **latency** | chunk + lookahead + processing | < 200-300 ms |
+
+**The RTF deadline is the tighter of the two.** Processing must finish inside the
+chunk's own duration; at 80 ms that is stricter than the latency budget would
+permit. **If RTF < 1 the latency budget is met automatically**, so RTF is the
+number to lead with.
+
+### Why chunks, and why 80 ms
+
+**Timing a whole clip flatters streaming by up to 32x**, measured 2026-09-01: a
+whole-sequence LSTM call is one batched matrix multiply over every frame, whereas
+streaming is thousands of tiny matrix-vector products and becomes launch-latency
+bound rather than compute bound. **Whole-clip RTF is not evidence of streaming
+ability**, and the previously quoted 0.42 from `make_estimates.py` should not be
+read as one.
+
+The chunk-size sweep, one LSTM, us per frame:
+
+| chunk | 8 ms | 40 ms | **80 ms** | 160 ms | 500 ms | whole clip |
+|---|---|---|---|---|---|---|
+| us/frame | 245.9 | 45.4 | **26.4** | 16.1 | 9.9 | 7.5 |
+| speedup | 1.0x | 5.4x | **9.3x** | 15.2x | 24.9x | 32.6x |
+
+**It saturates early.** 8 -> 80 ms buys 9.3x; 80 ms -> whole clip buys only 3.5x
+more. And latency is `chunk + 40 + compute`, so 160 ms chunks would sit exactly
+on the 200 ms limit while 80 ms leaves real margin. **80 ms chosen.**
+
+### Measured, i5-1135G7, 4 threads, 500 chunks
+
+| | value | requirement | met |
+|---|---|---|---|
+| per chunk, mean | 42.24 ms | — | |
+| per chunk, **p99** | **56.50 ms** | **< 80 ms** | **yes** |
+| per chunk, max | 58.24 ms | < 80 ms | yes |
+| **RTF mean** | **0.528** | **< 1** | **yes** |
+| RTF p99 | 0.706 | < 1 | yes |
+| **latency mean** | **162.2 ms** | 200-300 ms | **yes** |
+| latency p99 | 176.5 ms | 200-300 ms | yes |
+
+= 80 ms chunk + 40 ms lookahead + 42.2 ms compute. **The model keeps up on a
+laptop CPU and no chunk misses the deadline.**
+
+### Caveats that must travel with these numbers
+
+**This is an ESTIMATE, not a streaming measurement.** The model has no stateful
+streaming path, so chunks are processed **independently** and the output is
+discarded. The timing is close because passing a carried hidden state costs the
+same as passing a fresh one, but two things are missed: the cost of state
+management, and a difference in frames-per-chunk because `forward()` pads each
+chunk where a streaming STFT would not. **10-20 % error.**
+
+**The margin is real but not generous.** RTF p99 of 0.706 leaves 29 % headroom on
+the worst chunks. On a loaded machine that could be exceeded — this project has
+already seen a test suite go from 40 s to 16 min under memory pressure.
+
+**Enrolment is not the bottleneck.** Per-chunk time is flat across enrolment
+lengths of 0.5-5.0 s (41.7-43.1 ms), so there is no easy win from caching the
+enrolment embedding.
+
+**A prediction that was 8x wrong, recorded as such.** Extrapolating from a single
+LSTM predicted ~5 ms per chunk; the truth is 42 ms. The extrapolation ignored the
+32-band estimator trunks, the STFT/iSTFT and the conditioning. **Do not
+extrapolate compute from one layer.**
+
+### Still open
+
+**The GPU figure.** No local GPU. The spec assumes server-class compute
+(`decisions-m0.md` 2026-08-07), so **the GPU number is the one that supports the
+claim** and CPU is the pessimistic case. One Kaggle cell.
+
+**B11's latency decay curve is a different thing** and is expensive:
+`lookahead_frames` shifts the feature sequence at TRAIN time, so a proper
+quality-versus-latency curve needs one retrain per point. Evaluating a
+lookahead-0 model at other lookaheads is not valid.

@@ -399,7 +399,13 @@ This is deliberate: these numbers become the "conventional metrics" column of
 the divergence table in M5.
 
 - [ ] SI-SDR, DNSMOS-P.835 + P.808, offline ASR WER on the held-out constructed set
-- [ ] Measured algorithmic latency + RTF against the ~200–300 ms budget
+- [X] ~~**Measured algorithmic latency + RTF against the ~200–300 ms budget.**
+      2026-09-01: 80 ms chunks, i5-1135G7 4 threads — **RTF 0.528 mean / 0.706
+      p99**, latency **162 ms mean / 176 ms p99**, no chunk misses the 80 ms
+      deadline. Lookahead 40 ms by the STFT convention, 23.9 ms measured as
+      effective future dependency. **An estimate, not a streaming measurement**:
+      chunks are processed independently since there is no stateful path,
+      10–20 % error. GPU figure still outstanding. decisions-m3.md 2026-09-01~~
 - [ ] Listen to the outputs. Characterise the artefacts qualitatively — this is
       what tells you whether the artefact hypothesis in
       `metric-definitions.md` §1 is even plausible, and it should inform the
