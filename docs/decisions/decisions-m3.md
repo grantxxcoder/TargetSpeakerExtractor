@@ -414,3 +414,78 @@ live-model correlation is a separate open question.
 The mixture is artefact-free *by construction* — it is exactly the sum of the
 sources — so it sits at the +30 dB ceiling and any processing whatsoever drops
 below it. **Quote the absolute SAR (+10.34 dB), not the delta.**
+
+---
+
+## 2026-09-01 — Mix-back sweep: no global optimum, but the per-difficulty optimum spans the FULL range
+
+D11's screening test, run as an instrument rather than a fix. `sir0_val`
+`condition=both`, n=103, alpha in {0, 0.25, 0.5, 0.75, 1}, offline ASR.
+`experiments/results/sweep_alpha_rows.json`, transcripts cached in
+`sweep_alpha_transcripts.csv`. 309 new transcriptions, ~15 min. **No retraining
+and no extra forward passes** — every alpha is a linear blend of two signals
+already on disk.
+
+| alpha | LCF-WER | ICR@2 | SDR | SIR | SAR |
+|---|---|---|---|---|---|
+| 0.00 (do nothing) | 65.2 % | 67.0 % | −1.12 | −1.12 | +30.00 |
+| 0.25 | 63.4 % | 66.0 % | −0.61 | −0.58 | +24.95 |
+| 0.50 | 69.6 % | 67.0 % | −0.02 | +0.15 | +19.21 |
+| 0.75 | 67.2 % | 62.1 % | +0.58 | +1.21 | +14.56 |
+| **1.00 (current model)** | **59.1 %** | **54.4 %** | +0.86 | +3.21 | +10.34 |
+
+**The instrument validated itself.** SDR, SIR and SAR are all perfectly
+monotonic in alpha, exactly as a linear blend predicts. The blend is provably
+linear — the iSTFT is linear, so waveform blending and mask interpolation are the
+same operation — so nothing is confounded by the blending itself.
+
+### Globally, alpha = 1 wins. There is no interior optimum.
+
+The model is already at the best *global* aggressiveness. **This is evidence
+against a global loss-side shift toward gentler masking**, i.e. against
+`BETA > 1` as a standalone intervention.
+
+Caveat on how far that generalises: the sweep is an **imperfect proxy** for
+`BETA`. A model retrained at higher `BETA` learns a *different mask*; it is not
+the same mask blended with its input. The sweep tests the direction — "is gentler
+better globally?" — and the answer is no, but it does not rule `BETA` out.
+
+### The decisive result: the optimum varies across the entire range
+
+| difficulty | n | a=0 | a=0.25 | a=0.5 | a=0.75 | a=1 | best |
+|---|---|---|---|---|---|---|---|
+| easy <25 % | 22 | **9.6 %** | 11.2 % | 10.3 % | 11.7 % | 14.2 % | **0.00** |
+| medium | 27 | 40.5 % | **36.8 %** | 58.6 % | 46.6 % | 40.9 % | **0.25** |
+| hard | 27 | 81.9 % | 80.6 % | 82.7 % | 79.1 % | **73.4 %** | **1.00** |
+| very hard >100 % | 27 | 137.4 % | 133.8 % | 131.4 % | 140.1 % | **113.6 %** | **1.00** |
+
+**Easy trials want no filtering at all. Hard trials want full filtering.** A
+single global constant therefore cannot be right, and the global answer is
+alpha = 1 only because the hard buckets dominate the corpus: they gain 24 points
+at alpha = 1, swamping the 5 points the easy trials lose.
+
+### What an adaptive gate could buy
+
+| | LCF-WER |
+|---|---|
+| do nothing | 65.2 % |
+| current model | 59.1 % |
+| **oracle, best alpha per difficulty bucket** | **56.9 %** |
+| oracle per trial (cheats — uses the answer) | 52.5 % |
+
+**A realistic gate is worth about 2.2 points**, with 6.6 as an unreachable
+ceiling. Real but modest, and that is the number to weigh against a 6.2 h retrain.
+
+### The WER curve is non-monotonic, and that is itself the finding
+
+65.2, 63.4, **69.6**, 67.2, 59.1. alpha = 0.5 is *worse than doing nothing*,
+which makes no physical sense against monotonic signal measures.
+
+It is not a blending artefact — the blend is linear, verified. It is **n=103
+noise plus transcriber nonlinearity**: the listener's behaviour is not a smooth
+function of signal quality. **Trust the endpoints and the per-bucket pattern; do
+not read individual interior alpha values.**
+
+And note what it *is*: the signal moved perfectly smoothly across five settings
+while the content outcome jumped around. That is another instance of this
+project's central claim, obtained for free.

@@ -17,9 +17,14 @@ actually taken go to the decision log of the milestone they belong to —
   blocked — J1 closed 2026-08-31.** See Group J.
 - **J3 — the ICR overlap threshold.** Declared `count>=2` with a sensitivity
   sweep, not yet signed off. See Group J.
-- **D11 — inference-time mix-back.** A measuring instrument for the divergence
-  result, explicitly NOT a fix to the model. Carries the real strategies
-  (learned gate, differentiable artefact penalty). See Group D.
+- **D11 — inference-time mix-back.** RUN 2026-09-01 as the screening test.
+  Globally alpha=1 wins, but the per-difficulty optimum spans 0 to 1, so
+  adaptation is motivated and a global gentleness shift is not. See Group D and
+  `decisions-m3.md` 2026-09-01.
+- **D12 — mixture of experts over masking behaviours.** Viable at +11 % params
+  with a shared trunk; `K > 2` deferred until the judge work is done. See Group D.
+- **D13 — DECIDED 2026-09-01: build the per-band gate**, as the `n_experts = 2`
+  case of D12 with the identity as expert 0. See Group D.
 - **J4 — PROPOSAL: a metric *system* (normalised requirement axes, composed and
   plotted) rather than metrics in isolation.** Diagnosis accepted; ranking by
   polygon area rejected as order-dependent, and the baseline normalisation must
@@ -1152,3 +1157,169 @@ and is almost certainly out of scope before the freeze.
 **Recommendation: run the sweep as an instrument for M6, and log option 2 as the
 modelling response.** Do not let the sweep be written up as the answer to the
 easy-trial regression.
+
+### D12. Mixture of experts over masking behaviours — the scaling idea
+
+**Status: OPEN, and more viable than first assessed. Raised by Grant 2026-09-01.
+Out of scope before the 14 October freeze, kept because the parameter accounting
+turned out favourable and the experiment design is sound.**
+
+**The idea.** `K` masking behaviours with a gate that infers, per frame and per
+band, which applies. Test at fixed data first; scale after. Grant's framing:
+*"test on the same amount of data and then scaling"* — which is the right
+experiment order, because a win at fixed data is the informative result.
+
+### The parameter accounting, measured 2026-09-01
+
+The original objection was capacity: this model is data-limited, so adding
+capacity makes the measured problem worse. **That objection was based on
+replicating the whole estimator, which is not necessary.** Measured breakdown of
+the 7,189,644 parameters:
+
+| module | parameters | share |
+|---|---|---|
+| separator (LSTM stack) | 4,898,304 | 68.1 % |
+| estimator | 2,187,014 | 30.4 % |
+| — of which `trunks` | 1,593,344 | 72.9 % of the estimator |
+| — of which `mask_heads` | 395,780 | 18.1 % |
+| — of which `res_heads` | 197,890 | 9.0 % |
+| subband_norm | 104,326 | 1.5 % |
+
+**Share the trunks, replicate only the heads:**
+
+| variant | added | total | increase |
+|---|---|---|---|
+| K=5, full estimator replicated | +8.75 M | 15.9 M | **+122 % — fatal** |
+| K=3, shared trunk, both heads | +1.19 M | 8.38 M | +16 % |
+| **K=3, shared trunk, mask heads only** | **+0.79 M** | **7.98 M** | **+11 %** |
+| K=5, shared trunk, mask heads only | +1.58 M | 8.77 M | +22 % |
+
+**+11 % at K=3 is defensible even on a data-limited model**, and the overfitting
+risk is lower than the count implies: the separator (68 %) and the trunks (22 %)
+stay shared, so the experts are `K` read-outs of one representation rather than
+`K` models. **The earlier "high capacity risk" assessment was wrong** and is
+corrected here.
+
+### The maths, and why it does not need a Gumbel trick
+
+Soft routing is differentiable as it stands:
+
+```
+g = softmax( f(X, e) )        in R^K
+S_hat = sum_k  g_k ( m_k * X )
+dL/dg_k = < dL/dS_hat , m_k * X >
+```
+
+The variational form Grant asked about treats difficulty as a discrete latent
+`z` with prior `p(z)` and posterior `q(z|X,e)`, optimising the ELBO. **For small
+`K` the expectation is computed exactly by enumeration** — no sampling, no
+reparameterisation, no REINFORCE variance:
+
+```
+L = sum_k  q_k L_recon( S_hat_k , S )  -  lambda sum_k q_k log( q_k / p_k )
+```
+
+**This mixes the LOSSES, not the masks**, which is the better property: each
+expert must be individually good on the cases assigned to it, whereas averaging
+masks can produce a mask worse than any individual one. The KL term stops the
+gate collapsing onto one expert, and `lambda` controls how decisively it
+specialises.
+
+The enumeration point is worth keeping as thesis material regardless of whether
+this is built: most treatments of discrete latents reach for Gumbel-Softmax or
+REINFORCE, and for `K` of 5-10 neither is needed.
+
+### Why it is deferred, not rejected
+
+**M5's per-band gate is this idea at `K = 2` with the identity as the second
+expert:**
+
+```
+alpha (m * X) + (1 - alpha) X  ==  [ alpha*m + (1-alpha)*1 ] * X
+```
+
+So the base case is already the next planned experiment, at a few tens of
+thousands of parameters. **Build that first.** It tests the routing hypothesis at
+near-zero cost, and the gate's learned behaviour answers the prerequisite
+question: does the model *want* different treatment for different inputs? The
+sweep says the optimum varies from alpha = 0 to 1 across difficulty
+(`decisions-m3.md` 2026-09-01), so the answer is probably yes — but a trained
+gate that saturates at 1 everywhere would say otherwise, cheaply.
+
+**Then scale K.** If the K=2 gate captures a good share of the oracle's 2.2
+points, K=3 with shared trunks is the natural follow-up at +11 %.
+
+**The remaining objection is scope, not viability.** Six weeks to freeze, no
+live-model measurement yet, and the contribution of this project is the metric.
+`K > 2` is a genuinely interesting architecture result and a different thesis
+from a new metric — worth stating as further work with the mathematics intact.
+
+Full comparison with the other five options, rendered:
+`docs/extra/adaptive-masking-options.pdf`.
+
+### D13. DECIDED 2026-09-01 — build the per-band gate, implemented as the K=2 case of D12
+
+**Decision: the M5 architecture change is the per-band gate, implemented through
+a general `n_experts` mechanism in which expert 0 is always the parameter-free
+identity mask. `n_experts = 2` IS the gate. `K > 2` is gated behind the judge
+work.**
+
+### Why the gate rather than a general two-expert mixture
+
+They are not the same model, and the difference is the point:
+
+| | experts | added parameters |
+|---|---|---|
+| **the gate** | one learned mask **+ the identity** | tens of thousands (gate only) |
+| general MoE at K=2 | **two learned masks** | ~396 k (second mask head) + gate |
+
+The gate's second expert is the identity, which is free. **More importantly it is
+the correct prior:** the mix-back sweep measured that easy trials want exactly
+`alpha = 0`, i.e. *do nothing* (`decisions-m3.md` 2026-09-01). Hard-coding "do
+nothing" as an available option encodes a measured fact. A general two-expert
+mixture would have to *discover* that one expert should be near-identity,
+spending capacity and training signal on something already known.
+
+### Why the general form is still what gets written
+
+Softmax over two logits **is** a sigmoid:
+
+```
+softmax([z0, z1])_1  =  exp(z1) / (exp(z0) + exp(z1))  =  sigmoid(z1 - z0)
+```
+
+So with expert 0 fixed as the identity, `n_experts = 2` is *exactly* the gate —
+same model, same parameter count, one code path. The generalisation therefore
+costs nothing today and `n_experts` becomes the ablation axis:
+
+```
+n_experts = 1   ->  the current model, bit for bit
+n_experts = 2   ->  identity + learned mask   = the per-band gate
+n_experts = 3   ->  identity + two learned masks   (+11 %, D12)
+```
+
+### Sequence, and the condition on going further
+
+1. Implement the general form, expert 0 the identity, `n_experts` in config.
+2. **Verify `n_experts = 1` reproduces the current model bit for bit on a fixed
+   crop.** Without this every later comparison measures the implementation rather
+   than the idea. Same requirement as the `BETA` arm.
+3. Train `n_experts = 2`, one arm, ~6.2 h. Compare against the oracle's **56.9 %**
+   to state how much of the available 2.2 points was captured.
+4. **Inspect the learned gate against trial difficulty.** Does `alpha` actually
+   fall on easy trials? That is the hypothesis. **A gate that saturates near 1
+   everywhere is a cheap negative result** and would rule out `K > 2` before any
+   money is spent on it.
+5. **`K > 2` is not to be touched until the judge work is done**, regardless of
+   how well `n_experts = 2` goes. Six weeks to freeze and no live-model
+   measurement exists; writing the machinery makes running `K = 5` tempting and
+   that temptation is the risk this clause exists to block.
+
+### On the architecture freeze
+
+This unfreezes the 2026-08-28 architecture, but additively: `n_experts = 1` is
+the current model exactly, so the baseline stays recoverable and every previous
+run stays comparable. That is the only sense of the freeze that matters.
+
+Rendered comparison of all six options:
+`docs/extra/adaptive-masking-options.pdf`.

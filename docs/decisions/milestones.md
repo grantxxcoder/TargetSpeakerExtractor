@@ -466,23 +466,78 @@ not, the metric is too noisy to detect system differences — fix before M5.
 
 ## M5 — Second model · target Oct 14 (week 10) · CUTTABLE
 
-**Scope changed 2026-09-01: the second model is now an ARTEFACT-PENALTY retrain,
-not a proxy-objective fine-tune.** Same architecture, same data, same base
-checkpoint, one extra loss term — still a controlled A/B, and now aimed at a
-cause this project has actually measured rather than at a borrowed idea.
+**Scope re-ordered 2026-09-01 after the mix-back sweep. The second model is now
+an INPUT-CONDITIONED GATE, with the artefact weight `BETA` demoted to a
+secondary arm.**
 
-### Why the change
+### Why the order changed
 
-The 2026-09-01 measurement (`decisions-m3.md`) found the extractor invents a
-great deal — absolute SAR **+10.34 dB**, roughly **9 % of output energy** that was
-in none of the sources — and that it applies the same transform to easy and hard
-trials alike, so on easy trials it degrades audio that was already intelligible.
+The sweep (`decisions-m3.md` 2026-09-01) screened both ideas for free:
 
-**The cause is in the objective.** `L_pres` collects residual interference and
-invented artefact into a single denominator, where they cost the same per unit of
-energy. The model is therefore never told that inventing is worse than failing to
-remove. **This project has all three clean sources at training time, so that split
-is computable and the term is possible.**
+- **Globally, alpha = 1 wins.** No interior optimum. The model is already at the
+  best global aggressiveness, which is **evidence against `BETA > 1` as a
+  standalone intervention** — a global shift toward gentler masking is the wrong
+  direction.
+- **Per difficulty, the optimum spans the entire range.** Easy trials want
+  alpha = 0 (no filtering), hard trials want alpha = 1. **A single constant
+  cannot be right**, so making the model adapt is the intervention the data
+  supports.
+- **An oracle gate is worth ~2.2 points** of LCF-WER (59.1 -> 56.9), with 6.6 as
+  an unreachable per-trial ceiling.
+
+### The gate, and it is the K=2 case of a mixture of experts
+
+Predict the blend per frame and per band from features the model already computes:
+
+```
+alpha[t,b] = sigmoid( w_b . h[t,b] + b_b )
+S_hat[t,b] = alpha[t,b] * ( m[t,b] * X[t,b] ) + (1 - alpha[t,b]) * X[t,b]
+```
+
+Fully differentiable with no trick, since
+`d S_hat / d alpha = m*X - X` and the sigmoid derivative is standard.
+
+**Algebraically this is a two-expert mixture whose second expert is the identity
+mask:**
+
+```
+alpha (m * X) + (1 - alpha) X  ==  [ alpha*m + (1-alpha)*1 ] * X
+```
+
+So it is not an alternative to the mixture-of-experts idea — **it is that idea's
+base case at near-zero parameter cost**, and the natural first step before
+scaling K. See `decisions-pending.md` D12.
+
+**Cost.** On the order of `B x (|h_b| + 1)` parameters — tens of thousands
+against 7.19 M, so **capacity risk is negligible on a data-limited model.** The
+backbone is untouched, so the 2026-08-28 architecture freeze survives. No latency
+change: output frame `t` needs only input frame `t`.
+
+**Why per-band rather than per-frame.** The band-split architecture already
+carries per-band features, and artefacts concentrate in the high bands while
+speech energy sits in the low ones. A scalar gate cannot express that; a per-band
+gate can, for the same order of cost.
+
+### Checklist
+
+- [X] ~~Screening test: does the optimum differ by difficulty? **Yes, across the
+      full range.** `decisions-m3.md` 2026-09-01~~
+- [ ] Per-band gate implemented; verify that forcing `alpha = 1` reproduces the
+      current model **bit for bit** before training anything
+- [ ] Fine-tuned from `models/model_sir0_5000-e7.pt`, everything else held fixed
+- [ ] Gate behaviour inspected against trial difficulty — **does it actually
+      learn to back off on easy trials?** That is the hypothesis, and a gate that
+      saturates at 1 everywhere is a negative result worth reporting
+- [ ] Scored into row 3 of the results table in `project-state.md`
+- [ ] Compared against the oracle's 56.9 % to say how much of the available gain
+      was captured
+
+### Secondary arm: the artefact weight `BETA`
+
+Demoted, not dropped. The sweep argues against a global gentleness shift, but it
+is an imperfect proxy — a retrained model learns a different mask rather than a
+blended one. Worth one arm **if the gate lands and time allows**, and it remains
+the cleanest test of the masking question below.
 
 ### The term: one weight inside `L_pres`, not a second loss
 

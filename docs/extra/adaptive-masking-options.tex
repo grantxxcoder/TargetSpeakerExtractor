@@ -1,0 +1,254 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{amsmath,amssymb,booktabs,tabularx,microtype}
+\usepackage[colorlinks=true,linkcolor=black,urlcolor=blue]{hyperref}
+\usepackage{titlesec}
+\titleformat{\section}{\large\bfseries\sffamily}{\thesection.}{0.6em}{}
+\titleformat{\subsection}{\normalsize\bfseries\sffamily}{}{0em}{}
+\setlength{\parskip}{0.4em}\setlength{\parindent}{0pt}
+\newcolumntype{L}{>{\raggedright\arraybackslash}X}
+\newcommand{\pro}{\textbf{\textsf{+}}~}
+\newcommand{\con}{\textbf{\textsf{--}}~}
+
+\title{\vspace{-1.5cm}\sffamily Adaptive masking: six options\vspace{-0.3em}}
+\author{\small Working note, 1 September 2026 --- not part of the thesis}
+\date{}
+
+\begin{document}
+\maketitle
+\vspace{-1.2em}
+
+\section*{The problem this addresses}
+
+Measured 2026-09-01: the extractor applies the \emph{same} transform regardless
+of how hard the trial is. Across easy-to-hard buckets $\Delta\text{SIR}$ moves only
+$+3.80 \to +4.32$~dB and $\Delta\text{SAR}$ only $-17.45 \to -21.41$~dB, while the
+word-error outcome swings from $-4.2$ to $+23.1$ points. It invents roughly
+9\,\% of its output energy (absolute SAR $+10.34$~dB) and does so everywhere,
+which is a good trade on hard trials and a bad one on easy trials.
+
+\subsection*{What the screening sweep found (1 September 2026)}
+
+The inference-time blend $\hat{S}_\alpha = \alpha\hat{S} + (1-\alpha)X$ was swept
+over $\alpha \in \{0,0.25,0.5,0.75,1\}$ on 103 two-speaker trials. SDR, SIR and
+SAR all moved perfectly monotonically, confirming the blend behaves as predicted.
+
+\textbf{Globally $\alpha=1$ wins} --- there is no interior optimum, so a global
+shift toward gentler masking is the wrong direction. \textbf{But the optimum per
+difficulty bucket spans the entire range:}
+
+\begin{center}\small
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+difficulty & $\alpha{=}0$ & $0.25$ & $0.5$ & $0.75$ & $\alpha{=}1$ \\
+\midrule
+easy ($<$25\,\%)      & \textbf{9.6} & 11.2 & 10.3 & 11.7 & 14.2 \\
+medium                & 40.5 & \textbf{36.8} & 58.6 & 46.6 & 40.9 \\
+hard                  & 81.9 & 80.6 & 82.7 & 79.1 & \textbf{73.4} \\
+very hard ($>$100\,\%) & 137.4 & 133.8 & 131.4 & 140.1 & \textbf{113.6} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Easy trials want \emph{no filtering}; hard trials want \emph{full filtering}. A
+single constant cannot be right, so \textbf{adaptation is what the data
+supports.} An oracle picking $\alpha$ per bucket reaches \textbf{56.9\,\%}
+against the model's 59.1\,\% --- about \textbf{2.2 points} available, with
+52.5\,\% as an unreachable per-trial ceiling.
+
+\emph{Caveat:} the word-error curve is non-monotonic ($\alpha{=}0.5$ is worse
+than doing nothing) while the signal measures are not. The blend is provably
+linear, so this is $n{=}103$ noise plus transcriber nonlinearity. Trust the
+endpoints and the per-bucket pattern, not individual interior values.
+
+\subsection*{Notation}
+
+$X[t,b]$ is the mixture in the time--frequency domain, frame $t$, band $b$;
+$m[t,b]$ the complex mask the estimation module predicts; $h[t,b]$ the model's
+internal features; $e$ the enrolment. The current model is
+\[
+\hat{S}[t,b] \;=\; m[t,b]\,X[t,b].
+\]
+$T$ frames, $B=32$ bands, $7.19$\,M parameters, trained on $4{,}976$ trials.
+\textbf{The model is data-limited, not capacity-limited} --- train separation
+improved monotonically for all 18 epochs while held-out peaked at epoch~7. Any
+option that adds capacity makes the measured problem worse.
+
+\section{Global mix-back constant (no learning)}
+\[
+\hat{S}_\alpha \;=\; \alpha\,\hat{S} \;+\; (1-\alpha)\,X,
+\qquad \alpha \text{ fixed, chosen offline}
+\]
+\pro Zero training, zero new parameters, zero added latency: one multiply--add
+per sample, and output sample $n$ needs only input sample $n$.\\
+\pro Every $\alpha$ comes from \emph{one} forward pass, so a whole family of
+systems costs nothing but transcription.\\
+\con Not a fix. Trades away the benefit on hard trials to stop the harm on easy
+ones, using a constant that cannot be right everywhere.\\
+\con No gradient --- $\alpha$ is not a model parameter, so the model learns
+nothing.
+
+\section{Per-frame learned gate}
+\[
+\alpha[t] \;=\; \sigma\!\big(w^{\!\top} h[t] + b\big),
+\qquad
+\hat{S}[t] \;=\; \alpha[t]\,\big(m[t]\,X[t]\big) + \big(1-\alpha[t]\big)X[t]
+\]
+Gradient is immediate and needs no trick:
+\[
+\frac{\partial \hat{S}[t]}{\partial \alpha[t]} \;=\; m[t]\,X[t] - X[t],
+\qquad
+\frac{\partial \alpha[t]}{\partial w} \;=\; \alpha[t]\big(1-\alpha[t]\big)h[t].
+\]
+\pro Roughly $1$--$2$\,k parameters against $7.19$\,M: capacity risk negligible.\\
+\pro Learns \emph{when} to be gentle, which the global constant cannot.\\
+\pro Backbone untouched, so the 2026-08-28 architecture freeze survives.\\
+\con One decision for the whole spectrum at each frame.\\
+\con Still needs a retrain (${\sim}6.2$\,h per arm).
+
+\section{Per-frame, per-band learned gate}
+\[
+\alpha[t,b] \;=\; \sigma\!\big(w_b^{\!\top} h[t,b] + b_b\big),
+\qquad
+\hat{S}[t,b] \;=\; \alpha[t,b]\,\big(m[t,b]\,X[t,b]\big) + \big(1-\alpha[t,b]\big)X[t,b]
+\]
+\pro The band-split architecture already carries per-band features, so this is
+architecturally natural rather than bolted on.\\
+\pro Can be gentle in the high bands, where masking artefacts live, and
+aggressive in the low bands, where speech energy is. That is a distinction no
+scalar gate can express.\\
+\pro Still only ${\sim}B\,(|h_b|+1)$ parameters --- tens of thousands, not millions.\\
+\con Slightly more to defend in the write-up than a scalar.\\
+\con Same retrain cost.
+
+\section{Artefact weighting in the loss ($\beta$) --- no architecture change}
+
+The three components of the estimate are mutually orthogonal, so
+$L_\textup{pres}$'s denominator is \emph{already} the sum of the two piles:
+\[
+\big\lVert \hat{s} - \alpha s \big\rVert^2
+  \;=\; \big\lVert e_\textup{interf} \big\rVert^2
+      + \big\lVert e_\textup{artif} \big\rVert^2
+\]
+(verified numerically to six decimal places). They therefore cost the same per
+unit of energy. One ratio changes that:
+\[
+L_\textup{sep} \;=\; -10\log_{10}
+  \frac{\lVert \alpha s\rVert^2}
+       {\lVert e_\textup{interf}\rVert^2
+        + \beta\,\lVert e_\textup{artif}\rVert^2
+        + \tau\lVert \alpha s\rVert^2}
+\]
+\pro $\beta=1$ recovers $L_\textup{pres}$ \emph{exactly}, so the control arm is
+the existing baseline and every prior run stays comparable.\\
+\pro No architecture change, no new parameters, no latency change.\\
+\pro Lets the model choose \emph{where} in time and frequency to be gentle, which
+a global $\alpha$ cannot.\\
+\pro Unlike a separate artefact loss, pass-through can never win it: the
+interference term dominates.\\
+\con Shifts the global operating point; does \emph{not} make the model adaptive.\\
+\con One new hyperparameter, and a 4-arm ablation is ${\sim}25$\,h of GPU time.
+
+\section{Soft-routing mixture of experts}
+\[
+g \;=\; \operatorname{softmax}\!\big(f(X,e)\big) \in \mathbb{R}^K,
+\qquad
+\hat{S} \;=\; \sum_{k=1}^{K} g_k \,\big(m_k \, X\big)
+\]
+Differentiable without any trick, since softmax is smooth and the sum is linear:
+\[
+\frac{\partial L}{\partial g_k}
+  \;=\; \Big\langle \frac{\partial L}{\partial \hat{S}},\; m_k X \Big\rangle .
+\]
+\pro No estimator bias, no sampling, no Gumbel trick.\\
+\pro Genuinely expresses ``different treatment for different cases''.\\
+\con Replicating the whole estimator is fatal: $K{=}5$ would take the model from
+$7.19$\,M to $15.9$\,M, $+122\,\%$.\\
+\pro \textbf{Sharing the trunk changes the picture.} Measured: the estimator is
+$2.19$\,M of which \texttt{trunks} is $1.59$\,M ($73\,\%$), \texttt{mask\_heads}
+$396$\,k and \texttt{res\_heads} $198$\,k. Replicating only the mask heads costs
+$+0.79$\,M at $K{=}3$, i.e.\ \textbf{$+11\,\%$} --- and the separator ($68\,\%$)
+and trunks stay shared, so the experts are $K$ read-outs of one representation
+rather than $K$ models.\\
+\con All $K$ masks are computed every frame, so runtime scales with $K$.\\
+\con Averaging masks can yield a mask worse than any individual one.
+
+\section{Variational mixture of experts (the version asked about)}
+
+Treat difficulty as a discrete latent $z \in \{1,\dots,K\}$ with prior $p(z)$
+and posterior $q(z\mid X,e)$, and optimise the evidence lower bound
+\[
+\mathcal{L} \;=\;
+  \mathbb{E}_{q(z\mid X,e)}\!\big[\,L_\textup{recon}(\hat{S}_z, S)\,\big]
+  \;-\; \lambda\,\mathrm{KL}\big(q(z\mid X,e)\,\Vert\,p(z)\big).
+\]
+\textbf{For small $K$ the expectation is computed exactly by enumeration}, so no
+sampling, no reparameterisation trick and no REINFORCE variance:
+\[
+\mathcal{L} \;=\; \sum_{k=1}^{K} q_k\,L_\textup{recon}(\hat{S}_k, S)
+  \;-\; \lambda \sum_{k=1}^{K} q_k \log \frac{q_k}{p_k}.
+\]
+\pro \textbf{Mixes the losses, not the masks.} Each expert must be individually
+good on the cases assigned to it, avoiding the averaged-mask failure of
+soft routing.\\
+\pro The KL term prevents the gate collapsing onto a single expert, and
+$\lambda$ controls how decisively it specialises.\\
+\pro Principled, citable, and a real architecture contribution.\\
+\con $K$ full loss evaluations per step as well as $K$ masks: the most expensive
+option by a wide margin.\\
+\con $\lambda$ and $p(z)$ to choose on top of $K$.\\
+\pro The enumeration point is publishable in its own right: most treatments of
+discrete latents reach for Gumbel-Softmax or REINFORCE, and for $K$ of 5--10
+neither is needed.\\
+\con A new architecture is a different thesis from a new metric.
+
+\section*{Summary}
+
+\begin{tabularx}{\textwidth}{@{}lLcccc@{}}
+\toprule
+Option & Added parameters & Latency & Capacity risk & Build cost & Fixes non-adaptation \\
+\midrule
+1. Global $\alpha$        & none                & none & none   & hours (no training) & no \\
+2. Per-frame gate         & ${\sim}1$--$2$\,k     & none & tiny   & 1 retrain           & partly \\
+\textbf{3. Per-band gate} & ${\sim}10$--$50$\,k   & none & small  & 1 retrain           & \textbf{yes} \\
+\textbf{4. $\beta$ in loss} & none              & none & none   & 4 retrains (25\,h)  & no \\
+5. Soft MoE               & $+11\,\%$ at $K{=}3$, shared trunk & $K\times$ head & moderate & 1 retrain + tuning & yes \\
+6. Variational MoE        & $+11\,\%$ at $K{=}3$, shared trunk & $K\times$ head & moderate & largest & yes \\
+\bottomrule
+\end{tabularx}
+
+\subsection*{Recommendation, after the sweep}
+
+\textbf{The sweep has been run, and it re-orders the list.}
+
+\textbf{Option 4 ($\beta$) is demoted.} Globally $\alpha=1$ already wins, so a
+global shift toward gentler masking is evidence-against rather than
+evidence-for. It stays a secondary arm --- the sweep is an imperfect proxy, since
+a retrained model learns a \emph{different} mask rather than a blended one --- but
+it is no longer first.
+
+\textbf{Option 3 (per-band gate) is now the primary M5 experiment.} The optimum
+varies from $\alpha=0$ to $\alpha=1$ across difficulty, so a single constant
+provably cannot be right. It costs tens of thousands of parameters against
+$7.19$\,M, leaves the backbone frozen, adds no latency, and there are $2.2$
+points of LCF-WER on the table.
+
+\textbf{And note the identity that links it to options 5 and 6:}
+\[
+\alpha\,(m \odot X) + (1-\alpha)\,X
+   \;=\; \big[\,\alpha m + (1-\alpha)\mathbf{1}\,\big] \odot X
+\]
+\textbf{the per-band gate IS a two-expert mixture whose second expert is the
+identity mask.} So it is not an alternative to the mixture-of-experts idea --- it
+is that idea's base case at near-zero cost, and the right way to test the routing
+hypothesis before paying for $K>2$.
+
+\textbf{Options 5 and 6 are deferred, not rejected, and the capacity objection
+has been withdrawn.} With a shared trunk, $K{=}3$ costs $+11\,\%$, which is
+defensible. What defers them is scope: six weeks to freeze and no live-model
+measurement taken. The sensible sequence is \emph{build the $K{=}2$ gate, see how
+much of the $2.2$ points it captures, and scale $K$ only if it does.} If the
+gate saturates at $\alpha=1$ everywhere, that is a cheap negative result that
+saves building the larger thing.
+
+\end{document}
