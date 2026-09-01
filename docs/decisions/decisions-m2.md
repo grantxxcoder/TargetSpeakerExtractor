@@ -1657,3 +1657,88 @@ Replaced by `format_epoch_breakdown()`, which prints the train/val/gap table onc
 per epoch **to stderr** — stdout still carries one CSV row per epoch and must stay
 a valid `history.csv` so a killed Kaggle session can be recovered by pasting it
 into a file.
+
+---
+
+## 2026-09-01 — 2.5x the data: the diagnosis is CONFIRMED, and the model is still data-limited
+
+`experiments/results/2026-09-01-train-sir0-5000/`. 4,976 trials, 18 epochs of a
+requested 25, early-stopped on patience, 6.2 h at 1,244 s/epoch. Best epoch 7
+(zero-indexed, as `meta.yaml` records it). Checkpoint kept as
+`models/model_sir0_5000-e7.pt`.
+
+**The prediction was that the train/held-out gap would narrow if the 2026-08-29
+memorisation was a data-volume problem. It did, and held-out separation improved
+with it.**
+
+| | 1,989 trials (08-29) | 4,976 trials (09-01) |
+|---|---|---|
+| best held-out separation | 2.14 dB | **2.58 dB** |
+| margin over pass-through (1.59 dB) | 0.55 dB | **0.99 dB** |
+| gap at the best epoch | 1.24 dB | **1.08 dB** |
+| gap at the last epoch | 5.68 dB (ep 24) | 4.16 dB (ep 18) |
+| epochs to reach 2.14 dB | 14 | **2** |
+
+**The margin over doing nothing nearly doubled**, 0.55 -> 0.99 dB. That is the
+honest framing: 2.58 dB sounds close to 2.14 dB, but the reference point is
+pass-through at 1.59 dB, and what the extractor adds is what matters.
+
+### It is NOT at capacity. It is still data-limited
+
+The two are distinguishable by signature, and this run shows the second:
+
+- **capacity-limited** looks like: train loss plateaus, val plateaus with it, the
+  gap stays small. The model cannot fit even what it has seen.
+- **data-limited** looks like: train keeps improving, val peaks then declines,
+  the gap grows.
+
+Train `L_pres` fell monotonically from 2.30 to 5.64 dB across all 18 epochs and
+never plateaued, while held-out peaked at epoch 7 and fell to 1.48 dB by epoch
+17. The gap grew 0.58 -> 4.16 dB. **That is unambiguously the data-limited
+signature**, so more data would still help.
+
+**But the return is diminishing.** 2.5x the data bought +0.44 dB of peak
+held-out separation. A further 2x should be expected to buy appreciably less,
+and costs ~2.6 h of rendering, ~2 h of enrolment-bank rendering, a ~33 GB
+upload, and caps a Kaggle session at ~14 epochs.
+
+**Decision: do NOT render more data now.** The extractor is not this project's
+contribution and there is no live-model measurement taken yet. See
+`decisions-pending.md` for the two cheaper levers if the model is revisited.
+
+### Two selection findings worth keeping
+
+**`select_on: present_branch` earned its place.** `val_total` was lowest at epoch
+15 (-2.7455), not at the selected epoch 7 (-2.4261). Epoch 15 wins on `total`
+only because its `L_abs` is better (-12.84 against -11.43) -- it is *quieter*,
+not better at separating; its held-out separation is 2.40 dB against epoch 7's
+2.58 dB. `total` contains `L_abs`, and `L_abs` rewards silence, which is exactly
+why it cannot rank finished models (`decisions-m2.md` 2026-08-30). **A plot of
+`val_total` will therefore disagree with the selected epoch, by design.**
+
+**The `select_abs_max` silence bar also fired.** Epoch 4 had the best raw
+separation of the whole run at 2.94 dB but `L_abs` -8.38, above the -10.0 bar,
+so it was ineligible. It separated well while remaining audible on crops where
+the target never speaks. The constraint rejected it correctly.
+
+### Conditioning: unchanged, and read it with care
+
+Enrolment sensitivity at the selected epoch is **-3.79 dB**, against -3.80 dB for
+the 08-29 baseline. **No change.** More data improved separation without
+improving conditioning.
+
+It reaches -1.53 dB by epoch 17, and **that figure must not be quoted**: held-out
+separation was collapsing over the same epochs (2.58 -> 1.48 dB). This is the
+same "headline moving for a bad reason" pattern recorded on 2026-08-29 -- an
+output that has stopped resembling the target moves a great deal when its input
+changes, for no useful reason. `pres_abs_gap` behaves the same way, 8.86 dB at
+the selected epoch against 15.12 dB at the end.
+
+### Housekeeping
+
+`kaggle_out/` deleted after extraction. Kept: `history.csv`, `history_live.csv`,
+`meta.yaml`, `loss_plot.png`, the config that ran, `bundle_commit.txt`, and a
+`source_that_ran/` snapshot. Checkpoints kept as `models/model_sir0_5000-e7.pt`
+(selected) and `models/model_sir0_5000-last.pt`. The `keep_top_k` checkpoints
+e004/e005/e007 were discarded: e007 is the selected epoch and is already kept,
+and the other two were epochs the selection rule rejected.

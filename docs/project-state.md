@@ -1,24 +1,25 @@
-# Where the project is — 2026-08-30
+# Where the project is — 2026-09-01
 
 Plain-language status. Numbers in the milestone decision logs
 (`decisions/decisions-m1.md` architecture, `-m2` training, `-m3` conventional
 evaluation, `-m4` the metric and judge); dates and checklists in
 `decisions/milestones.md`.
 
-**Submission 2026-11-05. Experiment freeze 2026-10-14 — about 6.4 weeks.**
+**Submission 2026-11-05. Experiment freeze 2026-10-14 — about 6 weeks.**
 
 ---
 
 ## In one paragraph
 
-The objective is fixed and it worked. The model no longer mutes, it listens to
-the voice sample, and training is 7.2x faster than a week ago. But the run that
-was supposed to settle "just train it longer" instead found the next wall:
-**the model memorises the 1,989 training trials.** It keeps getting better on
-data it has seen and steadily worse on data it has not. That is a data-volume
-problem, not an architecture problem, and it means adding capacity would make
-things worse, not better. Nothing downstream of the model — metric, judge,
-benchmark, comparison table — has been started, and none of it can be cut.
+The memorisation diagnosis was tested and **confirmed**: 2.5x the training data
+lifted held-out separation from 2.14 to 2.58 dB and **nearly doubled the margin
+over doing nothing, 0.55 to 0.99 dB**. The model is still data-limited rather
+than at capacity, but the return is diminishing and the extractor is not the
+contribution. **All three metrics are now built and tested** — LCF-WER, ICR and
+NRR — and two of them already produce real numbers using an offline ASR in place
+of the judge. The one thing still missing is the judge itself: no live-model
+measurement has been taken, and that is now the only thing between here and the
+project's actual result.
 
 ## What changed since 2026-08-28
 
@@ -73,12 +74,17 @@ The trustworthy figure is 37.6 % at epoch 9, and 41.7 % at epoch 14.
 - Train 10 epochs in 1.45 h, checkpoint, and resume without losing state.
 - **Transcribe for evaluation, and say how hard the task is.** Offline ASR
   chosen (`faster-whisper small.en`) and C2 closed at n=230.
+- **Score all three of its own metrics.** LCF-WER, ICR and NRR implemented and
+  tested (51 tests), judge-agnostic, with the transcriber swappable. Validated
+  by reproducing the C2 floor/ceiling exactly.
+- **Beat doing nothing by ~1 dB** on held-out data, against 0.55 dB a week ago.
 
 ## Cannot
 
-- **Generalise.** The single biggest open problem, and it is new as of yesterday.
-- **Separate well.** Best held-out separation ~2.1 dB, against ~1.6 dB for doing
-  nothing on the same data. The margin is thin.
+- **Generalise fully.** Improved but not solved: the train/held-out gap still
+  reaches 4.16 dB by the last epoch, against 5.68 dB before.
+- **Separate well.** Best held-out separation 2.58 dB against 1.59 dB for doing
+  nothing. The margin is ~1 dB — better than it was, still thin.
 - **Match level per utterance.** `L_gain` fell only 3 % over its whole run. It
   works as a *constraint on going silent*, not as a level regression target.
 - **Be scored on the thing this project is about.** Every number above is a
@@ -148,14 +154,17 @@ differs from the checkpoint's.
 
 ## Next
 
-1. **More data, not more model.** Render a larger `sir0` split (~5,000 trials)
-   and retrain from scratch. This is the direct test of the diagnosis: if the
-   train/held-out gap narrows, the finding is confirmed and the ceiling moves.
-2. **The two free regularisers, in the same run or before it.** `weight_decay`
-   is 0.0 and there is no dropout. Both are config-level and cost nothing.
-3. **Start the metric work in parallel, on the epoch-14 checkpoint.** It does not
-   need a better model, and it is the project's actual contribution. Decide the
-   judge first — everything in M4 queues behind it.
+1. **Choose the judge (J2).** It is the only thing blocking the project's actual
+   result, and the choice is now a ~1-hour candidate gate rather than an open
+   argument: score the ceiling, the floor and a few silent trials on each
+   candidate and read whether it can report clean speech, whether it can fail,
+   and whether it stays quiet when there is nothing to hear.
+2. **Score the 5,000-trial checkpoint on the metrics that exist.** Render
+   estimates, transcribe them, and produce the first system row for LCF-WER and
+   ICR. Costs nothing and needs no judge.
+3. **Do NOT render more data.** It would still help — the model is data-limited,
+   not at capacity — but 2.5x bought +0.44 dB and a further 2x will buy less,
+   for ~5 h of rendering and a 33 GB upload. `decisions-m2.md` 2026-09-01.
 
 **Watch the train/held-out gap, not the total.** Both totals fell the whole way
 through the run that overfitted.

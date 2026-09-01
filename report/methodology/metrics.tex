@@ -17,12 +17,12 @@ Since the main task is intelligibility of the target speaker and not necessarily
 
 \subsection{Trial definitions}
 \label{sec:trial}
-Each trial passed through the model at evaluation produces a 4-tuple $(y_x, y_{\hat{s}}, y_s, y_d)$ where $y_x$ is the input mixture speech transcription, $y_{\hat{s}}$ is the estimated target speech transcription, $y_s$ is the true target speech transcription, and $y_d$ is the interferer speech transcription. The subscripts follow the audio notation of Section~\ref{sec:objective}: $x$ is the mixture, $s$ the target reference and $\hat{s}$ the model output, with $d$ denoting the interfering speech and $y_{(\cdot)}$ the transcription of a signal. These transcriptions are created in two ways in this project: (1) by using an automatic speech recognition (ASR) system \cite{faster_whisper,radford2023whisper} to transcribe the audio to act as a baseline transcriber, and (2) by making use of a live speech-to-speech model that accepts the audio and outputs a transcription which is prompted with a standard prompt to transcribe the audio found in Appendix~\ref{app:prompt}. The tuple therefore does not represent necessarily the true transcriptions, but rather what the model/transcriber produces. To avoid confusion, the true transcriptions as found in LibriSpeech will be denoted with a star, e.g. $y^\star_s$
+Each trial passed through the model at evaluation produces a 4-tuple $(y_x, y_{\hat{s}}, y_s, y_d)$ where $y_x$ is the input mixture speech transcription, $y_{\hat{s}}$ is the estimated target speech transcription, $y_s$ is the target speech transcription, and $y_d$ is the interferer speech transcription. The subscripts follow the audio notation of Section~\ref{sec:objective}: $x$ is the mixture, $s$ the target reference and $\hat{s}$ the model output, with $d$ denoting the interfering speech and $y_{(\cdot)}$ the transcription of a signal. These transcriptions are created in two ways in this project: (1) by using an automatic speech recognition (ASR) system \cite{faster_whisper,radford2023whisper} to transcribe the audio to act as a baseline transcriber, and (2) by making use of a live speech-to-speech model that accepts the audio and outputs a transcription which is prompted with a standard prompt to transcribe the audio found in Appendix~\ref{app:prompt}. The tuple therefore does not represent necessarily the true transcriptions, but rather what the model/transcriber produces. To avoid confusion, the true transcriptions as found in LibriSpeech will be denoted with a star, e.g. $y^\star_s$
 
 
 \subsection{Text normalisation}
 \label{sec:normalisation}
-To standardise the transcriptions created by the different methods, a text normalisation process is applied to the audio transcriptions. Specifically, using the \texttt{whisper} library \cite{whisper_normalizer}, the \texttt{EnglishTextNormaliser} package, seen in Appendix~C of \cite{radford2023whisper}, is used to output the transcriptions into lower case, remove punctuation, expand contractions, standardise the spelling of numbers, and remove any non-alphanumeric characters. This is done to ensure that the transcriptions are comparable across different methods of transcription.
+To standardise the transcriptions created by the different methods, a text normalisation process is applied to the audio transcriptions. Specifically, using the \texttt{whisper-normalizer} library \cite{whisper_normalizer}, the \texttt{EnglishTextNormalizer} package, seen in Appendix~C of \cite{radford2023whisper}, is used to output the transcriptions into lower case, remove punctuation, expand contractions, standardise the spelling of numbers, and remove any non-alphanumeric characters. This is done to ensure that the transcriptions are comparable across different methods of transcription.
 
 
 \subsection{Live-model Content Fidelity Word Error Rate}
@@ -76,6 +76,8 @@ The eligible set $\mathcal{T}_k$ depends on $k$. If in a trial there is only one
 
 \subsection{Non-Response Rate}
 \label{sec:nrr}
+The Non-Response Rate (NRR) is a metric specifically meant for the fact that live speech-to-text models are prompted, and thus respond in a way that is not necessarily a transcription of the audio. 
+
 
 \subsection{Anchors}                                  
 \label{sec:anchors}
