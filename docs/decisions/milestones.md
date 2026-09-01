@@ -398,7 +398,10 @@ Evaluated with the metrics that already exist, because the new one does not yet.
 This is deliberate: these numbers become the "conventional metrics" column of
 the divergence table in M5.
 
-- [ ] SI-SDR, DNSMOS-P.835 + P.808, offline ASR WER on the held-out constructed set
+- [X] ~~**SI-SDR, SIR/SAR, DNSMOS-P.835 + P.808 and offline ASR WER on the
+      held-out set.** 2026-09-01 on `sir0_val` `both`, n=103, all three reference
+      points. See the results table in `project-state.md`. decisions-m3.md
+      2026-09-01~~
 - [X] ~~**Measured algorithmic latency + RTF against the ~200–300 ms budget.**
       2026-09-01: 80 ms chunks, i5-1135G7 4 threads — **RTF 0.528 mean / 0.706
       p99**, latency **162 ms mean / 176 ms p99**, no chunk misses the 80 ms
@@ -419,15 +422,21 @@ the divergence table in M5.
 
 Drafted during M2, finished here now that there is a real system to point it at.
 
-- [ ] LCF-WER, ICR, NRR implemented
+- [X] ~~**LCF-WER, ICR, NRR implemented.** 2026-08-31, `src/live_model_metric/`,
+      63 tests, judge-agnostic with the transcriber swappable. Validated by
+      reproducing the C2 floor and ceiling exactly. decisions-m4.md 2026-08-31~~
 - [ ] **J3 — the ICR overlap threshold signed off.** `count>=2` declared with a
       sensitivity sweep; the exclusion rule and the floor row's
       by-construction ICR both need stating. decisions-pending.md J3
-- [ ] **Write B4's scoring rule into `metric-definitions.md`** — decided
+- [X] ~~**B4's scoring rule written into `metric-definitions.md`** — done
+      2026-09-01, §3.1: absent trials excluded not scored zero, with the
+      invented-speech row and the measured 95.1 % / 0.0 % figures. Originally
+      decided
       2026-08-13: absent trials are excluded from the main score and reported as
       their own invented-speech row, never folded into the headline. The decision is
       made; the document still defines nothing for a trial with no reference text
-- [ ] **Pin B5's normaliser** — Whisper `EnglishTextNormalizer`, applied identically
+- [X] ~~**B5's normaliser pinned in the spec** — done 2026-09-01, §3.1:
+      `whisper-normalizer==0.1.15`, Radford et al. Appendix C, applied identically
       to both sides, frozen before the first judge result and never adjusted per
       system (decisions-m0.md 2026-08-13)
 - [ ] Judge harness: fixed prompt, fixed response ASR, pinned model IDs, k≥3

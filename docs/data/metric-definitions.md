@@ -79,6 +79,32 @@ model actually recover?
 Normalisation (casing, punctuation, numbers, disfluencies) must be fixed and
 published. Do not hand-tune it per system.
 
+**The normaliser, pinned (B5, decisions-m0.md 2026-08-13).** Whisper's
+`EnglishTextNormalizer`, from `whisper-normalizer==0.1.15`, defined in Appendix C
+of Radford et al. (2022) and borrowed unchanged. It lower-cases, strips
+punctuation, expands contractions so *don't* becomes *do not*, and standardises
+spelled-out numbers and dates. **Applied identically to both sides of every
+comparison**, and never adjusted per system — adjusting it per system would
+flatter a model without improving it. It is a component of the measuring
+instrument, not preprocessing, and a change to it invalidates every previously
+reported number.
+
+**Trials where the target never speaks are EXCLUDED, not scored as zero (B4,
+decisions-m0.md 2026-08-13).** With no reference text the rate is 0/0 —
+undefined, not perfect. Folding such trials in as 0 % would reward a system for
+saying nothing when nothing was said, and dilute the headline with trials the
+metric cannot judge. They are counted, reported separately, and measured instead
+by their own invented-speech row: on a trial where the target is silent the
+correct output is silence, so what matters is how many words came out. Measured
+2026-08-31, `eval_public`: **95.1 % of such trials produce speech from the
+unprocessed mixture, against 0.0 % from the clean target.**
+
+**A non-response counts as all-deletions, deliberately.** If the judge reports
+nothing on a trial where the target did speak, every reference word is a deletion
+and the trial scores ~100 %. That is the honest reading — a listener that said
+nothing recovered nothing — and it means LCF-WER already punishes a muting
+extractor. NRR (§3.3) therefore exists to protect ICR, not to catch the mute.
+
 ### 3.2 Secondary score — ICR (Interferer Content Rate)
 
 Fraction of trials where `r` contains content attributable to `d` rather

@@ -11,15 +11,16 @@ evaluation, `-m4` the metric and judge); dates and checklists in
 
 ## In one paragraph
 
-The memorisation diagnosis was tested and **confirmed**: 2.5x the training data
-lifted held-out separation from 2.14 to 2.58 dB and **nearly doubled the margin
-over doing nothing, 0.55 to 0.99 dB**. The model is still data-limited rather
-than at capacity, but the return is diminishing and the extractor is not the
-contribution. **All three metrics are now built and tested** — LCF-WER, ICR and
-NRR — and two of them already produce real numbers using an offline ASR in place
-of the judge. The one thing still missing is the judge itself: no live-model
-measurement has been taken, and that is now the only thing between here and the
-project's actual result.
+**Every measurement instrument the project needs is now built, and none of it has
+seen a live model.** Six metrics exist and are tested — the three LCF scores, the
+SIR/SAR decomposition, DNSMOS in both variants, and RTF/latency. Two divergence
+results already exist without a judge: signal quality explains only ~4 % of the
+variance in what the listener recovered, and perceptual quality moved *against*
+content (DNSMOS OVRL fell 0.26 while LCF-WER improved 6.1 points). The model
+keeps up in real time (RTF 0.53 on a laptop CPU). **The single gap is the judge:
+until one is chosen, LCF-WER is arithmetically identical to offline ASR word error
+rate, so the project's primary contribution does not yet exist as a distinct
+measurement.** That is one ~1 hour experiment and about $25.
 
 ## What changed since 2026-08-30
 
@@ -35,6 +36,18 @@ project's actual result.
 4. **The first system row exists.** The trained model has been scored end to end
    on its own metrics for the first time — see the results table below.
 5. **J1 closed:** the judge is audio-in / text-out, not full-duplex.
+6. **DNSMOS added, both variants**, validated against Microsoft's own
+   implementation to 4e-16. Non-intrusive, so it is the only quality metric that
+   can run on AMI. `decisions-m3.md` 2026-09-01.
+7. **RTF and latency measured.** 80 ms chunks: RTF **0.528** mean / 0.706 p99,
+   latency **162 ms** mean / 176 ms p99, no chunk misses the 80 ms deadline.
+   Closes the M3 latency item. `decisions-m3.md` 2026-09-01.
+8. **The mix-back sweep decided M5's ordering.** Globally α=1 already wins, but
+   the per-difficulty optimum spans 0 to 1, so adaptation is motivated and a
+   global gentleness shift is not. The per-band gate is now M5's primary
+   experiment (D13); the artefact weight β is demoted to a secondary arm.
+9. **Two spec gaps closed** — B4's absent-trial rule and B5's normaliser are now
+   written into `metric-definitions.md` §3.1, not just the code.
 
 ## The 5,000-trial run
 
@@ -129,6 +142,11 @@ above.**
   tested (51 tests), judge-agnostic, with the transcriber swappable. Validated
   by reproducing the C2 floor/ceiling exactly.
 - **Beat doing nothing by ~1 dB** on held-out data, against 0.55 dB a week ago.
+- **Run in real time, measured.** 80 ms chunks, RTF **0.528** mean / 0.706 p99 on
+  a laptop CPU, end-to-end latency **162 ms** against a 200–300 ms budget, and no
+  chunk misses the 80 ms deadline. An estimate rather than a true streaming
+  measurement — there is no stateful path, so chunks are processed independently,
+  10–20 % error. GPU figure outstanding.
 - **Separate interference from artefact.** SIR/SAR decomposition implemented
   (`separation.py`, 12 tests). The model removes interferer well (**SIR +4.33 dB**)
   while inventing a lot (**absolute SAR +10.34 dB**, i.e. ~9 % of output energy is
@@ -174,6 +192,21 @@ required. This also deletes the response-transcription ASR from the measuring
 instrument. Carries a ~50-trial full-duplex confirmation run so the deviation
 from the stated objective is bought off rather than argued away.
 `decisions-m4.md` 2026-08-31.
+
+## Milestone scoreboard
+
+| | status | open items |
+|---|---|---|
+| **M0** data | closed | — |
+| **M1** architecture | closed | — |
+| **M2** baseline trained | functionally complete | 1 (band-plan / `w_m` ablations) |
+| **M3** conventional evaluation | **2 of 3 done** | 1 (listen to the outputs) |
+| **M4** the metric | **6 of 13 done** | **7 — all of them behind the judge** |
+| **M5** second model | designed, not built | 23 |
+| **M6** the comparison | not started | 9 |
+
+**M3 is effectively closed.** M4's seven remaining items are almost entirely
+consequences of one decision: choose the judge.
 
 ## The results table
 
