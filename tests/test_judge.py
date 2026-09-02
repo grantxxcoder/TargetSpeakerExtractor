@@ -9,8 +9,13 @@ import csv
 
 import pytest
 
-from src.live_model_metric.judge import (Judge, QuotaExhausted, _is_quota_error,
-                                         cache_key, load_cache, prompt_sha)
+from pathlib import Path
+
+from src.live_model_metric.judge import (CACHE_FIELDS, Judge,
+                                         NewCallLimitReached, QuotaExhausted,
+                                         _is_quota_error, cache_key,
+                                         load_cache, load_once_index,
+                                         prompt_sha, runs_once)
 
 
 # --- the structured status, which is why the prompt has no in-band sentinel --
@@ -62,13 +67,25 @@ def test_prompt_change_changes_the_key(tmp_path):
     assert a != b
 
 
-def test_repeat_and_backend_and_model_all_change_the_key(tmp_path):
-    audio = tmp_path / "t1" / "mixture.wav"
+def test_repeat_and_backend_and_model_all_change_the_estimate_key(tmp_path):
+    """estimate.wav only -- a run-once clip deliberately ignores repeat."""
+    audio = tmp_path / "t1" / "estimate.wav"
     audio.parent.mkdir()
     audio.write_bytes(b"x" * 16)
     base = cache_key(audio, "m", "sha", 0, "aistudio")
     assert base != cache_key(audio, "m", "sha", 1, "aistudio")   # k repeats differ
     assert base != cache_key(audio, "m", "sha", 0, "vertex")     # surfaces differ
+    assert base != cache_key(audio, "other", "sha", 0, "aistudio")
+
+
+def test_run_once_key_ignores_repeat_but_not_the_instrument(tmp_path):
+    audio = tmp_path / "t1" / "mixture.wav"
+    audio.parent.mkdir()
+    audio.write_bytes(b"x" * 16)
+    base = cache_key(audio, "m", "sha", 0, "aistudio")
+    assert base == cache_key(audio, "m", "sha", 7, "aistudio")   # repeat ignored
+    assert base != cache_key(audio, "m", "sha", 0, "vertex")     # surface matters
+    assert base != cache_key(audio, "m", "other-sha", 0, "aistudio")
     assert base != cache_key(audio, "other", "sha", 0, "aistudio")
 
 
@@ -118,6 +135,156 @@ def test_missing_cache_file_is_an_empty_cache(tmp_path):
     assert load_cache(tmp_path / "nope.csv") == {}
 
 
+# --- run-once vs re-runnable ----------------------------------------------
+
+def _write_cache(path, key, judge, filename="mixture.wav", text="cached answer"):
+    with open(path, "w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=CACHE_FIELDS)
+        writer.writeheader()
+        writer.writerow({"key": key, "model": judge.model_id,
+                         "backend": judge.backend, "prompt_sha": judge.sha,
+                         "trial_id": "t1", "file": filename, "repeat": 0,
+                         "status": "speech", "text": text,
+                         "run_date": "2026-09-02"})
+
+
+@pytest.mark.parametrize("name,once", [
+    ("mixture.wav", True), ("target.wav", True), ("interferer.wav", True),
+    ("estimate.wav", False),
+])
+def test_which_clips_run_once(name, once):
+    assert runs_once(Path("t1") / name) is once
+
+
+@pytest.mark.parametrize("name", ["mixture.wav", "target.wav", "interferer.wav"])
+def test_run_once_clip_ignores_repeat(tmp_path, name):
+    """The rule: an unchangeable clip is judged ONCE, whatever the repeat index.
+    No model can alter the rendered mixture, so a second answer buys nothing."""
+    audio = tmp_path / "t1" / name
+    audio.parent.mkdir(exist_ok=True)
+    audio.write_bytes(b"audio")
+    cache = tmp_path / "j.csv"
+    j0 = Judge(model_id="m", cache_path=cache, repeat=0)
+    _write_cache(cache, cache_key(audio, "m", j0.sha, 0, "aistudio"), j0,
+                 filename=name)
+
+    for repeat in (0, 1, 2):
+        j = Judge(model_id="m", cache_path=cache, repeat=repeat)
+        assert j.cached(audio) is not None, f"repeat={repeat} must reuse the answer"
+        assert j.judge(audio)[1] == "cached answer"
+        assert j.calls_made == 0
+
+
+def test_repeat_run_once_is_opt_in_and_scoped(tmp_path):
+    """The spread study must be able to buy the same answer twice, and that
+    ability must not leak into normal use -- otherwise the run-once guarantee
+    is only a default rather than a guarantee."""
+    audio = tmp_path / "t1" / "mixture.wav"
+    audio.parent.mkdir()
+    audio.write_bytes(b"audio")
+    cache = tmp_path / "j.csv"
+    j0 = Judge(model_id="m", cache_path=cache)
+    _write_cache(cache, cache_key(audio, "m", j0.sha, 0, "aistudio"), j0)
+
+    for repeat in (0, 1, 2):
+        normal = Judge(model_id="m", cache_path=cache, repeat=repeat)
+        assert normal.cached(audio) is not None, "run-once must still hold"
+
+    # Opted in: repeat 0 matches the stored repeat-keyed row only if one exists.
+    # The stored row used the once key, so every repeat is a miss here.
+    for repeat in (0, 1, 2):
+        spread = Judge(model_id="m", cache_path=cache, repeat=repeat,
+                       repeat_run_once=True)
+        assert spread.cached(audio) is None
+
+
+def test_estimate_may_be_judged_again_per_repeat(tmp_path):
+    """estimate.wav is model output, so k repeats are legitimate work."""
+    est = tmp_path / "t1" / "estimate.wav"
+    est.parent.mkdir()
+    est.write_bytes(b"model output")
+    keys = {cache_key(est, "m", "sha", r, "aistudio") for r in (0, 1, 2)}
+    assert len(keys) == 3
+
+
+def test_a_retrained_estimate_at_the_same_path_is_not_served_a_stale_answer(tmp_path):
+    """A new checkpoint overwrites estimate.wav in place. Serving model A's
+    answer for model B's audio would silently corrupt the results table, which
+    is why the estimate key keeps a content hash."""
+    est = tmp_path / "t1" / "estimate.wav"
+    est.parent.mkdir()
+    est.write_bytes(b"checkpoint A output")
+    key_a = cache_key(est, "m", "sha", 0, "aistudio")
+    est.write_bytes(b"checkpoint B output")
+    assert cache_key(est, "m", "sha", 0, "aistudio") != key_a
+
+
+def test_run_once_answer_found_whatever_key_format_wrote_it(tmp_path):
+    """The index is built from the CSV columns, so answers already paid for are
+    never orphaned by a change to the key format."""
+    audio = tmp_path / "t1" / "mixture.wav"
+    audio.parent.mkdir()
+    audio.write_bytes(b"already paid for")
+    cache = tmp_path / "j.csv"
+    judge = Judge(model_id="m", cache_path=cache)
+    _write_cache(cache, "some|entirely|different|legacy|key|format", judge,
+                 text="paid answer")
+
+    judge = Judge(model_id="m", cache_path=cache)
+    assert judge.judge(audio) == ("speech", "paid answer")
+    assert judge.calls_made == 0
+
+
+def test_a_changed_prompt_is_a_different_instrument(tmp_path):
+    """Run-once means once per INSTRUMENT. A new prompt is a new measurement,
+    so it must not be served the old prompt's answer."""
+    audio = tmp_path / "t1" / "mixture.wav"
+    audio.parent.mkdir()
+    audio.write_bytes(b"audio")
+    cache = tmp_path / "j.csv"
+    judge = Judge(model_id="m", cache_path=cache)
+    _write_cache(cache, cache_key(audio, "m", judge.sha, 0, "aistudio"), judge)
+
+    judge = Judge(model_id="m", cache_path=cache)
+    judge.sha = "differentsha"                 # as if the prompt file changed
+    judge._once = load_once_index(cache)
+    assert judge.cached(audio) is None
+
+
+def test_preflight_counts_without_calling(tmp_path):
+    paid = tmp_path / "t1" / "mixture.wav"
+    paid.parent.mkdir()
+    paid.write_bytes(b"paid")
+    unpaid = tmp_path / "t2" / "mixture.wav"
+    unpaid.parent.mkdir()
+    unpaid.write_bytes(b"unpaid")
+    cache = tmp_path / "j.csv"
+    judge = Judge(model_id="m", cache_path=cache)
+    _write_cache(cache, cache_key(paid, "m", judge.sha, 0, "aistudio"), judge)
+
+    judge = Judge(model_id="m", cache_path=cache)
+    assert judge.preflight([paid, unpaid, None]) == (1, 1)
+    assert judge.calls_made == 0
+
+
+def test_max_new_calls_refuses_rather_than_billing_through(tmp_path, monkeypatch):
+    a = tmp_path / "t1" / "estimate.wav"
+    a.parent.mkdir()
+    a.write_bytes(b"x")
+    b = tmp_path / "t2" / "estimate.wav"
+    b.parent.mkdir()
+    b.write_bytes(b"y")
+
+    judge = Judge(cache_path=tmp_path / "j.csv", requests_per_minute=0,
+                  max_new_calls=1)
+    monkeypatch.setattr(judge, "_call_once", lambda _p: ("speech", "answer"))
+    judge.judge(a)
+    assert judge.calls_made == 1
+    with pytest.raises(NewCallLimitReached):
+        judge.judge(b)
+    assert judge.calls_made == 1
+
+
 # --- quota: a daily cap is not a failure -----------------------------------
 
 @pytest.mark.parametrize("message,throttled,daily", [
@@ -125,6 +292,15 @@ def test_missing_cache_file_is_an_empty_cache(tmp_path):
     ("Quota exceeded for requests per day", True, True),
     ("429 rate limit exceeded", True, False),
     ("500 internal error", False, False),
+    # A quota whose LIMIT IS 0 means the model is not available on this tier.
+    # It is a permanent refusal wearing a 429, so it must NOT be retried --
+    # this shape burned all five attempts on the first real smoke call.
+    ("429 RESOURCE_EXHAUSTED: Quota exceeded, limit: 0", False, False),
+    ('429 RESOURCE_EXHAUSTED quota_limit_value: "0"', False, False),
+    # Observed 2026-09-02 on the first real call: a prepay project at zero
+    # balance. Carries a 429 but no wait fixes it, so it must not be retried.
+    ("Error code: 429 - Your prepayment credits are depleted. Please go to "
+     "AI Studio to manage your project and billing.", False, False),
 ])
 def test_quota_error_classification(message, throttled, daily):
     """Per-minute throttling is retried; the daily cap stops the run so it can

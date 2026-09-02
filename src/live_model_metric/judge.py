@@ -75,6 +75,11 @@ class QuotaExhausted(RuntimeError):
     """The daily free-tier cap is spent. Not a failure -- resume tomorrow."""
 
 
+class NewCallLimitReached(RuntimeError):
+    """max_new_calls was hit. A guard against an accidental large spend, not an
+    error: everything already answered is on disk and a re-run resumes."""
+
+
 def prompt_text(prompt_file=None):
     return Path(prompt_file or DEFAULT_PROMPT_FILE).read_text()
 
@@ -84,16 +89,66 @@ def prompt_sha(prompt_file=None):
     return hashlib.sha256(prompt_text(prompt_file).encode()).hexdigest()[:12]
 
 
-def cache_key(audio_path, model_id, sha, repeat, backend="aistudio"):
-    """Mirrors evaluate._cache_key, plus the four things that make a judge
-    answer reproducible: which model, which serving backend, which prompt,
-    which repeat. Backend is in the key so an AI Studio answer is never served
-    to a Vertex run, or the reverse -- they are different instruments until
-    measured to be the same."""
+def audio_fingerprint(audio_path):
+    """sha256 of the file's BYTES, truncated. Used only for estimate.wav.
+
+    NOT MEMOISED, deliberately. An earlier version cached the digest against
+    (path, mtime, size) and was wrong: mtime has one-second resolution, so two
+    different checkpoints written to the same path within the same second at
+    the same size returned the FIRST file's digest -- which would serve model
+    A's judge answer for model B's audio and silently corrupt the results
+    table. Hashing ~557 kB costs about a millisecond against a network call,
+    so there is nothing to optimise here.
+    """
+    digest = hashlib.sha256()
+    with open(Path(audio_path), "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()[:16]
+
+
+# THE UNCHANGEABLES. These clips are not produced by any model -- they are the
+# rendered trial itself -- so their judge answer can only ever be bought once.
+# Anything else (estimate.wav) is model output and may legitimately be judged
+# again, because a retrained checkpoint writes different audio to the same path.
+RUN_ONCE_CLIPS = frozenset({"target", "mixture", "interferer"})
+
+
+def runs_once(audio_path):
+    """True for target/mixture/interferer, i.e. audio no model can change."""
+    return Path(audio_path).stem.lower() in RUN_ONCE_CLIPS
+
+
+def once_key(audio_path, model_id, sha, backend="aistudio"):
+    """Identity for a run-once clip. Deliberately has NO repeat and NO content
+    hash: one trial's mixture is one clip, so one answer is all it can ever
+    need. Model, prompt and backend stay in the key because they are the
+    measuring instrument -- change one and it is a different measurement."""
     path = Path(audio_path)
-    stat = path.stat()
+    return (f"{model_id}@{backend}|{sha}|{path.parent.name}|{path.stem.lower()}"
+            f"|once")
+
+
+def cache_key(audio_path, model_id, sha, repeat, backend="aistudio",
+              force_repeat=False):
+    """Identity for a re-runnable clip (estimate.wav).
+
+    Keeps the content hash, and that part is load-bearing rather than
+    decorative: a retrained checkpoint overwrites estimate.wav at the SAME
+    path, so without the hash model B would be served model A's answer.
+
+    force_repeat=True opts a run-once clip INTO repeat keying. Used only by the
+    deliberate spread study (scripts/judge_spread.py), which has to judge one
+    unchanging clip several times to measure how much the judge's answer varies
+    between calls. That number is M4's gate criterion -- run-to-run spread must
+    be smaller than the floor-to-ceiling gap -- and it bounds the smallest
+    system difference the metric can honestly claim.
+    """
+    if runs_once(audio_path) and not force_repeat:
+        return once_key(audio_path, model_id, sha, backend)
+    path = Path(audio_path)
     return (f"{model_id}@{backend}|{sha}|{path.parent.name}|{path.name}"
-            f"|{int(stat.st_mtime)}|{stat.st_size}|r{repeat}")
+            f"|sha{audio_fingerprint(path)}|r{repeat}")
 
 
 def load_cache(cache_path=None):
@@ -104,6 +159,27 @@ def load_cache(cache_path=None):
     with open(cache_path, newline="") as handle:
         return {row["key"]: (row["status"], row["text"])
                 for row in csv.DictReader(handle)}
+
+
+def load_once_index(cache_path=None):
+    """(model, prompt_sha, backend, trial_id, clip stem) -> (status, text).
+
+    Built from the CSV COLUMNS rather than the key string, so a run-once clip
+    already answered is found no matter what key format wrote it. That is what
+    lets the key format change without ever re-buying an answer.
+    """
+    cache_path = Path(cache_path or DEFAULT_CACHE)
+    if not cache_path.exists():
+        return {}
+    index = {}
+    with open(cache_path, newline="") as handle:
+        for row in csv.DictReader(handle):
+            stem = Path(row["file"]).stem.lower()
+            if stem not in RUN_ONCE_CLIPS:
+                continue
+            index[(row["model"], row["prompt_sha"], row.get("backend", "aistudio"),
+                   row["trial_id"], stem)] = (row["status"], row["text"])
+    return index
 
 
 def _append_cache(cache_path, row):
@@ -121,8 +197,32 @@ def _is_quota_error(exc):
     """google-genai does not expose a typed daily-quota error, so this reads the
     message. Deliberately conservative: anything mentioning a per-day quota is
     treated as the daily cap, everything else 429-ish is a per-minute throttle
-    worth retrying."""
+    worth retrying.
+
+    THE ZERO-LIMIT CASE, added 2026-09-02 after it bit on the first smoke call.
+    When a model is not available on your tier, Google answers 429
+    RESOURCE_EXHAUSTED with a quota whose LIMIT IS 0 -- not a throttle, a
+    permanent refusal. Retrying it can never succeed, and the old heuristic saw
+    the word "quota" and burned all five attempts on it. A zero limit is
+    therefore reported as fatal (throttled=False) so it raises at once with the
+    real message attached.
+    """
     text = str(exc).lower()
+    # THREE 429 SHAPES THAT ARE NOT THROTTLES. Each is a permanent refusal that
+    # no amount of waiting fixes, so retrying only sleeps through the backoff:
+    #   * a quota whose LIMIT IS 0 -- the model is not on this tier
+    #   * depleted PREPAY credits  -- observed 2026-09-02 on the first real
+    #     call; the project was on a prepay plan with a zero balance, and the
+    #     old heuristic saw "429" and retried it five times
+    #   * billing disabled / not enabled for the project
+    permanent = ("limit: 0" in text or "limit 0" in text
+                 or 'quota_limit_value: "0"' in text
+                 or "limit_value: 0" in text
+                 or "credits are depleted" in text
+                 or "prepayment credits" in text
+                 or "billing" in text and "disabled" in text)
+    if permanent:
+        return False, False
     daily = ("per day" in text or "perday" in text or "daily" in text
              or "requests per day" in text)
     throttled = ("429" in text or "resource_exhausted" in text
@@ -136,7 +236,9 @@ class Judge:
     def __init__(self, model_id=DEFAULT_MODEL_ID, prompt_file=None, repeat=0,
                  cache_path=None, requests_per_minute=10, max_retries=5,
                  backoff_initial_s=2.0, allow_new=True, verbose=True,
-                 backend="aistudio", project=None, location="us-central1"):
+                 backend="aistudio", project=None, location="us-central1",
+                 timeout_s=60.0, sdk_attempts=1, max_new_calls=None,
+                 repeat_run_once=False):
         # WHICH SURFACE SERVES THE MODEL IS PART OF THE INSTRUMENT. The same
         # model_id on AI Studio and on Vertex should be the same weights, but
         # defaults (safety settings, exact served version) are not guaranteed
@@ -158,8 +260,24 @@ class Judge:
         self.backoff_initial_s = backoff_initial_s
         self.allow_new = allow_new
         self.verbose = verbose
+        # ONE RETRY LAYER, AND IT IS THIS ONE. google-genai retries internally
+        # (default: 408/429/5xx with exponential backoff), which sits BELOW this
+        # class -- so a permanent 429 like a depleted prepay balance took minutes
+        # to surface and the run merely looked hung. Observed 2026-09-02.
+        # sdk_attempts=1 means no SDK retries, so _is_quota_error sees the first
+        # failure and can fail fast on the shapes that no wait will fix.
+        self.timeout_s = timeout_s
+        self.sdk_attempts = sdk_attempts
+
+        self.max_new_calls = max_new_calls
+        # Opt-in ONLY for the spread study. With this on, target/mixture/
+        # interferer are keyed by repeat like an estimate, so the same clip can
+        # deliberately be judged several times to measure run-to-run variance.
+        # Off everywhere else, which is the run-once guarantee.
+        self.repeat_run_once = repeat_run_once
 
         self._cache = load_cache(self.cache_path)
+        self._once = load_once_index(self.cache_path)
         self._client = None
         self._last_call_at = 0.0
         self.calls_made = 0          # THIS process only. The cache is the real ledger.
@@ -173,17 +291,64 @@ class Judge:
         # and deliberate treatment of a non-response.
         return text
 
+    def _once_slot(self, audio_path):
+        path = Path(audio_path)
+        return (self.model_id, self.sha, self.backend, path.parent.name,
+                path.stem.lower())
+
+    def cached(self, audio_path):
+        """(status, text) if this clip has already been paid for, else None.
+
+        target / mixture / interferer are RUN-ONCE: one answer per trial per
+        instrument, repeat index ignored, because no model can change that
+        audio. estimate.wav is keyed normally so it can be judged again.
+        """
+        if runs_once(audio_path) and not self.repeat_run_once:
+            return self._once.get(self._once_slot(audio_path))
+        key = cache_key(audio_path, self.model_id, self.sha, self.repeat,
+                        self.backend, force_repeat=self.repeat_run_once)
+        return self._cache.get(key)
+
+    def preflight(self, audio_paths):
+        """(already_paid, would_spend) for a planned run. Makes NO calls.
+
+        Report this before any run. The point is that the number of NEW calls is
+        knowable in advance, so a run's cost is never a surprise and a stale
+        prompt hash shows up as "everything is new" rather than as a bill.
+        """
+        already, new = 0, 0
+        for path in audio_paths:
+            if path is None or not Path(path).exists():
+                continue
+            if self.cached(path) is not None:
+                already += 1
+            else:
+                new += 1
+        return already, new
+
     def judge(self, audio_path):
         """(status, text). Serves the cache first; never re-calls a cached key."""
         path = Path(audio_path)
-        key = cache_key(path, self.model_id, self.sha, self.repeat, self.backend)
-        if key in self._cache:
+        key = cache_key(path, self.model_id, self.sha, self.repeat, self.backend,
+                        force_repeat=self.repeat_run_once)
+
+        hit = self.cached(path)
+        if hit is not None:
             self.cache_hits += 1
-            return self._cache[key]
+            return hit
+
         if not self.allow_new:
             raise RuntimeError(
                 f"{path} is not in the judge cache and allow_new=False. "
                 f"Re-run with allow_new=True to spend a call on it.")
+        # HARD SPEND CAP. Refuses rather than truncates, so an accidentally huge
+        # run cannot quietly bill through: nothing already cached is lost, and
+        # re-running resumes from where this stopped.
+        if self.max_new_calls is not None and self.calls_made >= self.max_new_calls:
+            raise NewCallLimitReached(
+                f"max_new_calls={self.max_new_calls} reached; refusing to spend "
+                f"another call. {self.cache_hits} clips were served from cache. "
+                f"Raise max_new_calls to continue -- cached work is kept.")
 
         status, text = self._call_with_retries(path)
         row = {"key": key, "model": self.model_id, "backend": self.backend,
@@ -193,6 +358,8 @@ class Judge:
                "run_date": date.today().isoformat()}
         _append_cache(self.cache_path, row)      # per call, before returning
         self._cache[key] = (status, text)
+        if runs_once(path) and not self.repeat_run_once:
+            self._once[self._once_slot(path)] = (status, text)
         self.calls_made += 1
         return status, text
 
@@ -235,11 +402,34 @@ class Judge:
                 "the Gemini SDK is not installed. Run: pip install -U google-genai"
             ) from exc
 
+        kwargs = {}
         if self.backend == "vertex":
-            self._client = genai.Client(vertexai=True, project=project,
-                                        location=self.location)
-        else:
-            self._client = genai.Client()
+            kwargs = {"vertexai": True, "project": project, "location": self.location}
+
+        # Built defensively: HttpRetryOptions is not in every google-genai
+        # version, and a missing knob must not stop the run. Timeout is in
+        # MILLISECONDS.
+        try:
+            from google.genai import types
+            http_options = types.HttpOptions(
+                timeout=int(self.timeout_s * 1000),
+                retry_options=types.HttpRetryOptions(attempts=self.sdk_attempts),
+            )
+            self._client = genai.Client(http_options=http_options, **kwargs)
+        except Exception:                                  # noqa: BLE001
+            try:
+                from google.genai import types
+                self._client = genai.Client(
+                    http_options=types.HttpOptions(timeout=int(self.timeout_s * 1000)),
+                    **kwargs)
+                if self.verbose:
+                    print("    note: SDK retry_options unavailable; SDK may retry "
+                          "beneath this class", flush=True)
+            except Exception:                              # noqa: BLE001
+                self._client = genai.Client(**kwargs)
+                if self.verbose:
+                    print("    note: could not set SDK timeout/retries; a hung "
+                          "call will not self-bound", flush=True)
         return self._client
 
     def _throttle(self):
@@ -267,8 +457,13 @@ class Judge:
                     raise
                 sleep_s = delay + random.uniform(0, delay * 0.25)
                 if self.verbose:
+                    # ALWAYS show the reason. Printing only "throttled" hid a
+                    # zero-limit refusal behind five pointless retries on the
+                    # first real call, 2026-09-02.
+                    reason = " ".join(str(exc).split())[:300]
                     print(f"    throttled (attempt {attempt}/{self.max_retries}), "
-                          f"sleeping {sleep_s:.1f}s", flush=True)
+                          f"sleeping {sleep_s:.1f}s\n      reason: {reason}",
+                          flush=True)
                 time.sleep(sleep_s)
                 delay *= 2
         raise RuntimeError("unreachable")

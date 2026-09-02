@@ -20,6 +20,131 @@ input modality and the run date, because closed models change silently.
 
 ---
 
+## 2026-09-02 — The judge hallucinates on silence. Speech-gate added; NRR caveated
+
+**Measured, not suspected.** Fed the clean target of an absent trial — digital
+silence, RMS **exactly 0** — `gemini-3.7-flash` returns `status=speech` and
+fabricates fluent prose. Three prompt variants, six silent clips, **0 of 6 ever
+returned `no_speech`**:
+
+| prompt | sha256[:12] | invented words |
+|---|---|---|
+| v1 | `d118b7d3bf30` | 42, 27 |
+| v2a — silence licensed as an expected outcome | `a21169a651d6` | 25, 17 |
+| v2b — adds "Be very careful... Do not hallucinate" | `64d4b994a9a2` | 29, 33 |
+
+`gemini-3.7-flash`, audio in / text out, AI Studio, prepay tier, 2026-09-02.
+
+**It is not misheard audio — it is generation from the language prior.** The
+clincher: on trial `sir0_val-42-000003`, v2b answered **in French** ("Ah c'est
+comme ça qu'on fait ici...") on an English-only pipeline. The three answers per
+clip share no content with each other or with either reference. The word count
+did not fall monotonically with stronger wording — v2b, the variant that
+explicitly forbids hallucination, produced MORE words than v2a. **Prompting does
+not fix this and further prompt attempts were abandoned.**
+
+**Not a Gemini quirk.** Whisper does the same, milder: `small.en` emits "you" on
+silence in 8 of 8 absent trials (`decisions-m3.md`). The literature treats it as
+a characterised failure mode of audio models and evaluates the mitigations
+head to head — Koenecke-style VAD gating, confidence thresholding, hallucination
+pattern matching, LM filtering — in *Investigation of Whisper ASR Hallucinations
+Induced by Non-Speech Audio* (arXiv:2501.11378), which finds VAD and confidence
+thresholding both give meaningful reductions and **no single method eliminates
+it**. WhisperX established VAD pre-processing as the standard fix and names
+Silero specifically.
+
+**Confidence thresholding is unavailable to us**, so the choice was not free:
+logprobs are missing from the Interactions API (documented parity gap with
+`generateContent`), and logprob support above Gemini 2.0 is reported as
+unreliable. Rejected on availability, not on merit.
+
+### Decision: a speech gate in front of BOTH listeners
+
+`src/live_model_metric/speech_gate.py`. Every clip gets a speech/no-speech
+verdict before any listener sees it; a no-speech verdict returns the empty
+hypothesis without a call.
+
+**The argument, which is stronger than "workaround".** *Did the system emit
+speech?* is a **signal** question and never needed a language model. The judge is
+needed for what was **said**, and at that it is excellent — 0.0 % on clean
+targets, byte-identical five times out of five. The gate is the right instrument
+for the other question, not a patch over a broken one.
+
+**Anchors are decided by CONSTRUCTION, not by VAD** — no new moving part in the
+instrument for information the renderer already fixed. Verified against measured
+RMS on `sir0_val`, 2026-09-02:
+
+| condition | n | target.wav | interferer.wav | mixture.wav |
+|---|---|---|---|---|
+| `both` | 103 | speech | speech | speech |
+| `target_only` | 47 | speech | RMS 0 | speech |
+| `interferer_only` | 42 | **RMS 0** | speech | speech |
+| `noise_only` | 8 | RMS 0 | RMS 0 | **noise, no speech** |
+
+`noise_only` was not in the original silence analysis and is the more realistic
+probe of the two: real energy, not one word of speech.
+
+**`estimate.wav` is the only clip the VAD decides**, because it is the only one
+whose content is not determined by construction — and it is where the question
+matters, since collapse-to-silence is a measured failure mode of this model
+(2026-08-25). Silero VAD 6.2.1, already pinned under B2. Threshold 0.10 s of
+detected speech, about one short syllable.
+
+**Symmetry is mandatory.** The identical rule gates the judge **and** the offline
+ASR. Gate one and not the other and every judge-vs-ASR difference on a
+speech-free clip measures the gate rather than the listeners. `gated()` exists so
+the symmetric use is the natural one. Applied at scoring time for the ASR
+(transcripts already cached) and at call time for the judge (where it also saves
+money); the rule is the same at both points.
+
+**Verified on the 24 v1-prompt answers, 2026-09-02.** 2 of 24 clips blocked — the
+two silent targets — judge 42 → 0 and 27 → 0 words, `small.en` 1 → 0. Identical
+block counts for both listeners. All 20 `both` clips passed untouched.
+
+### What is logged, and why every decision and not only the blocks
+
+`experiments/results/speech_gate.csv`: date, split, trial, clip, condition,
+listener, verdict, reason, detected speech seconds. Every decision is recorded so
+the denominator is recoverable and a gate that never fires is visible as such.
+
+**A gate firing on a target-PRESENT trial is a finding, not a measurement
+error** — it means the extractor destroyed the speech. It has to be auditable
+rather than folded silently into a score.
+
+### The cost: NRR is blind to a mute, and is NOT being redefined
+
+`metric-definitions.md` 3.3 defines NRR as the judge reporting nothing. Since the
+judge invents speech on silence, it will essentially never report nothing, so
+**NRR cannot catch the degenerate muting extractor it was designed to catch.**
+
+Two options were considered and one rejected:
+
+- **Rejected: redefine NRR** to mean "gate blocked or judge silent". It would
+  quietly change the meaning of a published score.
+- **Taken: keep NRR exactly as written, state the blindness explicitly, and add
+  the gate's signal-domain silence row as the instrument that actually catches a
+  mute** — which it does more reliably than the judge could, being deterministic.
+
+### Deviation from the spec, recorded
+
+`metric-definitions.md` 3.1 sends every clip to the judge. It no longer does.
+The spec needs a §3.1 amendment naming the gate as a component of the measuring
+instrument — which means a change to it invalidates comparisons, exactly as for
+the normaliser and the prompt.
+
+### This is a result, not only a fix
+
+"A live model cannot be trusted to report absence" is a metric-design finding
+with the same shape as the DNSMOS-gaming story this project cites as its
+cautionary tale (`metric-definitions.md` §4). It is reportable, and it is
+evidence for why the metric had to be designed rather than borrowed.
+
+**J2 stays open** until this entry is signed off; readings 1 and 2 of the
+candidate gate pass decisively (ceiling 1.6 % vs the offline ASR's 5.8 %; floor
+113 %, so ample dynamic range).
+
+---
+
 ## 2026-08-31 — J1 CLOSED. The judge is audio-in / text-out, not full-duplex
 
 **Decision: the judge is an audio-in / text-out model. Full duplex is not

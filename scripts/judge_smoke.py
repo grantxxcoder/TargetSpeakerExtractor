@@ -25,7 +25,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.live_model_metric.evaluate import load_trials, transcribe   # noqa: E402
 from src.live_model_metric.judge import (DEFAULT_MODEL_ID, Judge,    # noqa: E402
-                                         QuotaExhausted, prompt_sha, prompt_text)
+                                         NewCallLimitReached, QuotaExhausted,
+                                         prompt_sha, prompt_text)
 
 
 def main():
@@ -33,9 +34,19 @@ def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--split", default="sir0_val")
     parser.add_argument("--n", type=int, default=2,
-                        help="present trials; each contributes a floor AND a "
-                             "ceiling call, plus one absent trial. Default 2 -> 5 calls.")
+                        help="'both' trials; each contributes a floor AND a ceiling "
+                             "call. Default 2.")
+    parser.add_argument("--absent", type=int, default=1,
+                        help="absent trials; each contributes a SILENCE call "
+                             "(clean target, RMS 0 -- the invented-speech test) and "
+                             "an absent-mixture call. Default 1.")
     parser.add_argument("--model", default=DEFAULT_MODEL_ID)
+    parser.add_argument("--prompt-file", default=None,
+                        help="prompt to test instead of the default. THE PROMPT IS "
+                             "PART OF THE INSTRUMENT: its sha256 is in every cache "
+                             "key, so a different file has its own cache entries "
+                             "and cannot be served answers from another prompt. "
+                             "e.g. src/live_model_metric/judge_prompt_v2.txt")
     parser.add_argument("--rpm", type=int, default=10)
     parser.add_argument("--backend", default="aistudio", choices=["aistudio", "vertex"],
                         help="aistudio = API key (free tier available); "
@@ -45,10 +56,15 @@ def main():
                         help="GCP project id, required for --backend vertex")
     parser.add_argument("--dry-run", action="store_true",
                         help="print the plan and the prompt, make no API calls")
+    parser.add_argument("--max-new-calls", type=int, default=40,
+                        help="hard cap on NEW (uncached) calls this run. Refuses "
+                             "rather than truncating, so an accidental large run "
+                             "cannot quietly bill through. Cached work is kept and "
+                             "a re-run resumes. Default 40.")
     args = parser.parse_args()
 
     present = load_trials(args.split, condition="both", limit=args.n)
-    absent = load_trials(args.split, condition="interferer_only", limit=1)
+    absent = load_trials(args.split, condition="interferer_only", limit=args.absent)
     if not present:
         sys.exit(f"no 'both' trials found for split {args.split}")
 
@@ -59,24 +75,64 @@ def main():
         plan.append((trial, "floor", trial.mixture))
         plan.append((trial, "ceiling", trial.clean))
     for trial in absent:
+        # SILENCE is the invented-speech test (B4, metric-definitions.md 3.1).
+        # On an absent trial target.wav is measured RMS 0 -- true digital
+        # silence -- so the only correct answer is no_speech, and any words
+        # that come back are invented. The offline ASR fails this: small.en
+        # emits "you" on silence in 8 of 8 absent trials.
+        # The absent MIXTURE is a different question and is not this test: it
+        # still contains the interferer talking, so speech is correct there.
+        plan.append((trial, "silence", trial.clean))
         plan.append((trial, "floor(absent)", trial.mixture))
 
     print(f"judge   : {args.model}  via {args.backend}")
-    print(f"prompt  : sha256[:12]={prompt_sha()}  ({len(prompt_text())} chars)")
+    print(f"prompt  : {args.prompt_file or 'judge_prompt.txt (default)'}")
+    print(f"          sha256[:12]={prompt_sha(args.prompt_file)}  "
+          f"({len(prompt_text(args.prompt_file))} chars)")
     print(f"split   : {args.split}   calls: {len(plan)}   rpm cap: {args.rpm}")
     print("-" * 72)
-    print(prompt_text().strip())
+    print(prompt_text(args.prompt_file).strip())
     print("-" * 72)
 
+    # Constructed before the dry-run gate on purpose: Judge builds no client
+    # until a call is actually made, so preflight is free -- and the cost is the
+    # main thing a dry run should tell you.
+    judge = Judge(model_id=args.model, requests_per_minute=args.rpm,
+                  backend=args.backend, project=args.project,
+                  max_new_calls=args.max_new_calls,
+                  prompt_file=args.prompt_file)
+
+    # PREFLIGHT. Nothing already paid for is ever bought twice: the cache key is
+    # content-addressed (sha256 of the audio bytes), so a re-render, a copy or a
+    # touched mtime does not create a miss.
+    per_call = [judge.cached(p) is not None for _, _, p in plan]
+    already, new = judge.preflight([p for _, _, p in plan])
+    print(f"already paid for : {already}")
+    print(f"WOULD SPEND      : {new} new call(s)"
+          f"{'' if args.max_new_calls is None else f'  (cap {args.max_new_calls})'}")
+    if args.max_new_calls is not None and new > args.max_new_calls:
+        print(f"  NOTE: plan needs {new} new calls but the cap is "
+              f"{args.max_new_calls}; the run will stop at the cap and keep "
+              f"everything it bought. Raise --max-new-calls to go further.")
+    if new == 0:
+        print("\nEverything in this plan is already cached. No calls needed.")
+    print()
+
     if args.dry_run:
-        for trial, system, path in plan:
-            print(f"  would call  {system:14s} {trial.trial_id}  {Path(path).name}")
+        for (trial, system, path), hit in zip(plan, per_call):
+            mark = "cached" if hit else "SPEND "
+            print(f"  {mark}  {system:14s} {trial.trial_id}  {Path(path).name}")
         print("\ndry run: no API calls made, nothing cached.")
         return
 
-    judge = Judge(model_id=args.model, requests_per_minute=args.rpm,
-                  backend=args.backend, project=args.project)
-    asr_texts = transcribe([p for _, _, p in plan], allow_new=False, verbose=False)
+    # The offline-ASR column is a CONVENIENCE, not the measurement. allow_new
+    # is False so this never silently starts a transcription pass, but a cache
+    # miss must not abort the judge calls -- they are the point of the run.
+    try:
+        asr_texts = transcribe([p for _, _, p in plan], allow_new=False, verbose=False)
+    except RuntimeError as exc:
+        print(f"note: offline-ASR column unavailable ({exc}); continuing.")
+        asr_texts = [None] * len(plan)
 
     for (trial, system, path), asr_text in zip(plan, asr_texts):
         print(f"\n=== {trial.trial_id}  [{system}]  {Path(path).name}")
@@ -87,6 +143,9 @@ def main():
             status, text = judge.judge(path)
         except QuotaExhausted as exc:
             print(f"  JUDGE     : quota spent -- {exc}")
+            break
+        except NewCallLimitReached as exc:
+            print(f"  JUDGE     : spend cap reached -- {exc}")
             break
         except Exception as exc:                                  # noqa: BLE001
             print(f"  JUDGE     : FAILED -- {type(exc).__name__}: {exc}")
@@ -99,3 +158,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
