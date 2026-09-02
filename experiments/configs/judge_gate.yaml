@@ -1,0 +1,96 @@
+# J2 candidate gate + the anchor run. decisions-pending.md J2, milestones.md M4.
+#
+# WHAT THIS CONFIGURES. Scoring audio through the LIVE JUDGE instead of the
+# offline ASR. The judge never separates anything -- it is handed audio and
+# reports what it heard. Everything here is a property of the MEASURING
+# INSTRUMENT, so a change to any of it invalidates previously scored trials.
+
+seed: 42                  # judge sampling is not seedable server-side; this seeds
+                          # trial subsetting for the gate, so the gate is repeatable
+
+judge:
+  # Recorded on every result per CLAUDE.md: exact model ID, prompt, modality, date.
+  model_id: "gemini-3.7-flash"
+  modality: "audio"       # audio-in / text-out. J1 closed 2026-08-31: LCF measures
+                          # the judge's AUDIO ENCODER, not its duplexing, so the
+                          # full-duplex Live API is not required. Using the stable
+                          # generateContent-class endpoint instead of the preview
+                          # Live socket also removes a deprecation risk.
+  prompt_file: "src/live_model_metric/judge_prompt.txt"
+                          # DRAFT -- needs sign-off before the anchor run. Frozen
+                          # thereafter: its sha256 is recorded with every call, and
+                          # a changed hash means the cache is stale, not reusable.
+                          # Design constraints it satisfies:
+                          #   - does NOT tell the judge to pick a speaker (J3): that
+                          #     would hand the extractor's job to the judge and turn
+                          #     a measurement into an instruction.
+                          #   - does NOT instruct guessing. Native behaviour under
+                          #     artefacts is the property being measured; telling it
+                          #     to guess manufactures the observation and inflates ICR.
+                          #   - the "nothing heard" signal lives in a STRUCTURED
+                          #     status field, never in the transcript text. Tested
+                          #     2026-09-02: whisper-normalizer maps '####' -> '' and
+                          #     '[no speech]' -> '', so an in-band sentinel is
+                          #     silently destroyed and becomes indistinguishable
+                          #     from a non-response, which would blunt NRR.
+  price_per_1m_audio_tokens_usd: 0.75   # published 2026-09-02, expires 2026-12-31
+                                        # ($1.50 from 2027-01-01). Recorded because
+                                        # published prices carry expiry dates.
+  tier: "free"            # free tier accepted 2026-09-02: content may be used to
+                          # improve Google's products and human reviewers may read
+                          # it. Accepted knowingly -- the audio is LibriSpeech +
+                          # WHAM, both public, and the result is a single-date
+                          # measurement with the model ID pinned.
+
+rate_limit:
+  # Free tier. THE BINDING LIMIT IS PER-DAY, not per-minute: the daily cap is
+  # spent in ~2.5 h, then the run waits. Hence resumability is not optional.
+  requests_per_minute: 10       # VERIFY in AI Studio -- third-party figure
+  requests_per_day: 1500        # VERIFY in AI Studio -- third-party figure
+  max_retries: 5
+  backoff_initial_s: 2.0        # doubles per retry, jittered
+
+run:
+  split: "sir0_val"       # FIRST. 200 trials x 2 anchors x k=3 = 1,200 calls, which
+                          # fits inside one day's free-tier quota. It is also the
+                          # set the current results table is built on, so the judge
+                          # numbers land directly comparable to the offline-ASR
+                          # anchors 65.2 % (floor) / 5.8 % (ceiling).
+  systems: ["floor", "ceiling"]
+                          # The UNCHANGEABLES. floor = unprocessed mixture,
+                          # ceiling = clean target. Neither is touched by the model,
+                          # so both are scored ONCE per trial set and reused by every
+                          # model comparison forever. "estimate" is added later.
+  repeats: 3              # k>=3, milestones.md M4. Not for accuracy -- for an ERROR
+                          # BAR. M4's gate is that run-to-run spread must be smaller
+                          # than the floor-to-ceiling gap, and k=1 cannot measure
+                          # spread at all.
+  conditions: null        # null = all. Not just `both`: B13 stratifies on whether
+                          # the target speaks, and B4 needs the absent trials for
+                          # their own invented-speech row.
+
+gate:
+  # Run this BEFORE committing to the anchor run. ~20 present + 5 absent trials.
+  # Three readings, decisions-pending.md J2:
+  #   ceiling -> can the judge report clean speech at all? (offline ASR ref: 5.8 %)
+  #   floor   -> can it FAIL? no floor-to-ceiling gap means it cannot rank systems
+  #   absent  -> does it invent words on silence? (small.en emits "you", 8 of 8)
+  present_trials: 20
+  absent_trials: 5
+  # A fourth reading, added 2026-09-02 and not in J2 as written: does the judge
+  # DISAGREE with the offline ASR on the same audio? All three readings above test
+  # dynamic range; none test that the judge measures something new. If its per-trial
+  # numbers track small.en closely, LCF is "WER with a costlier transcriber" and the
+  # metric-definitions.md section 1 hypothesis cannot be tested. Free to compute --
+  # the ASR transcripts are already cached.
+  compare_against_offline_asr: true
+
+output:
+  cache: "experiments/results/judge_responses.csv"
+                          # RAW judge text, appended after EVERY call, not at the
+                          # end of the batch. Two reasons: a multi-day run will be
+                          # interrupted, and J3 (the ICR threshold) is still OPEN --
+                          # its required sweep over counts 1/2/3/5 and fractions
+                          # 0.05-0.50 is a free re-score from stored text, but a
+                          # full re-run if only scores were kept.
+  results_dir: "experiments/results"

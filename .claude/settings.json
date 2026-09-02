@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(//home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/.env)",
+      "Read(//home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/.env.*)",
+      "Bash(cat .env*)",
+      "Bash(cat ./.env*)"
+    ]
+  }
+}

@@ -1,0 +1,3 @@
+Write down the words spoken in this audio, exactly as spoken.
+
+If no words are audible, leave the transcript empty and set status to no_speech.
