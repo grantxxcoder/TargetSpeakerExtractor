@@ -332,3 +332,94 @@ def test_quota_exhausted_is_not_retried(tmp_path, monkeypatch):
     with pytest.raises(QuotaExhausted):
         judge.judge(audio)
     assert calls["n"] == 1, "daily quota must not be retried"
+
+
+# --- a safety filter is a measurement event, not an error ------------------
+
+REAL_FILTER_ERROR = (
+    "Error code: 400 - {'error': {'message': \"Input blocked: This request was "
+    "blocked by Gemini's filters. They can occasionally trigger by mistake on "
+    "safe coding, security, or biology-related queries.\", "
+    "'code': 'content_blocked'}}")
+
+
+def test_the_real_filter_error_is_recognised():
+    """Verbatim from a run on 2026-09-02, on an ESTIMATE clip."""
+    from src.live_model_metric.judge import _is_content_blocked
+    assert _is_content_blocked(Exception(REAL_FILTER_ERROR))
+    assert _is_quota_error(Exception(REAL_FILTER_ERROR)) == (False, False)
+
+
+def test_a_transient_filter_block_is_retried_and_not_recorded(tmp_path, monkeypatch):
+    """THE FILTER IS NON-DETERMINISTIC. Measured 2026-09-02: a refused estimate
+    passed on the re-run. Caching that refusal would permanently score the trial
+    as a non-response because of a coin flip."""
+    est = tmp_path / "t1" / "estimate.wav"
+    est.parent.mkdir()
+    est.write_bytes(b"artefact-laden audio")
+    judge = Judge(cache_path=tmp_path / "j.csv", requests_per_minute=0,
+                  backoff_initial_s=0.0, verbose=False, filter_retries=2)
+    tries = {"n": 0}
+
+    def blocked_once(_path):
+        tries["n"] += 1
+        if tries["n"] == 1:
+            raise Exception(REAL_FILTER_ERROR)
+        return ("speech", "the words after all")
+
+    monkeypatch.setattr(judge, "_call_once", blocked_once)
+    assert judge.judge(est) == ("speech", "the words after all")
+    assert tries["n"] == 2, "the refusal must be retried"
+    assert judge.filter_transients == 1
+    assert judge.filter_blocks == 0
+
+
+def test_a_persistent_filter_block_is_recorded(tmp_path, monkeypatch):
+    """Refused every attempt -> a finding about this clip, not a coin flip."""
+    est = tmp_path / "t1" / "estimate.wav"
+    est.parent.mkdir()
+    est.write_bytes(b"artefact-laden audio")
+    cache = tmp_path / "j.csv"
+    judge = Judge(cache_path=cache, requests_per_minute=0, backoff_initial_s=0.0,
+                  verbose=False, filter_retries=2)
+    tries = {"n": 0}
+
+    def always_blocked(_path):
+        tries["n"] += 1
+        raise Exception(REAL_FILTER_ERROR)
+
+    monkeypatch.setattr(judge, "_call_once", always_blocked)
+    assert judge.judge(est) == ("blocked_by_filter", "")
+    assert tries["n"] == 3, "one attempt plus filter_retries=2"
+    assert judge.filter_blocks == 1
+
+    again = Judge(cache_path=cache, requests_per_minute=0, verbose=False)
+    assert again.judge(est) == ("blocked_by_filter", "")
+    assert again.calls_made == 0
+
+
+def test_filter_retries_do_not_consume_the_throttle_budget(tmp_path, monkeypatch):
+    """A filter retry and a 429 retry are different budgets; sharing them would
+    make a filter block eat the backoff needed for genuine throttling."""
+    est = tmp_path / "t1" / "estimate.wav"
+    est.parent.mkdir()
+    est.write_bytes(b"x")
+    judge = Judge(cache_path=tmp_path / "j.csv", requests_per_minute=0,
+                  backoff_initial_s=0.0, verbose=False, max_retries=2,
+                  filter_retries=2)
+    seq = ["filter", "filter", "429", "ok"]
+    tries = {"n": 0}
+
+    def mixed(_path):
+        kind = seq[tries["n"]]
+        tries["n"] += 1
+        if kind == "filter":
+            raise Exception(REAL_FILTER_ERROR)
+        if kind == "429":
+            raise Exception("429 rate limit exceeded")
+        return ("speech", "made it")
+
+    monkeypatch.setattr(judge, "_call_once", mixed)
+    assert judge.judge(est) == ("speech", "made it")
+    assert tries["n"] == 4
+

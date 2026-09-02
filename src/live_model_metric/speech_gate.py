@@ -206,18 +206,34 @@ def summarise(log_path=None):
     return out
 
 
-def vad_seconds_fn():
+GENERATOR_CONFIG = REPO_ROOT / "experiments/configs/generator.yaml"
+
+
+def vad_seconds_fn(config_path=None):
     """Silero-backed (path) -> seconds of detected speech, for estimates.
 
     Built lazily and returned as a closure so the model loads once. Silero VAD
     6.2.1, pinned under B2 and already used to measure overlap_ratio from
     detected speech rather than from file boundaries.
+
+    THE SAME `vad:` BLOCK AS THE RENDERER, read from generator.yaml. B2 requires
+    every knob to be stated explicitly rather than defaulted, because the
+    definition of "speech" is quoted in the thesis next to every figure that
+    depends on it -- and the gate's verdict is now one of those figures. Using
+    Silero's defaults here would let the gate and the overlap measurements
+    disagree about what speech is, silently.
     """
     import soundfile
+    import yaml
+
     from src.data import vad
 
+    path = Path(config_path or GENERATOR_CONFIG)
+    with open(path) as handle:
+        config = yaml.safe_load(handle)
+
     model = vad.load_model()
-    cfg = vad.vad_config({})
+    cfg = vad.vad_config(config)
 
     def seconds(audio_path):
         wav, sample_rate = soundfile.read(str(audio_path), dtype="float32")

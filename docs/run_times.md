@@ -15,6 +15,10 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
 <!-- rows appended below by src/run_log.py -->
+| 2026-09-02 | `scripts/evaluate.py` | --est experiments/results/2026-09-01-est-sir0-5000 --metrics content --listener judge | 29 min |  |
+| 2026-09-02 | `scripts/evaluate.py` | --limit 20 --est experiments/results/2026-09-01-est-sir0-5000 --metrics content --listener judge | 2 min |  |
+| 2026-09-02 | `scripts/evaluate.py` | --limit 20 --est experiments/results/2026-09-01-est-sir0-5000 --metrics content --listener judge **(failed)** | 2 min |  |
+| 2026-09-02 | `scripts/evaluate.py` | --limit 20 --est experiments/results/2026-09-01-est-sir0-5000 --metrics content --listener judge **(failed)** | 2 min |  |
 | 2026-09-01 | `scripts/evaluate.py` | --split sir0_val --est experiments/results/2026-09-01-est-sir0-5000 | 14 min |  |
 | 2026-09-01 | `scripts/make_estimates.py` | 200 trials, sir0 | 29 min | cpu, whole-clip |
 | 2026-09-01 | `scripts/train.py --split sir0` | 4,976 trials x 18 epochs (early-stopped, best epoch 7), sir0 | 6.2 h | batch 3, cuda (T4), **1244 s/epoch**. 5,000-trial split, `weight_decay` 1e-4, bank K=3. Copied by hand from the Kaggle session's own run_times.md before deleting kaggle_out. |

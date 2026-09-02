@@ -27,6 +27,9 @@ from src.live_model_metric.evaluate import load_trials, transcribe   # noqa: E40
 from src.live_model_metric.judge import (DEFAULT_MODEL_ID, Judge,    # noqa: E402
                                          NewCallLimitReached, QuotaExhausted,
                                          prompt_sha, prompt_text)
+from src.live_model_metric.speech_gate import (GateDecision,          # noqa: E402
+                                               condition_lookup, decide,
+                                               log_decision)
 
 
 def main():
@@ -56,6 +59,12 @@ def main():
                         help="GCP project id, required for --backend vertex")
     parser.add_argument("--dry-run", action="store_true",
                         help="print the plan and the prompt, make no API calls")
+    parser.add_argument("--no-gate", action="store_true",
+                        help="send speech-free clips to the judge anyway. ONLY for "
+                             "characterising the judge's invention rate "
+                             "(metric-definitions.md 3.3) -- never for scoring a "
+                             "system, because the judge fabricates 17-42 words on "
+                             "silence.")
     parser.add_argument("--max-new-calls", type=int, default=40,
                         help="hard cap on NEW (uncached) calls this run. Refuses "
                              "rather than truncating, so an accidental large run "
@@ -102,11 +111,23 @@ def main():
                   max_new_calls=args.max_new_calls,
                   prompt_file=args.prompt_file)
 
-    # PREFLIGHT. Nothing already paid for is ever bought twice: the cache key is
-    # content-addressed (sha256 of the audio bytes), so a re-render, a copy or a
-    # touched mtime does not create a miss.
+    # THE SPEECH GATE, in front of the judge. metric-definitions.md 3.1.
+    # A speech-free clip is answered locally and never costs a call. Anchors are
+    # decided by construction from the manifest condition; no VAD runs here
+    # because judge_smoke only touches anchors.
+    lookup = condition_lookup(args.split)
+    gate = {}
+    for _t, _sys, path in plan:
+        gate[str(path)] = (GateDecision(True, "gate-disabled:--no-gate")
+                           if args.no_gate else decide(path, lookup(path)))
+    blocked = [p for p, d in gate.items() if d.fired]
+
+    # PREFLIGHT. Nothing already paid for is ever bought twice, and nothing the
+    # gate blocks is paid for at all.
+    payable = [p for _, _, p in plan if not gate[str(p)].fired]
     per_call = [judge.cached(p) is not None for _, _, p in plan]
-    already, new = judge.preflight([p for _, _, p in plan])
+    already, new = judge.preflight(payable)
+    print(f"gate blocked     : {len(blocked)} clip(s) — answered locally, 0 calls")
     print(f"already paid for : {already}")
     print(f"WOULD SPEND      : {new} new call(s)"
           f"{'' if args.max_new_calls is None else f'  (cap {args.max_new_calls})'}")
@@ -120,8 +141,10 @@ def main():
 
     if args.dry_run:
         for (trial, system, path), hit in zip(plan, per_call):
-            mark = "cached" if hit else "SPEND "
-            print(f"  {mark}  {system:14s} {trial.trial_id}  {Path(path).name}")
+            d = gate[str(path)]
+            mark = "BLOCKED" if d.fired else ("cached " if hit else "SPEND  ")
+            note = f"   {d.reason}" if d.fired else ""
+            print(f"  {mark} {system:14s} {trial.trial_id}  {Path(path).name}{note}")
         print("\ndry run: no API calls made, nothing cached.")
         return
 
@@ -138,6 +161,17 @@ def main():
         print(f"\n=== {trial.trial_id}  [{system}]  {Path(path).name}")
         reference = trial.target_text if "absent" not in system else "(target silent)"
         print(f"  reference : {reference[:100]}")
+        # The gate applies to BOTH listeners or the comparison is void.
+        gate_decision = gate[str(path)]
+        if gate_decision.fired:
+            log_decision(gate_decision, path, "small.en", split=args.split,
+                         condition=lookup(path))
+            log_decision(gate_decision, path, "judge", split=args.split,
+                         condition=lookup(path))
+            print(f"  small.en  : (gate blocked)")
+            print(f"  JUDGE     : (gate blocked — {gate_decision.reason}) "
+                  f"no call made")
+            continue
         print(f"  small.en  : {(asr_text or '(not cached)')[:100]}")
         try:
             status, text = judge.judge(path)

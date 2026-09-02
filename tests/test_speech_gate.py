@@ -175,3 +175,54 @@ def test_condition_lookup_reads_the_real_manifest():
 def test_fired_is_the_inverse_of_has_speech():
     assert GateDecision(False, "r").fired is True
     assert GateDecision(True, "r").fired is False
+
+
+# --- the gate as wired into evaluate() -----------------------------------
+
+def test_listen_blocks_before_the_listener_is_asked(tmp_path, monkeypatch):
+    """The integration guarantee: a speech-free clip returns "" and the
+    listener is never called for it, so it can never be billed."""
+    from src.live_model_metric import evaluate as ev
+
+    asked = []
+
+    def fake_transcribe(paths, *a, **kw):
+        asked.extend(str(p) for p in paths)
+        return ["transcribed"] * len(paths)
+
+    monkeypatch.setattr(ev, "transcribe", fake_transcribe)
+    monkeypatch.setattr(
+        "src.live_model_metric.speech_gate.condition_lookup",
+        lambda *a, **kw: (lambda p: "noise_only"
+                          if "silent" in str(p) else "both"))
+
+    paths = [tmp_path / "t1" / "mixture.wav", tmp_path / "silent" / "mixture.wav"]
+    for p in paths:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"x")
+
+    responses, decisions, judge = ev._listen(
+        paths, ev.ASR, "sir0_val", "data/manifests", None,
+        tmp_path / "cache.csv", True, True, None, False)
+
+    assert responses[0] == "transcribed"
+    assert responses[1] == "", "a blocked clip must return the empty hypothesis"
+    assert decisions[1].fired
+    assert judge is None
+    assert not any("silent" in a for a in asked), \
+        "the listener must never be asked about a blocked clip"
+
+
+def test_listen_with_the_gate_off_asks_about_everything(tmp_path, monkeypatch):
+    """--no-gate exists only to characterise a listener's invention rate."""
+    from src.live_model_metric import evaluate as ev
+    monkeypatch.setattr(ev, "transcribe",
+                        lambda paths, *a, **kw: ["x"] * len(paths))
+    p = tmp_path / "t1" / "mixture.wav"
+    p.parent.mkdir()
+    p.write_bytes(b"x")
+    responses, decisions, _ = ev._listen(
+        [p], ev.ASR, "sir0_val", "data/manifests", None, tmp_path / "c.csv",
+        True, False, None, False)
+    assert responses == ["x"]
+    assert decisions[0].reason == "gate-disabled"

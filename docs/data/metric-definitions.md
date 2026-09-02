@@ -105,6 +105,37 @@ and the trial scores ~100 %. That is the honest reading — a listener that said
 nothing recovered nothing — and it means LCF-WER already punishes a muting
 extractor. NRR (§3.3) therefore exists to protect ICR, not to catch the mute.
 
+**A SPEECH GATE decides, before any listener, whether a clip contains speech at
+all** (`src/live_model_metric/speech_gate.py`, added 2026-09-02). A clip with no
+speech is answered locally as the empty hypothesis and never reaches the judge.
+
+*Why the paragraph above needed it.* Measured 2026-09-02: handed digital silence
+(RMS exactly 0), `gemini-3.7-flash` does **not** report nothing — it fabricates
+17–42 words of fluent prose, once in French, and did so under all three prompt
+variants tried. So "a non-response counts as all-deletions" was describing an
+event that never occurred, and LCF-WER did **not** in fact punish a muting
+extractor. The gate makes this paragraph true rather than aspirational: it is a
+repair, not a new scoring rule. `decisions-m4.md` 2026-09-02.
+
+*What decides what.* For the rendered anchors the answer follows from
+CONSTRUCTION — `target.wav` carries speech only on `both`/`target_only`,
+`interferer.wav` only on `both`/`interferer_only`, and `mixture.wav` on
+everything except `noise_only` — so no detector runs and no moving part is
+added. `estimate.wav` is the only clip whose content is not fixed by
+construction, and it is decided by Silero VAD 6.2.1 (pinned under B2) at a
+threshold of 0.10 s of detected speech.
+
+*The gate is a component of the measuring instrument*, exactly like the
+normaliser and the prompt: **a change to it invalidates every previously
+reported number.** It is applied identically to the judge and to the offline
+ASR — gate one listener and not the other and every difference between them on
+a speech-free clip measures the gate rather than the listeners.
+
+Every gate decision is logged to `experiments/results/speech_gate.csv`, blocks
+and passes alike, so the denominator is recoverable. **A gate firing on a
+target-present trial is a finding, not a measurement error** — it means the
+system destroyed the speech — and must be reported as such.
+
 ### 3.2 Secondary score — ICR (Interferer Content Rate)
 
 Fraction of trials where `r` contains content attributable to `d` rather
@@ -124,6 +155,29 @@ returns silence, or produces a refusal. **Lower is better.**
 
 Catches the degenerate "output silence" strategy, which would otherwise
 score perfectly on ICR.
+
+**It catches a mute only because the speech gate exists** (§3.1, added
+2026-09-02). A muting extractor produces audio with no detectable speech, the
+gate answers it as the empty hypothesis, and NRR sees the non-response it is
+built to detect. Without the gate the judge invents words on silence, NRR reads
+near-zero, and the degenerate strategy passes. This is the mechanism by which
+the metric set stays two-sided (§4) — a blocked trial scores a **clean ICR**,
+and it is NRR that raises the alarm on the same trial. State that pairing
+explicitly whenever a blocked trial is reported; the hole is obvious to a
+reviewer otherwise.
+
+**NRR detects a judge that DECLINES, not one that CONFABULATES.** This is a
+measured limitation, not a theoretical one. `decisions-m4.md` (2026-08-31) gives
+NRR's strongest purpose as detecting judge malfunction — "it declined on perfect
+input". The judge measured on 2026-09-02 does not decline; it invents. NRR's
+detector is an empty response, and a confabulating judge is never empty, so this
+purpose is **not** served by NRR and must not be claimed for it.
+
+**The judge's invention rate is therefore its own row**, measured against
+known speech-free audio with the gate deliberately bypassed. It characterises
+the judge, is run once, and is not part of the per-system protocol. Measured
+2026-09-02 on `gemini-3.7-flash`: **0 of 6 silent clips returned `no_speech`;
+17–42 words invented per clip across three prompt variants.**
 
 ### 3.4 Reported anchors — mandatory
 

@@ -28,7 +28,8 @@ from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src.live_model_metric.evaluate import (ALL_METRICS, ALL_SYSTEMS,  # noqa: E402
+from src.live_model_metric.evaluate import (ALL_LISTENERS, ALL_METRICS,  # noqa: E402
+                                            ALL_SYSTEMS, ASR, JUDGE,
                                             TRANSCRIPT_CACHE, evaluate)
 from src.run_log import timed  # noqa: E402
 
@@ -52,6 +53,28 @@ def main():
     parser.add_argument("--cached-only", action="store_true",
                         help="refuse to run the ASR; error instead of a silent "
                              "10-minute transcription pass")
+    parser.add_argument("--listener", default=ASR, choices=list(ALL_LISTENERS),
+                        help="asr = faster-whisper small.en, the STAND-IN. "
+                             "judge = the live model, i.e. an actual LCF result. "
+                             "Anchors are cached and never re-bought (run-once "
+                             "rule); estimates are keyed by content so a new "
+                             "checkpoint is judged fresh.")
+    parser.add_argument("--judge-model", default=None,
+                        help="override the judge model id")
+    parser.add_argument("--judge-prompt", default=None,
+                        help="override the judge prompt file. THE PROMPT IS PART "
+                             "OF THE INSTRUMENT: a different file has its own "
+                             "cache and cannot reuse another prompt's answers.")
+    parser.add_argument("--judge-rpm", type=int, default=10)
+    parser.add_argument("--judge-max-new-calls", type=int, default=600,
+                        help="hard cap on NEW judge calls. Refuses rather than "
+                             "truncating; cached work is kept and a re-run "
+                             "resumes. sir0_val floor+ceiling+estimate is ~520.")
+    parser.add_argument("--no-gate", action="store_true",
+                        help="disable the speech gate. ONLY for characterising a "
+                             "listener's invention rate on speech-free audio "
+                             "(metric-definitions.md 3.3) -- never for scoring a "
+                             "system.")
     parser.add_argument("--out", default=None)
     args = parser.parse_args()
 
@@ -75,12 +98,29 @@ def main():
         manifest_dir=args.manifest_dir,
         cache_path=args.cache,
         allow_new_transcripts=not args.cached_only,
+        listener=args.listener,
+        speech_gate=not args.no_gate,
+        judge_kwargs=({k: v for k, v in {
+            "model_id": args.judge_model,
+            "prompt_file": args.judge_prompt,
+            "requests_per_minute": args.judge_rpm,
+            "max_new_calls": args.judge_max_new_calls,
+        }.items() if v is not None} if args.listener == JUDGE else None),
     )
 
     print(f"\n{args.split}  condition={args.condition or 'all'}  n={results.n_trials}\n")
     print(results.table())
-    print("\nThe listener is an offline ASR standing in for the judge. "
-          "NOT a live-model result.")
+    if args.listener == ASR:
+        print("\nThe listener is an offline ASR standing in for the judge. "
+              "NOT a live-model result.")
+    else:
+        prov = results.provenance
+        print(f"\nLIVE-MODEL RESULT. judge={prov['listener']} "
+              f"({prov['judge_modality']}) via {prov['judge_backend']}, "
+              f"prompt sha256[:12]={prov['judge_prompt_sha256_12']}, "
+              f"run {prov['date']}, speech gate {prov['speech_gate']}.")
+        print("Closed models change silently: a comparison across dates is "
+              "invalid unless re-run.")
 
     out = Path(args.out or
                f"experiments/results/{date.today().isoformat()}-evaluate-{args.split}")

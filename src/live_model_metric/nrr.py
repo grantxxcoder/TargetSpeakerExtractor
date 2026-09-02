@@ -4,9 +4,20 @@ Of the trials where the target actually spoke, what fraction came back with no
 words from the judge? Lower is better.
 
 WHY IT EXISTS. A system that outputs silence scores 0 % on ICR -- nothing came
-out, so nothing leaked -- a perfect score for doing nothing. More usefully: NRR
-on clean target audio is the JUDGE'S own defect rate, and it is the only score
-here that separates "the judge declined" from "the system failed".
+out, so nothing leaked -- a perfect score for doing nothing. NRR raises the
+alarm on that same trial, and that pairing is what keeps the metric set
+two-sided.
+
+IT ONLY WORKS BECAUSE OF THE SPEECH GATE. A non-response has to actually occur
+for NRR to see one. Measured 2026-09-02: the judge does not report nothing when
+handed silence, it invents. speech_gate.py answers speech-free clips locally as
+the empty hypothesis, and that empty hypothesis is NRR's signal.
+
+WHAT IT DOES NOT DETECT. A judge that CONFABULATES rather than declines. NRR
+was going to double as the judge's own defect rate -- "it declined on perfect
+input" -- but the defect this judge actually has is invention, which is never
+empty and so is structurally invisible here. That rate is its own row, measured
+against speech-free audio with the gate bypassed. metric-definitions.md 3.3.
 
 It is a tripwire, not a quality measure. It will not rank two working systems.
 
@@ -25,8 +36,19 @@ from .lcf_wer import normalise_text
 
 # Measured, not assumed: faster-whisper small.en emits "you" on digital silence,
 # 8 of 8 absent trials (decisions-m3.md 2026-08-28). Same class of artefact for
-# the rest. A transcriber cannot be instructed, so it needs this; a prompted
-# judge returns nothing and lands in "silence".
+# the rest. A transcriber cannot be instructed, so it needs this.
+#
+# THE SECOND HALF OF THIS COMMENT USED TO READ "a prompted judge returns nothing
+# and lands in 'silence'". That was wrong, and measuring it is what produced the
+# speech gate. Handed digital silence, gemini-3.7-flash invents 17-42 words of
+# novel fluent prose -- once in French -- under all three prompt variants tried.
+# A fixed phrase list cannot catch that, because the invention is different every
+# call. The speech gate (speech_gate.py, metric-definitions.md 3.1) blocks
+# speech-free clips before any listener sees them, which is what makes an empty
+# response occur at all. decisions-m4.md 2026-09-02.
+#
+# This list is kept as belt-and-braces for any UNGATED scoring path; on a gated
+# path it is largely superseded.
 SILENCE_ARTEFACTS = frozenset({"you", "thank you", "thanks for watching", "bye"})
 
 REASONS = ("silence", "artefact")

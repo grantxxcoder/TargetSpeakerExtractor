@@ -193,6 +193,36 @@ def _append_cache(cache_path, row):
         writer.writerow(row)
 
 
+def _is_content_blocked(exc):
+    """Did a safety filter refuse this input?
+
+    Observed 2026-09-02 on an ESTIMATE clip, not on a mixture or a clean target:
+    400 `content_blocked`, "Input blocked: This request was blocked by Gemini's
+    filters." The prompt is identical across every call and had already
+    succeeded 40+ times, so what the filter reacted to is the extractor's own
+    output audio.
+
+    THIS IS A MEASUREMENT EVENT, NOT AN ERROR. metric-definitions.md 3.3 names
+    it: "a live model can refuse, hit a safety filter, or judge the audio
+    unusable", and separating that from "misheard" is NRR's second stated
+    purpose.
+
+    THE FILTER IS NON-DETERMINISTIC, measured 2026-09-02. The first version of
+    this code retried it zero times and cached the refusal, on the assumption
+    that a filter verdict is a fixed property of the input. It is not: on the
+    re-run every one of the same 20 estimates passed, including the clip that
+    had been refused. Caching a transient refusal would permanently score a
+    trial as a non-response because of a coin flip, silently penalising the
+    system that produced it. So a block is now RETRIED (see
+    `filter_retries`) and only recorded if it persists.
+    """
+    text = str(exc).lower()
+    return ("content_blocked" in text
+            or "input blocked" in text
+            or "blocked by gemini's filters" in text
+            or "blocked by the safety filter" in text)
+
+
 def _is_quota_error(exc):
     """google-genai does not expose a typed daily-quota error, so this reads the
     message. Deliberately conservative: anything mentioning a per-day quota is
@@ -238,7 +268,7 @@ class Judge:
                  backoff_initial_s=2.0, allow_new=True, verbose=True,
                  backend="aistudio", project=None, location="us-central1",
                  timeout_s=60.0, sdk_attempts=1, max_new_calls=None,
-                 repeat_run_once=False):
+                 repeat_run_once=False, filter_retries=2):
         # WHICH SURFACE SERVES THE MODEL IS PART OF THE INSTRUMENT. The same
         # model_id on AI Studio and on Vertex should be the same weights, but
         # defaults (safety settings, exact served version) are not guaranteed
@@ -275,6 +305,12 @@ class Judge:
         # deliberately be judged several times to measure run-to-run variance.
         # Off everywhere else, which is the run-once guarantee.
         self.repeat_run_once = repeat_run_once
+        # A safety-filter refusal is NON-DETERMINISTIC (measured 2026-09-02:
+        # a refused estimate passed on re-run). Retry before believing it,
+        # or a coin flip is permanently cached as a non-response.
+        self.filter_retries = filter_retries
+        self.filter_blocks = 0        # persistent refusals, this process
+        self.filter_transients = 0    # refused once, passed on retry
 
         self._cache = load_cache(self.cache_path)
         self._once = load_once_index(self.cache_path)
@@ -439,21 +475,51 @@ class Judge:
 
     def _call_with_retries(self, path):
         delay = self.backoff_initial_s
-        for attempt in range(1, self.max_retries + 1):
+        filter_attempts = 0
+        # A filter retry is not a throttle retry: it must not consume the quota
+        # backoff budget, so the loop is generous enough to hold both.
+        budget = self.max_retries + self.filter_retries
+        for attempt in range(1, budget + 1):
             self._throttle()
             try:
                 self._last_call_at = time.time()
-                return self._call_once(path)
+                result = self._call_once(path)
+                if filter_attempts:
+                    self.filter_transients += 1
+                    if self.verbose:
+                        print(f"    ...passed on retry -- the earlier refusal "
+                              f"was transient, NOT recorded", flush=True)
+                return result
             except QuotaExhausted:
                 raise
             except Exception as exc:                       # noqa: BLE001
+                if _is_content_blocked(exc):
+                    filter_attempts += 1
+                    if filter_attempts <= self.filter_retries:
+                        if self.verbose:
+                            print(f"    safety filter refused "
+                                  f"{Path(path).parent.name}/{Path(path).name} "
+                                  f"-- retrying ({filter_attempts}/"
+                                  f"{self.filter_retries}); the filter is not "
+                                  f"deterministic", flush=True)
+                        time.sleep(self.backoff_initial_s)
+                        continue
+                    # Refused every time. Now it is a finding about this clip
+                    # rather than a coin flip, so record it.
+                    self.filter_blocks += 1
+                    if self.verbose:
+                        print(f"    safety filter refused "
+                              f"{Path(path).parent.name}/{Path(path).name} "
+                              f"{filter_attempts}x -- recorded as a "
+                              f"non-response", flush=True)
+                    return "blocked_by_filter", ""
                 throttled, daily = _is_quota_error(exc)
                 if daily:
                     raise QuotaExhausted(
                         f"daily quota spent after {self.calls_made} calls this "
                         f"process. Cached work is safe -- rerun tomorrow and it "
                         f"resumes. Original: {exc}") from exc
-                if not throttled or attempt == self.max_retries:
+                if not throttled or (attempt - filter_attempts) >= self.max_retries:
                     raise
                 sleep_s = delay + random.uniform(0, delay * 0.25)
                 if self.verbose:

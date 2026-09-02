@@ -111,19 +111,44 @@ the denominator is recoverable and a gate that never fires is visible as such.
 error** — it means the extractor destroyed the speech. It has to be auditable
 rather than folded silently into a score.
 
-### The cost: NRR is blind to a mute, and is NOT being redefined
+### The cost to NRR — CORRECTED later the same day
 
-`metric-definitions.md` 3.3 defines NRR as the judge reporting nothing. Since the
-judge invents speech on silence, it will essentially never report nothing, so
-**NRR cannot catch the degenerate muting extractor it was designed to catch.**
+**The first version of this entry said "NRR cannot catch the degenerate muting
+extractor it was designed to catch". That is wrong.** It holds only of the
+UNGATED pipeline. Recorded rather than edited away, because the corrected
+statement is what the metric has to be defended on.
 
-Two options were considered and one rejected:
+**With the gate, NRR works.** The gate intercepts *before* the judge, so a
+muting extractor goes: VAD finds no speech → gate returns the empty hypothesis →
+`non_response_reason("")` returns `"silence"` → **NRR fires.** The gate does not
+bypass NRR, it *feeds* NRR the non-response NRR was built to detect. Without the
+gate that non-response never occurred, which is exactly why the mute went
+undetected.
 
-- **Rejected: redefine NRR** to mean "gate blocked or judge silent". It would
-  quietly change the meaning of a published score.
-- **Taken: keep NRR exactly as written, state the blindness explicitly, and add
-  the gate's signal-domain silence row as the instrument that actually catches a
-  mute** — which it does more reliably than the judge could, being deterministic.
+**What NRR genuinely cannot see is narrower: a judge that CONFABULATES rather
+than declines** — and this entry's own measurement is the example. The
+2026-08-31 NRR entry gives its strongest purpose as detecting judge malfunction,
+"it declined on perfect input". The malfunction this judge has is invention.
+NRR's detector is an empty response; a confabulating judge is never empty. That
+purpose is **not** served by NRR and must not be claimed for it.
+
+**Consequence: the judge's invention rate becomes its own row**, measured on
+known speech-free audio with the gate deliberately bypassed. It characterises
+the judge, runs once, and is not part of the per-system protocol. The number
+already exists: **0 of 6 silent clips returned `no_speech`, 17–42 words invented,
+across three prompts.**
+
+**NRR is NOT being redefined.** Rejected: widening it to "gate blocked or judge
+silent", which would quietly change the meaning of a published score. Taken:
+keep 3.3 exactly as written, and state that its mute detection *depends on the
+gate* while its judge-defect detection does not extend to confabulation.
+
+**One thing to state whenever a blocked trial is reported.** A blocked trial
+scores a **clean ICR** — ICR eligibility is driven by how much exclusive content
+the interferer had, not by the response, so an empty response is eligible with
+zero leakage. On its own that is the degenerate-strategy hole; it is closed only
+because NRR fires on the same trial. That pairing *is* the two-sidedness §4
+claims, and a reviewer will go looking for it.
 
 ### Deviation from the spec, recorded
 

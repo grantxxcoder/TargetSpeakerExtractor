@@ -217,11 +217,93 @@ class Results:
         return out_directory
 
 
+ASR, JUDGE = "asr", "judge"
+ALL_LISTENERS = (ASR, JUDGE)
+
+
+def _listen(paths, listener, split, manifest_dir, repo_root, cache_path,
+            allow_new, use_gate, judge_kwargs, verbose):
+    """Turn audio paths into response texts, through the chosen listener.
+
+    THE SPEECH GATE IS APPLIED HERE, ONCE, FOR WHICHEVER LISTENER IS CHOSEN.
+    That placement is the point: gate the judge and not the ASR (or the reverse)
+    and every difference between them on a speech-free clip measures the gate
+    rather than the listeners. metric-definitions.md 3.1.
+
+    A blocked clip returns "" -- the empty hypothesis, which is 3.1's stated
+    treatment of a listener that reported nothing, so no new scoring rule is
+    introduced and NRR sees the non-response it exists to detect.
+    """
+    from .speech_gate import (GateDecision, condition_lookup, decide,
+                              log_decision, vad_seconds_fn)
+
+    if use_gate:
+        lookup = condition_lookup(split, manifest_dir, repo_root)
+        # The VAD model is loaded ONLY if an estimate is actually in this batch.
+        # Anchors are decided by construction and must never pay for a model load.
+        needs_vad = any(Path(x).stem.lower() == "estimate" for x in paths if x)
+        vad = vad_seconds_fn() if needs_vad else None
+        decisions = [decide(x, lookup(x), vad_detect=vad) for x in paths]
+    else:
+        decisions = [GateDecision(True, "gate-disabled")] * len(paths)
+
+    for decision, path in zip(decisions, paths):
+        log_decision(decision, path, listener, split=split,
+                     condition=None if not use_gate else lookup(path))
+
+    blocked = sum(1 for d in decisions if d.fired)
+    if verbose and blocked:
+        print(f"  speech gate blocked {blocked}/{len(paths)} clips "
+              f"(answered locally, no listener call)", flush=True)
+
+    responses = [""] * len(paths)
+    passing = [i for i, d in enumerate(decisions) if not d.fired]
+
+    if listener == JUDGE:
+        from .judge import Judge, NewCallLimitReached, QuotaExhausted
+        judge = Judge(verbose=verbose, **(judge_kwargs or {}))
+        judge.failures = []
+        for count, i in enumerate(passing, 1):
+            try:
+                responses[i] = judge(paths[i])
+            except (QuotaExhausted, NewCallLimitReached):
+                # Budget, not breakage. Everything bought is on disk; stop
+                # cleanly and let a re-run resume rather than half-score.
+                raise
+            except Exception as exc:                       # noqa: BLE001
+                # ONE CLIP MUST NEVER KILL THE RUN. Observed 2026-09-02: a
+                # safety filter refused a single estimate and the traceback
+                # took down a whole pass, discarding the progress report even
+                # though the paid answers were safe. Record it and step over.
+                judge.failures.append((str(paths[i]),
+                                       f"{type(exc).__name__}: {exc}"))
+                responses[i] = ""
+                if verbose:
+                    print(f"    FAILED {Path(paths[i]).parent.name}/"
+                          f"{Path(paths[i]).name}: {type(exc).__name__} "
+                          f"-- scored as a non-response, continuing", flush=True)
+            if verbose and count % 25 == 0:
+                print(f"    judged {count}/{len(passing)}"
+                      f"  (calls {judge.calls_made}, cache {judge.cache_hits})",
+                      flush=True)
+        if judge.failures and verbose:
+            print(f"  {len(judge.failures)} clip(s) failed and were scored as "
+                  f"non-responses -- see judge_failures in the results", flush=True)
+        return responses, decisions, judge
+
+    got = transcribe([paths[i] for i in passing], cache_path,
+                     allow_new=allow_new, verbose=verbose, repo_root=repo_root)
+    for i, text in zip(passing, got):
+        responses[i] = text
+    return responses, decisions, None
+
+
 def evaluate(split="sir0_val", condition="both", estimate_directory=None,
              systems=ALL_SYSTEMS, metrics=ALL_METRICS, limit=None,
              data_root="data", manifest_dir="data/manifests",
              cache_path=TRANSCRIPT_CACHE, allow_new_transcripts=True,
-             verbose=True, repo_root=None):
+             verbose=True, repo_root=None,
+             listener=ASR, speech_gate=True, judge_kwargs=None):
     """Score `systems` on `metrics` for one split. Returns `Results`.
 
     Relative paths resolve against the repo root, which is derived from this
@@ -260,9 +342,27 @@ def evaluate(split="sir0_val", condition="both", estimate_directory=None,
         "split": split, "condition": condition, "n_trials": len(trials),
         "systems": list(systems), "metrics": list(metrics),
         "estimate_directory": str(estimate_directory) if estimate_directory else None,
-        "listener": f"faster-whisper {ASR_MODEL_SIZE} int8 cpu greedy",
-        "listener_role": "STAND-IN for the judge, NOT a live-model result",
+        "speech_gate": "on" if speech_gate else "OFF",
     }
+    if listener == ASR:
+        results.provenance.update({
+            "listener": f"faster-whisper {ASR_MODEL_SIZE} int8 cpu greedy",
+            "listener_role": "STAND-IN for the judge, NOT a live-model result",
+        })
+    else:
+        # CLAUDE.md: every live-model result records the exact model ID, the
+        # exact prompt, the input modality and the run date. All four here.
+        from .judge import DEFAULT_MODEL_ID, DEFAULT_PROMPT_FILE, prompt_sha
+        kw = judge_kwargs or {}
+        prompt_file = kw.get("prompt_file") or DEFAULT_PROMPT_FILE
+        results.provenance.update({
+            "listener": kw.get("model_id", DEFAULT_MODEL_ID),
+            "listener_role": "THE JUDGE -- a live-model result",
+            "judge_backend": kw.get("backend", "aistudio"),
+            "judge_modality": "audio-in / text-out",
+            "judge_prompt_file": str(prompt_file),
+            "judge_prompt_sha256_12": prompt_sha(kw.get("prompt_file")),
+        })
 
     for system in systems:
         if verbose:
@@ -274,9 +374,27 @@ def evaluate(split="sir0_val", condition="both", estimate_directory=None,
             from .lcf_wer import compute_lcf_wer
             from .icr import compute_icr
             from .nrr import compute_nrr
-            responses = transcribe(paths, cache_path,
-                                   allow_new=allow_new_transcripts,
-                                   verbose=verbose, repo_root=repo_root)
+            responses, gate_decisions, used_judge = _listen(
+                paths, listener, split, manifest_dir, repo_root, cache_path,
+                allow_new_transcripts, speech_gate, judge_kwargs, verbose)
+            scores["gate_blocked"] = sum(1 for d in gate_decisions if d.fired)
+            if used_judge is not None:
+                scores["judge_calls"] = used_judge.calls_made
+                scores["judge_cache_hits"] = used_judge.cache_hits
+                failures = getattr(used_judge, "failures", [])
+                scores["judge_failed"] = len(failures)
+                # A safety filter that fires on some systems' outputs and not
+                # others is a BIAS in the benchmark, so both counts are reported
+                # per system: persistent refusals, and refusals that passed on
+                # retry (which prove the filter is non-deterministic).
+                scores["filter_blocked"] = used_judge.filter_blocks
+                scores["filter_transient"] = used_judge.filter_transients
+                if failures:
+                    # Reported, never silently dropped. A refusal that lands on
+                    # some systems' outputs and not others is a BIAS in the
+                    # benchmark, so the count travels with the numbers.
+                    results.provenance.setdefault("judge_failures", {})[system] = [
+                        {"clip": c, "error": e[:200]} for c, e in failures]
             targets = [t.target_text for t in trials]
             interferers = [t.interferer_text for t in trials]
             word = compute_lcf_wer(targets, responses)
