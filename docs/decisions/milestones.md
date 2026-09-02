@@ -439,8 +439,19 @@ Drafted during M2, finished here now that there is a real system to point it at.
       `whisper-normalizer==0.1.15`, Radford et al. Appendix C, applied identically
       to both sides, frozen before the first judge result and never adjusted per
       system (decisions-m0.md 2026-08-13)
-- [ ] Judge harness: fixed prompt, fixed response ASR, pinned model IDs, k≥3
-      repeats, **input modality recorded per trial**, cost/compute logging
+- [X] ~~**Judge harness built.** 2026-09-02. Prompt frozen at sha256[:12]
+      `d118b7d3bf30` and its hash is in every cache key; model ID, serving
+      backend, input modality and run date recorded in the provenance of every
+      result; call counts and cache hits logged per system. No response ASR —
+      J1 deleted it. `src/live_model_metric/judge.py`, `--listener judge` in
+      `scripts/evaluate.py`, 63 tests~~
+      **AMENDED: k≥3 is NOT applied to the anchors.** target/mixture/interferer
+      are judged ONCE per instrument (the run-once rule) because no model can
+      change that audio, so a second answer buys nothing but cost. Repeats are
+      opt-in and used only for the deliberate spread study
+      (`scripts/judge_spread.py`). Consequence: **per-trial** judge claims need
+      k≥3 and averaging; aggregates over 100+ trials do not.
+      decisions-m4.md 2026-09-02
 - [X] ~~**Judge CLASS decided — audio-in / text-out, not full-duplex.**
       2026-08-31, J1 closed: LCF measures the judge's audio encoder, not its
       duplexing, so full duplex is not required. Deletes the
@@ -450,20 +461,50 @@ Drafted during M2, finished here now that there is a real system to point it at.
 - [X] ~~**Cost model resolved** — not a budget question. ~$4 for the audio
       condition at 200 trials x k=3 x 4 systems, ~$25 including the
       prompt-sensitivity ablation. decisions-pending.md J2~~
-- [ ] **Judge MODEL chosen — J2a (closed, headline) and J2b (open-weight
-      anchor).** No longer blocked. Decided by the candidate gate below rather
-      than by argument
-- [ ] **Candidate gate run before any judge is committed to** — ~20 present +
-      5 absent trials x {ceiling, floor} per candidate. Ceiling tests whether the
-      judge can report clean speech at all (offline ASR reference: 6.1 %); floor
-      tests whether it can FAIL, i.e. whether it has any dynamic range on this
-      task; absent tests whether it invents words on silence. A candidate with a
-      good ceiling and no floor-to-ceiling gap cannot rank systems. This is the
-      milestone Gate below, measured early and cheaply
-- [ ] Trial-set size fixed to that budget, on a spreadsheet, before the harness
-      is finalised. **Floor is 200 scored trials** (B6/B13: 100 per bucket across a
-      two-way split); 500 are generated, and scoring more later extends the set
-      rather than replacing it
+- [X] ~~**J2a chosen: `gemini-3.7-flash`**, audio-in / text-out, AI Studio,
+      prepay tier. 2026-09-02. Picked over the `preview` Live models because it
+      is STABLE — the metric needs the audio encoder, not duplexing (J1) — and
+      the Live socket added a deprecation risk for nothing. Price recorded with
+      its expiry: $0.75/1M audio tokens through 2026-12-31.
+      decisions-m4.md 2026-09-02~~
+- [ ] **J2b — the open-weight anchor. Qwen3-Omni**, selected for ENCODER
+      INDEPENDENCE: its AuT encoder is trained from scratch, while Voxtral,
+      Ultravox and Qwen2.5-Omni are all built on a Whisper encoder and would
+      share lineage with our own reference ASR — which would confound the very
+      comparison the anchor exists to support. Needed for reproducibility, not
+      cost. ~17 GB at Q4, so Kaggle T4x2, and quantisation level must be recorded
+      as part of the instrument
+- [X] ~~**Candidate gate run, 2026-09-02, before anything was committed to.**
+      Three readings: (1) it reports clean speech — ceiling **1.05 %** at n=103,
+      against the offline ASR's 5.85 %, and byte-identical five times out of
+      five; (2) it can FAIL — floor **63.27 %**, so 62 points of dynamic range;
+      (3) **it does NOT stay quiet on silence** — 0 of 6 silent clips returned
+      `no_speech`, 17-42 words invented, one in French, under three prompt
+      variants. Reading 3 failed and produced the speech gate rather than a
+      different judge. decisions-m4.md 2026-09-02~~
+- [X] ~~**Speech gate built** because of that failure.
+      `src/live_model_metric/speech_gate.py`, 22 tests. Anchors decided by
+      construction from the manifest condition; `estimate.wav` by Silero VAD
+      6.2.1 (B2) at 0.10 s. Applied identically to the judge AND the offline ASR
+      — gate one and not the other and every difference between them on a
+      speech-free clip measures the gate. Every decision logged to
+      `experiments/results/speech_gate.csv`. It is a component of the measuring
+      instrument: metric-definitions.md §3.1~~
+- [X] ~~**Judge failure modes characterised**, both reportable findings an
+      offline ASR cannot exhibit: invents speech on silence (above), and a
+      **safety filter refused an extractor output** once in 309 calls and then
+      PASSED ON RETRY. Non-deterministic, so retried twice before being believed,
+      with `filter_blocked` and `filter_transient` reported per system because a
+      filter that fires on one system's output and not another's is a bias.
+      decisions-m4.md 2026-09-02~~
+- [X] ~~**Trial-set size fixed and it is no longer a budget question.**
+      2026-09-02: the full `sir0_val` row (103 `both` trials x floor/estimate/
+      ceiling) cost **about 16 cents**, and the whole live-judge programme to
+      date about **40 cents** — against the ~$25 the cost model budgeted. B6's
+      200-scored floor and B13's 100-per-bucket stand unchanged, and 500 are
+      generated per eval split. Scoring more extends the set rather than
+      replacing it, because the cache is keyed per clip. decisions-m4.md
+      2026-09-02~~
 - [X] ~~**Floor and ceiling measured** (unprocessed mixture; clean target) —
       **2026-08-30**, n=230 `both` trials on `eval_public`: floor **57.4 %**,
       ceiling **6.1 %**; `sir0_val` 65.2 % / 5.8 % at n=103. C2 accepted at this
@@ -471,11 +512,43 @@ Drafted during M2, finished here now that there is a real system to point it at.
       2026-08-30~~
 - [ ] Text reference condition wired: extractor → off-the-shelf ASR → text →
       judge, with its text floor and text ceiling
-- [ ] Prompt-sensitivity ablation run
+- [X] ~~**Prompt-sensitivity ablation run — and the metric is NOT fragile to
+      prompt wording.** 2026-09-02, three variants (`d118b7d3bf30`,
+      `a21169a651d6`, `64d4b994a9a2`) over the same clips. On one floor clip the
+      cross-prompt range was 18.0 points while the SAME-prompt run-to-run spread
+      on that clip was 16.0 points — indistinguishable. The apparent prompt
+      effect was sampling noise. v1 stays frozen. decisions-m4.md 2026-09-02~~
+- [X] ~~**Run-to-run spread measured — the milestone Gate below, and it passes
+      by an order of magnitude.** `scripts/judge_spread.py`, 2026-09-02: ceiling
+      **0.0 points** across five identical calls (byte-identical answers);
+      mixture **2.9 points** on one clip and **16.0** on a more ambiguous one,
+      against a 62-point floor-to-ceiling range. The variance mechanism is
+      visible: on the noisy clip it sometimes transcribes one speaker and
+      sometimes interleaves both. decisions-m4.md 2026-09-02~~
+- [X] ~~**FIRST LIVE-JUDGE ROW SCORED.** 2026-09-02, all 103 `sir0_val` `both`
+      trials: floor 63.27 %, baseline **56.72 %**, ceiling **1.05 %**; ICR@2
+      75.73 → 62.14 %. **Headline is NEGATIVE: 10.5 % of headroom captured
+      against the offline ASR's 10.4 %** — the two listeners agree, so on this
+      system LCF-WER does not rank differently from offline WER. M6 asks for
+      exactly this evidence. It cannot currently be otherwise: a rank inversion
+      needs two systems and there is one. project-state.md, results table~~
 
-**Proof:** floor/ceiling numbers logged with config, commit hash, seed, date.
-**Gate:** run-to-run spread must be smaller than the floor-to-ceiling gap. If
-not, the metric is too noisy to detect system differences — fix before M5.
+**Proof — MET 2026-09-02.** `experiments/results/2026-09-02-evaluate-sir0_val/`
+carries the numbers with the git commit, the date, the model ID, the prompt hash,
+the modality and the gate state in its provenance.
+
+**Gate — PASSED 2026-09-02, by an order of magnitude.** Run-to-run spread 0.0
+points on the ceiling and 2.9-16.0 on mixtures, against a 62.2-point
+floor-to-ceiling range. The metric is not too noisy to detect system differences.
+*Carried consequence:* the offline ASR is deterministic and the judge is not, so
+single-trial judge claims need k≥3 and averaging.
+
+**WHAT M4 DID NOT AND CANNOT DELIVER.** A divergence between LCF-WER and
+conventional metrics. Not because the metric failed — it works, and it is a
+better instrument than the ASR on every axis except agreement — but because
+**one system cannot be ranked against anything.** That is M6's problem and M6
+already names the fix: an off-the-shelf pretrained TSE system, no training cost.
+**The bottleneck has moved from the metric to having a second thing to measure.**
 
 ---
 
@@ -711,6 +784,18 @@ against the anchors and the off-the-shelf system, which is still a result.
 
 The thesis's central finding. Runs immediately as M5 checkpoints land — it is
 scoring, not training, so it does not need its own week.
+
+**BLOCKED ON A SECOND SYSTEM, NOT ON THE METRIC (2026-09-02).** The judge, the
+prompt, the harness, the speech gate and the whole scoring path are built and
+measured; a full `sir0_val` row costs ~16 cents and ~25 minutes. What is missing
+is something to rank against. Measured on the one system that exists, LCF-WER
+through the live judge and offline WER **agree** — 10.5 % of headroom captured
+against 10.4 % — which is not evidence against divergence, it is the absence of
+a second point. **The off-the-shelf pretrained TSE row below is therefore the
+highest-value item in the project right now**, above M5's per-band gate: it is
+the cheapest way to turn an untestable claim into a testable one. The mix-back
+sweep (`decisions-pending.md` D11) is the second cheapest, needing no training
+at all.
 
 - [ ] Baseline and second model both scored on LCF-WER / ICR / NRR
 - [ ] Both scored on SI-SDR / DNSMOS-P.835 + P.808 / offline WER on the same trials

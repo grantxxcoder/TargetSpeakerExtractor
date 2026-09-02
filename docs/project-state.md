@@ -1,4 +1,4 @@
-# Where the project is — 2026-09-01
+# Where the project is — 2026-09-02
 
 Plain-language status. Numbers in the milestone decision logs
 (`decisions/decisions-m1.md` architecture, `-m2` training, `-m3` conventional
@@ -11,16 +11,60 @@ evaluation, `-m4` the metric and judge); dates and checklists in
 
 ## In one paragraph
 
-**Every measurement instrument the project needs is now built, and none of it has
-seen a live model.** Six metrics exist and are tested — the three LCF scores, the
-SIR/SAR decomposition, DNSMOS in both variants, and RTF/latency. Two divergence
-results already exist without a judge: signal quality explains only ~4 % of the
-variance in what the listener recovered, and perceptual quality moved *against*
-content (DNSMOS OVRL fell 0.26 while LCF-WER improved 6.1 points). The model
-keeps up in real time (RTF 0.53 on a laptop CPU). **The single gap is the judge:
-until one is chosen, LCF-WER is arithmetically identical to offline ASR word error
-rate, so the project's primary contribution does not yet exist as a distinct
-measurement.** That is one ~1 hour experiment and about $25.
+**The judge exists and the metric has been measured through it. The primary
+contribution is now a real measurement rather than a plan.** `gemini-3.7-flash`,
+audio in / text out, scored floor, estimate and ceiling across all 103 `sir0_val`
+`both` trials on 2026-09-02 for about 40 cents. **And the headline result is
+negative: LCF-WER through the live judge captures 10.5 % of the available
+headroom against the offline ASR's 10.4 %** — the two listeners agree, so on this
+system the live model does not rank differently from conventional word error
+rate. That was always a possible outcome and `milestones.md` M6 asks for it
+explicitly ("or evidence that it doesn't"), and it cannot currently be otherwise:
+**a rank inversion needs two systems to rank and there is one.** What the judge
+*does* buy is a far better instrument — a **1.05 % ceiling against the ASR's
+5.85 %** — plus two live-model behaviours an ASR cannot exhibit and which are
+findings in their own right: it **fabricates 17–42 words when handed silence**,
+and a **safety filter occasionally refuses the extractor's own output**. The two
+earlier divergence results are untouched and remain the strongest evidence for
+the metric: signal quality explains only ~4 % of the variance in what the
+listener recovered, and perceptual quality moved *against* content.
+
+## What changed on 2026-09-02 — the judge
+
+1. **J2 answered: `gemini-3.7-flash`**, audio-in / text-out, AI Studio, prepay.
+   Chosen over the `preview` Live models because it is *stable* and the metric
+   only needs the audio encoder (J1). Prompt frozen at sha256[:12]
+   **`d118b7d3bf30`**. `decisions-m4.md` 2026-09-02.
+2. **The candidate gate passed on both readings that matter.** It reports clean
+   speech (ceiling **1.05 %**, and byte-identical five times out of five) and it
+   can fail (floor 63.27 %), so it has ample dynamic range to rank systems.
+3. **Run-to-run spread measured — M4's gate criterion, and it passes by an order
+   of magnitude.** Ceiling **0.0 points** across five identical calls; a mixture
+   **2.9 points** on one clip and **16.0** on a more ambiguous one, against a
+   62-point floor-to-ceiling range. Consequence to carry: the offline ASR is
+   deterministic and the judge is not, so **per-trial** claims through the judge
+   need k≥3 and averaging. Aggregates over 100+ trials are unaffected
+   (SEM ≈ 0.5 points).
+4. **The judge hallucinates on silence — 0 of 6 silent clips ever returned
+   `no_speech`.** Survived three prompt variants including one that says "Do not
+   hallucinate"; one answer came back in French on an English-only pipeline.
+   Prompting does not fix it. A **speech gate** now decides speech/no-speech
+   before any listener sees a clip. `decisions-m4.md` 2026-09-02.
+5. **A safety filter refused an extractor output**, once in 309 calls, and
+   **passed on retry** — so it is non-deterministic. Retried twice before being
+   believed, and both counts (`filter_blocked`, `filter_transient`) are reported
+   per system, because a filter that fires on one system's output and not
+   another's is a bias in the benchmark.
+6. **M4's prompt-sensitivity ablation is answered, by accident.** Across three
+   prompt variants the cross-prompt range on one floor clip was 18.0 points and
+   the *same-prompt* noise on that clip was 16.0. **The metric is not fragile to
+   prompt wording** — the apparent prompt effect was sampling noise.
+7. **§1's stated hypothesis is not supported, and its stated mechanism is
+   inverted.** §1 predicts conventional TSE improves offline transcription while
+   making audio *harder* for a live model, because an ASR "tolerates" artefacts.
+   Measured: the ASR *deletes more* on the processed audio (9.28 → 12.60) while
+   the judge deletes *less* (5.97 → 3.43). The two reach nearly the same total by
+   opposite routes. Recorded as a prediction that failed.
 
 ## What changed since 2026-08-30
 
@@ -156,6 +200,18 @@ above.**
   ceiling. It captures ~10 % of the word-error headroom and ~19 % of the leakage
   headroom, and it **hurts trials that were already easy** — the
   artefact-versus-residue trade-off, measured. `decisions-m3.md` 2026-09-01.
+- **BE SCORED ON A LIVE MODEL.** 2026-09-02, all 103 `sir0_val` `both` trials
+  through `gemini-3.7-flash`: LCF-WER 63.27 → **56.72 %** against a **1.05 %**
+  ceiling, ICR@2 75.73 → **62.14 %**. The primary contribution is a real
+  measurement. About 40 cents. `decisions-m4.md` 2026-09-02.
+- **Resume a judge run without ever paying twice.** target/mixture/interferer are
+  judged once per instrument and never re-bought; estimates are keyed by audio
+  content, so a retrained checkpoint is judged fresh but a byte-identical
+  re-render is free. Every answer is written to disk before the call returns, so
+  an interrupted run resumes exactly where it stopped.
+- **Tell a speech-free clip from a speech-bearing one before spending anything.**
+  Anchors by construction from the manifest, estimates by Silero VAD 6.2.1 (B2).
+  Blocked clips are answered locally and logged with a reason.
 
 ## Cannot
 
@@ -165,9 +221,21 @@ above.**
   nothing. The margin is ~1 dB — better than it was, still thin.
 - **Match level per utterance.** `L_gain` fell only 3 % over its whole run. It
   works as a *constraint on going silent*, not as a level regression target.
-- **Be scored on a LIVE model.** The three metrics now produce real system
-  numbers, but through an offline ASR standing in for the judge. No live-model
-  measurement exists.
+- **Show a divergence between the live judge and offline WER — YET, and not for
+  want of a judge.** Measured 2026-09-02: the two capture 10.5 % and 10.4 % of
+  headroom respectively, i.e. they agree. **A rank inversion needs two systems to
+  rank and there is one**, so the claim is untestable rather than refuted. M6's
+  off-the-shelf TSE row is the cheapest way to make it testable.
+- **Make per-trial claims through the judge.** The offline ASR is deterministic;
+  the judge is not. Measured spread on one ambiguous mixture: **16.0 points**
+  across five identical calls, and it sometimes transcribes one speaker and
+  sometimes interleaves both. Aggregates over 100+ trials are safe
+  (SEM ≈ 0.5 points); single-trial judge numbers need k≥3 and averaging.
+- **Trust the judge to report absence.** It fabricates 17–42 words on digital
+  silence, 0 of 6 clips ever returning `no_speech`, under three prompt variants.
+  Mitigated by the speech gate, not fixed — and NRR is therefore blind to a
+  *confabulating* judge, though the gate restores its ability to catch a
+  *muting extractor*.
 - **Adapt to how hard the trial is.** Measured 2026-09-01: SIR and SAR change are
   essentially FLAT across easy-to-hard trials (+3.80 to +4.32, −17.45 to −21.41)
   while the word-error outcome swings −4.2 to +23.1. It applies one transform to
@@ -178,20 +246,31 @@ above.**
 
 None of these exist, and none can be cut:
 
-- No metric harness, no benchmark, no comparison table.
-- No judge MODEL picked (J2a closed / J2b open-weight anchor). No longer an open
-  argument — it is now a ~1-hour candidate gate.
-- AMI untouched — the only real-audio check in the project.
+- **A SECOND SYSTEM. This is now the critical path.** With one system there is
+  nothing to rank, so the divergence claim cannot be tested however good the
+  judge is. M6 names the cheapest route: **≥1 off-the-shelf pretrained TSE
+  system**, no training cost. That is worth more to the thesis right now than
+  M5's per-band gate.
+- **The absent rows.** B4's invented-speech row and the `noise_only` cases have
+  not been scored through the judge. ~200 calls, and the only place the gate does
+  real work. Also where the judge and the ASR are known to differ most.
+- **J2b, the open-weight anchor.** Qwen3-Omni, chosen for encoder independence:
+  its AuT encoder is trained from scratch, whereas Voxtral, Ultravox and
+  Qwen2.5-Omni are all built on a Whisper encoder and would share lineage with
+  our own reference ASR. Needed for reproducibility, not for cost.
+- **`eval_public` / `eval_private` anchors** through the judge. ~$5 once, then
+  reusable forever. `eval_private` is scored last and once.
+- **AMI untouched** — the only real-audio check in the project.
 
-They need *a* trained model, not a good one. **They are not blocked on
-generalisation and should not wait for it.**
+**Judge-side work that is DONE and no longer blocks anything:** J2a, the prompt,
+the harness, the candidate gate, the spread study, and the prompt-sensitivity
+ablation.
 
-**Unblocked 2026-08-31 — J1 closed: the judge is audio-in / text-out.** LCF
-measures the judge's audio encoder, not its turn-taking, so full duplex is not
-required. This also deletes the response-transcription ASR from the measuring
-instrument. Carries a ~50-trial full-duplex confirmation run so the deviation
-from the stated objective is bought off rather than argued away.
-`decisions-m4.md` 2026-08-31.
+**Closed 2026-08-31 — J1: the judge is audio-in / text-out.** LCF measures the
+judge's audio encoder, not its turn-taking, so full duplex is not required. This
+also deletes the response-transcription ASR from the measuring instrument.
+Carries a ~50-trial full-duplex confirmation run so the deviation from the stated
+objective is bought off rather than argued away. `decisions-m4.md` 2026-08-31.
 
 ## Milestone scoreboard
 
@@ -201,28 +280,99 @@ from the stated objective is bought off rather than argued away.
 | **M1** architecture | closed | — |
 | **M2** baseline trained | functionally complete | 1 (band-plan / `w_m` ablations) |
 | **M3** conventional evaluation | **2 of 3 done** | 1 (listen to the outputs) |
-| **M4** the metric | **6 of 13 done** | **7 — all of them behind the judge** |
+| **M4** the metric | **15 of 18 done** | 3 (J3 sign-off; J2b anchor; text reference condition) |
 | **M5** second model | designed, not built | 23 |
-| **M6** the comparison | not started | 9 |
+| **M6** the comparison | **blocked on a second system, not on the metric** | 9 |
 
-**M3 is effectively closed.** M4's seven remaining items are almost entirely
-consequences of one decision: choose the judge.
+**M4 is nearly closed.** The judge, the prompt, the harness, the gate, the spread
+study and the prompt-sensitivity ablation are all done; what remains is J3's ICR
+threshold sign-off (a free re-score from stored text) and the text reference
+condition.
+
+**The bottleneck has moved.** It is no longer the metric — it is having a second
+thing to measure. M6 cannot produce its comparison table from one system, and its
+own checklist already names the fix: an off-the-shelf pretrained TSE system,
+scored alongside, at no training cost.
 
 ## The results table
 
 **Every metric value the project has, in one place.** Add columns as metrics are
-built and rows as models are made. `sir0_val`, `condition=both`, n=103, scored
-2026-09-01. **The listener is an offline ASR standing in for the judge — no
-live-model number exists yet.**
+built and rows as models are made. `sir0_val`, `condition=both`, **n=103**.
 
-**Content metrics** (lower is better):
+**Content metrics, THROUGH THE LIVE JUDGE** (lower is better). The project's
+primary contribution, measured. `gemini-3.7-flash`, audio in / text out, via AI
+Studio, prompt sha256[:12] `d118b7d3bf30`, speech gate on, **run 2026-09-02**.
+Closed models change silently — a comparison against a different date is invalid
+unless re-run.
 
 | system | LCF-WER | ICR@2 | mean leak | NRR |
 |---|---|---|---|---|
-| **1. Floor** — do nothing | 65.2 % | 67.0 % | 51.3 % | 0.0 % |
-| **2. Baseline** — `model_sir0_5000-e7.pt` | **59.1 %** | **54.4 %** | **39.1 %** | 1.0 % |
+| **1. Floor** — do nothing | 63.27 % | 75.73 % | 63.33 % | 0.0 % |
+| **2. Baseline** — `model_sir0_5000-e7.pt` | **56.72 %** | **62.14 %** | **50.15 %** | 0.0 % |
 | **3. Extension** — per-band gate (D13) | — | — | — | — |
-| **4. Ceiling** — clean target | 5.8 % | 0.0 % | 0.0 % | 0.0 % |
+| **4. Ceiling** — clean target | **1.05 %** | 0.00 % | 0.00 % | 0.0 % |
+
+**Content metrics, through the OFFLINE ASR** (`faster-whisper small.en`). Kept as
+the conventional comparison, not as a stand-in any more. Same 103 trials.
+
+| system | LCF-WER | ICR@2 | mean leak | NRR |
+|---|---|---|---|---|
+| **1. Floor** | 65.22 % | 66.99 % | 51.30 % | 0.0 % |
+| **2. Baseline** | **59.05 %** | **54.37 %** | **39.13 %** | 1.0 % |
+| **4. Ceiling** | 5.85 % | 0.00 % | 0.00 % | 0.0 % |
+
+**THE HEADLINE COMPARISON, and it is a negative result.**
+
+| listener | floor | baseline | ceiling | range | gain | **headroom captured** |
+|---|---|---|---|---|---|---|
+| live judge | 63.27 | 56.72 | 1.05 | 62.22 | 6.55 | **10.5 %** |
+| offline ASR | 65.22 | 59.05 | 5.85 | 59.37 | 6.17 | **10.4 %** |
+
+**The two listeners agree to within a tenth of a point.** On this system, LCF-WER
+does not rank differently from offline word error rate. `milestones.md` M6 asks
+for exactly this evidence — "or evidence that it doesn't" — and **it cannot
+currently be otherwise: a rank inversion needs two systems to rank and there is
+one.** Do not read this as the divergence claim failing; read it as the divergence
+claim being untestable until a second system exists (M6's off-the-shelf TSE row
+is the cheapest route).
+
+**What the judge does buy, on the same data.**
+
+1. **A far better instrument.** Ceiling **1.05 % against 5.85 %** — the judge
+   hears clean audio 5.6x better, so the measurable range is 62.2 points instead
+   of 59.4, and the ceiling is nearly perfect rather than imposing a 6-point cap
+   on achievable performance.
+2. **Leakage that is visible.** ICR@2 runs ~9 points higher throughout (floor
+   75.73 vs 66.99), because the judge *reports* interferer content the ASR
+   discards. ICR was near-structurally-blind through an ASR.
+3. **The opposite failure mechanism** — see below.
+
+**THE MECHANISM DIVERGES EVEN THOUGH THE TOTAL DOES NOT.** This is why the error
+split is reported and not just the rate:
+
+| | judge D | judge I | ASR D | ASR I |
+|---|---|---|---|---|
+| floor | 5.97 | 28.08 | 9.28 | 23.05 |
+| baseline | **3.43** ↓ | 26.22 | **12.60** ↑ | 18.39 ↓ |
+
+**On the processed audio the ASR deletes MORE and the judge deletes LESS.** The
+two reach nearly the same total by opposite routes. **This inverts §1's stated
+mechanism**, which has the ASR tolerating artefacts and the live model being
+sensitive to them. Measured, it is the ASR that is brittle.
+
+**NRR: judge 0.0 %, ASR 1.0 %.** The ASR produced one non-response; the judge
+produced none, and never will — it invents rather than declining. See the
+hallucination row below.
+
+**Live-judge behaviours an offline ASR cannot exhibit**, both measured
+2026-09-02 and both reportable findings:
+
+| behaviour | measured | consequence |
+|---|---|---|
+| **invents speech on silence** | **0 of 6** silent clips returned `no_speech`; 17–42 words each, one in French | NRR could not catch a mute; a speech gate now answers speech-free clips locally |
+| **safety filter refuses output** | 1 in 309 calls, on an *extractor output*; **passed on retry** | non-deterministic, so retried twice before being recorded; both counts reported per system as a bias check |
+
+**Cost of the whole live-judge programme so far: about 40 cents**, ~309 clips.
 
 **Signal metrics** (higher is better, dB, ceiling +30 by construction):
 
@@ -296,9 +446,27 @@ analogue of SAR, `BAK` of SIR.
 is nearly blind to what this model does, while `OVRL`, the one that was gamed,
 moves. Worth reporting about both.
 
-**Caveats that travel with this table.** Offline ASR, not a judge. `sir0_val` is
-symmetric by construction, so it is harder than `eval_public`. NRR is structurally
-near-zero until a real judge can decline. `decisions-m3.md` 2026-09-01.
+**Caveats that travel with this table.**
+
+- The **signal and perceptual rows are ASR-independent**; only the content rows
+  have a listener, and those now exist in both versions above.
+- `sir0_val` is symmetric by construction, so it is **harder than
+  `eval_public`** — the two differ by 7.8 points on the floor, and which set
+  defines the benchmark is still undecided (C2's open consequence).
+- **NRR is near-zero for a reason that is now understood, not an artefact.** It
+  was expected to lift once a real judge could decline. It cannot: this judge
+  **never declines, it invents** (0 of 6 silent clips returned `no_speech`). NRR
+  detects a declining judge and is structurally blind to a confabulating one.
+  Its mute-detection works only because the speech gate manufactures the empty
+  response NRR looks for. `decisions-m4.md` 2026-09-02.
+- **Judge numbers are dated, not permanent.** `gemini-3.7-flash` is a closed,
+  silently-updated model. Every judge figure above is valid for prompt
+  `d118b7d3bf30` on 2026-09-02 and must be re-run to be compared against any
+  other date.
+- **Aggregates only.** Per-trial judge numbers carry up to 16 points of
+  run-to-run noise; these are means over 103 trials (SEM ≈ 0.5 points).
+
+`decisions-m3.md` 2026-09-01, `decisions-m4.md` 2026-09-02.
 
 ---
 
@@ -356,20 +524,27 @@ differs from the checkpoint's.
 
 ## Next
 
-1. **Choose the judge (J2).** It is the only thing blocking the project's actual
-   result, and the choice is now a ~1-hour candidate gate rather than an open
-   argument: score the ceiling, the floor and a few silent trials on each
-   candidate and read whether it can report clean speech, whether it can fail,
-   and whether it stays quiet when there is nothing to hear.
-2. ~~**Score the 5,000-trial checkpoint on the metrics that exist.**~~ **DONE
-   2026-09-01** — see the results table. Next in this line is the mix-back sweep
-   (`decisions-pending.md` D11), which turns one checkpoint into a family of
-   systems for the divergence curve and needs no retraining.
-3. **A result already exists without a judge, and should be written up.** No
-   signal-domain measure predicts what the listener recovered: the best, ΔSDR,
-   explains ~4 % of the variance in word-error improvement (n=103, through an
-   ASR). That is the divergence claim quantified.
-4. **Do NOT render more data.** It would still help — the model is data-limited,
+1. ~~**Choose the judge (J2).**~~ **DONE 2026-09-02.** `gemini-3.7-flash`, and
+   the first live-judge row exists. See the results table.
+2. **GET A SECOND SYSTEM. This is the critical path now.** The judge is built and
+   the metric works, and neither can produce a divergence result from one system.
+   The cheapest route is M6's own: **an off-the-shelf pretrained TSE system**, no
+   training cost, scored through the same harness. It is worth more right now
+   than M5's per-band gate, because it converts an untestable claim into a
+   testable one for a few hours of work and ~16 cents of judge calls.
+   *Second cheapest:* the mix-back sweep (`decisions-pending.md` D11) turns one
+   checkpoint into a family of systems with no retraining at all.
+3. **Score the absent rows through the judge.** ~200 calls, `--condition ""`.
+   B4's invented-speech row plus the `noise_only` cases — the only place the
+   speech gate does real work, and where the judge and the ASR differ most.
+4. **Two results already exist and should be written up.** (a) No signal-domain
+   measure predicts what the listener recovered: the best, ΔSDR, explains ~4 % of
+   the variance in word-error improvement. (b) The live judge and the offline ASR
+   **agree** on headroom captured (10.5 % vs 10.4 %) while failing by **opposite
+   mechanisms** — the ASR deletes more on processed audio, the judge deletes
+   less. The second is a negative result on §1's headline and an inversion of its
+   stated mechanism, and both belong in the write-up as such.
+5. **Do NOT render more data.** It would still help — the model is data-limited,
    not at capacity — but 2.5x bought +0.44 dB and a further 2x will buy less,
    for ~5 h of rendering and a 33 GB upload. `decisions-m2.md` 2026-09-01.
 
