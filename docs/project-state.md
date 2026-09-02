@@ -262,7 +262,7 @@ giving 10–20 % error. And the **GPU figure is outstanding** — the spec assum
 server-class compute, so the GPU number is the one that supports the claim and
 CPU is the pessimistic case.
 
-**Headroom captured by the baseline:** LCF-WER **10.3 %**, ICR@2 **18.8 %**, mean
+**Headroom captured by the baseline:** LCF-WER **10.4 %**, ICR@2 **18.8 %**, mean
 leakage **23.8 %**.
 
 **Ceilings are not perfect, in any of the three families.** LCF-WER's ceiling is

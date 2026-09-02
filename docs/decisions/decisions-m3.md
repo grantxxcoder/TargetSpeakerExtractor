@@ -231,7 +231,7 @@ trials, CPU, whole-clip single forward pass. `sir0_val`, `condition=both`, n=103
 | **the model** | **59.1 %** | 28.1 | **12.6** | 18.4 | **54.4 %** | **39.1 %** | 1.0 % |
 | ceiling (clean target) | 5.8 % | 3.4 | 0.7 | 1.7 | 0.0 % | 0.0 % | 0.0 % |
 
-**Headroom captured:** LCF-WER **10.3 %** of the 59.4-point band; ICR@2 **18.8 %**
+**Headroom captured:** LCF-WER **10.4 %** of the 59.4-point band; ICR@2 **18.8 %**
 of its 67-point band; mean leakage **23.8 %**.
 
 **The model is better at removing the interferer than at making the target
