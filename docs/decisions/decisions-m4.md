@@ -468,3 +468,167 @@ reporting it ("what time is the meeting" → "I don't have access to your
 calendar"). Matches no rule, is not empty, and is not detectable without
 reintroducing the false-positive problem. To be checked by hand on the judge
 pilot and recorded as a known blind spot.
+
+## 2026-09-03 — Judge run 2: the borrowed WeSep baseline. No rank inversion
+
+The live judge did not reorder the two systems. All five instruments (SI-SDR,
+SIR, offline WER, DNSMOS `OVRL`, live judge) rank the borrowed WeSep checkpoint
+ahead of our baseline, and the judge's margin is the widest. This is M6's
+divergence test answered negatively on n=2.
+
+**Provenance** — mandatory for any judge result. Closed models change silently,
+so this is not comparable to a judge result from another date unless re-run.
+
+| field | value |
+|---|---|
+| model ID | `gemini-3.7-flash`, AI Studio prepay |
+| modality | audio in / text out |
+| prompt | `src/live_model_metric/judge_prompt.txt`, sha256 `d118b7d3bf30` |
+| run date | 2026-09-03 |
+| split / condition | `sir0_val` / `both`, 103 trials |
+| speech gate | on, Silero 6.2.1 |
+| estimates | `experiments/results/2026-09-03-est-wesep-tfmap-causal` |
+| commit | `020c9698-dirty` |
+| results | `experiments/results/2026-09-03-evaluate-wesep-judge/` |
+| wall time | 11 min |
+
+| system | LCF-WER | S | D | I | ICR@2 | mean leak | NRR |
+|---|---|---|---|---|---|---|---|
+| floor | 63.27 | 29.22 | 5.97 | 28.08 | 75.73 | 63.33 | 0.0 |
+| WeSep | **26.40** | 10.62 | 6.78 | 8.99 | **25.24** | **12.92** | 0.0 |
+| ceiling | 1.05 | 0.87 | 0.15 | 0.03 | 0.00 | 0.00 | 0.0 |
+
+Baseline for comparison (2026-09-02, same prompt and anchors): 56.72 / 62.14 /
+50.15.
+
+**Run health:** 103 calls, 0 failed, 0 gate blocks, 1 transient safety-filter hit
+that passed on retry (the same ~1-in-300 rate as 2026-09-02). Floor and ceiling
+served from cache and identical to 2026-09-02, so both systems are scored against
+the same anchors.
+
+**WeSep wins by removing the interferer, not by preserving the target.**
+Insertions fall 26.22 → 8.99 (the inserted words were the interferer's) while
+deletions *rise* 3.43 → 6.78, above even the floor's 5.97. Consequence: LCF-WER
+on our two-speaker mixtures is dominated by interferer suppression, and a system
+can lose more target words than doing nothing while halving the score. Any claim
+built on LCF-WER must state that.
+
+**Why this does not close M6.** The systems are 30 LCF-WER points apart, half the
+metric's range. A rank inversion is a claim about systems that are *close*, so
+this negative result is honest but underpowered. The test that exercises the
+hypothesis is a near-tie pair — the argument for building system 3 (per-band
+gate, D13).
+
+Not comparable to any published REAL-TSE number: our data, metric and protocol.
+WeSep is borrowed (Wang et al., Interspeech 2024) and out of domain in every
+direction. See `project-state.md` § System 5.
+
+---
+
+## 2026-09-03 — J3 SIGNED OFF. ICR threshold is `count >= 2`, and k turns out not to matter
+
+**Decision: the ICR threshold is `count >= 2`** — at least two
+interferer-exclusive content words in the response. Written into
+`metric-definitions.md` §3.2, which previously required a threshold "fixed in
+advance with its sensitivity reported" and then supplied neither.
+
+**Why `count >= 2` and not a fraction.** One shared content word between a
+response and the interferer is coincidence at the rate English repeats nouns;
+two is signal. The fraction rule (`>= θ` of the interferer-exclusive words
+available) scales with the interferer's utterance length, which varies per trial
+**by construction** — so it moves with a property of the trial rather than of the
+system. That makes it the worse primary and the better secondary. Both are
+computed.
+
+**The sensitivity sweep says the choice is not load-bearing**, which is the
+useful part. `eval_public`, offline ASR stand-in, 2026-08-31
+(`experiments/results/2026-08-31-icr-sweep-eval_public/`):
+
+| set | ICR@1 | ICR@2 | ICR@3 | ICR@5 |
+|---|---|---|---|---|
+| present (`both`), floor | 57.0 | **52.0** | 49.3 | 42.9 |
+| present (`both`), ceiling | 0.0 | **0.0** | 0.0 | 0.0 |
+| absent (`interferer_only`), floor | 100.0 | **100.0** | 99.2 | 97.5 |
+
+The floor moves 14 points across the whole range while the ceiling sits at 0.0
+throughout. **Every k separates the anchors completely**, so no conclusion
+changes if k is 1, 3 or 5. §3.2's sensitivity requirement is discharged by that
+fact rather than by arguing 2 over 3 — which is the honest way to close it,
+because there is no evidence that would distinguish them.
+
+**Two things settled at the same time.**
+
+1. **Exclusion, not zero.** Trials where the interferer said nothing exclusive
+   are excluded from ICR rather than scored clean; scoring them clean dilutes the
+   rate toward zero with trials that could never have fired. The count is
+   reported. **Currently 0 in every `eval_public` stratum** — the rule is inert on
+   this data and is kept for correctness, not because it has bitten.
+2. **The floor's ICR is partly by construction.** The judge never sees the
+   enrolment, so on an unprocessed mixture it cannot know which speaker is the
+   target and picks one; the floor tends toward a coin flip. Measured at k=2 on
+   the `eval_public` floor: **87.5 %** when the interferer is louder against
+   **37.5 %** when the target is louder. That is the task's property, not the
+   listener's failure, and it must be stated wherever the floor is quoted.
+
+**Binding consequence for the prompt.** It must never instruct the judge to
+choose a speaker — no "the clearest voice", no "the loudest speaker". That hands
+the extractor's job to the judge and turns a measurement into an instruction, and
+it would move the floor row for reasons unrelated to any system under test. The
+frozen prompt (sha256[:12] `d118b7d3bf30`) already complies; this records why it
+must continue to.
+
+**Caveat carried.** The sweep is `eval_public` scored through the offline ASR, a
+STAND-IN. It establishes that the threshold choice does not change rankings; it
+is **not** a live-model result and must not be quoted as one. The judge-measured
+ICR@2 figures live in `project-state.md`'s results table on `sir0_val`.
+
+---
+
+## 2026-09-03 — J2b cut: no open-weight judge
+
+**Cut on schedule, not on merit.** Qwen3-Omni was selected (2026-08-31) for
+encoder independence — its AuT encoder is trained from scratch, while Voxtral,
+Ultravox and Qwen2.5-Omni build on a Whisper encoder and would share lineage with
+`faster-whisper small.en`. That reasoning still holds; there is just no room for
+a T4x2 session and a second scoring pass with 6 weeks to freeze and M5 unbuilt.
+
+**What it costs:** the judge numbers are not reproducible without API access, and
+`gemini-3.7-flash` can change silently, so cross-date comparison stays invalid
+unless re-run. Goes in the thesis limitations next to A1 and the two-speaker
+boundary.
+
+**What it doesn't cost:** the harness is judge-agnostic, so adding an open-weight
+listener later is a config change, not a redesign. Prompt is frozen by hash,
+provenance is recorded per result, and the 344 raw judge responses are kept in
+`judge_responses.csv` — so the numbers can still be audited, just not regenerated.
+
+`metric-definitions.md` §5 downgraded from a requirement to a stated limitation;
+§7's open question closed as cut. Note that `research-plan.md`'s old contingency
+("reduce judges to one — keep the open-weight one") ends up inverted.
+
+---
+
+## 2026-09-03 — Text reference condition cut: excluded on latency, not scored
+
+**The text path is ruled out rather than measured.** `metric-definitions.md` §3.5
+defined it as a reference condition (extractor → off-the-shelf ASR → text →
+judge). No text LCF number will be produced.
+
+**Why exclusion beats scoring.** Extraction alone costs 162 ms mean / 176 ms p99
+(measured 2026-09-01) against a 200-300 ms budget, and the ASR is non-streaming —
+it needs an endpoint before it decodes, on top of that. So the text path cannot
+meet the project's own latency constraint. Scoring it would publish a content
+number for a system that cannot be deployed under the spec, and a text row would
+likely *win* on content — inviting "text wins, why not use text?" and forcing the
+answer into a footnote. **Answering the modality question with latency, which is
+measured, is cleaner than answering it with LCF and then discounting the LCF.**
+
+This does not reverse the 2026-08-07 output-modality decision; it extends it. That
+decision said text would not be *built*. This says it will not be *scored* either,
+for the same reason, and states the reason as a measurement.
+
+**Consequences.** M6's anchor item drops to audio floor + audio ceiling. §3.5's
+two caveats are retained as the reasoning behind the exclusion — the judge is
+close to a pass-through on text so the score would mostly reflect the front-end
+ASR, and the metric is lexical so prosody and speaker identity vanish at the ASR
+boundary. Both belong in the write-up.

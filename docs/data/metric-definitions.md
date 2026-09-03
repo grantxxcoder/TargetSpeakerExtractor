@@ -142,8 +142,61 @@ Fraction of trials where `r` contains content attributable to `d` rather
 than `t`. **Lower is better.**
 
 Computed as content-word overlap between `r` and `d`, excluding words that
-also appear in `t`, thresholded. The threshold must be fixed in advance and
-its sensitivity reported.
+also appear in `t`, thresholded.
+
+**The threshold is `count >= 2`** — a trial fires when at least two
+interferer-exclusive content words appear in the response. One shared content
+word is coincidence at the rate English repeats nouns; two is signal. The
+alternative rule, a *fraction* of the interferer-exclusive words available,
+varies with the interferer's utterance length — a property of the trial, not of
+the system — which makes it the worse primary. Both are computed; `count >= 2`
+is what a headline ICR means unless stated otherwise.
+
+**Sensitivity, as this section requires.** Swept 2026-08-31 on `eval_public`,
+offline ASR stand-in (`faster-whisper small.en`), not a live-model result.
+Bracketed figures are that k's own eligible count.
+
+| set | ICR@1 | ICR@2 | ICR@3 | ICR@5 |
+|---|---|---|---|---|
+| present (`both`), floor | 57.0 (230) | **52.0** (229) | 49.3 (223) | 42.9 (212) |
+| present (`both`), ceiling | 0.0 | **0.0** | 0.0 | 0.0 |
+| absent (`interferer_only`), floor | 100.0 (123) | **100.0** (123) | 99.2 (123) | 97.5 (120) |
+| absent, ceiling | 0.0 | **0.0** | 0.0 | 0.0 |
+
+**The choice of k is not load-bearing.** The floor moves 57.0 -> 42.9 across the
+whole range while the ceiling stays at 0.0, so every k separates the two anchors
+completely and no conclusion in this document changes if k is 1, 3 or 5. The
+sensitivity requirement is met by that fact, not by defending 2 over 3.
+
+**Exclusion rule.** A trial where the interferer said nothing the target did not
+also say carries no evidence of contamination either way. Such trials are
+**excluded from ICR, not scored as clean** — scoring them clean would pull the
+rate toward zero with trials that could never have fired. The exclusion count is
+reported alongside the rate. On `eval_public` it is currently **0 in every
+stratum**, so the rule is correct but has not yet had occasion to fire; it must
+stay in the definition because a shorter or more repetitive interferer would
+trigger it.
+
+**The floor row's ICR is partly set by construction, and must be quoted that
+way.** The judge never sees the enrolment, so on an unprocessed two-speaker
+mixture it cannot know which speaker is the target and will pick one. The floor's
+ICR therefore tends toward a coin flip. This is correct behaviour and it *is* the
+finding — doing nothing gets you the wrong speaker much of the time — but it is a
+property of the task, not a failure of the listener, and it must be stated when
+the floor is quoted rather than discovered in a results table. Measured at k=2 on
+the `eval_public` floor:
+
+| which voice is louder | n | ICR@2 |
+|---|---|---|
+| interferer | 48 | **87.5 %** |
+| balanced | 21 | 81.0 % |
+| target | 160 | **37.5 %** |
+
+**Consequence for the prompt, and it is binding.** The fixed prompt must **not**
+instruct the judge to choose a speaker — no "the clearest voice", no "the loudest
+speaker". Such an instruction hands the extractor's job to the judge and converts
+a measurement into an instruction, and it would move the floor row for a reason
+that has nothing to do with any system under test.
 
 **This is the score that makes the metric two-sided**, and it is the one an
 offline WER-based metric structurally cannot see.
@@ -213,6 +266,21 @@ what the number means.
 | Judge's role | Listens and reports | Reads and echoes — close to a pass-through |
 | What LCF-WER measures | Judge's recovery from processed audio | Mostly the front-end ASR's WER |
 | Optimised for? | Yes — this is the build target | **No.** Measured and reported only |
+
+**CUT 2026-09-03 — the text row is not scored, it is excluded on latency.** The
+table above stands as the definition, but no text LCF number will be produced.
+Extraction alone costs 162 ms mean / 176 ms p99 against a 200-300 ms budget, and
+the off-the-shelf ASR is non-streaming: it must endpoint before it can decode, on
+top of that. The text path therefore cannot meet the project's own latency
+constraint, and scoring it would report content fidelity for a system that cannot
+be deployed under the spec — inviting "text wins, why not use text?" when the
+answer is that it does not run in time. **The modality question is answered with
+latency, which is measured, instead of with LCF, which would need a caveat to be
+read correctly.** decisions-m4.md 2026-09-03.
+
+The two consequences below are retained: they are why a text row would have needed
+heavy caveating even if it had been affordable, and they belong in the write-up as
+the reasoning behind the exclusion.
 
 Two consequences that must not be lost:
 
@@ -300,12 +368,17 @@ system look like it contains the instrument. They may be the same checkpoint,
 but that must be stated, since a shared error profile could flatter the text
 condition.
 
-**At least one open-weight judge.** Alongside the closed API, evaluate with
-an open-weight speech-to-speech model so the benchmark is reproducible by
-someone without API access. This is the single most important decision for
-the metric's shelf life — a benchmark only reproducible on a paid API whose
-behaviour changes monthly is not a contribution. Candidate survey needed
-before the protocol is frozen.
+**At least one open-weight judge — waived 2026-09-03.** The intent stands: a
+benchmark reproducible only on a paid API that changes silently has a short shelf
+life. The anchor (Qwen3-Omni, chosen for encoder independence from our reference
+ASR) was cut for time.
+
+The metric is implemented judge-agnostically, so running this protocol against an
+open-weight model is a configuration change rather than a redesign, and every
+result records model ID, prompt hash, modality and run date with the raw responses
+retained. Published numbers are therefore auditable but not re-runnable without
+API access. Adding one open-weight judge over the same trials is the first thing
+to do if the work continues. decisions-m4.md 2026-09-03.
 
 **Report variance.** Live models are stochastic. Run each trial `k` times
 (k ≥ 3) and report mean with confidence intervals. A difference smaller than
@@ -382,8 +455,9 @@ Prior art to position against, not duplicate:
 
 ## 7. Open questions
 
-- Which open-weight speech-to-speech model is the reproducible anchor. Needs
-  a survey before the protocol freezes.
+- ~~Which open-weight speech-to-speech model is the reproducible anchor.~~
+  **CUT 2026-09-03 on schedule.** Qwen3-Omni was selected and not run; §5
+  records the waiver and the resulting limitation.
 - Prompt sensitivity — how much does the "report what you heard" wording
   move the scores? Needs a small ablation; if it dominates, the metric is
   fragile and needs redesign.

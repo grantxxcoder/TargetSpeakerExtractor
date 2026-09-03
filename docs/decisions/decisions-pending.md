@@ -15,8 +15,11 @@ actually taken go to the decision log of the milestone they belong to —
 - **J2 — which judge, and the open-weight anchor.** The cost half is answered
   (~$5-25); what remains is reproducibility and the candidate gate. **No longer
   blocked — J1 closed 2026-08-31.** See Group J.
-- **J3 — the ICR overlap threshold.** Declared `count>=2` with a sensitivity
-  sweep, not yet signed off. See Group J.
+- **J3 — CLOSED 2026-09-03.** Threshold `count>=2`, signed off into
+  `metric-definitions.md` §3.2. The sweep showed the choice of k changes no
+  conclusion (floor 57.0 -> 42.9 across k=1/2/3/5, ceiling 0.0 throughout), so the
+  sensitivity requirement is discharged by that rather than by defending 2 over 3.
+  decisions-m4.md 2026-09-03.
 - **D11 — inference-time mix-back.** RUN 2026-09-01 as the screening test.
   Globally alpha=1 wins, but the per-difficulty optimum spans 0 to 1, so
   adaptation is motivated and a global gentleness shift is not. See Group D and
@@ -179,50 +182,24 @@ Also worth confirming the near-uniformity across several trials before it is
 written up — measured on one so far, though the argument above says it is
 structural.
 
-### D3 — RUN 2026-08-30. ANSWERED: conditioning is not the bottleneck
+### D3. RUN 2026-08-30. ANSWERED: conditioning is not the bottleneck
 
-**D3a measured over 200 `sir0_val` crops: the cue moves 28.6 % on an enrollment
-swap and the output moves 48.2 %.** The network amplifies the cue, it does not
-discard it. **D4a and D1 are dropped, D5 is demoted, D2 is closed** (the softmax
-now blends 138 of 628 frames against ~620 before `tfmap_scale`). D3c ran with
-it: cross-gender sensitivity 56.1 % vs same-gender 44.4 %, a weak signal of
-gender reliance. Look at the separator or the objective instead.
-`scripts/diagnose_cue.py`, decisions-m2.md 2026-08-30. Original text follows.
+**Measured over 200 `sir0_val` crops: the cue moves 28.6 % on an enrollment swap
+and the output moves 48.2 %.** The network amplifies the cue, it does not discard
+it — so the conditioning path is not what fails. Look at the separator or the
+objective instead. **D4a and D1 dropped, D5 demoted, D2 closed** (the softmax now
+blends 138 of 628 frames against ~620 before `tfmap_scale`). D3c ran alongside:
+cross-gender sensitivity 56.1 % vs same-gender 44.4 %, a weak signal of gender
+reliance. `scripts/diagnose_cue.py`, `decisions-m2.md` 2026-08-30.
 
-### D3. Diagnose the conditioning failure before rebuilding anything
+`sir0_train` is balanced 680/680 same/cross-gender, which **caps but does not
+remove** the gender shortcut: a model using pitch alone gets the cross-gender half
+right and coin-flips the rest, i.e. ~75 % correct with no enrollment at all. That
+is invisible in pooled numbers, so gender-stratified reporting stays on.
 
-**Status: three measurements, all unrun, all cheap, all runnable on
-`models/model_sir0.pt` on CPU — no contention with a live GPU run.**
-
-**The one number.** Every run has failed the same way: swapping a stranger's
-enrollment in changes the output by at most **15 %** (`val_enrol_sens_db`
--8.25, epoch 7, `2026-08-27-train-sir0`). Five-sixths of the output is decided
-without reference to who was asked for. Architecture work should target that
-number; everything below is ranked by how much it moves it per unit of cost.
-
-**Why measure first.** The conditioning path has two halves — *build a cue* and
-*make the network use it* — and no run so far distinguishes which one fails.
-Rebuilding the wrong half is the expensive mistake available here.
-
-- **D3a — is the cue itself speaker-discriminative?** Compute the TF-Map output
-  for the true enrollment and for a rolled one, same mixture:
-  `||tf_true - tf_swap||^2 / ||tf_true||^2`. Same roll trick as
-  `diagnostic_accumulate()` in `scripts/train.py`, one layer upstream.
-  **This partitions the problem.** Cue barely moves -> nothing downstream can
-  help, fix the cue (D5). Cue moves a lot but the output does not -> the cue is
-  fine and the *injection path* is discarding it (D4).
-- **D3b — oracle-cue ceiling.** Replace the TF-Map channel with the clean
-  target's magnitude spectrogram and train briefly. Still cannot extract -> the
-  separator/mask is the bottleneck and conditioning is not the story. Extracts
-  well -> conditioning is confirmed as the bottleneck and the run gives its
-  ceiling. Upper-bound experiment, deliberately cheap.
-- **D3c — stratify every val metric by `same_gender`.** Free: the column is in
-  the manifest and `sir0_val` is 76 same-gender / 69 cross. `sir0_train` is
-  balanced 50/50 (680/680), which **caps but does not remove** the gender
-  shortcut: a model using pitch alone gets the cross-gender half right and coin
-  flips the rest, i.e. ~75 % correct with no enrollment at all. If quality and
-  sensitivity collapse on same-gender trials, the model is riding gender, not
-  identity — and that is invisible in the pooled numbers we currently log.
+**D3b is still available and unrun** — replace the TF-Map channel with the clean
+target's magnitude spectrogram and train briefly, to get conditioning's ceiling
+as an upper-bound experiment.
 
 ### D4. Inject the speaker cue at every block, not once at the input
 
@@ -328,27 +305,21 @@ scratch, the family check must be recorded, not assumed.
   and the enrollment**. `residual_branch` is already a constructor flag; give it
   an ablation arm like `ablate_w_m` / `ablate_w_g`.
 
-### D7. Status correction — D2 has effectively been run
+### D7. Status correction — D2 was run without being logged as an arm
 
-**`tfmap_scale: 16.0` in `bsrnn_baseline.yaml` is D2's temperature**, scale
-being 1/tau, so tau ~ 0.0625 — sharper than D2's sharpest proposed arm (0.05 was
-proposed as tau; 16 corresponds to 0.0625). The measurement in `TFMap`'s
-docstring confirms it worked mechanically: 619.6/628 frames effectively used
-before, top 50 frames carrying ~59 % after.
+`tfmap_scale: 16.0` in `bsrnn_baseline.yaml` is D2's temperature (scale = 1/tau,
+so tau ~ 0.0625, sharper than D2's sharpest proposed arm). It worked mechanically:
+619.6 of 628 frames effectively used before, top 50 frames carrying ~59 % after.
 
-**But it did not solve the problem, and the gain cannot be attributed to it.**
-Enrollment sensitivity went 2.6 % -> 15 %, which looks like a win, except that
-`tfmap_scale`, `both_directions` and the `sir0` split all changed between those
-two measurements. **Three variables, one number: unattributable.** An ablation
-arm on `tfmap_scale` alone is what would close D2 honestly.
+**But the gain cannot be attributed to it.** Enrollment sensitivity went 2.6 % →
+15 % while `tfmap_scale`, `both_directions` and the `sir0` split all changed —
+three variables, one number. An ablation arm on `tfmap_scale` alone is what would
+close D2 honestly.
 
-**Consequence for D1.** D2's stopping rule was "if sharpening the existing
-mechanism does not help, a richer dictionary is unlikely to, and D1 should not be
-scheduled". Sharpening helped but left 85 % of the output enrollment-blind, so
-D1 is **not** cleanly ruled out — but it remains M5-scale against D4 and D6,
-which are hours to days. Order by cost: D3, D6, D4, D5, then reconsider D1.
-
----
+**Consequence for D1.** D2's stopping rule was that if sharpening the existing
+mechanism does not help, a richer dictionary is unlikely to. Sharpening helped but
+left 85 % of the output enrollment-blind, so D1 is not cleanly ruled out — but it
+stays M5-scale against D4 and D6, which are hours to days.
 
 ## E. Performance and memory — open
 
@@ -401,236 +372,102 @@ one of: data loading, the 32-iteration Python band loops in `SubbandNorm` and
 `scripts/profile_step.py` before optimising anything. This is the whole reason
 that script exists.
 
-### E3b. MEASURED 2026-08-28 — what the profile actually says
+### E3b-E3f. MEASURED 2026-08-28 — CLOSED. Evidence tables for `decisions-m2.md` 2026-08-28
 
-`scripts/profile_step.py`, batch 1, CPU x4, fp32. **CPU timings do not predict
-GPU timings** (no kernel-launch overhead on CPU, different LSTM/conv balance),
-so the shares below need re-running on the T4. The RNN dominance and the loader
-result transfer; the band-loop share is the one that may not.
+Conclusions, mechanism and consequences are written up in `decisions-m2.md`
+2026-08-28 ("Training made 7x faster"). This section keeps only the measurements
+that entry cites.
 
-    11.381 s/step at batch 1, peak RSS 5100 MB
-    forward = 34 % of wall (so backward ~ 66 %, i.e. ~2x forward -- normal)
+**CPU profile** (`profile_step.py`, batch 1, CPU x4, fp32). 11.381 s/step, peak
+RSS 5100 MB, forward 34 % of wall.
 
-    stft            0.002 s    0.0 %
-    tfmap           0.005 s    0.1 %
-    subband_norm    0.019 s    0.5 %
-    separator       3.661 s   95.8 %
-    estimator       0.134 s    3.5 %
-
+    stft 0.0 %   tfmap 0.1 %   subband_norm 0.5 %   separator 95.8 %   estimator 3.5 %
       time_rnn  seq=497 batch=64    1.207 s   31.6 % of forward
       band_rnn  seq=32  batch=994   2.276 s   59.6 % of forward
 
-**E2's prediction is confirmed.** Analytic said the band RNN would be ~67 % of
-LSTM work; measured it is 65 % of the two RNNs (59.6 / 91.2). The "cheap"
-across-frequency RNN really is the dominant cost.
+E2's analytic prediction confirmed: band RNN is 65 % of the two RNNs (59.6/91.2).
+Loader worst case `--loader-only` 0.382 s/batch for 6 examples at
+`num_workers=0`, 6.5 % of a 5.84 s step; 0.044 s/batch on Kaggle at
+`num_workers=4`. **This is the only valid attribution** — the GPU attribution is
+void (below).
 
-**Three corrections to the estimates above.**
-
-1. **The band loops are not the bottleneck.** `SubbandNorm` + `Estimator`
-   together are **4.0 %** of forward. E4 lever 5 was ranked too high even at
-   last place; on CPU it is not worth the refactor risk at all. Kernel-launch
-   overhead could make it larger on the T4 — that is the one number worth
-   re-checking there — but it will not be the headline.
-2. **Data loading is not the bottleneck either.** `--loader-only`: **0.382
-   s/batch** for 6 examples at `num_workers=0`, single-threaded and unoverlapped,
-   i.e. the worst case. Against the measured 5.84 s/step that is 6.5 %, and on
-   Kaggle with `num_workers=4` it overlaps compute and largely disappears.
-   **This settles E5: audio compression would buy nothing.** Do not spend time
-   on FLAC or on caching STFTs.
-3. **E1's memory estimate is ~3x too low.** Analytic said ~1677 MB of LSTM
-   activations at batch 1; measured peak RSS is **5100 MB**. The gap is the
-   autograd graph, gradients, optimiser state, and — significant — `L_MR`'s
-   **eight STFTs** (four window sizes x target and output), all retained for
-   backward. Scale E1's table by ~3 when reasoning about what fits.
-
-**So the remaining unexplained time is inside the RNNs, not around them.** The
-levers that matter are the ones that make the RNNs cheaper or better utilised:
-AMP, a bigger batch for occupancy, checkpointing to enable it, and cutting `T`.
-
-### E3d. MEASURED 2026-08-28 on the T4 — AMP works, batch 3 is the ceiling
-
-`scripts/profile_step.py`, Tesla T4 14.56 GiB, torch 2.10.0+cu128, 8 timed steps.
+**fp32 vs AMP, batch 3** (T4 14.56 GiB, torch 2.10.0+cu128, 8 steps).
 
 | batch 3 | s/step | peak GPU |
 |---|---|---|
-| fp32 | 4.741 | **12.20 GB** |
-| AMP (fp16) | 2.968 | **6.57 GB** |
+| fp32 | 4.741 | 12.20 GB |
+| AMP (fp16) | 2.968 | 6.57 GB |
 
-**AMP: 1.60x faster, 1.86x less memory.** Measured, not projected.
+1.60x faster, 1.86x less memory. **Batch 3 is the fp32 ceiling** — 4, 5, 6 and 12
+all OOM inside `band_rnn`'s `_VF.lstm`. `bsrnn_baseline.yaml`'s comment promising
+batch 12 is wrong by 4x.
 
-**Batch 3 is the fp32 ceiling.** Batches 4, 5, 6 and 12 all raised
-`OutOfMemoryError`, every one inside `band_rnn`'s `_VF.lstm` — the term E2
-identified. `bsrnn_baseline.yaml`'s comment promising batch 12 is wrong by 4x
-and should be corrected: 12.20 GB of a 14.56 GB card leaves no room for a
-fourth trial.
+**fp16 sweep** (`--amp-only`, 8 steps).
 
-**Wall-clock effect is 1.44x, not 1.60x.** The profiled step is compute only.
-The real loop measures 5.84 s/step (3875.2 s / 663), so ~1.1 s/step is loader,
-validation and the extra diagnostic forward, none of which AMP touches:
-
-    2.968 + 1.1 = 4.07 s/step -> 2698 s/epoch -> 10 epochs in 7.5 h (was 10.8 h)
-
-**E1's analytic memory model is ~2.4x low on GPU** (5032 MB predicted at batch 3,
-12.20 GB measured), consistent with the ~3x under-estimate on CPU. Multiply E1's
-table by ~2.5 before using it to predict a ceiling.
-
-**Attribution from that run is VOID.** It reported `estimator` 97.4 % and
-`separator` 0.8 %, inverting the CPU result. Two bugs, both fixed 2026-08-28:
-CUDA kernels are asynchronous, so unsynchronised `perf_counter` hooks measure
-QUEUING and whichever module blocks last absorbs the whole queue; and the AMP
-loop accumulated into the same counters as the fp32 loop (`calls=17` where 8
-were expected). The fixed script syncs per boundary and runs attribution as its
-own gated fp32 pass. **The GPU attribution still needs re-running** — E3b's CPU
-split (separator 93-96 %, band_rnn 57-60 %, band loops 4 %) is the only valid one.
-
-**Open, and it decides whether checkpointing is needed: the AMP batch ceiling.**
-Unknown, because the sweep runs fp32 first and OOMs before reaching AMP.
-
-**The first `--amp-only` attempt (2026-08-28) was VOID** and reported the fp32
-ceiling a second time: the warmup step before the timing loops ran unconditionally
-in fp32, so it allocated the exact footprint the mode exists to avoid and OOM'd at
-batch 4 before AMP was ever exercised. Fixed by constructing the `GradScaler`
-before the warmup and passing it in when `--amp-only` is set; the mode now also
-refuses to run without CUDA. **Any `--amp-only` result from a bundle built before
-2026-08-28 21:00 should be discarded.**
-
-Re-run over batches 4-8. At 6.57 GB for batch 3, batch 6 is plausible and batch 8
-is not.
-
-### E3c. Operational: profiling locally can kill the terminal
-
-On 2026-08-28 an earlier `profile_step.py` at the config's batch 3 triggered:
-
-    systemd-oomd: Killed .../app-org.gnome.Terminal.slice/vte-spawn-*.scope
-    due to memory pressure ... 57.19% > 50.00% for > 20s with reclaim activity
-    -> killed 13 process(es) in this unit
-
-**systemd-oomd kills the whole cgroup scope, not the offending process**, and it
-fires on sustained PSI pressure rather than absolute exhaustion — swap thrash is
-enough. At 5.1 GB per batch-1 step, batch 3 needs ~15 GB on a 15 GB laptop.
-This is the same failure `measure_train_cost.py` records against VSCode on
-2026-08-24.
-
-**Protocol for any local profiling or training:**
-
-    systemd-run --user --scope -p MemoryMax=5G -p MemorySwapMax=0 -- \
-        ../tse_venv/bin/python scripts/profile_step.py --batch 1
-
-`profile_step.py` now also refuses to start when its estimate exceeds half of
-available RAM, and keeps `torch.profiler` behind `--deep` because it retains a
-record per op.
-
-### E3e. MEASURED 2026-08-28 — AMP ceiling is batch 6, and a bigger batch buys NOTHING
-
-`scripts/profile_step.py --amp-only`, T4 14.56 GiB, 8 steps, fp16.
-
-| batch | s/step | **s/trial** | peak GB | GB/trial |
+| batch | s/step | s/trial | peak GB | GB/trial |
 |---|---|---|---|---|
-| 3 | 2.971 | **0.990** | 6.57 | 2.19 |
+| 3 | 2.971 | 0.990 | 6.57 | 2.19 |
 | 4 | 0.926 | *0.232* | 8.72 | 2.18 |
-| 5 | 4.969 | **0.994** | 10.87 | 2.17 |
-| 6 | 6.028 | **1.005** | 13.02 | 2.17 |
+| 5 | 4.969 | 0.994 | 10.87 | 2.17 |
+| 6 | 6.028 | 1.005 | 13.02 | 2.17 |
 | 12 | OOM | — | — | — |
 
-**Memory is exactly linear: 0.12 GB fixed + 2.15 GB per trial**, three identical
-2.15 GB increments. Batch 7 would need 15.17 GB against 14.56 available, so
-**batch 6 is the fp16 ceiling** — confirmed by the batch-12 OOM.
+Memory is exactly linear: 0.12 GB fixed + 2.15 GB per trial, so batch 7 needs
+15.17 GB against 14.56 available — **batch 6 is the fp16 ceiling**. Throughput
+per trial is flat across 3, 5 and 6 (0.990 / 0.994 / 1.005, a 1.4 % spread over a
+2x batch range): **the T4 is already saturated at batch 3**, which is why
+gradient checkpointing was withdrawn.
 
-**The finding that changes the plan: throughput per trial is FLAT.** Batches 3,
-5 and 6 sit at 0.990, 0.994 and 1.005 s/trial — a 1.4 % spread across a 2x batch
-range. **The T4 is already saturated at batch 3.**
+**Tensor-core alignment, batch 4 reproduced six times across two sessions.**
 
-**Therefore gradient checkpointing is NOT worth building (E4 lever 3 is
-withdrawn).** Its entire justification was that batch 3 gives only 192 parallel
-sequences, that an LSTM's batch is its only parallelism, and that a larger batch
-would repay the ~33 % recompute cost through occupancy. **Measured, occupancy
-does not improve.** Checkpointing would buy memory headroom we have no use for
-and charge 33 % more compute for it. That prediction was wrong and the
-measurement is the reason to drop it.
-
-**Batch 4 (0.232 s/trial) is a 4.28x outlier and is NOT yet a result.** Its
-memory sits exactly on the linear trend, so it did allocate the normal
-footprint; only the time is anomalous. A plausible mechanism is a cuDNN LSTM
-kernel switch — `time_rnn`'s batch is `B*K` = 256 at batch 4, the only power of
-two in the sweep — but that should not yield 4x when `time_rnn` is ~1/3 of the
-RNN work, so the mechanism does not explain the size of the effect.
-**If real it is worth 8.4x on epoch time (3875 s -> 460 s) and dwarfs every
-other lever in this group.** Verify before believing: re-run batches 3, 4, 5 at
-`--steps 20`. Do not put it in the thesis on one observation.
-
-### E3f. MEASURED 2026-08-28 — the 4x is REAL: fp16 tensor-core batch alignment
-
-**Batch 4 reproduced six times across two sessions, interleaved with 3/5/6, at a
-0.3 % spread.** It is not noise.
-
-| batch | ex | runs | mean s/step | spread | **s/example** | `band_rnn` batch = ex*T | %8 |
+| batch | ex | runs | mean s/step | spread | s/example | `band_rnn` batch = ex*T | %8 |
 |---|---|---|---|---|---|---|---|
 | 3 | 6 | 4 | 2.993 | 0.9 % | 0.499 | 3018 | 2 |
 | **4** | 8 | 6 | **0.977** | **0.3 %** | **0.122** | **4024** | **0** |
 | 5 | 10 | 2 | 5.005 | 0.0 % | 0.501 | 5030 | 6 |
 | 6 | 12 | 1 | 6.007 | — | 0.501 | 6036 | 4 |
 
-**The mechanism.** NVIDIA tensor cores require the batch dimension to be a
-multiple of 8 for fp16. `BSNet.forward` reshapes to `(B*T, N, K)` for
-`band_rnn`, so its batch is `ex * T`. **T = 503 is odd** (prime), so
-`ex * T % 8 == 0` requires `ex % 8 == 0`, i.e. **batch divisible by 4**. Miss it
-and cuDNN falls back to a non-tensor-core kernel.
+Aligned vs unaligned is **4.09x**; the three unaligned sizes agree to 0.4 %, the
+signature of a shared fallback kernel. The hypothesis predicts the data with
+nothing fitted. **T = 503, not 497**, as stated in earlier drafts — `stft.py` pads
+by `n_fft - hop` on both sides. Timings and memory figures are unaffected.
 
-**The hypothesis predicts the data exactly, with nothing fitted:** of 3, 4, 5, 6
-it says only 4 aligns, and only 4 is fast. The three unaligned sizes agree with
-each other to 0.4 % (0.499 / 0.501 / 0.501 s per example) — the signature of a
-shared fallback kernel. Aligned vs unaligned is **4.09x**.
+Fix confirmed: `chunk_s` 4.008 gives 0.674 s/step at batch 3 (reproduced twice,
+0.1 % spread), and the real 2-epoch `sir0` run measured **505.7 s/epoch against
+3875.2 = 7.66x**. Losses unchanged — epoch 1 agrees on all twelve logged terms to
+within 3 %.
 
-**T was wrong in every earlier entry: it is 503, not 497.** `profile_step.py`
-used `(n - n_fft)//hop + 1`, but `src/models/stft.py` pads by `n_fft - hop` on
-*both* sides for overlap-add ramp room, so the formula under-counts by 6 frames.
-Now measured from the real STFT. E3b/E3d/E3e's stated T is wrong; their timings
-and memory figures are unaffected.
+**E1's analytic memory model is 2.4-3x low** (5032 MB predicted at batch 3 vs
+12.20 GB measured; 1677 MB vs 5100 MB on CPU). The gap is the autograd graph,
+gradients, optimiser state and `L_MR`'s eight retained STFTs. Multiply E1's table
+by ~2.5 before predicting a ceiling.
 
-### The fix: `chunk_s` 4.0 -> 4.008, NOT a batch-size change
+**Two sets of VOID results, both fixed 2026-08-28.** The GPU attribution reported
+`estimator` 97.4 % / `separator` 0.8 %, inverting the CPU result: CUDA kernels are
+asynchronous, so unsynchronised `perf_counter` hooks measure queuing and whichever
+module blocks last absorbs the queue; and the AMP loop accumulated into the fp32
+counters. Separately, the first `--amp-only` attempt ran its warmup step
+unconditionally in fp32 and so OOM'd at batch 4 before AMP was exercised —
+**discard any `--amp-only` result from a bundle built before 2026-08-28 21:00.**
 
-`T = 504` at 4.008 s, and 504 is a multiple of 8, so **every batch size aligns**
-(verified for 3-6). Why this is better than moving to batch 4:
+**Operational: profiling locally can kill the terminal.** `systemd-oomd` kills the
+whole cgroup scope, not the offending process, and fires on sustained PSI pressure
+rather than absolute exhaustion. Batch 3 needs ~15 GB on a 15 GB laptop. Run
+local profiling under a scope:
 
-- **The crop is 0.2 % LONGER, not shorter** (4.008 s vs 4.000 s), so nothing is
-  lost.
-- **`chunk_s` is a crop parameter applied by `TrialDataset`, not a render
-  parameter — no re-rendering, one config line.**
-- **Batch stays 3, so training dynamics are untouched.** Changing batch 3 -> 4
-  changes gradient noise and drops optimiser steps per epoch from 663 to 497,
-  which is a real change to the optimisation and would need its own arm. A
-  0.2 % longer crop is not.
+    systemd-run --user --scope -p MemoryMax=5G -p MemorySwapMax=0 -- \
+        ../tse_venv/bin/python scripts/profile_step.py --batch 1
 
-**CONFIRMED 2026-08-28.** Profiler: 0.674 s/step at batch 3 with
-`--chunk-s 4.008`, reproduced twice at 0.1 % spread, against a 0.73 s prediction.
-Then the real 2-epoch `sir0` run measured **505.7 s/epoch against 3875.2 s =
-7.66x**, beating even the optimistic end of the 3.9-7.0x range in E3d (the
-~516 s of unaccounted overhead evidently scales with compute rather than being
-fixed). 10 epochs is now **1.4 h instead of 10.8 h**.
+`profile_step.py` now refuses to start when its estimate exceeds half of available
+RAM, keeps `torch.profiler` behind `--deep`, measures T from the real STFT, takes
+`--chunk-s`, and prints an ALIGNED / NOT ALIGNED verdict.
 
-**Losses are unchanged.** Against the fp32 / `chunk_s` 4.0 run at the same seed,
-split and `w_g`, epoch 1 agrees on all twelve logged terms to within 3 % and is
-marginally *better* on most (`val_total` -1.4 %, `val_L_pres` -0.9 %,
-`val_L_MR` -2.0 %, gap +3.0 %). Epoch 0's *train* terms lag (`train_L_pres`
--1.96 -> -1.42) while its *val* terms match to 4 % -- exactly the signature of
-`GradScaler` skipping its first optimiser steps while calibrating the loss
-scale: fewer updates early in the epoch, caught up by the time val is measured.
-Benign and expected.
-
-**Still untested: both epochs ran at `w` = 0.0.** The absent branch, and the
-mute pressure it creates, never engaged. fp16 behaviour through the `w` ramp
-(epochs 4-6) is not yet evidence.
-
-**Does not revive checkpointing.** Throughput per example was flat across the
-three unaligned sizes, and we have only one aligned point, so nothing yet
-suggests a larger batch helps. E4 lever 3 stays withdrawn.
-
-**Loader settled.** Measured on Kaggle at **0.044 s/batch** (`num_workers=4`),
-i.e. 4.5 % of a 0.977 s step. E5 stands: audio compression buys nothing.
-
-`profile_step.py` now measures T from the real STFT, takes `--chunk-s`, and
-prints an ALIGNED / NOT ALIGNED verdict with the aligned batch sizes for the
-current T.
+Still open from this group:
+- [ ] **Re-run the GPU attribution** with the fixed script. E3b's CPU split is
+      the only valid one, and kernel-launch overhead may raise the band-loop
+      share on the T4.
+- [ ] **fp16 through the `w` ramp is untested** — both validation epochs ran at
+      `w` = 0.0, so the absent branch and its mute pressure never engaged.
 
 ### E4. Ranked levers, cheapest first
 
@@ -888,8 +725,10 @@ transcription-style prompt, not for conversational ability.
 
 ### J3. The ICR overlap threshold — declared, not signed off
 
-**Status: OPEN. A value is declared so the metric is computable; it needs
-sign-off before the first published judge result.**
+**Status: CLOSED 2026-09-03.** Signed off into `metric-definitions.md` §3.2 —
+threshold, sensitivity table, exclusion rule, the floor's by-construction caveat
+and the prompt constraint are all stated there now. decisions-m4.md 2026-09-03.
+The reasoning below is kept as the record of how the value was chosen.
 
 `metric-definitions.md` 3.2 defines ICR as "content-word overlap between `r` and
 `d`, excluding words that also appear in `t`, thresholded" and requires the

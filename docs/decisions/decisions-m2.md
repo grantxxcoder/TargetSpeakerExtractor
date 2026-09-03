@@ -996,7 +996,7 @@ collapsed by epoch 4-5, so the comparison holds, but confirm at epoch 7.
 ## 2026-08-28 — Training made 7x faster. Three changes, one of them the whole story
 
 **Measured on the T4, batch 3: 4.741 -> 0.674 s/step.** Nothing about the model
-changed. Evidence and the full sweep in `decisions-pending.md` E3d-E3f.
+changed. Evidence and the full sweep in `decisions-pending.md` E3b-E3f.
 
 | # | change | where | gain |
 |---|---|---|---|

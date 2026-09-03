@@ -38,253 +38,101 @@ evaluate → nothing to compare.
 
 ---
 
-## M0 — Data exists · target Aug 20 (weeks 1–2)
+## M0 — Data exists · target Aug 20 (weeks 1–2) · CLOSED
 
-Both training and evaluation draw from the same construction code, so this is
-built once.
+**Closed.** All six manifests audited, all 21,208 trials rendered — 63,624 files,
+27 GB, 105.4 h, 0 failures, 40 checked by ear. Every Group A/B/C decision closed,
+C2 last on 2026-08-30 (floor 57.4 %, ceiling 6.1 %, n=230, accepted). B12's
+sampler and the B2 VAD pass are wired in; the manifest rebuild (PR3, 2026-08-14)
+cut the speaker-identity leak 0.795 → 0.508. Rationale and every closed decision
+are in `decisions-m0.md`.
 
-**Status 2026-08-24.** All six manifests audited, **all 21,208 trials rendered**
-— 63,624 files, 27 GB, 105.4 h, 0 failures, 40 checked by ear. Every data
-decision closed except **C2** (task difficulty, needs the supervisor). Remaining:
-floor/ceiling WER, per-parameter EDA, notebook revision.
+**Proof:** a generated set on disk with a manifest, plus config + commit + seed
+in `experiments/results/`.
 
-Done:
-- [X] ~~Speaker-disjoint train / val / eval splits~~
-- [X] ~~Seed set and logged; generation config in `experiments/configs/`~~
-- [X] ~~Manifest generator: speakers, timing, levels, rooms, noise, enrollment~~
-- [X] ~~Enrollment segments ≥5 s, from a different recording than the mixture~~
-- [X] ~~Manifest audit §1–§7: timing, levels, rooms, enrollment, noise, absent trials~~
-
-Decisions — all closed except C2, which needs the supervisor:
-- [X] ~~**A1** reference signal, **A5** tail padding, **A6** clipping. Group A closed~~
-- [X] ~~**B1** overlap range is a dial setting, **B2** VAD, **B4** eval absent trials,
-      **B5** text normalisation, **B6** trial count, **B7** resampling, **B11** latency
-      reporting, **B13** stratified reporting~~
-- [X] ~~**B9** — 50 % both / 25 % absent / 25 % target-only, and a variable
-      `target_activity_ratio`. Sets B4's eval fraction at 0.25~~
-- [X] ~~**B12 — generator controllability.** Architecture decided 2026-08-13.
-      Implementation outstanding: PR1 sampler, PR2 wire-in~~
-- [X] ~~**B10** — three enrollment tiers (`book` / `chapter` / `utterance`) recorded
-      per trial; eval pools redrawn to balance the tier mix. Executes B8's own
-      documented contingency rather than reversing it~~
-- [x] **C2** — how hard the task should be (floor WER). **Closed 2026-08-30**:
-      floor 57.4 % (`eval_public` `both`, n=230), ceiling 6.1 %. Accepted. Blocks
-      nothing that can be done meanwhile
-
-B12 implementation, before the rebuild:
-- [X] ~~**PR1** — `src/data/sampling.py`: `draw()`, `resolve()`, unit tests. No wiring~~
-- [X] ~~**PR2** — wire into `build_manifest.py`, add the `regime` column, raise the
-      `t60_s` floor to 0.25, eval splits skip regimes. Acceptance test passed: with
-      the config unchanged, all six splits (21,270 rows) are byte-identical once the
-      new `regime` column is ignored — `scripts/check_manifest_parity.py`~~
-- [ ] **Narrow `overlap_ratio` in the `base` regime** — left out of PR2 on purpose.
-      `difficulty-dial.md` §3 puts it last and requires supervisor agreement plus a
-      `decisions-m0.md` entry, because its 0.7 ceiling is deliberately matched to
-      REAL-TSE. One config line once approved
-- [X] ~~Decide whether `data/manifests/` is tracked in git — still open, and now
-      overdue: PR2 changed the schema. `.gitignore:222` claims manifests are
-      tracked, `/data/` on line 223 untracks them; none are in git~~
-
-Manifest rebuild — **done 2026-08-14 (PR3)**. Speaker-identity leak 0.795 -> 0.508,
-P(absent | no overlap) 1.000 -> 0.500, all 1,172 speakers now reach the present pool:
-- [X] ~~**B9** — add `target_only_fraction`; let `target_activity_ratio` vary.
-      Silent-target trials were detectable at AUC 1.000; a target speaking
-      uninterrupted never occurred. Both fixed~~
-- [X] ~~**B10** — three-tier enrollment guard with `enrollment_guard` recorded per
-      trial; assert enrollment and mixture never share an utterance~~
-- [X] ~~**B10** — `make_splits.py`: eval pools redrawn, stratified by guard tier as
-      well as sex. Weakest tier was 8/20 vs 3/20, now 6 vs 5~~
-- [X] ~~**B4** — eval splits carry the same composition as train (absent 0.25)~~
-- [X] ~~Define the **interruption** condition and add it as a column — an interferer
-      onset strictly inside a target utterance. 53.2 % of both-speaking trials~~
-- [X] ~~Re-run the leak scoreboard **per regime as well as pooled** — done; 0.497 /
-      0.505 within base / hard~~
-- [ ] **Scope decision 2026-08-14 consequences**: decide whether the AMI check is
-      restricted to <=2 active speakers or reported as an out-of-scope probe, and
-      write the two-speaker limitation into the thesis. See `decisions-m0.md`
-
-Still unimplemented from `data-construction-parameters.md`:
-- [X] ~~**`noise_speech_rejection`** — done 2026-08-16, and *not* in the renderer as
-      planned: the screening pass already measured every clip, and the manifest is
-      what names the noise clip, so the pool is filtered before selection. Drop any
-      clip whose longest unbroken speech run reaches 0.5 s — 4.1 % of tr, 2.0 % of
-      cv, 1.3 % of tt. Takes effect at PR2's rebuild~~
-- [X] **B2 — voice-activity detection pass over the corpus** — **closed 2026-08-16**
-      except the optional PR3 below. Cached alongside the
-      utterance index, so overlap is measured from where speech actually is. Detector:
-      Silero VAD, `silero-vad` 6.2.1, pinned. Measured, reproducibly, 2026-08-16:
-      files are 86.2 % speech, overlap overstated ~25 %, per-trial error up to 0.270
-      so no correction factor can fix it. Changes every overlap figure, so it belongs
-      *before* the rebuild, not after
-  - [X] ~~**PR1** — `src/data/vad.py`, `scripts/build_vad_index.py`, `vad:` config
-        block, 30 unit tests, and `scripts/measure_vad_impact.py`. Result written
-        2026-08-16 (16 min, sanity passed) to
-        `experiments/results/2026-08-15-vad-impact/`. `build_manifest.py` untouched~~
-  - [X] ~~**Run the index**: `scripts/build_vad_index.py` — done 2026-08-15, 2.1 h,
-        137,876 utterances, 0 failures, 86.4 % speech. `data/index/vad_segments.csv`.
-        `scripts/screen_noise_speech.py` ran the same day, 25 min, 28,000 clips~~
-  - [X] ~~**PR2** — done 2026-08-16, branch `m0-b2-pr2-vad-wire`. Wired into
-        `build_manifest.py`; all six manifests rebuilt (train 2 min). Overlap labels
-        were wrong on 95.5 % of both-trials (mean 0.073, max 0.485) and are now exact.
-        Real speech overlap rose 0.212 -> 0.275 because `best_onset` finally hits the
-        requested amount. Leak scoreboard unchanged (AUC 0.648 -> 0.651, speaker prior
-        0.508 -> 0.503). `n_failed` 50 -> 62 of 20,000, so the 0.78 ceiling stands.
-        `check_manifest_parity.py` fails on all six, as designed~~
-  - [X] ~~**`target_activity_ratio` ceiling.** Lowered 0.85 -> 0.78 on 2026-08-16 in
-        both the global band and `base`, with a decisions-m0.md entry. 0.85 of *speech*
-        needs 0.988 of the window filled with audio and realised footprint tops out
-        at 0.946, so it was unreachable; unreachable draws are dropped silently and
-        would have thinned the talkative end of the band. REAL-TSE's ~0.75 still sits
-        inside. **0.78 is near the edge, not inside it — check PR2's `n_failed` and
-        lower again if it is material**~~
-  - [ ] **PR3 (optional)** — enrollment offset. `enroll_offset` is drawn uniformly
-        anywhere in the file and `long_enough` filters on file duration, so a 5.2 s
-        file with 1.2 s of leading silence yields a "5 s enrollment" holding 4 s of
-        voice, against B10/A1's >=5 s. Separate PR: it changes enrollment quality,
-        not overlap measurement
-- [ ] `length_mode`
-
-Renderer — **written 2026-08-16** (`src/data/render.py` + `scripts/render_trials.py`)
-and **run at full scale 2026-08-16/17: 3.2 h, 27 GB, 0 failures**. The ~83 min
-projected from a 100-trial sample was out by 2.3x, which is why that sample is
-now treated as too small to extrapolate from rather than as a measurement — the
-same caution now applied to the smoke epoch times in M2:
-- [X] ~~Manifest row → audio: RIRs, levels at BS.1770, noise wrap, clip ceiling~~
-- [X] ~~Five stems per trial: mixture, clean target, enrollment, both texts~~
-- [X] ~~Clean target = target × its own RIR, no interferer, no noise (A1). Room
-      columns are already per trial and the RIR is a pure function of them, so the
-      direct+early ablation stem re-renders without re-drawing rooms~~
-- [X] ~~Tail padding past the last speech by at least the room's decay (A5)~~
-- [X] ~~Exact verbatim ground-truth text for **both** target and interferer, in
-      each trial's `meta.json`~~
-- [X] ~~Guards: stem <400 ms breaks BS.1770; assert on a silent stem~~
-- [X] ~~Transcripts cut to match any audio truncation — no truncation occurs, and
-      `lay_track` raises if audio would run past the window~~
-- [X] ~~**Run it.** ~83 min for all six splits. Resumable; re-issue the same command~~
-- [ ] Three under-specified points were interpreted, not decided — noise covering
-      A5's tail, the `noise_only` level anchor, and the enrollment's level. Worth a
-      supervisor glance. See `decisions-m0.md` 2026-08-16
-
-Notebook and verification:
-- [X] ~~§7.5 — leak scoreboard, **before** the rebuild so it is a before/after — done
-      2026-08-16 for B2 PR2, but run standalone against the backed-up pre-rebuild
-      manifests rather than in the notebook. Numbers in `decisions-m0.md`. The notebook
-      cells themselves still print the old figures~~
-- [ ] **EDA per parameter** — plot each parameter's realised distribution against
-      the intended one (raised 2026-08-12, needed to verify B12)
-- [ ] Revise §2, §7 and the final health checks after the rebuild; §3–§6 survive
-
-Pilot calibration, before freezing any range:
-- [X] ~~Listen to 40 trials — done 2026-08-17, all 40 judged correct, nothing
-      re-rendered. Rules out a systematic renderer fault, which is what the measured
-      A1–A6 properties could not do. Weight it honestly: subjective, one listener,
-      40 of 21,208 trials (0.19 %), and the trial ids were not recorded, so the same
-      40 cannot be re-listened to~~
-- [x] Floor and ceiling WER measured; aim for a 60–80 % floor. **Done 2026-08-30**:
-      57.4 % / 6.1 % at n=230, accepted. decisions-m3.md 2026-08-30. Was the M0 blocker
-      and what C2 needs, since the listen is closed
-
-Housekeeping:
-- [X] ~~`requirements.txt` — added 2026-08-15 (`e1e2436`), 38 lines, versions pinned
-      exactly rather than loosely, since the VAD weights define what "overlap" means.
-      No `pyproject.toml`; not needed while this is a scripts-and-modules repo~~
-- [X] ~~`.gitignore`: `data/` was unanchored and matched `docs/data/` too, so all 8
-      files there were untracked. Anchored to `/data/` 2026-08-13~~
-
-**Proof:** a generated set on disk with a manifest, plus a config + commit hash
-+ seed in `experiments/results/`.
-
-**Also this fortnight, because it changes everything downstream:**
-- [ ] Survey public streaming-TSE checkpoints (WeSep family, HuggingFace). A
-      usable causal BSRNN + TF-Map checkpoint turns M2 from a 40–70 h training
-      run into a fine-tune. Ten minutes of searching, potentially weeks saved.
-- [ ] HPC access resolved either way
+Still open:
+- [~] ~~**Narrow `overlap_ratio` in the `base` regime.**~~ **CUT 2026-09-03.**
+      B1 said narrow it last; "last" has arrived and the answer is not to. Every
+      trial is rendered and `sir0_train` is mid-extension to 9,955 — changing the
+      sampler now invalidates the lot and forfeits comparability with every result
+      to date, to buy a difficulty shift nothing is asking for. The 0.7 ceiling
+      stays, matched to REAL-TSE. decisions-m0.md 2026-09-03
+- [X] ~~**Write the two-speaker limitation into the thesis**, and decide whether the
+      AMI check is restricted to ≤2 active speakers or reported as an
+      out-of-scope probe. `decisions-m0.md` 2026-08-14.~~ **CLOSED 2026-09-03 as
+      duplicated** — thesis text is tracked in M7 ("Two-speaker boundary stated as a
+      declared limit"), which is the right home. The AMI half is moot while the AMI
+      set is unbuilt (M6); if AMI is cut, so is the question.
+- [~] ~~**Enrollment offset (B2 PR3, optional).**~~ **CUT 2026-09-03.** Real but
+      marked optional at the outset: `enroll_offset` is drawn uniformly and
+      `long_enough` filters on file duration, so a 5.2 s file with 1.2 s of leading
+      silence yields a "5 s enrollment" holding 4 s of voice, against B10/A1's ≥5 s.
+      Fixing it means re-rendering every enrolment and its 3-variant bank — ~1.5 h
+      plus a re-upload, and it breaks comparability with every trained checkpoint.
+      **Report as a known enrolment-quality caveat instead.** decisions-m0.md 2026-09-03
+- [~] ~~**`length_mode`**~~ **CUT 2026-09-03.** Never implemented; every split is
+      rendered without it and nothing downstream references it. Left documented as
+      not-implemented in `data-construction-parameters.md` rather than carried as
+      an open task. decisions-m0.md 2026-09-03
+- [ ] **Three renderer points were interpreted, not decided** — noise covering
+      A5's tail, the `noise_only` level anchor, and the enrollment's level. Worth
+      a supervisor glance. `decisions-m0.md` 2026-08-16.
+- [ ] **EDA per parameter** — realised vs intended distribution for each, to
+      verify B12.
+- [ ] **Revise notebook §2, §7 and the final health checks** after the rebuild;
+      §3–§6 survive. The §7.5 leak scoreboard ran standalone, so those cells
+      still print pre-rebuild figures.
+- [X] ~~Survey public streaming-TSE checkpoints — **done 2026-09-03**: the WeSep
+      `tfmap_context_causal_100` checkpoint is rendered and scored as system 5.~~
+- [X] ~~**HPC access resolved either way.**~~ **RESOLVED 2026-09-03: no HPC, and
+      it no longer matters.** Never secured; every training run has been Kaggle T4.
+      `research-plan.md` flagged it as "materially changes what the second model can
+      be" — that ceased to be true when M5 became a per-band gate fine-tuned from an
+      existing checkpoint (tens of thousands of parameters, hours not days). Compute
+      is not the constraint on the second model; time is.
 
 ---
 
-## M1 — BSRNN implemented and training infrastructure trustworthy · target Sep 3 (weeks 3–4)
+## M1 — BSRNN implemented, training infrastructure trustworthy · target Sep 3 · CLOSED
 
-**Status 2026-08-24. M1 is functionally complete, ten days ahead of the Sep 3
-target.** Every architecture decision is logged in `decisions-m1.md`
-(2026-08-18 to 08-19); the training objective is `decisions-m2.md` 2026-08-20. `scripts/train.py` runs, early-stops, checkpoints, plots,
-writes `history.csv` + `meta.yaml`, and **resume is proven** — see below. The
-proof item that gates this milestone is therefore closed.
+**Functionally complete 2026-08-24, ten days early.** Causal BSRNN + TF-Map
+implemented (`src/models/`), cited in-file: Luo & Yu (TASLP 2023), Yu et al.
+(Interspeech 2023), Zhang et al. (ICASSP 2025). STFT 512/128 `center=False`;
+future dependency *measured* at 23.9 ms. Model deliberately sized down to
+**7.19 M** against the REAL-TSE causal baselines' 25–27 M — quote 7.19 M in the
+thesis. Config in `experiments/configs/`, seed set before the model is built.
+Rationale in `decisions-m1.md` (08-18 to 08-24); the objective is
+`decisions-m2.md` 2026-08-20.
 
-One checklist item and one open question remain, neither blocking M2: unit tests
-for the model modules (the loss has 30, nothing else has any), and the
-cold-vs-warm context mismatch.
+Three things proven by measurement rather than assumed:
 
-- [X] ~~Causal BSRNN + TF-Map extractor implemented — `src/models/{stft,bands,
-      modules,conditioning,bsrnn}.py`. Cited in-file: Luo & Yu (TASLP 2023) in
-      `bands.py` and `modules.py`, Yu et al. (Interspeech 2023) in `bands.py`,
-      Zhang et al. (ICASSP 2025) in `conditioning.py` and `bsrnn.py`~~
-- [X] ~~STFT window/hop chosen against the ~200–300 ms budget — 512/128,
-      `center=False`, manual overlap-add, `lookahead_frames` knob. Latency
-      convention and the rejection of the challenge's 100 ms cap in
-      `decisions-m1.md` 2026-08-18. Effective future dependency then *measured*
-      at 23.9 ms rather than assumed (2026-08-19)~~
-- [X] ~~Model deliberately sized down and reported as such — `decisions-m1.md`
-      2026-08-19, against the REAL-TSE causal baselines' 25–27 M. **Realised
-      figure 2026-08-24: 7,189,644 (7.19 M), not the pre-conditioning 7,156,234
-      (7.16 M) — `decisions-m1.md` 2026-08-24.** The whole 33,410 gap is
-      `SubbandNorm` (104,326 vs 70,916), and the 08-19 entry *predicted* it at
-      ~104,000 / ~33 k / under 0.5 % — measured +326 off, 0.46 %. The 3.5x
-      reduction claim is unaffected. **Quote 7.19 M in the thesis**~~
-- [X] ~~Target-absent training and channel-gap enrollment augmentation
-      (Li & Seki, 2026) — target-absent is `L_abs` + the loader's `crop_absent`
-      (`decisions-m2.md` 2026-08-20); channel-gap enrollment EQ is
-      `src/data/render.py:152`, cited in-file~~
-- [X] ~~YAML config committed — `experiments/configs/bsrnn_baseline.yaml`. No
-      training hyperparameter is a command-line flag; `--epochs` overrides only~~
-- [X] ~~Seed set and logged — `train.py` seeds torch and numpy from the config
-      *before* the model is built, so weight init is reproducible too, and the
-      seed lands in every `meta.yaml`~~
-- [X] ~~**Checkpoint/resume proven — 2026-08-24.** Resumed the 30-epoch smoke
-      run from epoch 28 and ran on. State verified restored, not reinitialised:
-      scheduler `_last_lr` stayed at **0.00025** rather than resetting to the
-      config's 0.0005, and AdamW's `step` counter read **480** = 464 through
-      epoch 28 plus 16 for epoch 29. A silent failure would have shown `step`
-      restarting near 16. `best_val` carried across and improved to −12.9296,
-      so the resumed run wrote its own checkpoint~~
-- [ ] **Unit tests for the model modules.** `tests/test_losses.py` collects 30;
-      there are **none** for `stft.py`, `bands.py`, `modules.py`,
-      `conditioning.py` or `bsrnn.py`. "Training infrastructure trustworthy" is not met by a loop that
-      runs. The causality property below is the obvious first test to lift
+- **Resume works.** Scheduler `_last_lr` stayed 0.00025 rather than resetting to
+  0.0005, and AdamW's `step` read 480 = 464 + 16, so state was restored, not
+  reinitialised.
+- **Causality: 1.68e-08.** Appending later audio leaves earlier output unchanged,
+  so one full-length pass is what streaming emits and no chunk-stitching is
+  needed. Concatenating independent 4 s chunks is *worse* — it reinjects the
+  384-sample (23.4 ms) overlap-add tail at every seam (4.37e-03 max,
+  rel L2 1.04e-02).
+- **Loss floor is exactly −30** for any `w` in [0,1] and any `w_m`; only `tau`
+  moves it. Do-nothing anchor −2.24, so the usable range is −2.24 → −30.
 
-Built alongside, not on the original list:
-- [X] ~~Objective implemented and its anchor measured — `src/models/losses.py`,
-      three terms and six deviations from CARTSE (`decisions-m2.md` 2026-08-20);
-      do-nothing anchor over 300 crops in
-      `experiments/results/2026-08-20-loss-anchor/`, which is where `w_m = 9.62`
-      comes from~~
-- [X] ~~`scripts/measure_train_cost.py` — per-batch-size peak RSS and step time
-      in a subprocess each, after `systemd-oomd` killed VSCode on 2026-08-24~~
-- [X] ~~`scripts/pass_a_test_case_through.py` — one val trial through a
-      checkpoint, estimate audio + full provenance, loss beside the
-      pass-through anchor for that same crop~~
-- [X] ~~**Loss floor derived and verified 2026-08-24: exactly −30.** All three
-      terms are floored (`L_pres`, `L_abs` at `10log10(tau)`; `L_MR` at 0) and
-      the outer weights are convex, so the bound is −30 for **any** `w` in [0,1]
-      and any `w_m` — only `tau` moves it. Do-nothing anchor is −2.24, so the
-      usable range is −2.24 → −30~~
-- [X] ~~**Causality verified by measurement 2026-08-24, not assumed.** Appending
-      later audio leaves earlier output unchanged (1.68e-08), so one full-length
-      pass is what streaming emits and **no chunk-stitching is needed** —
-      concatenating independent 4 s chunks is worse, reinjecting the
-      `n_fft - hop` = 384-sample (23.4 ms) overlap-add tail at every seam
-      (4.37e-03 max, rel L2 1.04e-02)~~
-- [ ] **Train/inference context mismatch, found 2026-08-24 — open question.**
-      Causal is not context-free: training only ever feeds cold-start 4 s crops,
-      while deployment hands the model unbounded warm state. On the epoch-4 smoke
-      checkpoint the same window scores 30.6 % rel L2 apart cold vs warm, though
-      `total` moves only 0.005 (−2.4197 vs −2.4150). Re-measure on a converged
-      checkpoint: if the gap grows it argues for warm-state or longer-context
-      training; if it shrinks it is retired with evidence. Needs a
-      `decisions-m2.md` entry either way
+**Proof:** a 1-epoch run that completes, is killed, and resumes cleanly. Resume is
+a checklist item because discovering it is broken at hour 11 of a 12-hour Kaggle
+session costs a week.
 
-**Proof:** a 1-epoch run that completes, is killed, and resumes cleanly.
-**Why resume is a checklist item and not an implementation detail:**
-discovering it is broken at hour 11 of a 12-hour Kaggle session costs a week.
+Still open, neither blocking M2:
+- [ ] **Unit tests for the model modules.** `tests/test_losses.py` has 30; there
+      are none for `stft.py`, `bands.py`, `modules.py`, `conditioning.py` or
+      `bsrnn.py`. "Training infrastructure trustworthy" is not met by a loop that
+      runs. The causality property is the obvious first test to lift.
+- [ ] **Train/inference context mismatch, found 2026-08-24.** Causal is not
+      context-free: training only feeds cold-start 4 s crops while deployment
+      hands the model unbounded warm state. On the epoch-4 smoke checkpoint the
+      same window scores 30.6 % rel L2 apart cold vs warm, though `total` moves
+      only 0.005. Re-measure on a converged checkpoint: if the gap grows it
+      argues for warm-state or longer-context training; if it shrinks it retires
+      with evidence. Needs a `decisions-m2.md` entry either way.
 
 ---
 
@@ -425,9 +273,16 @@ Drafted during M2, finished here now that there is a real system to point it at.
 - [X] ~~**LCF-WER, ICR, NRR implemented.** 2026-08-31, `src/live_model_metric/`,
       63 tests, judge-agnostic with the transcriber swappable. Validated by
       reproducing the C2 floor and ceiling exactly. decisions-m4.md 2026-08-31~~
-- [ ] **J3 — the ICR overlap threshold signed off.** `count>=2` declared with a
+- [X] ~~**J3 — the ICR overlap threshold signed off.** `count>=2` declared with a
       sensitivity sweep; the exclusion rule and the floor row's
-      by-construction ICR both need stating. decisions-pending.md J3
+      by-construction ICR both need stating. decisions-pending.md J3~~
+      **SIGNED OFF 2026-09-03**, written into `metric-definitions.md` §3.2:
+      threshold `count>=2`; sensitivity table showing the floor moves 57.0 -> 42.9
+      across k=1/2/3/5 while the ceiling stays 0.0, so **the choice of k changes no
+      conclusion**; exclusion rule stated (currently 0 exclusions in every
+      `eval_public` stratum); the floor's by-construction ICR stated with the
+      87.5 % / 37.5 % interferer-louder split; and the binding prompt constraint
+      that the judge must never be told to pick a speaker. decisions-m4.md 2026-09-03
 - [X] ~~**B4's scoring rule written into `metric-definitions.md`** — done
       2026-09-01, §3.1: absent trials excluded not scored zero, with the
       invented-speech row and the measured 95.1 % / 0.0 % figures. Originally
@@ -467,13 +322,11 @@ Drafted during M2, finished here now that there is a real system to point it at.
       the Live socket added a deprecation risk for nothing. Price recorded with
       its expiry: $0.75/1M audio tokens through 2026-12-31.
       decisions-m4.md 2026-09-02~~
-- [ ] **J2b — the open-weight anchor. Qwen3-Omni**, selected for ENCODER
-      INDEPENDENCE: its AuT encoder is trained from scratch, while Voxtral,
-      Ultravox and Qwen2.5-Omni are all built on a Whisper encoder and would
-      share lineage with our own reference ASR — which would confound the very
-      comparison the anchor exists to support. Needed for reproducibility, not
-      cost. ~17 GB at Q4, so Kaggle T4x2, and quantisation level must be recorded
-      as part of the instrument
+- [~] **J2b — the open-weight anchor. CUT 2026-09-03**, for time not merit. Was
+      Qwen3-Omni, chosen for encoder independence from our reference ASR. Costs
+      reproducibility: judge numbers need API access to regenerate, so it goes in
+      the thesis limitations. The harness is judge-agnostic, so adding one later is
+      a config change. decisions-m4.md 2026-09-03
 - [X] ~~**Candidate gate run, 2026-09-02, before anything was committed to.**
       Three readings: (1) it reports clean speech — ceiling **1.05 %** at n=103,
       against the offline ASR's 5.85 %, and byte-identical five times out of
@@ -510,8 +363,14 @@ Drafted during M2, finished here now that there is a real system to point it at.
       ceiling **6.1 %**; `sir0_val` 65.2 % / 5.8 % at n=103. C2 accepted at this
       range. Scored from `transcripts.csv`, no new ASR run. decisions-m3.md
       2026-08-30~~
-- [ ] Text reference condition wired: extractor → off-the-shelf ASR → text →
-      judge, with its text floor and text ceiling
+- [~] ~~Text reference condition wired: extractor → off-the-shelf ASR → text →
+      judge, with its text floor and text ceiling~~ **CUT 2026-09-03, ruled out on
+      LATENCY rather than scored on content.** Extraction alone is 162 ms mean /
+      176 ms p99 of a 200-300 ms budget, and the ASR is non-streaming: it needs an
+      endpoint before it can decode. The text path cannot meet the budget, so an
+      LCF row for it would score a system inadmissible under the project's own
+      constraints. Reported as a latency exclusion in the modality section.
+      decisions-m4.md 2026-09-03
 - [X] ~~**Prompt-sensitivity ablation run — and the metric is NOT fragile to
       prompt wording.** 2026-09-02, three variants (`d118b7d3bf30`,
       `a21169a651d6`, `64d4b994a9a2`) over the same clips. On one floor clip the
@@ -785,23 +644,41 @@ against the anchors and the off-the-shelf system, which is still a result.
 The thesis's central finding. Runs immediately as M5 checkpoints land — it is
 scoring, not training, so it does not need its own week.
 
-**BLOCKED ON A SECOND SYSTEM, NOT ON THE METRIC (2026-09-02).** The judge, the
-prompt, the harness, the speech gate and the whole scoring path are built and
-measured; a full `sir0_val` row costs ~16 cents and ~25 minutes. What is missing
-is something to rank against. Measured on the one system that exists, LCF-WER
-through the live judge and offline WER **agree** — 10.5 % of headroom captured
-against 10.4 % — which is not evidence against divergence, it is the absence of
-a second point. **The off-the-shelf pretrained TSE row below is therefore the
-highest-value item in the project right now**, above M5's per-band gate: it is
-the cheapest way to turn an untestable claim into a testable one. The mix-back
-sweep (`decisions-pending.md` D11) is the second cheapest, needing no training
-at all.
+**UNBLOCKED 2026-09-03, AND THE FIRST ANSWER IS NEGATIVE.** The WeSep pretrained
+checkpoint was rendered and scored on `sir0_val` `both` (n=103), giving the second
+system this milestone was waiting for. **There is no rank inversion.** All five
+instruments — SI-SDR, SIR, offline WER, DNSMOS `OVRL` and the live judge — rank
+WeSep above our baseline, and the judge's margin is the widest of them: 59.3 % of
+judge headroom captured against our 10.5 %. The only dissenting column anywhere is
+SAR, which favours our baseline (10.34 against 8.26) because WeSep removes far more
+interferer and pays in artefact.
+
+**What this does and does not settle.** It settles that the metric does not invert
+conventional rankings on a pair separated by ~25 points of WER — no metric would.
+It does not settle the claim the thesis actually makes, which is about systems close
+enough for the instruments to disagree. So M5's per-band gate is now the experiment
+that matters, and it carries a measurement risk that must be stated before it runs:
+its ORACLE ceiling is 2.2 points of LCF-WER (59.1 -> 56.9) against a judge whose
+aggregate SEM is ~0.5 points. A realistic gate may not clear the metric's own noise
+floor, in which case a null is uninterpretable rather than informative. Decide the
+acceptable effect size and the repeat count k BEFORE running it.
+
+**Superseded (2026-09-02): "blocked on a second system."** Kept because it was the
+reasoning that prioritised the WeSep row, and that prioritisation was correct.
 
 - [ ] Baseline and second model both scored on LCF-WER / ICR / NRR
 - [ ] Both scored on SI-SDR / DNSMOS-P.835 + P.808 / offline WER on the same trials
-- [ ] All anchors present: audio floor, audio ceiling, text floor, text ceiling
-- [ ] **≥1 off-the-shelf pretrained TSE system** scored alongside. No training
-      cost, and it is what stops the divergence claim from resting on n=2
+- [ ] All anchors present: **audio floor and audio ceiling** (text anchors cut
+      2026-09-03 — the text path fails the latency budget, so it is excluded rather
+      than scored; see M4)
+- [X] ~~**≥1 off-the-shelf pretrained TSE system** scored alongside. No training
+      cost, and it is what stops the divergence claim from resting on n=2~~
+      **DONE 2026-09-03: WeSep `tfmap_context_causal_100`** (REAL-TSE fork, Wang et
+      al. 2024), 103 trials, rendered through the shared `src/estimates/runner.py`
+      so it differs from ours by its model and nothing else. Out of domain by its
+      own config (clean anechoic Libri2Mix, `noise_prob 0`, SI-SDR against the dry
+      source) and **it still beats our baseline on every metric except SAR.**
+      Scored into row 5 of the results table in `project-state.md`.
 - [ ] AMI trial set built and the benchmark extended to it, if it survived
 - [ ] Latency reported per modality
 - [ ] **B13 — every number broken out condition by condition, no combinations.**

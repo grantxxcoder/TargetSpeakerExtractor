@@ -1869,3 +1869,29 @@ rather than returning infinite gain, and that the RIRs are deterministic.
 The audio is invalidated by any manifest rebuild. `render_trials.py` records the
 manifest's `config_md5` and refuses to extend a directory built from a different
 one without `--force`, so the two cannot silently drift apart.
+
+---
+
+## 2026-09-03 — M0 housekeeping: three data-construction items cut
+
+Closing out M0's tail so an open checklist stops reading as unfinished work.
+**All three are cut because the data is rendered**, not because they were wrong.
+
+| item | cut because |
+|---|---|
+| **Narrow `overlap_ratio` in `base`** | B1 said narrow it *last*. Last has arrived and the answer is no: every split is rendered and `sir0_train` is mid-extension to 9,955, so changing the sampler invalidates the lot and forfeits comparability with every result to date. The 0.7 ceiling stays, matched to REAL-TSE |
+| **Enrollment offset (B2 PR3)** | Genuine and optional from the outset. `enroll_offset` is uniform and `long_enough` filters on file duration, so a 5.2 s file with 1.2 s of leading silence gives a "5 s enrolment" holding 4 s of voice, against B10/A1's ≥5 s. Fixing it re-renders every enrolment plus its 3-variant bank and breaks comparability with every trained checkpoint. **Carried as a known enrolment-quality caveat instead** |
+| **`length_mode`** | Never implemented, nothing downstream references it, every split rendered without it. Stays documented as not-implemented in `data-construction-parameters.md` |
+
+**The enrolment-offset caveat is the one that must reach the thesis.** Some
+enrolments carry less than the nominal 5 s of voice, which weakens the
+conditioning signal on those trials — relevant when reading enrolment sensitivity.
+
+Also closed, not cut: **HPC access** — never secured, every run on Kaggle T4, and
+it stopped mattering once M5 became a per-band gate fine-tuned from an existing
+checkpoint. **The two-speaker thesis text** — tracked in M7, which is its right
+home.
+
+Still genuinely open in M0: the three interpreted renderer points (supervisor
+glance), per-parameter EDA, and refreshing the pre-rebuild figures in
+`src/exploratory/data_setup.ipynb`.
