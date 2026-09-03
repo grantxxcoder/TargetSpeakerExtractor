@@ -1,21 +1,19 @@
-"""Write estimate.wav for EVERY trial in a split's val manifest.
+"""Write estimate.wav for every trial in a split, using OUR BSRNN checkpoint.
 
     python scripts/make_estimates.py --split smoke --checkpoint kaggle_out/models/model_sir0.pt
-    python scripts/make_estimates.py --split sir0  --out experiments/results/2026-08-28-est-sir0
+    python scripts/make_estimates.py --split sir0  --out experiments/results/2026-09-03-est-sir0
+    python scripts/make_estimates.py --split sir0  --condition both   # the 103 scored trials only
+
+This is the OUR-MODEL front-end. The walk over trials, the audio conventions
+and the provenance file live in src/estimates/runner.py, shared with
+scripts/make_estimates_wesep.py so that a second system differs from this one
+by its model and by nothing else. Anything that would change the comparison
+belongs in the runner; anything specific to loading a torch checkpoint of ours
+belongs here.
 
 Batch counterpart to scripts/pass_a_test_case_through.py, which does ONE trial
 per invocation and reloads the model each time. At 500 trials that is 500
 process launches and 500 model loads; here the model is built once.
-
-Writes <out>/<trial_id>/estimate.wav and one meta.yaml for the whole run, not
-one per trial -- provenance is a property of the pass, not of each file.
-
-WHOLE CLIP, ONE FORWARD PASS, no chunking: the model is causal, so appending
-later audio cannot change earlier output (measured 2026-08-24, 1.68e-08), and
-stitching chunks reinjects the overlap-add tail at every seam.
-
-Audio is float32 and UNNORMALISED, matching pass_a_test_case_through.py --
-normalising would hide the gain error L_gain exists to catch.
 """
 
 import argparse
@@ -23,14 +21,13 @@ import sys
 from datetime import date
 from pathlib import Path
 
-import soundfile as sf
 import torch
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src.data.dataset_loader import TrialDataset  # noqa: E402
+from src.estimates.runner import read_trials, write_estimates  # noqa: E402
 from src.run_log import timed  # noqa: E402
-from train import SPLIT_MANIFESTS, build_model, git_commit  # noqa: E402
+from train import SPLIT_MANIFESTS, build_model  # noqa: E402
 
 
 def resolve_checkpoint(given, split):
@@ -55,6 +52,33 @@ def resolve_checkpoint(given, split):
                      f"models/ and kaggle_out/models/ for model_{split}.pt")
 
 
+def build_extractor(checkpoint_path, config, device):
+    """Load the checkpoint and return (extractor, checkpoint dict, drift dict).
+
+    The model is built from the CHECKPOINT's config so the weights always fit;
+    the current config may carry loss keys it predates. Same split as
+    scripts/derive_w_g.py.
+    """
+    ckpt = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    model = build_model(ckpt["config"])
+    model.load_state_dict(ckpt["model"])
+    model.to(device).eval()
+
+    # Report model-config drift rather than refusing: it does not stop the
+    # weights loading, but it does change what they MEAN.
+    drift = {k: (ckpt["config"].get("model", {}).get(k), v)
+             for k, v in config.get("model", {}).items()
+             if ckpt["config"].get("model", {}).get(k) != v}
+
+    def extract(mixture, enrollment, sample_rate):    # noqa: ARG001
+        with torch.no_grad():
+            est = model(torch.from_numpy(mixture).unsqueeze(0).to(device),
+                        torch.from_numpy(enrollment).unsqueeze(0).to(device))
+        return est.squeeze(0).cpu().numpy()
+
+    return extract, ckpt, drift
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -66,7 +90,13 @@ def main():
     ap.add_argument("--out", default=None,
                     help="default experiments/results/<today>-est-<split>")
     ap.add_argument("--manifest-dir", default="data/manifests")
-    ap.add_argument("--data-root", default="data")   # loader appends "rendered/"
+    ap.add_argument("--data-root", default="data")   # audio lives under rendered/
+    ap.add_argument("--condition", default=None,
+                    help="render only this condition, e.g. 'both'. Default: every "
+                         "trial in the manifest, which is what earlier runs did. "
+                         "Whatever you choose, choose the SAME for every system "
+                         "being compared -- a system rendered on a different "
+                         "subset is not comparable.")
     ap.add_argument("--limit", type=int, default=None, help="first N trials only")
     args = ap.parse_args()
 
@@ -77,76 +107,45 @@ def main():
 
     checkpoint = resolve_checkpoint(args.checkpoint, args.split)
     print(f"  checkpoint: {checkpoint}")
-    ckpt = torch.load(checkpoint, map_location=device, weights_only=False)
-    # Model from the CHECKPOINT's config so the weights always fit; the current
-    # config may carry loss keys it predates. Same split as scripts/derive_w_g.py.
-    model = build_model(ckpt["config"])
-    model.load_state_dict(ckpt["model"])
-    model.to(device).eval()
-
-    # Report model-config drift rather than refusing: it does not stop the
-    # weights loading, but it does change what they MEAN.
-    drift = {k: (ckpt["config"].get("model", {}).get(k), v)
-             for k, v in config.get("model", {}).items()
-             if ckpt["config"].get("model", {}).get(k) != v}
+    extract, ckpt, drift = build_extractor(checkpoint, config, device)
     if drift:
         print(f"  WARNING: model config drift, output does not reflect training: {drift}")
 
     val_manifest, val_audio = SPLIT_MANIFESTS[args.split][1]
-    dataset = TrialDataset(
+    trials = read_trials(
         manifest_csv=Path(args.manifest_dir) / f"{val_manifest}.csv",
-        data_root=Path(args.data_root),
-        split=val_audio,
-        chunk_s=config["data"]["chunk_s"],
-        sample_rate=config["data"]["sample_rate"],
-        seed=seed,
-        random_crop=False,
+        audio_root=Path(args.data_root) / "rendered" / val_audio,
+        limit=args.limit,
+        condition=args.condition,
     )
-    n = len(dataset) if args.limit is None else min(args.limit, len(dataset))
     out_root = Path(args.out or
                     f"experiments/results/{date.today().isoformat()}-est-{args.split}")
-    out_root.mkdir(parents=True, exist_ok=True)
-    sr = int(config["data"]["sample_rate"])
     written = 0
 
     with timed("scripts/make_estimates.py",
                scope=lambda: f"{written} trials, {args.split}",
                rate=lambda: f"{device.type}, whole-clip"):
-        for i in range(n):
-            row = dataset.manifest_df.iloc[i]
-            trial_id = str(row["trial_id"])
-            d = Path(args.data_root) / "rendered" / val_audio / trial_id
-            # Whole clip, not the 4 s training crop -- the dataset crops, so read
-            # the files directly here.
-            mixture, _ = sf.read(str(d / "mixture.wav"), dtype="float32", always_2d=False)
-            enrol, _ = sf.read(str(d / "enrollment.wav"), dtype="float32", always_2d=False)
-            with torch.no_grad():
-                est = model(torch.from_numpy(mixture).unsqueeze(0).to(device),
-                            torch.from_numpy(enrol).unsqueeze(0).to(device))
-            trial_dir = out_root / trial_id
-            trial_dir.mkdir(parents=True, exist_ok=True)
-            sf.write(str(trial_dir / "estimate.wav"),
-                     est.squeeze(0).cpu().numpy(), sr, subtype="FLOAT")
-            written += 1
-            if written % 25 == 0 or written == n:
-                print(f"  {written}/{n}", flush=True)
-
-    yaml.safe_dump({
-        "date": date.today().isoformat(),
-        "script": "scripts/make_estimates.py",
-        "git_commit": git_commit(),
-        "seed": seed,
-        "config": args.config,
-        "split": args.split,
-        "manifest": val_manifest,
-        "checkpoint": {"path": str(checkpoint), "epoch": ckpt.get("epoch"),
-                       "best_val": ckpt.get("best_val"), "seed": ckpt.get("seed")},
-        "model_config_drift": {k: list(v) for k, v in drift.items()} or None,
-        "n_trials": written,
-        "device": device.type,
-        "audio": "estimate.wav, float32, unnormalised, whole clip",
-    }, open(out_root / "meta.yaml", "w"), sort_keys=False)
-    print(f"\n  wrote {written} estimates -> {out_root}/")
+        meta = write_estimates(
+            extract=extract,
+            trials=trials,
+            out_root=out_root,
+            sample_rate=int(config["data"]["sample_rate"]),
+            provenance={
+                "script": "scripts/make_estimates.py",
+                "system": "ours-bsrnn",
+                "seed": seed,
+                "config": args.config,
+                "split": args.split,
+                "manifest": val_manifest,
+                "condition": args.condition,
+                "checkpoint": {"path": str(checkpoint), "epoch": ckpt.get("epoch"),
+                               "best_val": ckpt.get("best_val"),
+                               "seed": ckpt.get("seed")},
+                "model_config_drift": {k: list(v) for k, v in drift.items()} or None,
+                "device": device.type,
+            },
+        )
+        written = meta["n_trials"]
 
 
 if __name__ == "__main__":

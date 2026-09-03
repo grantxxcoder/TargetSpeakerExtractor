@@ -15,6 +15,7 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
 <!-- rows appended below by src/run_log.py -->
+| 2026-09-03 | `scripts/make_estimates.py` | 103 trials, sir0 | 12 min | cpu, whole-clip |
 | 2026-09-02 | `scripts/evaluate.py` | --est experiments/results/2026-09-01-est-sir0-5000 --metrics content --listener judge | 29 min |  |
 | 2026-09-02 | `scripts/evaluate.py` | --limit 20 --est experiments/results/2026-09-01-est-sir0-5000 --metrics content --listener judge | 2 min |  |
 | 2026-09-02 | `scripts/evaluate.py` | --limit 20 --est experiments/results/2026-09-01-est-sir0-5000 --metrics content --listener judge **(failed)** | 2 min |  |
