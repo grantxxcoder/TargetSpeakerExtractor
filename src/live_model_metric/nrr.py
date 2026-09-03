@@ -1,4 +1,20 @@
-"""NRR, the non-response rate of docs/data/metric-definitions.md 3.3.
+"""NRR, the non-response rate. REMOVED FROM THE PROTOCOL 2026-09-03.
+
+**Not reported any more.** It read 0.0 % on every judge row: its detector is an
+empty response, and `gemini-3.7-flash` never returns one -- it invents. See the
+"tripwire, not a quality measure" line below, which was true and is why it went.
+Replaced in metric-definitions.md 3.3 by FR (`fabrication.py`), which measures
+what this judge actually does wrong. Its one live purpose -- alarming on a mute,
+which scores a CLEAN ICR because nothing came out -- is preserved by FR's
+empty-response count, reported as `no_response`.
+
+Kept, not deleted: historical rows in RESULTS.md, project-state.md and the
+`results.json` files carry an `nrr` column, and this is the definition that
+produced them. decisions-m4.md 2026-09-03.
+
+Original docstring follows.
+
+NRR, the non-response rate of docs/data/metric-definitions.md 3.3 (superseded).
 
 Of the trials where the target actually spoke, what fraction came back with no
 words from the judge? Lower is better.

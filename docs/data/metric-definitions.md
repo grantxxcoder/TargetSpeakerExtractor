@@ -103,7 +103,8 @@ unprocessed mixture, against 0.0 % from the clean target.**
 nothing on a trial where the target did speak, every reference word is a deletion
 and the trial scores ~100 %. That is the honest reading — a listener that said
 nothing recovered nothing — and it means LCF-WER already punishes a muting
-extractor. NRR (§3.3) therefore exists to protect ICR, not to catch the mute.
+extractor. FR's empty-response count (§3.3) therefore exists to protect ICR, not
+to catch the mute -- this was NRR's job until 2026-09-03.
 
 **A SPEECH GATE decides, before any listener, whether a clip contains speech at
 all** (`src/live_model_metric/speech_gate.py`, added 2026-09-02). A clip with no
@@ -201,36 +202,78 @@ that has nothing to do with any system under test.
 **This is the score that makes the metric two-sided**, and it is the one an
 offline WER-based metric structurally cannot see.
 
-### 3.3 Secondary score — NRR (Non-Response Rate)
+### 3.3 Secondary score — FR (Fabrication Rate)
 
-Fraction of trials where the model declines, reports hearing nothing,
-returns silence, or produces a refusal. **Lower is better.**
+Content words in the response that appear in **neither** speaker's script.
+**Lower is better.**
 
-Catches the degenerate "output silence" strategy, which would otherwise
-score perfectly on ICR.
+The third disjoint failure mode. LCF-WER measures content **recovered**, ICR
+measures content **leaked** from the other speaker, FR measures content
+**invented**. LCF-WER pools invented words with leaked ones as insertions and ICR
+only sees words traceable to the interferer, so the invented residue was
+previously isolated by nothing in the per-system protocol.
 
-**It catches a mute only because the speech gate exists** (§3.1, added
-2026-09-02). A muting extractor produces audio with no detectable speech, the
-gate answers it as the empty hypothesis, and NRR sees the non-response it is
-built to detect. Without the gate the judge invents words on silence, NRR reads
-near-zero, and the degenerate strategy passes. This is the mechanism by which
-the metric set stays two-sided (§4) — a blocked trial scores a **clean ICR**,
-and it is NRR that raises the alarm on the same trial. State that pairing
-explicitly whenever a blocked trial is reported; the hole is obvious to a
-reviewer otherwise.
+**Two readings, and only one is safe across systems.**
 
-**NRR detects a judge that DECLINES, not one that CONFABULATES.** This is a
-measured limitation, not a theoretical one. `decisions-m4.md` (2026-08-31) gives
-NRR's strongest purpose as detecting judge malfunction — "it declined on perfect
-input". The judge measured on 2026-09-02 does not decline; it invents. NRR's
-detector is an empty response, and a confabulating judge is never empty, so this
-purpose is **not** served by NRR and must not be claimed for it.
+| reading | definition | use |
+|---|---|---|
+| **`invented_per_trial`** | mean invented content words per trial | **compare systems on this** |
+| `FR@k` | fraction of trials with ≥ k invented content words, k=2 headline | distribution, not magnitude |
+| `mean_invented_percent` | invented as a share of the response's own content words | **within** one system only |
 
-**The judge's invention rate is therefore its own row**, measured against
-known speech-free audio with the gate deliberately bypassed. It characterises
-the judge, is run once, and is not part of the per-system protocol. Measured
-2026-09-02 on `gemini-3.7-flash`: **0 of 6 silent clips returned `no_speech`;
-17–42 words invented per clip across three prompt variants.**
+**The percentage is length-confounded and must not be used to rank systems.** It
+divides by the response's own length, so a terser listener scores worse for
+saying less rather than for inventing more. Measured 2026-09-03: our baseline and
+WeSep invent **1.83 and 1.80** words per trial — indistinguishable — but read
+**10.4 % and 13.8 %**, purely because WeSep's responses average 15.1 content words
+against 17.9.
+
+Every trial with a non-empty response is eligible at every k. Unlike ICR, whose k
+is capped by how many exclusive words the interferer actually said, fabrication
+has no such ceiling. An **empty response is excluded, not scored 0 % invented** —
+otherwise a muting system lowers its fabrication rate by saying nothing. The
+empty count is reported alongside (see the anti-mute note below).
+
+**FR IS AN UPPER BOUND, AND ITS CEILING IS NOT ZERO.** A response word can be
+absent from both scripts because the listener invented it, because it misheard a
+real word as a different real word, or because the reference does not match what
+was uttered. Only the first is fabrication. The ceiling row — the listener given
+the **clean target**, where there is nothing to invent from — calibrates how much
+the measure fires on perfect input, and **only the excess above it is
+attributable to a system**. Measured 2026-09-03 the ceiling is 0.20 words per
+trial. Never quote FR without it. Contrast ICR, whose ceiling genuinely is 0.0.
+
+Measured on `sir0_val` `both`, n=103, `gemini-3.7-flash`, prompt `d118b7d3bf30`
+(`experiments/results/2026-09-03-fr-sweep-sir0_val/`):
+
+| system | invented/trial | FR@2 |
+|---|---|---|
+| ceiling (clean target) | 0.20 | 1.0 % |
+| floor (do nothing) | 1.24 | 32.0 % |
+| baseline | 1.83 | 41.7 % |
+| WeSep | 1.80 | 38.8 % |
+
+**Both extractors raise fabrication ~48 % above doing nothing, and the two are
+indistinguishable despite a 25-point WER gap** — so fabrication is an axis of its
+own, not a by-product of extraction quality. That is the case for reporting it
+separately. Sensitivity: the ordering is unchanged at k = 1, 2, 3 and 5, so the
+headline k=2 is a convention rather than a load-bearing choice — the same finding
+J3 reached for ICR.
+
+**NRR (Non-Response Rate) was REMOVED 2026-09-03.** It read 0.0 % on every judge
+row: its detector is an empty response, and this judge never returns one — it
+invents. Its own module called it "a tripwire, not a quality measure. It will not
+rank two working systems." **Its one live purpose is preserved**: NRR existed so
+that a muting extractor, which scores a *clean* ICR because nothing came out,
+still trips an alarm. FR reports the empty-response count over the same trials, so
+that pairing survives — state it whenever a blocked or muted trial is reported.
+decisions-m4.md 2026-09-03.
+
+**The judge's own invention rate remains a separate one-off row**, measured
+against known speech-free audio with the gate deliberately bypassed. It
+characterises the *judge*; FR characterises a *system*. Measured 2026-09-02 on
+`gemini-3.7-flash`: 0 of 6 silent clips returned `no_speech`; 17–42 words invented
+per clip across three prompt variants.
 
 ### 3.4 Reported anchors — mandatory
 
@@ -256,7 +299,7 @@ label it as approximate. See `docs/decisions/decisions-m0.md`, 2026-08-07 data d
 Spec note 10 allows the extractor to hand the live model **either audio or
 text**. The metric is defined so that both are scored by the same end-to-end
 question — *what did the assistant recover of what the target said?* — and
-LCF-WER, ICR and NRR are computed identically in both cases. What differs is
+LCF-WER, ICR and FR are computed identically in both cases. What differs is
 what the number means.
 
 | | **Primary (audio)** | **Reference (text)** |
@@ -293,7 +336,7 @@ the assistant recovers more of it"), and illegitimate as a statement about
 that mixes modalities must carry that caveat.
 
 **The metric is blind to what the text path throws away.** LCF-WER, ICR and
-NRR are all lexical. Prosody, emphasis, hesitation, emotion and speaker
+FR are all lexical. Prosody, emphasis, hesitation, emotion and speaker
 identity vanish at the ASR boundary, and a speech-to-speech model uses them
 both to interpret a turn and to shape its spoken reply. A text row can
 therefore score well while being a worse assistant experience, and the metric
@@ -322,7 +365,8 @@ Four properties, built in from the start:
 the right words came back, not on a smooth perceptual predictor. There is no
 gradient to hill-climb with waveform perturbations.
 
-**Two-sided.** Suppress everything and NRR blows up. Pass everything through
+**Two-sided.** Suppress everything and the empty-response count blows up (FR
+§3.3, formerly NRR). Pass everything through
 and ICR blows up. Only genuine extraction moves LCF-WER without moving the
 other two. A single-score metric would not have this property, which is why
 all three are always reported together.
@@ -395,7 +439,7 @@ set to the budget, on a spreadsheet, before writing the harness.
 
 ## 6. Relationship to existing metrics
 
-We report LCF-WER/ICR/NRR as the primary result, and conventional metrics
+We report LCF-WER/ICR/FR as the primary result, and conventional metrics
 alongside — SI-SDR, the SIR/SAR decomposition, **DNSMOS-P.835 and DNSMOS-P.808**
 and offline ASR WER — **specifically to show where they diverge.**
 

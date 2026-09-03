@@ -684,3 +684,95 @@ claim** and CPU is the pessimistic case. One Kaggle cell.
 `lookahead_frames` shifts the feature sequence at TRAIN time, so a proper
 quality-versus-latency curve needs one retrain per point. Evaluating a
 lookahead-0 model at other lookaheads is not valid.
+
+## 2026-09-03 — WeSep cannot stream. `causal: true` covers the separator, not the normaliser
+
+**Measured, not inferred.** `scripts/probe_wesep_causality.py`, checkpoint
+`tfmap_context_causal_100`, 8 s mixture / 2 s enrolment, seed 42, CPU.
+
+| probe | cut 2 s | cut 4 s | cut 6 s | worst |
+|---|---|---|---|---|
+| determinism floor (same input twice) | — | — | — | 1.21e-05 |
+| **A. scale-matched future** | 1.12e-02 (3.49 %) | 1.02e-02 (2.66 %) | 5.39e-03 (1.40 %) | **1.12e-02** |
+| B. 5x louder future | 2.16e-02 (6.74 %) | 2.89e-02 (7.53 %) | 1.38e-02 (3.60 %) | 2.89e-02 |
+
+Ours on the same protocol, 2026-08-24: **1.68e-08**. WeSep is ~6 orders of
+magnitude worse, and ~900x its own determinism floor.
+
+### The mechanism, so this is a finding rather than a number
+
+`causal: true` in their config sits under `separator:` and is **not a false
+claim** — the separator's RNNs are causal. But `SubbandNorm`
+(`wesep/modules/separator/bsrnn.py:44`) builds `select_norm('GN', …)` =
+`nn.GroupNorm(group=1, C)` and applies it to a `(B, C, T)` tensor, so it
+normalises over all channels **and the whole time axis** before the causal
+separator runs. That is global layer norm (`gLN`): every output frame is a
+function of the entire clip's statistics, future included.
+
+**Two checks that it is global normalisation and not architectural lookahead.**
+The leak *shrinks* as the cut moves later (3.49 → 2.66 → 1.40 %) — a perturbation
+covering less of the clip shifts the global statistic less, whereas a fixed
+lookahead window would read ~0 once the cut is beyond it. And the 5x-louder probe
+leaks only ~2.6x more, not unboundedly more.
+
+### Consequences
+
+- **WeSep is an offline system for our purposes.** Its 2026-09-03 judge and
+  signal scores stand, as *offline* scores. Do not describe it as a streaming or
+  causal baseline anywhere in the thesis.
+- **Fixable in principle, not by us.** Cumulative layer norm is the standard
+  causal replacement, but swapping it means retraining their checkpoint. Out of
+  scope, and it is not our model to fix.
+- **Our own causal claim is unaffected and now has a contrast.** 1.68e-08 vs
+  1.12e-02 is a genuine architectural difference worth one line in the report:
+  a model can declare causality per-module and still be non-causal end to end.
+- **Latency measurement is now academic** but was taken anyway (below).
+
+### Two caveats that travel with these numbers
+
+**The model is not bit-reproducible.** Determinism floor 1.21e-05 on identical
+input, most likely multi-threaded reduction order. The effect is ~900x that, so
+the verdict holds, but never quote the probe values without the floor.
+
+**Mode A equalises broadband RMS, not per-subband RMS**, so white noise at
+matched RMS still presents very different per-band statistics to a per-band
+normaliser. Mode A is therefore a better control than mode B but not a clean
+isolation of lookahead from global normalisation — the `GroupNorm` reading above
+is what actually separates them. A cleaner probe would perturb inside one band.
+
+### Latency, taken with `scripts/measure_rtf_wesep.py` (new)
+
+Protocol copied term for term from `measure_rtf.py` (80 ms chunks, 20 warmup,
+same percentiles) so the rows are the same quantity. `measure_rtf.py` could not
+be reused: it calls `build_model()`/`load_state_dict()` from `train.py`, and the
+WeSep venv has none of our model code.
+
+**Measured, 2250 chunks, 23 min wall**, same i5-1135G7 / 4 threads as the
+baseline. `experiments/results/2026-09-03-rtf-wesep-cpu/rtf.json`.
+
+| | WeSep | our baseline |
+|---|---|---|
+| RTF mean | **2.854** | 0.528 |
+| RTF p99 | 5.300 | 0.706 |
+| latency mean | **348.3 ms** | 162.2 ms |
+| latency p99 | 544.0 ms | 176.5 ms |
+| per-chunk mean / p99 / max | 228.3 / 424.0 / 552.9 ms | — |
+| meets budget | **no** | yes |
+
+**No chunk finishes inside its own 80 ms** (min observed well above the
+deadline), so the input backlog grows without bound. A 20-chunk smoke run earlier
+the same day read 4.85; that was too few samples — **quote 2.854**.
+
+Two reasons for the gap: 27.2 M parameters in the timed forward against our
+7.19 M, and WeSep re-embeds the 5 s enrolment through its speaker branch on every
+80 ms chunk. Our model re-embeds per chunk too, so the protocol is matched, but
+the cost is wildly asymmetric — a full speaker encoder against our TF-Map cue.
+`--cache-fbank` gives a lower bound; neither mode hoists the speaker encoder.
+
+**Parameter counts differ by basis and both are correct.** 33.46 M is the
+`avg_model.pt` state-dict total (project-state.md, includes the jointly-trained
+VoxCeleb ECAPA-TDNN); 27.2 M is the TSE model as instantiated, which is what was
+timed. Label which one you are quoting.
+
+Not comparable to any published REAL-TSE latency figure — different hardware,
+chunking and latency convention.

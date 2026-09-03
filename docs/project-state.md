@@ -25,22 +25,45 @@ All rows: `sir0_val`, `condition=both`, n=103. Lower is better except where said
 prompt sha256[:12] `d118b7d3bf30`, run 2026-09-02 (baseline) and 2026-09-03
 (WeSep). Closed model: comparisons across dates are invalid unless re-run.
 
-| system | LCF-WER | ICR@2 | mean leak | NRR |
-|---|---|---|---|---|
-| 1. Floor — do nothing | 63.27 % | 75.73 % | 63.33 % | 0.0 % |
-| 2. Baseline — `model_sir0_5000-e7.pt` | 56.72 % | 62.14 % | 50.15 % | 0.0 % |
-| 3. Extension — per-band gate (D13) | — | — | — | — |
-| 5. WeSep — `tfmap_context_causal_100`, borrowed | **26.40 %** | **25.24 %** | **12.92 %** | 0.0 % |
-| 4. Ceiling — clean target | 1.05 % | 0.00 % | 0.00 % | 0.0 % |
+| system | LCF-WER | ICR@2 | mean leak | invented/trial | FR@2 |
+|---|---|---|---|---|---|
+| 1. Floor — do nothing | 63.27 % | 75.73 % | 63.33 % | 1.24 | 32.0 % |
+| 2. Baseline — `model_sir0_5000-e7.pt` | 56.72 % | 62.14 % | 50.15 % | **1.83** | 41.7 % |
+| 3. Extension — per-band gate (D13) | — | — | — | — | — |
+| 5. WeSep — `tfmap_context_causal_100`, borrowed | **26.40 %** | **25.24 %** | **12.92 %** | **1.80** | 38.8 % |
+| 4. Ceiling — clean target | 1.05 % | 0.00 % | 0.00 % | 0.20 | 1.0 % |
+
+**FR (fabrication) replaced NRR on 2026-09-03.** NRR read 0.0 % on every judge row
+— its detector is an empty response and this judge invents instead of declining.
+FR counts response words in **neither** speaker's script.
+`experiments/results/2026-09-03-fr-sweep-sir0_val/`, decisions-m4.md 2026-09-03.
+
+**Read fabrication on `invented/trial`, never on a percentage of the response.**
+The percentage divides by the response's own length, so a terser listener scores
+worse for saying less: WeSep reads 13.8 % against the baseline's 10.4 % while
+inventing *fewer* words, because its responses average 15.1 content words to 17.9.
+
+**Two things this column shows that nothing else does.** Both extractors raise
+fabrication **~48 % above doing nothing** (1.24 → ~1.8). And **the baseline and
+WeSep are indistinguishable on it** (1.83 vs 1.80) despite a 25-point LCF-WER gap
+and WeSep leaking a third as much — **fabrication is its own axis, not a
+by-product of extraction quality.** The ceiling is 0.20, not 0, because a word
+absent from both scripts may be misheard rather than invented; only the excess
+over the ceiling belongs to a system.
 
 **Content through the offline ASR** (`faster-whisper small.en`).
 
-| system | LCF-WER | ICR@2 | mean leak | NRR |
+| system | LCF-WER | ICR@2 | mean leak | invented/trial |
 |---|---|---|---|---|
-| 1. Floor | 65.22 % | 66.99 % | 51.30 % | 0.0 % |
-| 2. Baseline | 59.05 % | 54.37 % | 39.13 % | 1.0 % |
-| 5. WeSep | **34.60 %** | **15.53 %** | **9.02 %** | 0.0 % |
-| 4. Ceiling | 5.85 % | 0.00 % | 0.00 % | 0.0 % |
+| 1. Floor | 65.22 % | 66.99 % | 51.30 % | not yet scored |
+| 2. Baseline | 59.05 % | 54.37 % | 39.13 % | not yet scored |
+| 5. WeSep | **34.60 %** | **15.53 %** | **9.02 %** | not yet scored |
+| 4. Ceiling | 5.85 % | 0.00 % | 0.00 % | not yet scored |
+
+FR exists for both listeners but has only been computed on the judge so far; the
+ASR column fills on the next `evaluate.py --metrics content` run. The `NRR`
+column that stood here is removed — it read 0.0 % everywhere except the baseline's
+single 1.0 %.
 
 > **The WeSep offline-ASR row has no results file.** `run_times.md` records that
 > `evaluate.py` pass as failed; there is no `2026-09-03-evaluate-wesep-asr/`.
@@ -128,7 +151,21 @@ Two mechanism findings:
 |---|---|---|---|---|---|
 | 2. Baseline | 0.528 | 0.706 | 162.2 ms | 176.5 ms | yes |
 | 3. Extension | — | — | — | — | — |
-| 5. WeSep | not measured | — | — | — | doubtful |
+| 5. WeSep | **2.854** | 5.300 | **348.3 ms** | 544.0 ms | **no — and cannot stream at all** |
+
+Measured 2026-09-03, 2250 chunks, 23 min wall, same i5-1135G7 / 4 threads as the
+baseline. `experiments/results/2026-09-03-rtf-wesep-cpu/rtf.json`. Per chunk:
+mean 228.3 ms, p50 207.9, p95 338.6, p99 424.0, max 552.9 — **no chunk finishes
+inside its own 80 ms**, so the backlog grows without bound.
+
+**It misses the RTF deadline by 2.9x and the latency budget by ~1.2-1.8x**, where
+our baseline sits at 0.528 and 162.2 ms. Two reasons: 27.2 M parameters in the
+timed forward against our 7.19 M, and WeSep re-embeds the 5 s enrolment through
+its speaker branch on **every 80 ms chunk**. Our model re-embeds per chunk too, so
+the protocol is matched, but the *cost* is wildly asymmetric — a full speaker
+encoder against our cheap TF-Map cue. `--cache-fbank` gives a lower bound; it has
+not been run. Either way the causality result above makes the RTF academic: a
+model that needs the whole clip cannot stream at any speed.
 
 Requirements: RTF < 1 and latency < 200–300 ms. Latency = 80 ms chunk + 40 ms
 lookahead + 42.2 ms compute; per-chunk max 58.2 ms against an 80 ms deadline.
@@ -178,15 +215,38 @@ Render health, all passed: no non-finite samples; −4.9 dB re the mixture so no
 muted; SI-SDR vs mixture only +1.80 dB so not a pass-through; worst length delta
 −126 samples (7.9 ms).
 
-**Streaming status: UNRESOLVED, do not claim either way.** Config says
-`causal: true` and the architecture is causal BSRNN, so on paper yes. A first
-probe on 2026-09-03 showed output at t=0 moving when audio at t=6 s changed, but
-**that probe is confounded and must not be quoted** — the perturbation was 5x
-louder, which also trips global input normalisation (a shallower problem, fixable
-with a running normaliser). The scale-matched control is
-`scripts/probe_wesep_causality.py`, not yet run. Whole-clip throughput RTF
-**1.128** against our 0.398 by the same route; that is batch, not streaming, and
-must not go in the RTF column.
+**Streaming status: RESOLVED 2026-09-03 — it CANNOT stream as called.**
+Scale-matched probe (`scripts/probe_wesep_causality.py`): replacing the future at
+matched loudness still moves the output *before* the cut by **1.12e-02**, about
+3.5 % of the signal, against our own model's 1.68e-08. Every output frame depends
+on the whole clip.
+
+**Mechanism found, and `causal: true` is not a false claim — it is narrower than
+it reads.** That flag sits under `separator:` only, and the separator's RNNs are
+causal. But `SubbandNorm` (`wesep/modules/separator/bsrnn.py:44`) applies
+`nn.GroupNorm(group=1, …)` over a `(B, C, T)` tensor, which normalises over all
+channels **and all time frames** — a whole-utterance statistic computed *before*
+the causal separator sees anything. This is global layer norm in the `gLN` sense.
+
+Two things corroborate global normalisation rather than architectural lookahead:
+the leak *shrinks* as the cut moves later (3.49 % → 2.66 % → 1.40 % for cuts at
+2/4/6 s of an 8 s clip), which is the signature of a statistic diluted by a
+smaller perturbed fraction, not of a fixed lookahead window; and the 5x-louder
+probe leaks only ~2x more (2.89e-02), not catastrophically more.
+
+**Fixable in principle, not by us.** The standard causal replacement is
+cumulative layer norm, but swapping it requires retraining their checkpoint. For
+our purposes WeSep is an offline system, and its scores stand as offline scores.
+
+**Caveat to carry:** the determinism floor was **1.21e-05**, not zero, so the
+model is not bit-reproducible on repeated identical input (most likely
+multi-threaded reduction order). The effect above is ~900x that floor, so the
+conclusion holds, but quote the floor alongside it. And the probe's matched mode
+equalises *broadband* RMS, not per-subband RMS, so it does not fully isolate
+lookahead from global normalisation — the mechanism above is what separates them.
+
+Whole-clip throughput RTF **1.128** against our 0.398 by the same route; that is
+batch, not streaming, and must not go in the RTF column.
 
 **Judge run health, 2026-09-03:** 103 calls, 0 failed, 0 gate blocks, 1 transient
 safety-filter hit that passed on retry. Floor and ceiling served from cache and
@@ -223,7 +283,8 @@ Three live-model behaviours an ASR cannot exhibit, all reportable findings:
   retry. Non-deterministic, so `filter_blocked` and `filter_transient` are
   reported per system — a filter that fires on one system and not another is a
   benchmark bias.
-- **It never declines, so NRR is structurally blind to it.** NRR detects a
+- **It never declines, so NRR was structurally blind to it** — which is why NRR
+  was removed on 2026-09-03 and replaced by FR. NRR detects a
   declining judge, not a confabulating one. Its mute-detection works only because
   the gate manufactures the empty response NRR looks for.
 
@@ -304,7 +365,7 @@ is not enough for a 7.2 M-parameter model. Confirmed by the 4,976 run.
 - Train 10 epochs in 1.45 h, checkpoint, and resume without losing state.
 - Run in real time — RTF 0.528 mean on a laptop CPU, latency 162 ms against a
   200–300 ms budget, no chunk missing the 80 ms deadline.
-- Score all three of its own metrics — LCF-WER, ICR, NRR, 51 tests,
+- Score all three of its own metrics — LCF-WER, ICR, FR (NRR until 2026-09-03),
   judge-agnostic with the transcriber swappable, validated by reproducing the C2
   floor and ceiling exactly.
 - Separate interference from artefact — SIR/SAR (`separation.py`, 12 tests).

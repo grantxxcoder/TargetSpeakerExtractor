@@ -372,8 +372,8 @@ def evaluate(split="sir0_val", condition="both", estimate_directory=None,
 
         if CONTENT in metrics:
             from .lcf_wer import compute_lcf_wer
+            from .fabrication import compute_fr
             from .icr import compute_icr
-            from .nrr import compute_nrr
             responses, gate_decisions, used_judge = _listen(
                 paths, listener, split, manifest_dir, repo_root, cache_path,
                 allow_new_transcripts, speech_gate, judge_kwargs, verbose)
@@ -399,14 +399,30 @@ def evaluate(split="sir0_val", condition="both", estimate_directory=None,
             interferers = [t.interferer_text for t in trials]
             word = compute_lcf_wer(targets, responses)
             leak = compute_icr(responses, targets, interferers)
-            quiet = compute_nrr(responses, targets)
+            # Content invented, i.e. in neither speaker's script. The third
+            # disjoint failure mode next to recovered (WER) and leaked (ICR);
+            # insertions pool it with leakage and ICR cannot see it. Read
+            # `invented_per_trial` across systems -- the percentage divides by
+            # the response's own length and so punishes a terser listener. Read
+            # both against the CEILING row, which is not 0. See fabrication.py.
+            made_up = compute_fr(responses, targets, interferers)
+            # NRR removed 2026-09-03: it read 0.0 % on every judge row because
+            # its detector is an empty response and this judge invents instead.
+            # Its one live purpose -- alarming on a mute, which scores a CLEAN
+            # ICR because nothing came out -- is preserved by this count.
+            # metric-definitions.md 3.3, decisions-m4.md 2026-09-03.
+            no_response = (100.0 * made_up.trials_empty / made_up.trials_total
+                           if made_up.trials_total else None)
             scores.update(lcf_wer=word.word_error_rate,
                           substitutions=word.substitution_rate,
                           deletions=word.deletion_rate,
                           insertions=word.insertion_rate,
                           icr_at_2=leak.headline,
                           mean_leak=leak.mean_leaked_percent,
-                          nrr=quiet.nrr)
+                          fr_at_2=made_up.headline,
+                          invented_per_trial=made_up.invented_per_trial,
+                          mean_invented=made_up.mean_invented_percent,
+                          no_response=no_response)
 
         if SIGNAL in metrics:
             import soundfile

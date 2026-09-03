@@ -632,3 +632,60 @@ two caveats are retained as the reasoning behind the exclusion — the judge is
 close to a pass-through on text so the score would mostly reflect the front-end
 ASR, and the metric is lexical so prosody and speaker identity vanish at the ASR
 boundary. Both belong in the write-up.
+
+---
+
+## 2026-09-03 — FR added as the third score; NRR removed
+
+**NRR is out of the protocol.** It read **0.0 % on every judge row**. Its detector
+is an empty response and `gemini-3.7-flash` never returns one — it invents
+instead. `nrr.py` said as much itself: "a tripwire, not a quality measure. It will
+not rank two working systems."
+
+**FR (Fabrication Rate) replaces it**: response content words appearing in
+**neither** speaker's script. This closes a hole §3.3 already named — that the
+invention rate was a property measured once *of the judge*, not per system, so a
+system whose artefacts *provoke* invention was invisible. `fabrication.py`,
+17 tests, wired into `evaluate.py`. Sweep in
+`experiments/results/2026-09-03-fr-sweep-sir0_val/` — re-analysis of the cached
+responses, no new API calls.
+
+`sir0_val` `both`, n=103, prompt `d118b7d3bf30`:
+
+| system | invented/trial | FR@2 | mean % | resp. words |
+|---|---|---|---|---|
+| ceiling (clean target) | 0.20 | 1.0 % | 1.4 % | 14.8 |
+| floor (mixture) | 1.24 | 32.0 % | 6.8 % | 18.3 |
+| baseline | **1.83** | 41.7 % | 10.4 % | 17.9 |
+| WeSep | **1.80** | 38.8 % | 13.8 % | 15.1 |
+
+**Two findings.** Both extractors raise fabrication **~48 % above doing nothing**
+(1.24 → ~1.8). And **baseline and WeSep are indistinguishable** (1.83 vs 1.80)
+despite a 25-point WER gap and WeSep leaking a third as much — so fabrication is
+an axis of its own, not a by-product of extraction quality. That is the case for
+reporting it separately rather than leaving it inside insertions.
+
+**A trap found and closed during implementation.** The first cut reported the
+*percentage*, on which WeSep looks worse (13.8 % vs 10.4 %). That is an artefact:
+the percentage divides by the response's own length, and WeSep's responses are
+shorter (15.1 content words against 17.9), so identical fabrication inflates.
+**Cross-system claims use `invented_per_trial`; the percentage is a within-system
+reading only.** Enforced by `test_per_trial_count_is_immune_to_response_length`.
+
+**FR is an upper bound and its ceiling is not zero** (0.20 words/trial). A word
+absent from both scripts may be invented, misheard as a different real word, or a
+reference mismatch — only the first is fabrication. Quote FR only against its
+ceiling; the excess is what a system is responsible for. ICR has no equivalent
+problem: its ceiling genuinely is 0.0.
+
+**Sensitivity.** Ordering is unchanged at k = 1, 2, 3, 5, so headline k=2 is a
+convention rather than a load-bearing choice — the same conclusion J3 reached for
+ICR the same day.
+
+**What is preserved from NRR.** It existed so a muting extractor — which scores a
+*clean* ICR because nothing came out — still trips an alarm. FR excludes empty
+responses from its own rate (otherwise muting would lower fabrication) and reports
+the count as `no_response`, so the pairing survives. `nrr.py` is kept and marked
+superseded, not deleted: historical rows in `RESULTS.md`, `project-state.md` and
+the `results.json` files carry an `nrr` column and this is the definition that
+produced them.

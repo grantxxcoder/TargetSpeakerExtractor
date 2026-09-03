@@ -666,7 +666,8 @@ acceptable effect size and the repeat count k BEFORE running it.
 **Superseded (2026-09-02): "blocked on a second system."** Kept because it was the
 reasoning that prioritised the WeSep row, and that prioritisation was correct.
 
-- [ ] Baseline and second model both scored on LCF-WER / ICR / NRR
+- [ ] Baseline and second model both scored on LCF-WER / ICR / FR
+      (NRR until 2026-09-03; see decisions-m4.md)
 - [ ] Both scored on SI-SDR / DNSMOS-P.835 + P.808 / offline WER on the same trials
 - [ ] All anchors present: **audio floor and audio ceiling** (text anchors cut
       2026-09-03 — the text path fails the latency budget, so it is excluded rather
@@ -767,7 +768,8 @@ tick as written.
       `bsrnn_baseline.yaml`, `decisions-m1.md` (chunk, batch) and `decisions-m2.md`
       (objective, schedule); still unlogged are the
       `batch_size` 3-vs-12 resolution and the compute actually used
-- [ ] Metric definition: LCF-WER, ICR, NRR; judge protocol and modality recording
+- [ ] Metric definition: LCF-WER, ICR, FR; judge protocol and modality recording;
+      NRR's removal and why it read 0.0 % throughout
 
 **Ch 4 Experiments**
 - [ ] Protocol: config, commit hash, seed and date on every run
