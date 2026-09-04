@@ -1909,3 +1909,93 @@ on 25 real trials (68.5 MB -> 43.1 MB), confirmed by Kaggle storing the previous
 15.35 GB upload as 9.55 GB. Real, but it re-zips 30 GB on a seek-bound HDD to
 attack the wrong bottleneck. The bundler's comment claiming DEFLATE "buys almost
 nothing" is measurably wrong and should be corrected when the flag is revisited.
+
+---
+
+## 2026-09-04 — 2x the data again: the scaling curve HAS a slope, and it is log-linear
+
+**9,955 trials. Best held-out separation 2.900 dB against the 4,976-trial run's
+2.584, and the margin over pass-through 0.991 → 1.307 dB, +32 %.** Selected
+epoch 6, `L_abs` −11.30 so eligible, 16 epochs, no early stop, 10.5 h at
+2,364 s/epoch. `experiments/results/2026-09-04-train-sir0-10000/`,
+`models/model_sir0_10000-e6.pt`.
+
+### The curve, which is the point of the run
+
+| trials | best eligible | margin over pass-through | increment |
+|---|---|---|---|
+| 1,989 | 2.135 | 0.542 | — |
+| 4,976 | 2.584 | 0.991 | +0.449 (x2.50 data) |
+| **9,955** | **2.900** | **1.307** | **+0.316 (x2.00 data)** |
+
+**Roughly linear in log(data), and still paying.** Fitting the first two points
+and extrapolating predicted +0.333 for a 2x increase; the measured value is
++0.316. So each doubling buys ~0.32 dB of margin and the next one costs ~20,000
+trials — about 30 GB rendered and a further day of upload for the same increment.
+**That is the answer `project-state.md`'s "Do NOT render more data" was
+asserting without a third point.** The advice was directionally right and is now
+measured rather than projected; the entry should be updated to say so.
+
+**The 2.5x -> 2.0x confound is now retired.** The 09-01 run changed data volume
+AND turned on `weight_decay` 1e-4 together, so its +0.449 could not be attributed.
+This run changes data volume alone against that arm, and produces an increment
+that lands on the log-linear extrapolation of a gain that was *supposed* to be
+partly weight decay. Weakly, that suggests the 09-01 gain was mostly data — not
+proof, since one point cannot separate two variables retrospectively, but it is
+the only evidence available and it points that way.
+
+### Model selection did real work, twice
+
+**The selected epoch is 6 at 2.900 dB, not epoch 7 at 2.941.** Epoch 7 separated
+0.041 dB better and reconstructed at a worse level (`L_gain` 3.528 against
+3.404), losing on the present-branch score 4.768 against 4.599. The rule
+correctly refused a checkpoint that separates marginally better while getting
+the output loudness more wrong. **Never quote 2.941 — it is not the deliverable.**
+
+**The silence bar rejected epochs 1 and 2**, at 2.820 and 2.896 dB with `L_abs`
+−7.55 and −9.63. Both sat inside the `w` warmup, where nothing yet pushes the
+model quiet, so both were loud on crops where the target never speaks. This is
+the third time the bar has fired on a high-separation epoch (09-01's epoch 4 at
+2.943 dB, `L_abs` −8.38) and it remains correct each time.
+
+**Consequence worth stating in the write-up:** this run reaches the 09-01 run's
+*all-time raw peak* (2.943 dB) while obeying the silence constraint that
+disqualified it. That is a cleaner claim than the +0.316 dB, because it is about
+satisfying a requirement the previous model could not.
+
+### Overfitting: later, from a higher peak, and it still arrives
+
+Gap at the selected epoch **0.905 against 1.079**, 16 % narrower, and flat over
+epochs 4–7 (0.999, 0.922, 1.018, 0.905) where the 09-01 run's was already
+widening. Past epoch 7 it goes 1.340 → 4.353 and held-out separation collapses to
+**1.282 dB, below pass-through**. So more data delays memorisation and raises the
+peak; it does not remove the ceiling.
+
+**Two diagnostics improve throughout that collapse** — `enrol_sens` to −0.99 dB
+and `pres_abs_gap` to 15.30 dB, both their best values of the whole run, at the
+epoch where the model is worse than doing nothing. Identical to 2026-08-29.
+**Neither may be quoted as a conditioning or selectivity result.** `enrol_sens`
+is additionally unreadable past about −3 dB (2026-08-30: an ideal extractor
+scores 0.00 and an arbitrary one +3.01, so the good and bad cases are not
+separable there).
+
+### The step-indexed `w` schedule, validated
+
+First run under it (`decisions-m2.md` 2026-09-03). Predicted mean `w` of 0.000 /
+0.420 / 0.458 at epochs 1 / 4 / 5; measured 0.000 / 0.4201548 / 0.458. Full
+weight at step 11,606 at 9,955 trials exactly as at 4,976 — **the schedule is now
+invariant to dataset size, which is what made this run comparable to its
+baseline at all.** `global_step` 53,088 is persisted in `_last.pt`, so the
+resume path carries the schedule position as designed.
+
+Epoch time 2,364 s against 1,244 at 4,976 trials: **1.90x for 2.00x the data**,
+i.e. slightly sublinear, and 16 epochs fits one Kaggle session with 1.5 h spare.
+
+### Not answered
+
+**Whether any of this reaches the downstream metric.** The 09-01 checkpoint's
+2.584 dB converted to only 10.3 % of the available LCF-WER headroom, and the
+conversion has been poor at every point on this curve. A 12 % gain in separation
+should not be assumed to move LCF-WER, ICR or FR at all. Estimates and
+`evaluate.py` on this checkpoint are the next step, and the result is a finding
+either way.

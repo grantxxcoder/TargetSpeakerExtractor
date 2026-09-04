@@ -46,12 +46,7 @@ The Interferer Content Rate (ICR) is the first metric used to highlight one part
  where $\mathcal{S}$ is a fixed stopword list, taken from the NLTK English stopword corpus \cite{bird2009nltk}. Function words are removed because almost any two English sentences share them, so an overlap counted over these words would rather count as grammatical issues than content. These content words will be used to make interferer-exclusive bag of words of which will indicate which words the model picks up from the interfering speaker. 
 
  \paragraph{Interferer-exclusive content.}                                                                                                    
-Firstly, if both the target and interfer say the same word, it is not possible to know which speaker the model heard, thus these words are not considered unique to the interferer. Let $\mathcal{D}$ be the unique content words of the interferer that are not present in the target,
- \begin{equation}                                                                                                                             
-    \mathcal{D} = \mathcal{C}(y_d) \setminus \mathcal{C}(y_s),                                                                       
- \label{eq:exclusive}                                                                                                                         
- \end{equation}                                                                                                                               
- and the words that will be considered as leaked from the interferer are the intersection of the model output, $y_{\hat{s}}$ and the interferer-exclusive content words, $\mathcal{D}$,                                                                          
+Firstly, if both the target and interfer say the same word, it is not possible to know which speaker the model heard, thus these words are not considered unique to the interferer. Let $\mathcal{D}$ be the unique content words of the interferer that are not present in the target, and the words that will be considered as leaked from the interferer are the intersection of the model output, $y_{\hat{s}}$ and the interferer-exclusive content words, $\mathcal{D}$, 
  \begin{equation}                                                                                                                             
  \mathcal{L}(y_{\hat{s}}) = \mathcal{C}(y_{\hat{s}}) \cap \mathcal{D}.                                                                                            
  \label{eq:leaked}                                                                                                                            
@@ -70,13 +65,25 @@ The rate can be reported at several thresholds. For a set of trials $\mathcal{T}
 \mathcal{T}_k = \{\, i \in \mathcal{T} \;:\; a_i \ge k \,\}.                                                                                 
 \label{eq:icrk}                                                                                                                              
 \end{equation}                                                                                                                               
-Lower percentages are better.                                                                      
+Lower percentages are better. The rate is used to suggest how many words that are heard by the model that overlap with the interferer such that it is not considered chance if the word was heard.                                                                    
                                                                                                                                             
 The eligible set $\mathcal{T}_k$ depends on $k$. If in a trial there is only one exclusive content word available, it is impossible to achieve $\textup{ICR}@2$, so if we keep this trial in the denominator it would skew the results. 
 
-\subsection{Non-Response Rate}
-\label{sec:nrr}
-The Non-Response Rate (NRR) is a metric specifically meant for the fact that live speech-to-text models are prompted, and thus respond in a way that is not necessarily a transcription of the audio. 
+\subsection{Falsification Rate}
+\label{sec:fr}
+The Falsification Rate (FR) acts as the second part to the ICR metric, where the metric aims to highlight the case where the model has hallucinated a word that is neither present in the target nor the interferer. This metric is again only computable as the LibriSpeech~\cite{panayotov2015librispeech} dataset contains the exact transcriptions of the audio, and thus it is possible to determine if a word is hallucinated. The FR metric is defined as follows:
+Over the $N$ trials with a non-empty response, the statistic is the mean invented count per trial of the number of words in the model output that are not present in either the target or interferer, 
+\begin{equation}
+    \mathrm{FR}_{\text{count}} = \frac{1}{N} \sum_{i=1}^{N} \big| \mathcal{I}_i \big|,
+    \label{eq:frcount}
+\end{equation}
+where $\mathcal{I}_i$ is the set of words in the $i$-th trial's output that are not present in either the target or interferer and $\mathbb{1}\!$ is the indicator function for non-membership. The FR metric can also be reported with a threshold $k$ of invented words to consider a trial as a falsification. The $k$ value is used to determine the number of required words to not be included in either the target or interferer to be considered a hallucination. A word that is mis-transcribed is not necessarily a hallucination, as it is possible that the model heard the word but did not transcribe it correctly. A hallucination is defined as a word that is invented by the model as a by-product of the probabilistic. 
+\begin{equation}
+    \mathrm{FR}@k = \frac{1}{N} \sum_{i=1}^{N} \mathbb{1}\! \left[\, \big| \mathcal{I}_i \big| \ge k \,\right],
+    \qquad k = 2 \text{ by convention.}
+    \label{eq:frk}
+\end{equation}
+
 
 
 \subsection{Anchors}                                  
