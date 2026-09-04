@@ -4,6 +4,7 @@
     python scripts/make_kaggle_bundle.py --split sir0              # both zips
     python scripts/make_kaggle_bundle.py --split sir0 --code-only  # after a code change
     python scripts/make_kaggle_bundle.py --split sir0 --no-zip     # stage only
+    python scripts/make_kaggle_bundle.py --split sir0 --new-only 4976   # see below
 
 TWO ZIPS because they change at different rates: audio never changes once
 rendered, code changes constantly. One combined bundle would mean re-uploading
@@ -15,6 +16,28 @@ data bundle is staged for that split. Pass the split you actually train.
 
 Not included: the eval harness, the metric, the generators, tests, literature --
 none are on the training path. Data staging is idempotent (size-compared).
+
+--new-only N: stage only TRAIN rows N onward, because the first N are already
+uploaded and re-sending them is pure wall-clock. Added 2026-09-03, when the
+sir0 manifest grew 4,976 -> 9,955 rows and the full zip came to 30.3 GB: at the
+measured 0.40 MB/s upload that is ~21 h against ~10.5 h for the new half.
+
+SAFE ONLY BECAUSE THE MANIFEST IS ADDITIVE. build_manifest.py appended rows
+rather than regenerating them, so rows 0..N-1 still describe the same audio.
+The script PROVES that rather than trusting it: --prefix-manifest takes the
+manifest already uploaded and asserts that header + first N rows of the current
+one are byte-identical to it. If they are not, the old upload is not reusable
+and the run aborts -- the alternative is a dataset whose first half describes
+different audio than its manifest claims, which trains without error and is
+silently wrong.
+
+The VAL split is staged in full regardless: it is ~200 trials against ~5,000,
+so the saving is not worth a second class of partial-bundle bug, and it keeps
+the new dataset able to verify itself.
+
+The two halves land as two Kaggle datasets. train.py takes ONE --data-root, so
+the notebook symlinks both mounts into one tree -- at the TRIAL-DIRECTORY level,
+so it is ~10k symlinks and not ~130k. See scripts/make_kaggle_notebook.py.
 """
 
 from __future__ import annotations
@@ -22,6 +45,7 @@ from __future__ import annotations
 import argparse
 import shutil
 import subprocess
+import tempfile
 import sys
 import zipfile
 from pathlib import Path
@@ -124,9 +148,13 @@ def stage_code(out: Path) -> None:
     print(f"  code: {len(CODE)} files, stamped commit {git_commit()[:12]}")
 
 
-def stage_data(out: Path, split: str) -> None:
+def stage_data(out: Path, split: str, new_only: int = 0) -> None:
     copied = skipped = 0
-    for stem, audio_dir in SPLIT_FILES[split]:
+    # SPLIT_FILES lists train first, val second; --new-only trims the train
+    # rows only. The manifest itself is always staged WHOLE -- the merged run
+    # needs all 9,955 rows, and the older dataset carries a stale short copy
+    # that the notebook must override.
+    for pair_idx, (stem, audio_dir) in enumerate(SPLIT_FILES[split]):
         man = REPO / "data/manifests" / f"{stem}.csv"
         if not man.exists():
             sys.exit(f"missing {man} -- build it with "
@@ -136,6 +164,14 @@ def stage_data(out: Path, split: str) -> None:
                 copy_if_changed(f, out / "data/manifests" / f.name)
 
         ids = pd.read_csv(man)["trial_id"].tolist()
+        n_total = len(ids)
+        if new_only and pair_idx == 0:
+            if new_only >= n_total:
+                sys.exit(f"--new-only {new_only} but {stem} has only {n_total} rows")
+            ids = ids[new_only:]
+            print(f"  {stem}: --new-only {new_only} -> staging rows "
+                  f"{new_only}..{n_total - 1} ({len(ids)} of {n_total} trials); "
+                  f"the first {new_only} must already be on Kaggle")
         banked = 0
         for tid in ids:
             trial_dir = REPO / "data/rendered" / audio_dir / tid
@@ -167,12 +203,59 @@ def stage_data(out: Path, split: str) -> None:
     print(f"  audio files: {copied} copied, {skipped} already current")
 
 
-def verify(code_dir: Path, data_dir: Path, split: str) -> None:
+def check_additive(split: str, new_only: int, prefix_manifest: Path) -> None:
+    """PROVE the first `new_only` rows are unchanged before skipping them.
+
+    The whole saving rests on the uploaded half still describing the same audio.
+    If build_manifest.py had regenerated rather than appended, every row would
+    name different levels, positions and onsets -- and the resulting dataset
+    would train happily while being silently wrong. That is worth an assertion.
+
+    Byte comparison, not a row count: a same-length row with a different SIR is
+    exactly the failure this exists to catch.
+    """
+    stem = SPLIT_FILES[split][0][0]
+    man = REPO / "data/manifests" / f"{stem}.csv"
+    with man.open("rb") as fh:
+        head = b"".join([fh.readline() for _ in range(new_only + 1)])   # +1 header
+    print(f"  --new-only {new_only}: header + first {new_only} rows = {len(head):,} bytes")
+    if not prefix_manifest:
+        print("  NOT VERIFIED -- no --prefix-manifest given. Compare that byte count")
+        print("  against the uploaded manifest's size before trusting this bundle.")
+        return
+    ref = prefix_manifest.read_bytes()
+    if head != ref:
+        sys.exit(f"--prefix-manifest MISMATCH: {prefix_manifest} is {len(ref):,} bytes, "
+                 f"the current manifest's first {new_only} rows are {len(head):,}. The "
+                 f"uploaded half does NOT describe the same trials -- re-upload in full.")
+    print(f"  verified byte-identical to {prefix_manifest}")
+
+
+def write_verify_manifests(td: Path, split: str, new_only: int) -> None:
+    """Manifests trimmed to what --new-only actually staged, for verify() only.
+
+    Never zipped and never uploaded: the staged bundle keeps the FULL manifest,
+    because the merged run needs all of it.
+    """
+    (train_stem, _), (val_stem, _) = SPLIT_FILES[split]
+    df = pd.read_csv(REPO / "data/manifests" / f"{train_stem}.csv")
+    df.iloc[new_only:].to_csv(td / f"{train_stem}.csv", index=False)
+    shutil.copy2(REPO / "data/manifests" / f"{val_stem}.csv", td / f"{val_stem}.csv")
+
+
+def verify(code_dir: Path, data_dir: Path, split: str, man_dir: Path = None) -> None:
     """Import and run one batch through the loss FROM THE STAGED COPIES.
 
     Own process, cwd=code_dir, so nothing can silently resolve against the real
     repo. This is the step that catches a missing transitive import before a
     2.7 GB upload rather than after it.
+
+    `man_dir` overrides where the manifests are read from. Under --new-only the
+    staged bundle holds the FULL manifest but only the tail of the audio, so
+    verifying against it would die on the first un-staged trial -- a false
+    alarm that would look exactly like a real missing-file bug. main() passes a
+    temporary manifest filtered to the staged rows instead, so the check still
+    does its job: one real batch, through the real loss, from the staged copy.
     """
     src = f'''
 import sys, yaml, torch
@@ -186,7 +269,8 @@ cfg = yaml.safe_load(open("experiments/configs/bsrnn_baseline.yaml"))
 torch.manual_seed(int(cfg["seed"]))
 
 data = Path(r"{data_dir.resolve()}") / "data"
-tr, va = get_data_loaders("{split}", data / "manifests", data, cfg)
+mans = Path(r"{(man_dir or (data_dir / 'data' / 'manifests')).resolve()}")
+tr, va = get_data_loaders("{split}", mans, data, cfg)
 assert len(tr.dataset) and len(va.dataset), "empty dataset"
 L, m = build_loss_fn(cfg), build_model(cfg); m.eval()
 print(f"train={{len(tr.dataset)}} val={{len(va.dataset)}} "
@@ -244,7 +328,17 @@ def main() -> None:
     ap.add_argument("--code-only", action="store_true",
                     help="skip the audio entirely; use after a code change")
     ap.add_argument("--no-zip", action="store_true")
+    ap.add_argument("--new-only", type=int, default=0, metavar="N",
+                    help="stage only TRAIN rows N onward; the first N are already "
+                         "uploaded. N = the row count of the uploaded manifest.")
+    ap.add_argument("--prefix-manifest", type=Path, default=None, metavar="CSV",
+                    help="the manifest already uploaded. Asserts header + first N "
+                         "rows of the current manifest are byte-identical to it. "
+                         "Strongly advised with --new-only.")
     args = ap.parse_args()
+
+    if args.prefix_manifest and not args.new_only:
+        sys.exit("--prefix-manifest only means something with --new-only")
 
     root = Path(args.out)
     code_dir, data_dir = root / "code", root / f"data_bundle_{args.split}"
@@ -254,11 +348,19 @@ def main() -> None:
     stage_code(code_dir)
 
     if not args.code_only:
+        if args.new_only:
+            check_additive(args.split, args.new_only, args.prefix_manifest)
         print(f"staging data -> {data_dir}")
-        stage_data(data_dir, args.split)
+        stage_data(data_dir, args.split, args.new_only)
 
     if data_dir.exists():
-        verify(code_dir, data_dir, args.split)
+        if args.new_only:
+            # Verify against a manifest trimmed to what is actually staged.
+            with tempfile.TemporaryDirectory() as td:
+                write_verify_manifests(Path(td), args.split, args.new_only)
+                verify(code_dir, data_dir, args.split, Path(td))
+        else:
+            verify(code_dir, data_dir, args.split)
     else:
         print("  (no staged data; skipping verification)")
 
@@ -274,6 +376,13 @@ def main() -> None:
         print("\nOn Kaggle, add BOTH as datasets (data once, code whenever it changes):")
         print(f"  {root}/kaggle_data_{args.split}.zip   -> dataset with data/manifests + data/rendered")
         print(f"  {root}/kaggle_code.zip   -> dataset with scripts/ + src/ + experiments/")
+        if args.new_only:
+            print(f"\n  THIS IS A PARTIAL BUNDLE: train rows {args.new_only} onward only.")
+            print("  Upload it as a SECOND dataset and keep the first one -- deleting")
+            print("  it makes this bundle unusable. In the notebook set DATA_DIR to")
+            print("  the OLD dataset and DATA_DIR_NEW to this one; the merge cell")
+            print("  symlinks both into /kaggle/working/merged and reads the full")
+            print("  manifest from the NEW one.")
         print("Then run notebooks/kaggle_train_mid.ipynb.")
 
 

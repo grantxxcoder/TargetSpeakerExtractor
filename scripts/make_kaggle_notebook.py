@@ -93,8 +93,18 @@ NUM_WORKERS = 4       # 0 starves the GPU: 3 windowed wav reads per crop
 RESUME_FROM = None    # e.g. "/kaggle/input/prev-run/models/model_sir0.pt"
 
 # The two Kaggle dataset mount points. Change only if you rename the datasets.
-DATA_DIR = "/kaggle/input/datasets/grantbooysen/tse-sir0-audio"
-CODE_DIR = "/kaggle/input/datasets/grantbooysen/tse-code"
+DATA_DIR     = "/kaggle/input/tse-audio-s0-v3"   # the dataset holding the audio
+DATA_DIR_NEW = None    # SECOND audio dataset, or None. Set this only when the
+                       # trials are split across two datasets because the first
+                       # half was already uploaded (make_kaggle_bundle.py
+                       # --new-only). The merge cell below symlinks both into one
+                       # tree; the FULL manifest is read from DATA_DIR_NEW, which
+                       # is the one carrying every row. 2026-09-03.
+CODE_DIR     = "/kaggle/input/tse-code-v3"
+# The paths above are GUESSES until you look: Kaggle has mounted datasets at both
+# /kaggle/input/<slug> and /kaggle/input/datasets/<user>/<slug>. Run `!ls
+# /kaggle/input` and copy what it actually prints -- a wrong path fails in the
+# next cell with the exact missing file, which is the cheapest place to find out.
 # ===================================================================
 
 WORK = "/kaggle/working"
@@ -131,21 +141,107 @@ except ImportError:
 print(f"soundfile {soundfile.__version__}")
 
 DATA = Path(DATA_DIR)
+DATA_NEW = Path(DATA_DIR_NEW) if DATA_DIR_NEW else None
 CODE = Path(CODE_DIR)
-print(f"data: {DATA}\ncode: {CODE}")
+print(f"data: {DATA}" + (f"\ndata (new half): {DATA_NEW}" if DATA_NEW else "")
+      + f"\ncode: {CODE}")
 
 # Fail here, with the exact missing path, rather than three cells later with
 # something obscure. If a path is wrong, the Kaggle right-hand Input panel shows
 # the real one -- copy it into the knobs cell above.
-for base, rel in [(DATA, f"data/manifests/{SPLIT}_train.csv"),
-                  (DATA, f"data/manifests/{SPLIT}_val.csv"),
-                  (CODE, "scripts/train.py"),
+for base, rel in [(CODE, "scripts/train.py"),
                   (CODE, "experiments/configs/bsrnn_baseline.yaml"),
                   (CODE, "src/models/bsrnn.py")]:
     if not (base / rel).exists():
         raise SystemExit(f"missing: {base / rel}\n"
-                         f"  fix DATA_DIR / CODE_DIR in the knobs cell above.")
-print("  contents verified")
+                         f"  fix CODE_DIR in the knobs cell above.")
+print("  code contents verified (data is checked in the merge cell below)")
+'''))
+
+cells.append(md(r"""
+## Resolve the data root
+
+One audio dataset, or two symlinked into one tree. Two happens when the first
+half of the trials was already on Kaggle and only the new half was uploaded.
+"""))
+
+cells.append(code(r'''
+# --- resolve the data root, merging two datasets if needed ----------------
+#
+# WHY THIS EXISTS. train.py takes ONE --data-root, but the trials can be spread
+# across two Kaggle datasets: the first N were uploaded earlier, and re-sending
+# them is pure wall-clock -- 30.3 GB at the measured 0.40 MB/s is ~21 h against
+# ~10.5 h for the new half alone. So when DATA_DIR_NEW is set, build a single
+# tree of SYMLINKS pointing into both mounts. 2026-09-03.
+#
+# Linked at the TRIAL-DIRECTORY level, not per file: ~10k links rather than
+# ~130k, seconds instead of minutes, and /kaggle/working holds only links so it
+# costs essentially no quota.
+#
+# The MANIFEST is read from DATA_DIR_NEW, and that is not arbitrary. The older
+# dataset still carries the SHORT manifest it was built with (4,976 rows). Read
+# that one and the run trains on half the data while reporting success -- no
+# error, just a quietly wrong experiment. The new dataset carries every row.
+MERGED = Path(WORK) / "merged"
+
+if DATA_NEW is None:
+    DATA_ROOT    = DATA / "data"
+    MANIFEST_DIR = DATA / "data/manifests"
+    print(f"single dataset -> {DATA_ROOT}")
+else:
+    from collections import Counter
+    made = Counter()
+    for sub in (f"{SPLIT}_train", f"{SPLIT}_val"):
+        dst = MERGED / "data/rendered" / sub
+        dst.mkdir(parents=True, exist_ok=True)
+        # DATA first, DATA_NEW second; first writer wins on a duplicate trial_id.
+        # Duplicates are EXPECTED: val is staged into both halves on purpose, so
+        # that the new dataset can verify itself without the old one.
+        for src_root in (DATA, DATA_NEW):
+            src = src_root / "data/rendered" / sub
+            if not src.is_dir():
+                continue
+            for tid in os.listdir(src):
+                link = dst / tid
+                if not link.exists():
+                    os.symlink(src / tid, link)
+                    made[sub] += 1
+    # Link the manifests in too, so MERGED is a COMPLETE data root rather than
+    # a rendered-only tree. The batch-size probe derives its manifest directory
+    # as <data-root>/manifests, so a partial merge would break it in a way that
+    # looks like an OOM rather than a path bug.
+    mdst = MERGED / "data/manifests"
+    mdst.mkdir(parents=True, exist_ok=True)
+    for f in sorted((DATA_NEW / "data/manifests").iterdir()):
+        link = mdst / f.name
+        if not link.exists():
+            os.symlink(f, link)
+    DATA_ROOT    = MERGED / "data"
+    MANIFEST_DIR = mdst
+    print(f"merged two datasets -> {DATA_ROOT}")
+    for sub, n in sorted(made.items()):
+        print(f"  {sub}: {n} trial symlinks")
+
+# Check what the run will ACTUALLY read, after resolution -- not the knob paths.
+# Counting manifest rows against trials on disk is what catches a half-merged
+# tree, which is the one new failure this cell can introduce.
+import csv as _csv
+for stem in (f"{SPLIT}_train", f"{SPLIT}_val"):
+    man = MANIFEST_DIR / f"{stem}.csv"
+    if not man.exists():
+        raise SystemExit(f"missing manifest: {man}\n  fix the knobs cell above.")
+    with open(man) as fh:
+        ids = [r["trial_id"] for r in _csv.DictReader(fh)]
+    missing = [t for t in ids if not (DATA_ROOT / "rendered" / stem / t).exists()]
+    print(f"  {stem}: {len(ids)} rows, {len(ids) - len(missing)} present on disk")
+    if missing:
+        raise SystemExit(
+            f"{len(missing)} of {len(ids)} trials in {stem} are NOT on disk, "
+            f"first missing: {missing[0]}\n"
+            f"  Split across two datasets? Set DATA_DIR_NEW.\n"
+            f"  Already set? The older dataset holds the first half -- if it was "
+            f"deleted, this run cannot proceed and the full set must be re-uploaded.")
+print("  data verified")
 '''))
 
 cells.append(code(r'''
@@ -204,9 +300,16 @@ if RESUME_FROM:
 
 cells.append(code(r'''
 # --- find the largest batch size that actually fits ----------------------
-# Measured, not guessed: one real forward + backward + optimizer step per
-# candidate. AdamW allocates its state on the first step(), so a probe that
-# stops at backward() understates peak memory.
+# Measured, not guessed: real forward + backward + optimizer step per candidate.
+# AdamW allocates its state on the first step() that APPLIES, so a probe that
+# stops at backward() -- or whose step is skipped -- understates peak memory.
+#
+# PROBES IN THE PRECISION THAT TRAINS. Until 2026-09-04 this ran fp32 while
+# train.py trained under AMP, so it found the fp32 ceiling (batch 3, measured)
+# and wrote it into an fp16 run that fits 6 -- capping every Kaggle run at half
+# the batch it could hold. Same class as the fp32-warmup bug fixed in
+# profile_step.py on 2026-08-28; that fix never reached here.
+# decisions-pending.md E8.
 #
 # Each candidate runs in its OWN subprocess. A caught OutOfMemoryError leaves
 # the allocator in a poor state and the failed graph can stay reachable, so
@@ -217,22 +320,58 @@ PROBE.write_text("""
 import sys, yaml, torch
 from pathlib import Path
 sys.path.insert(0, ".")
-from scripts.train import get_data_loaders, build_model, build_loss_fn, unpack
+from scripts.train import (get_data_loaders, build_model, build_loss_fn, unpack,
+                           amp_ctx)
 B, data, split = int(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
 cfg = yaml.safe_load(open("experiments/configs/bsrnn_baseline.yaml"))
 cfg["data"]["batch_size"] = B
 torch.manual_seed(int(cfg["seed"]))
 dev = torch.device("cuda")
+# amp_ctx is IMPORTED, not reimplemented -- its docstring says one definition so
+# train, val and the diagnostic cannot drift into different precisions, and this
+# probe is subject to exactly that requirement.
+use_amp = bool(cfg["training"].get("amp", False))
+scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 tr, _ = get_data_loaders(split, data / "manifests", data, cfg)
 m = build_model(cfg).to(dev); m.train()
 L = build_loss_fn(cfg)
-opt = torch.optim.AdamW(m.parameters(), lr=1e-4)
-b = next(iter(tr)); x, s, e, a = unpack(b, dev)
-loss, _ = L(s, m(x, e), x, a)
-loss.backward(); opt.step()
+opt = torch.optim.AdamW(m.parameters(), lr=float(cfg["training"]["lr"]),
+                        weight_decay=float(cfg["training"]["weight_decay"]))
+grad_clip = float(cfg["training"]["grad_clip"])
+
+# LOOP UNTIL A STEP ACTUALLY APPLIES. GradScaler starts at a high scale and
+# skips the step whenever the gradients hold inf/NaN, which is normal on the
+# first steps while it calibrates. A skipped step leaves opt.state empty, so
+# AdamW's exp_avg/exp_avg_sq are never allocated and the peak comes back ~2
+# param-copies light. Detect it directly rather than assuming a step count.
+applied = False
+for i, b in enumerate(tr):
+    x, s, e, a = unpack(b, dev)
+    opt.zero_grad()
+    # Mirrors train.py's step exactly: autocast the FORWARD ONLY, .float()
+    # before the loss (LossBSRNN's 1e-12 epsilons underflow in fp16), then
+    # scale / unscale / clip / step / update.
+    with amp_ctx(use_amp):
+        out = m(x, e)
+    loss, _ = L(s, out.float(), x, a)
+    scaler.scale(loss).backward()
+    scaler.unscale_(opt)
+    torch.nn.utils.clip_grad_norm_(m.parameters(), grad_clip)
+    scaler.step(opt)
+    scaler.update()
+    if opt.state:
+        applied = True
+        break
+    if i >= 4:
+        break
 torch.cuda.synchronize()
+if not applied:
+    raise SystemExit(f"PROBE-INCONCLUSIVE {B}: GradScaler skipped every step, "
+                     f"so AdamW state was never allocated and the peak is an "
+                     f"underestimate. Do not trust this batch size.")
 print(f"OK {B} {torch.cuda.max_memory_allocated() / 2**30:.2f} "
-      f"{torch.cuda.max_memory_reserved() / 2**30:.2f}")
+      f"{torch.cuda.max_memory_reserved() / 2**30:.2f} "
+      f"{'amp' if use_amp else 'fp32'}")
 """)
 
 import yaml
@@ -254,13 +393,25 @@ else:
     cands = sorted(set(cands), reverse=True)
     chosen = None
     for B in cands:
-        r = subprocess.run([sys.executable, "_probe_batch.py", str(B), str(DATA / "data"), SPLIT],
+        r = subprocess.run([sys.executable, "_probe_batch.py", str(B), str(DATA_ROOT), SPLIT],
                            cwd=REPO, capture_output=True, text=True)
         if r.returncode == 0 and r.stdout.startswith("OK"):
-            _, b_ok, peak, res = r.stdout.split()
-            print(f"  batch {B:2d}: FITS   peak allocated {peak} GiB, reserved {res} GiB")
+            # 5 fields since 2026-09-04: the last one is the precision probed,
+            # and it MUST read `amp` whenever training.amp is on. A probe in the
+            # wrong precision measures a run that never happens -- that is how
+            # every Kaggle run got capped at the fp32 ceiling. E8.
+            _, b_ok, peak, res, prec = r.stdout.split()
+            print(f"  batch {B:2d}: FITS   peak allocated {peak} GiB, "
+                  f"reserved {res} GiB, probed in {prec}")
+            if prec != ("amp" if cfg["training"].get("amp") else "fp32"):
+                raise SystemExit(f"probe ran in {prec} but training.amp="
+                                 f"{cfg['training'].get('amp')}; the ceiling it "
+                                 f"found is for the wrong precision")
             chosen = B
             break
+        if "PROBE-INCONCLUSIVE" in r.stderr:
+            print(r.stderr[-500:])
+            raise SystemExit(f"probe inconclusive at batch {B}: see above")
         if "OutOfMemoryError" in r.stderr or "out of memory" in r.stderr.lower():
             print(f"  batch {B:2d}: OOM")
             continue
@@ -305,8 +456,8 @@ cmd = [sys.executable, "-u", "scripts/train.py",
        "--split", SPLIT,
        "--epochs", str(EPOCHS),
        "--config", "experiments/configs/bsrnn_baseline.yaml",
-       "--data-root", str(DATA / "data"),
-       "--manifest-dir", str(DATA / "data/manifests"),
+       "--data-root", str(DATA_ROOT),
+       "--manifest-dir", str(MANIFEST_DIR),
        "--outdir", OUT,
        "--results-dir", RES]
 if RESUME_FROM:

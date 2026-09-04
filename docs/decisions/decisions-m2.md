@@ -1742,3 +1742,170 @@ the selected epoch against 15.12 dB at the end.
 (selected) and `models/model_sir0_5000-last.pt`. The `keep_top_k` checkpoints
 e004/e005/e007 were discarded: e007 is the selected epoch and is already kept,
 and the other two were epochs the selection rule rejected.
+
+---
+
+## 2026-09-03 — The `w` warmup is now indexed in GRADIENT STEPS, not epochs
+
+**Change `loss.w_schedule` from `warmup_epochs`/`ramp_epochs` to
+`warmup_steps`/`ramp_steps`, and apply it per batch instead of once per epoch.**
+An epoch-indexed schedule changes length in the unit the optimiser actually
+moves in whenever the training set changes size, which silently confounds the
+data-scaling curve.
+
+### The problem, in numbers
+
+`warmup_epochs: 4` + `ramp_epochs: 3` is a fixed number of *epochs*, so its
+length in gradient steps is a function of the manifest:
+
+| trials | steps/epoch | warmup | full `w` at |
+|---|---|---|---|
+| 1,989 | 663 | 2,652 steps | step 4,641 |
+| 4,976 | 1,658 | 6,632 steps | step 11,606 |
+| 9,955 | 3,318 | 13,272 steps | step 23,212 |
+
+Steps/epoch is `floor(n_trials / batch_size)` — the loader counts TRIALS, and
+`both_directions` widens each batch rather than lengthening the epoch.
+
+So the three points of the data-scaling curve were each running a **different
+schedule**, at 1x, 2.5x and 5x the warmup length. The curve exists to measure
+data volume alone; this was a second variable moving with it, unlogged and
+unnoticed. It was flagged as a risk on 2026-08-31 ("the `w` warmup is defined in
+EPOCHS, not steps") and accepted for the 4,976 run; at 9,955 it doubles again,
+so it is now fixed before the run rather than after.
+
+**Why it matters specifically.** `w` is the one knob that stops the early mute
+(2026-08-25: the model muted to −18.5 dB by epoch 1 and learned silence before
+conditioning). A longer warmup is probably *safer*, not harmful — but "probably
+safer" is not a controlled comparison, and the 9,955 run's best epoch is
+projected around 4–5, so under the old schedule the selected checkpoint would
+have been taken **mid-ramp**, before the objective was ever the one being
+reported, and compared against a 4,976 checkpoint taken at full `w`.
+
+### What was chosen
+
+`warmup_steps: 6632`, `ramp_steps: 4974` — exactly 4 and 3 epochs at the
+**4,976-trial baseline's** 1,658 steps/epoch. The 2026-09-01 run is the arm the
+new run must be comparable to, so its schedule is the one pinned. Full `w` from
+step 11,606: epoch 7.00 at 4,976 trials (identical to the baseline), epoch 3.50
+at 9,955.
+
+`warmup_epochs`/`ramp_epochs` are still honoured by `schedule_in_steps()`, so
+every run up to 2026-09-01 reproduces from its logged config. Setting both forms
+at once is refused with an assertion — silently honouring one unit and ignoring
+the other is the failure mode worth failing loudly on.
+
+### The one real difference from the baseline, stated
+
+The epoch-indexed schedule was a three-tread **staircase**: `w` held flat for a
+whole epoch, then jumped. The step-indexed one is a **continuous ramp** over the
+same span. They agree exactly at each epoch's *last* step and share both
+endpoints (where warmup ends, where full `w` arrives), but not in between —
+measured, the mean `w` across the ramp is **50.0 % of the final `w`, against the
+staircase's 66.7 %**. So slightly less absent-branch pressure is applied during
+the ramp. This is not a rescaling of the curve and it is not free of
+consequence; it is recorded here so a difference between the 4,976 and 9,955
+runs is not attributed to data when part of it may be this.
+Pinned in `tests/test_w_schedule.py::test_step_schedule_matches_epoch_schedule_at_epoch_ends`.
+
+### Implementation notes
+
+- `_w_ramp()` holds the shape in whatever unit is passed, so the step-indexed
+  and legacy epoch-indexed schedules are provably the same curve — only the unit
+  of `t` differs. `schedule_in_steps()` is the single place the config is
+  converted to steps, so the loop, the startup print and the tests cannot
+  disagree about where the ramp ends.
+- `global_step` counts **batches**, not successful optimiser updates. AMP's
+  `GradScaler` skips a step whose gradients hold inf/NaN, and a schedule that
+  moved with those skips would not be reproducible from the config and seed
+  alone.
+- **`global_step` is persisted in both resumable checkpoints and restored on
+  `--resume`.** Without it a resumed run restarts the warmup and re-runs the
+  early-mute risk — the 2026-08-29 run was a resume. Checkpoints written before
+  today have no such key; the fallback reconstructs it as
+  `start_epoch * steps_per_epoch`, which is exact provided the training set has
+  not changed size, and a resume across a config change is already refused.
+- The `w` column in `history.csv` is now the **mean over the epoch's steps**.
+  Identical to the old value wherever `w` is constant — every epoch after the
+  ramp, and every epoch of a legacy run — and inside the ramp it is the weight
+  that actually trained the epoch rather than one endpoint of it. Validation
+  totals are unaffected: `epoch_report()` recombines the raw per-term means at
+  `w_report`, never at the instantaneous `w`.
+- `w_at_epoch()` is kept as the legacy entry point (this file cites it by name
+  under 2026-08-25) and asserts if handed a step-indexed config.
+
+### Not done
+
+**The absolute length of the warmup is still a guess.** 6,632 steps is "what the
+baseline happened to do", not a measured requirement — no experiment says how
+many steps conditioning needs. What this change buys is that the guess is now
+the *same* guess at every dataset size. The end-of-warmup
+`val_enrol_sens_db` remains the thing that tells you whether it was enough.
+
+---
+
+## 2026-09-03 — Getting 9,955 trials onto Kaggle: `--new-only`, and a measured upload wall
+
+**Add `--new-only N` to `make_kaggle_bundle.py` and a two-dataset merge cell to
+the notebook,** so the half of the trials already on Kaggle need not be sent
+again. Recorded here rather than in m1 because it gates the 9,955-trial run, not
+the architecture.
+
+### The situation
+
+The sir0 manifest grew 4,976 -> 9,955 rows. The bundle is `ZIP_STORED`, so the
+zip is 30.3 GB (130,619 files), built in 2.1 h. Uploading it in full is a large
+cost paid for nothing: `build_manifest.py` **appended** rows rather than
+regenerating, so the first 4,976 still describe the same audio.
+
+**Proven, not assumed.** Header + first 4,976 rows of the current manifest is
+1,898,599 bytes; the `sir0_train.csv` already stored in `tse-audio-s0-v2` is
+1,898,599 bytes. Identical. `check_additive()` re-runs that comparison at bundle
+time against `--prefix-manifest` and aborts on mismatch, because the failure it
+guards is silent: a dataset whose first half describes different audio than its
+manifest claims trains without error and is simply wrong.
+
+### Design notes
+
+- Train rows are trimmed; **val is always staged whole**. It is ~200 trials
+  against ~5,000, so the saving is not worth a second class of partial-bundle
+  bug, and it leaves the new dataset able to verify itself.
+- The staged **manifest stays complete**. The older dataset carries the short
+  4,976-row manifest it was built with, and a run that read that one would train
+  on half the data and report success. The notebook therefore takes manifests
+  from the NEW dataset.
+- `verify()` gained a `man_dir` override. Under `--new-only` the bundle holds
+  the full manifest but only the tail of the audio, so verifying against it
+  would die on the first un-staged trial -- a false alarm indistinguishable from
+  a real missing-file bug. It now verifies against a temporary manifest filtered
+  to what was actually staged, so the check still does its job.
+- The notebook merges the two mounts by symlinking at the **trial-directory**
+  level: ~10k links, not ~130k. It links the manifests in too, so the merged
+  tree is a complete data root -- the batch-size probe derives its manifest
+  directory as `<data-root>/manifests`, and a rendered-only merge would fail
+  there in a way that looks like an OOM rather than a path bug. It then counts
+  manifest rows against trials on disk, which is what catches a half-merged tree.
+
+### The upload is throughput-bound, and `--new-only` does not fix that
+
+Measured 2026-09-03, uploading the full zip with the Kaggle CLI:
+
+| path | rate |
+|---|---|
+| Kaggle dataset upload | **~95 kB/s** |
+| 50 MB to an unrelated public endpoint, concurrently | **785 kB/s** |
+| the line, per the user's speed test | 192 Mbps (~24 MB/s) |
+| sequential read off the zip (HDD) | 81 MB/s |
+
+Neither the disk nor the line explains it; the ingest is ~8x slower than an
+unrelated target on the same connection at the same moment. **At 95 kB/s the
+30.3 GB zip is ~86 h, and the `--new-only` half is still ~43 h.** Halving the
+bytes does not rescue a rate that low, so `--new-only` is worth having but is
+not the answer to this: the fix is a faster path to Kaggle (campus network),
+not a smaller payload.
+
+Compression was considered and **rejected for now**: DEFLATE measured 37 % off
+on 25 real trials (68.5 MB -> 43.1 MB), confirmed by Kaggle storing the previous
+15.35 GB upload as 9.55 GB. Real, but it re-zips 30 GB on a seek-bound HDD to
+attack the wrong bottleneck. The bundler's comment claiming DEFLATE "buys almost
+nothing" is measurably wrong and should be corrected when the flag is revisited.

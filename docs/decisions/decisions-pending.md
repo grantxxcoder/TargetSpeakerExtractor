@@ -32,6 +32,21 @@ actually taken go to the decision log of the milestone they belong to —
   plotted) rather than metrics in isolation.** Diagnosis accepted; ranking by
   polygon area rejected as order-dependent, and the baseline normalisation must
   be floor-to-ceiling rather than percentage change. See Group J.
+- **E7 — PROPOSAL: use the second T4.** Kaggle's "GPU T4 x2" gives two cards and
+  the code uses one; the other has been idle for every run to date. **~2x** for
+  about half a day's work, the trap being `DataParallel`'s `module.` state-dict
+  prefix. **Conditional on E8's `batch_size` 3 -> 6** — at batch 3 the split
+  halves an already-saturated card and disappoints. Sequenced *after* the
+  9,955-trial run so the data-scaling curve does not move two variables at once.
+  See Group E.
+- **E8 — PROPOSAL: raising `batch_size`, and a BUG capping it at 3.** The
+  notebook's batch probe runs fp32 while training runs fp16, so it finds the
+  fp32 ceiling (batch 3) and writes it into an AMP run that fits 6. A repeat of
+  the fp32-warmup bug already fixed in `profile_step.py`. Fixing the probe is
+  the cheap half of E8 and is what unblocks E7. Memory is essentially all
+  activations, which rules out 8-bit optimisers (~43 MB of ~13 GB) and audio
+  compression (cannot touch GPU memory at all). Beyond 6 needs `hop` 128->256.
+  See Group E.
 - **A1 needs sign-off only, not a decision.** Reference is the full reverberant
   target: separate and denoise, do not dereverberate. Removing a 0.6 s tail inside
   a 300 ms causal window is not possible, and trying trades residue for artefacts,
@@ -534,6 +549,228 @@ The planned arms alone (`ablate_w_m` 3, `ablate_w_g` 3, lookahead 3, plus D4a
 and a `tfmap_scale` arm to close D2) are ~12 runs. **Speed converts directly
 into how many questions the thesis can answer**, and Kaggle's ~12 h session cap
 makes the 10k-trial run multi-session at today's rate and single-session at 3x.
+
+### E7. PROPOSAL — `DataParallel` across the second T4, which is currently idle
+
+**Raised 2026-09-04.** Kaggle's "GPU T4 x2" accelerator gives **two** T4s. The
+code uses one: `torch.device("cuda")` is `cuda:0`, and there is no
+`DataParallel`, `DistributedDataParallel` or `device_count` anywhere in
+`scripts/train.py` or `src/models/`. **Half the allocated hardware has been idle
+for every run so far.** The P100 option is one card, so this lever exists only
+on the T4 x2 selection.
+
+**Why it is cheaper than it looks.** The loss is computed *outside* the model:
+
+```python
+s_output = model(mixture, enrollment)                     # parallelisable
+loss, parts = loss_fn(target, s_output.float(), mixture, crop_absent)
+```
+
+`DataParallel` scatters the batch, runs the forward on both cards, and gathers
+outputs back to `cuda:0` — so `LossBSRNN` still sees the whole batch on one
+device. That matters because the loss means over *subsets* (`n_present`,
+`n_absent`) and a per-device reduction would silently reweight them.
+
+**It does NOT break the direction pairing, contrary to the first reading.**
+`collate_pairs` guarantees both directions of a trial land in the same batch,
+and splitting the batch across devices does separate some pairs in the forward
+pass — but the model is per-example independent and the contrast lives in the
+*loss*, which sees the gathered batch. Recorded because the worry is the obvious
+one and it is wrong.
+
+**The work — six call sites, one real trap.**
+
+1. Wrap after `build_model()`/`.to(device)`, gated on
+   `torch.cuda.device_count() > 1` **and** a config flag defaulting to off, so
+   every existing run reproduces.
+2. Keep `core = model.module if wrapped else model` and use `core` for:
+   - `state_dict()` at the three `torch.save` sites (**the trap**:
+     `DataParallel` prefixes every key with `module.`, which would break
+     `--resume`, `make_estimates.py`, and every checkpoint already on disk);
+   - `load_state_dict()` on resume;
+   - `model.band_widths` in `log_results()` — `DataParallel` does not forward
+     arbitrary attributes, so this raises `AttributeError`, not a wrong number.
+3. `diagnostic_accumulate()` calls `model(...)` for the enrolment swap; it can
+   take the wrapped model, but must be the *same* one the forward used.
+4. Log `device_count` in `meta.yaml` — a run's s/epoch is unreadable without it.
+5. The notebook's batch-size probe measures one GPU; with two the effective
+   batch doubles, so the probe's answer changes meaning.
+
+**Expected gain: ~2x, but ONLY at `batch_size: 6`. REVISED 2026-09-04** — the
+first estimate here was 1.4-1.7x, reasoning that splitting batch 3 would leave
+each card with poor LSTM occupancy. E3b-E3f's fp16 sweep already answers that
+and the first estimate was too pessimistic:
+
+| batch | s/trial | peak GB |
+|---|---|---|
+| 3 | 0.990 | 6.57 |
+| 5 | 0.994 | 10.87 |
+| 6 | 1.005 | 13.02 |
+
+Per-trial throughput is **flat over a 2x batch range (1.4 % spread)**, i.e. a
+single T4 is already saturated at batch 3. So batch 6 split 3/3 gives each card
+a *saturated* batch 3, and the ceiling is ~2x rather than 1.4-1.7x. Splitting
+batch 3 into 1.5/1.5 is the case that would disappoint.
+
+**CAVEAT, and it is not small: the saturation evidence is from the UNALIGNED
+regime.** Noticed 2026-09-04. Batches 3, 5 and 6 in that sweep are exactly the
+three sizes E3b-E3f identifies as sharing a fallback kernel ("agree to 0.4 %,
+the signature of a shared fallback kernel"); batch 4, the aligned one, ran 4.09x
+faster per example. Flatness across three points all running the same slow
+kernel shows that kernel is linear in work — it does **not** show the GPU is
+saturated on the fast path. Since `chunk_s: 4.008` everything runs aligned, and
+in that regime there are only two comparable points: batch 3 at ~0.112
+s/example (0.674 s/step / 6) and batch 4 at 0.122. Roughly flat, but two points
+from different measurement sets.
+
+The 2x claim requires per-example throughput to stay flat from **6 to 12
+examples while aligned**, which has never been measured. If an aligned card is
+not saturated at 6 examples, DataParallel returns less than 2x.
+
+**Settle this before writing any DataParallel code.** An aligned batch sweep
+(3/4/5/6 at `chunk_s: 4.008`, `profile_step.py --amp-only`) is ~20 min of GPU
+and decides whether E7 is worth half a day. It is also the cheapest possible
+test: if throughput per example *rises* with batch on the fast path, the honest
+conclusion is that a bigger batch on ONE card is the win and the second card
+adds little.
+
+**So E7 depends on E8: `batch_size` must go 3 -> 6 first**, and that needs no new
+technique — 6 is the measured fp16 ceiling (13.02 GB of 14.56) and fits today.
+Two cards is also 2x the memory that forced batch 3 in the first place (E1).
+
+Replication overhead is *not* a concern: 7.19 M params is ~29 MB fp32, broadcast
+per step over PCIe at ~6 GB/s is ~5 ms against a ~750 ms step (1244 s / 1658
+steps at 4,976 trials), i.e. **under 1 %**. What remains is scatter/gather
+latency.
+
+**Alignment must be re-checked, not assumed.** The 4.09x tensor-core cliff
+(E3b-E3f) depends on `examples x T` staying divisible by 8. `chunk_s: 4.008` was
+chosen so `T` is divisible by 4, which makes every batch size aligned today —
+but a DataParallel split changes the per-device batch, so verify with
+`profile_step.py`'s ALIGNED verdict before reading any timing. A 4x regression
+that looks like "the second GPU didn't help" is the easiest wrong conclusion
+available here.
+
+**Cost: roughly half a day**, most of it verification rather than code. Requires
+a 2-epoch A/B at fixed seed. Numerics will not be bit-identical (different
+kernel split and fp16 reduction order), so the A/B must show val terms agreeing
+within the known between-run noise, not exactly — and per the 2026-08-29 AMP
+row, that noise is large enough to swallow real differences, so this is a
+**speed** claim only and must never be reported as a quality change.
+
+**`DistributedDataParallel` is the better tool and is deferred.** It avoids the
+per-step replication and the gather, but needs `spawn` multiprocessing inside a
+Kaggle notebook, which fights the single-process training loop and the tee'd
+`history.csv` recovery path. Not worth it for 2 cards on one host.
+
+**Sequence.** After the 9,955-trial run lands, not before — that run is the
+third point on the data-scaling curve and must not change two variables at once.
+
+### E8. PROPOSAL — raising `batch_size`: what works, and what cannot
+
+**Raised 2026-09-04**, from asking how compression could buy a bigger batch.
+E7 needs batch 6; this is how far batch size can go and at what cost.
+
+**First, the premise is wrong for speed.** Per E3b-E3f, per-trial throughput is
+flat from batch 3 to 6 (0.990 / 0.994 / 1.005 s/trial). **A bigger batch does
+not make training faster on one T4** — the card is saturated at batch 3, which
+is exactly why gradient checkpointing was withdrawn. The 7.66x came from
+tensor-core *alignment*, not batch size: aligned vs unaligned is 4.09x, batch
+3->6 is 1.0x. So a bigger batch is worth wanting for only three reasons:
+
+1. **To feed DataParallel (E7)** — the real one. Two saturated cards, ~2x.
+2. Different gradient statistics — a change to training dynamics, needing its
+   own arm, not a speed optimisation.
+3. Headroom for a longer `chunk_s` or `lookahead_frames` later.
+
+**Batch 6 needs no new technique.** Measured ceiling is 13.02 GB of 14.56
+available; memory is exactly linear at **0.12 GB fixed + 2.15 GB per trial**.
+Batch 7 needs 15.17 GB and does not fit. So E7's prerequisite is a config edit,
+not an engineering project.
+
+**BUG, found 2026-09-04: the notebook's batch probe measures fp32 and the run
+trains in fp16, so it has been capping every Kaggle run at batch 3.**
+`_probe_batch.py` in `scripts/make_kaggle_notebook.py` does:
+
+    loss, _ = L(s, m(x, e), x, a)
+    loss.backward(); opt.step()          # no autocast, no GradScaler
+
+while `train.py` wraps its forward in `amp_ctx(use_amp)` with `amp: true`. So the
+probe finds the **fp32** ceiling — measured in E3b-E3f as exactly batch 3, with
+4/5/6/12 all OOM in `band_rnn`'s `_VF.lstm` — and writes it into the config that
+then trains at 1.86x less memory (12.20 GB fp32 vs 6.57 GB AMP, both batch 3).
+This explains the standing belief that one T4 fits only batch 3: true in fp32,
+and the runs are not fp32.
+
+**This is a repeat of a bug already fixed elsewhere.** E3b-E3f records "the first
+`--amp-only` attempt ran its warmup step unconditionally in fp32 and so OOM'd at
+batch 4 before AMP was exercised". That fix was applied to `profile_step.py` and
+never propagated to the notebook probe.
+
+Fixing the probe is the whole of E8's cheap half: wrap its forward in the same
+`amp_ctx` the trainer uses and let it find 6. Until then, no Kaggle run can
+reach the batch size E7 depends on, and any "batch 6 does not fit" report from
+the notebook is measuring the wrong precision.
+
+**Memory is essentially ALL activations**, and that kills a whole category of
+proposals before anyone spends a day on them. The model is 7.19 M params
+(~29 MB); AdamW state is ~57 MB. Against ~13,000 MB:
+
+- **8-bit optimisers (bitsandbytes) would save ~43 MB.** Not worth the
+  dependency. Recorded so it is not proposed again.
+- **Audio compression cannot reduce GPU memory at all** — E5 already says this;
+  how a waveform was stored on disk is irrelevant once it is a tensor. Caching
+  STFTs is 8x *more* storage (E5).
+
+**The levers that would actually work, beyond batch 6:**
+
+1. **`hop` 128 -> 256 — the only one that reaches batch 12.** Halves `T`, and
+   per E2 cost is linear in `T` through BOTH RNNs, so activations and compute
+   halve together: ~1.08 GB/trial, so batch 12 fits. Costs mask time resolution
+   (8 ms -> 16 ms granularity, still well inside the 200-300 ms budget). Already
+   E4's item 4 and ranked the largest single win; an architecture change needing
+   its own ablation arm.
+2. **Gradient checkpointing over the six `BSNet` blocks — reconsider for THIS
+   purpose.** ~5x less activation memory for ~33 % more compute. Correctly
+   withdrawn as a *speed* lever on a saturated card, but buying batch headroom
+   to feed a second GPU is a different trade and the arithmetic changes.
+3. **`L_MR`'s eight retained STFTs.** Named in E3b-E3f as part of the 2.4-3x gap
+   between E1's analytic model and measured memory. `windows_ms: [8,16,32,64]`
+   is four resolutions held for the backward pass. Recomputing them, or dropping
+   to two windows, attacks a *measured* contributor without touching the
+   architecture — but it changes the objective, so it needs an ablation.
+4. **Gradient accumulation**, if what is wanted is large-batch *statistics*
+   rather than throughput. Zero extra memory, and mathematically exact here
+   because the model uses LayerNorm/SubbandNorm and not BatchNorm, so there is
+   no cross-example statistic to corrupt. Makes nothing faster.
+
+**Rejected: shorter `chunk_s`.** Halves memory the same way as `hop`, but cuts
+the context the model has to learn conditioning in — the documented weak point
+(enrolment sensitivity flat at -3.79 dB across the 2.5x data increase,
+`decisions-m2.md` 2026-09-01). Same objection E4 already records.
+
+**Alignment governs all of it.** `examples x T` must stay divisible by 8 or the
+4.09x fallback kernel fires. `chunk_s: 4.008` makes `T` divisible by 4, so every
+batch size is aligned today — but levers 1 and 3 change `T` or the STFT set and
+can silently break that. Re-check with `profile_step.py`'s ALIGNED verdict
+before believing any timing.
+
+**CHANGING `batch_size` SILENTLY CHANGES THE `w` SCHEDULE.** The absent-branch
+warmup is indexed in optimiser *steps* (`decisions-m2.md` 2026-09-03), which
+makes it invariant to **dataset size** — the confound it was built to remove —
+but **not** to batch size. At batch 6 each step consumes twice the examples, so
+the same 11,606-step warmup covers 2x the audio it covered at batch 3. The
+warmup exists to stop the early mute, and its length in examples is the thing
+that matters for that, so this is a real change to the objective's schedule and
+not a bookkeeping detail. Either hold `warmup_steps`/`ramp_steps` x batch
+constant when batch changes, or treat a batch change as its own arm. **Do not
+let the probe pick a new batch size during the 9,955-trial run** — set the
+notebook's `BATCH_SIZE` knob to 3 to pin it, since candidates are filtered to
+`<= BATCH_SIZE`.
+
+**Sequence.** `batch_size: 3 -> 6` is the cheap prerequisite for E7 and can ride
+with it. Levers 1-3 are only needed to go beyond 6 and should wait until E7 has
+measured what two saturated cards actually deliver.
 
 ### D9. ASR cross-entropy as a differentiable content proxy
 

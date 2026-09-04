@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import argparse
 import contextlib
+import math
 import yaml
 import hashlib
 import csv
@@ -52,43 +53,129 @@ def build_loss_fn(config):
                      sample_rate=sample_rate, wg=wg, gain_delta_db=gain_delta_db)
 
 
-def w_at_epoch(config, epoch):
-    """The absent-branch weight for this epoch. decisions-m2.md 2026-08-25.
+# ---------------------------------------------------------------------------
+# THE ABSENT-BRANCH WEIGHT SCHEDULE
+#
+# WHY A SCHEDULE AT ALL. decisions-m2.md 2026-08-25. On the 2-epoch `mid` run
+# the model had muted to -18.5 dB by epoch 1, enrolment sensitivity -14.31 dB:
+# it learned silence before conditioning. Going quiet is worth ~9 loss units
+# immediately; using the enrolment is slow and earns nothing for level (L_pres
+# is scale-invariant). Weights cannot fix it -- w_m would need ~243, and
+# tau_abs is inert. The lever is WHEN the absent branch turns on. At w = 0
+# silence pays nothing, so the only way down is to reconstruct the target,
+# which on `both` crops needs the enrolment.
+#
+# WHY INDEXED IN GRADIENT STEPS, since 2026-09-03. The schedule used to be
+# indexed in EPOCHS, so its length in optimiser steps moved with the size of
+# the training set: warmup 4 + ramp 3 epochs is 11,606 steps at 4,976 trials
+# but 23,212 at 9,955 -- a silent 2x lengthening of the one knob that stops the
+# early mute. Two runs at different data volumes were therefore not running the
+# same schedule, which is precisely the confound the data-scaling curve
+# (1,989 -> 4,976 -> 9,955) exists to measure. Steps are the unit the optimiser
+# moves in, so a step-indexed schedule is invariant to dataset size.
+# decisions-m2.md 2026-09-03.
+# ---------------------------------------------------------------------------
 
-    WHY. On the 2-epoch `mid` run the model had muted to -18.5 dB by epoch 1,
-    enrolment sensitivity -14.31 dB: it learned silence before conditioning.
-    Going quiet is worth ~9 loss units immediately; using the enrolment is slow
-    and earns nothing for level (L_pres is scale-invariant). Weights cannot fix
-    it -- w_m would need ~243, and tau_abs is inert. The lever is WHEN the
-    absent branch turns on. At w = 0 silence pays nothing, so the only way down
-    is to reconstruct the target, which on `both` crops needs the enrolment.
 
-        epoch <  warmup_epochs                      -> w_start   (default 0)
-        warmup_epochs <= epoch < warmup + ramp      -> linear w_start -> w
-        epoch >= warmup + ramp                      -> w
+def _w_ramp(w_start, w_final, warmup, ramp, t):
+    """The schedule's SHAPE, in whatever unit `warmup`, `ramp` and `t` share.
 
-    Absent `w_schedule`, returns loss.w for every epoch, so an unscheduled
-    config behaves exactly as before.
+        t <  warmup                  -> w_start
+        warmup <= t < warmup + ramp  -> linear w_start -> w_final
+        t >= warmup + ramp           -> w_final
+
+    Split out on 2026-09-03 so the step-indexed schedule and the legacy
+    epoch-indexed one are provably the SAME CURVE, differing only in the unit
+    of `t`. Do not inline it.
+    """
+    if t < warmup:
+        return w_start
+    if ramp <= 0 or t >= warmup + ramp:
+        return w_final
+    # +1 so the LAST unit of the ramp reaches w_final rather than stopping one
+    # increment short of it.
+    frac = (t - warmup + 1) / ramp
+    return w_start + frac * (w_final - w_start)
+
+
+def schedule_in_steps(config, steps_per_epoch):
+    """(warmup_steps, ramp_steps, w_start, w_final), or None for a constant w.
+
+    THE ONE PLACE the config is converted into steps, so the training loop, the
+    startup print and the tests cannot disagree about where the ramp ends.
+
+    Two accepted forms, and mixing them is refused:
+
+      warmup_steps / ramp_steps    -- current. Invariant to dataset size.
+      warmup_epochs / ramp_epochs  -- LEGACY. Multiplied by this run's
+                                      steps_per_epoch here, which IS the bug
+                                      described above. Kept only so every run
+                                      up to 2026-09-01 reproduces exactly; a
+                                      new run should not use it.
     """
     w_final = float(config["loss"]["w"])
     sched = config["loss"].get("w_schedule")
     if not sched:
-        return w_final
+        return None
 
-    warmup = int(sched.get("warmup_epochs", 0))
-    ramp = int(sched.get("ramp_epochs", 0))
+    step_keys = sorted({"warmup_steps", "ramp_steps"} & set(sched))
+    epoch_keys = sorted({"warmup_epochs", "ramp_epochs"} & set(sched))
+    assert not (step_keys and epoch_keys), (
+        f"w_schedule mixes units: {step_keys} with {epoch_keys}. Pick one -- "
+        f"steps are the current form, epochs are kept only for reproducing "
+        f"runs up to 2026-09-01.")
+
     w_start = float(sched.get("w_start", 0.0))
     assert 0.0 <= w_start <= 1.0, f"w_schedule.w_start must be in [0, 1], got {w_start}"
-    assert warmup >= 0 and ramp >= 0, "w_schedule epochs must be >= 0"
 
-    if epoch < warmup:
-        return w_start
-    if ramp <= 0 or epoch >= warmup + ramp:
-        return w_final
-    # linear in epochs. +1 so the final ramp epoch reaches w_final rather than
-    # stopping one step short of it.
-    frac = (epoch - warmup + 1) / ramp
-    return w_start + frac * (w_final - w_start)
+    if epoch_keys:
+        assert steps_per_epoch > 0, (
+            "an epoch-indexed w_schedule needs steps_per_epoch > 0 to convert")
+        warmup = int(sched.get("warmup_epochs", 0)) * steps_per_epoch
+        ramp = int(sched.get("ramp_epochs", 0)) * steps_per_epoch
+    else:
+        warmup = int(sched.get("warmup_steps", 0))
+        ramp = int(sched.get("ramp_steps", 0))
+
+    assert warmup >= 0 and ramp >= 0, "w_schedule warmup/ramp must be >= 0"
+    return warmup, ramp, w_start, w_final
+
+
+def w_at_step(config, global_step, steps_per_epoch):
+    """The absent-branch weight for this optimiser step.
+
+    `global_step` counts BATCHES since the start of training, carried across a
+    resume. Batches and not *successful* optimiser updates on purpose: AMP's
+    GradScaler skips a step whose gradients hold inf/NaN, and a schedule that
+    moved with those skips would not be reproducible from the config and seed
+    alone.
+
+    Absent `w_schedule`, returns loss.w for every step, so an unscheduled
+    config behaves exactly as before.
+    """
+    resolved = schedule_in_steps(config, steps_per_epoch)
+    if resolved is None:
+        return float(config["loss"]["w"])
+    warmup, ramp, w_start, w_final = resolved
+    return _w_ramp(w_start, w_final, warmup, ramp, global_step)
+
+
+def w_at_epoch(config, epoch):
+    """LEGACY, epoch-indexed. Reproduces every run up to 2026-09-01.
+
+    The training loop no longer calls this -- it calls w_at_step(). Kept
+    because decisions-m2.md 2026-08-25 cites it by name, and because it is the
+    reference the step-indexed schedule is checked against in
+    tests/test_w_schedule.py. Only meaningful for a config that uses
+    warmup_epochs / ramp_epochs.
+    """
+    sched = config["loss"].get("w_schedule") or {}
+    assert not ({"warmup_steps", "ramp_steps"} & set(sched)), (
+        "w_at_epoch() is the legacy epoch-indexed entry point and cannot read a "
+        "step-indexed w_schedule -- call w_at_step() instead.")
+    # steps_per_epoch=1 makes one "step" one epoch, which is exactly the old
+    # arithmetic.
+    return w_at_step(config, epoch, steps_per_epoch=1)
 
 
 # One definition, used by both the stdout line and history.csv -- so a log
@@ -379,7 +466,7 @@ def selection_eligible(val_loss, config):
     return True if bar is None else float(val_loss["L_abs"]) <= float(bar)
 
 
-def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_debug=False, save_path=None, config=None, scheduler=None, start_epoch=0, best_val=float("inf"), best_row=None):
+def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_debug=False, save_path=None, config=None, scheduler=None, start_epoch=0, best_val=float("inf"), best_row=None, start_step=0):
     model.to(device)
     val_loss_history = []
     train_loss_history = []
@@ -399,10 +486,24 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
     # Fixed for the whole run. Every `total` reported anywhere uses this, so the
     # curve is one objective even while the schedule moves the training w.
     w_report = float(config["loss"]["w"])
-    if config["loss"].get("w_schedule"):
-        ws = [w_at_epoch(config, e) for e in range(num_epochs)]
+    # STEPS PER EPOCH. len(train_loader) with drop_last=True is
+    # floor(n_trials / batch_size): the loader counts TRIALS, and
+    # both_directions widens each batch rather than lengthening the epoch.
+    steps_per_epoch = len(train_loader)
+    resolved = schedule_in_steps(config, steps_per_epoch)
+    if resolved is not None:
+        warmup_steps, ramp_steps, _, _ = resolved
+        full_at = warmup_steps + ramp_steps
         print(f"w schedule: {config['loss']['w_schedule']}", flush=True)
-        print(f"  w by epoch: {[round(v, 4) for v in ws]}", flush=True)
+        print(f"  {steps_per_epoch} steps/epoch  warmup {warmup_steps} steps  "
+              f"ramp {ramp_steps} steps  full w at step {full_at} "
+              f"(epoch {full_at / max(steps_per_epoch, 1):.2f})", flush=True)
+        # Only as far as the end of the ramp: past it every epoch sits at
+        # w_report, and printing 100 identical numbers buries the ones that differ.
+        shown = min(num_epochs, math.ceil(full_at / max(steps_per_epoch, 1)) + 1)
+        ws = [w_at_step(config, e * steps_per_epoch, steps_per_epoch)
+              for e in range(shown)]
+        print(f"  w at each epoch START: {[round(v, 4) for v in ws]}", flush=True)
         print(f"  reporting/selection w held at {w_report}", flush=True)
 
     # Mixed precision. Config-driven so history.csv is readable next to the flag
@@ -416,24 +517,35 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
     print(f"  mixed precision: {'ON (fp16 forward, fp32 loss)' if use_amp else 'off'}",
           flush=True)
 
+    # Position in the schedule, carried across a resume so a resumed run does
+    # not restart the warmup and re-run the early-mute risk.
+    global_step = int(start_step)
+
     for epoch in range(start_epoch, num_epochs):
         # Re-crop. Offsets are derived from (seed, epoch, idx), so without this
         # every epoch reads the same 4 s window of every clip -- reproducible,
         # and it throws away five sixths of the audio.
         train_loader.dataset.set_epoch(epoch)
 
-        # The one place the schedule takes effect: the loss used for the
-        # backward pass this epoch. Everything downstream reports at w_report.
-        loss_fn.w = w_at_epoch(config, epoch)
-
         model.train()
         sums, counts = defaultdict(float), defaultdict(int)
+        # For the reported `w`: the mean over this epoch's steps, since a
+        # step-indexed schedule can move WITHIN an epoch.
+        w_sum, w_steps = 0.0, 0
         epoch_start = time.time()
         # TRAINING LOSS
         # No progress bar: at ~1,666 batches an epoch it emitted more lines than
         # the whole rest of the run and buried the per-epoch numbers. The
         # breakdown printed at the end of the epoch replaces it (2026-08-31).
         for batch in train_loader:
+            # THE ONE PLACE THE SCHEDULE TAKES EFFECT: the loss used for this
+            # backward pass. Per STEP since 2026-09-03, so the warmup covers the
+            # same amount of optimisation whatever the training set size.
+            # Everything downstream reports at w_report.
+            loss_fn.w = w_at_step(config, global_step, steps_per_epoch)
+            w_sum += loss_fn.w
+            w_steps += 1
+
             mixture, target, enrollment, crop_absent = unpack(batch, device)
 
             optimizer.zero_grad()
@@ -461,6 +573,13 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
             scaler.update()
 
             add_parts(sums, counts, parts)
+            global_step += 1
+
+        # The MEAN w over the epoch's steps. Identical to the old per-epoch
+        # value wherever w is constant -- every epoch after the ramp, and every
+        # epoch of a legacy epoch-indexed run -- and inside the ramp it is the
+        # weight that actually trained the epoch rather than one endpoint of it.
+        w_trained = w_sum / max(w_steps, 1)
 
         epoch_loss = epoch_report(sums, counts, w_report, loss_fn.wm, loss_fn.wg)
         train_loss_history.append(epoch_loss)
@@ -490,7 +609,7 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
         val_loss["epoch"] = epoch
         val_loss["lr"] = optimizer.param_groups[0]["lr"]
         # the w that TRAINED this epoch, not w_report -- see history_header()
-        val_loss["w"] = loss_fn.w
+        val_loss["w"] = w_trained
         val_loss_history.append(val_loss)
 
         # One CSV row per epoch, same columns and same order as history.csv. The
@@ -506,7 +625,7 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
         # Human-readable twin of the row above, on STDERR so stdout stays a
         # valid history.csv. Replaced the tqdm bars on 2026-08-31.
         print(format_epoch_breakdown(epoch, num_epochs, epoch_loss, val_loss,
-                                     time.time() - epoch_start, loss_fn.w),
+                                     time.time() - epoch_start, w_trained),
               file=sys.stderr, flush=True)
 
         if scheduler is not None:
@@ -530,6 +649,9 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
                 "optimizer": optimizer.state_dict(),
                 "scheduler": scheduler.state_dict() if scheduler else None,
                 "epoch": epoch,
+                # Where the w schedule had got to. Without it a resume restarts
+                # the warmup. See w_at_step().
+                "global_step": global_step,
                 "best_val": best_val,
                 "best_row": best_row,
                 "config": config,
@@ -573,6 +695,7 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
                     "optimizer": optimizer.state_dict(),
                     "scheduler": scheduler.state_dict() if scheduler else None,
                     "epoch": epoch,
+                    "global_step": global_step,
                     "best_val": best_val,
                     "best_row": best_row,
                     "config": config,
@@ -927,7 +1050,7 @@ def main():
     save_path = Path(args.outdir) / f"model_{args.split}.pt"
     save_path.parent.mkdir(parents=True, exist_ok=True)
 
-    start_epoch, best_val, best_row = 0, float("inf"), None
+    start_epoch, best_val, best_row, start_step = 0, float("inf"), None, 0
     if args.resume:
         if not save_path.exists():
             raise FileNotFoundError(f"--resume but no checkpoint at {save_path}")
@@ -939,6 +1062,12 @@ def main():
         if ckpt.get("scheduler"):
             scheduler.load_state_dict(ckpt["scheduler"])
         start_epoch = ckpt["epoch"] + 1
+        # THE SCHEDULE'S POSITION MUST SURVIVE THE RESUME. .get falls back to
+        # reconstructing it from the epoch count, which is exact for every
+        # checkpoint written before 2026-09-03 provided the training set has not
+        # changed size -- and a resume across a config change, which is how the
+        # split changes, is refused below.
+        start_step = int(ckpt.get("global_step", start_epoch * len(train_loader)))
         best_val = ckpt["best_val"]
         # .get, not [...]: checkpoints written before best_row existed have no
         # such key, and a missing best row is not a reason to refuse a resume.
@@ -946,7 +1075,8 @@ def main():
         # A resume across a config change is two experiments in one curve.
         if ckpt.get("config") != config:
             raise ValueError(f"{save_path} was trained under a different config, start a fresh run or pass a matching --config")
-        print(f"resumed {save_path} at epoch {start_epoch}, best_val {best_val:.4f}")
+        print(f"resumed {save_path} at epoch {start_epoch}, step {start_step}, "
+              f"best_val {best_val:.4f}")
 
     # Train the model.
     # `timed` writes the docs/run_times.md row (the over-a-minute rule) and
@@ -972,6 +1102,7 @@ def main():
             start_epoch=start_epoch,
             best_val=best_val,
             best_row=best_row,
+            start_step=start_step,
         )
         ran["epochs"] = len(train_loss_history)
     wall_s = time.time() - t0

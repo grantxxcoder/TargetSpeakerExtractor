@@ -91,13 +91,31 @@ loss:
                         # sensitivity -14.31 dB. With w = 0 the silence shortcut
                         # pays nothing, so the only way down is to reconstruct
                         # the target, which on `both` crops needs the enrolment.
-                        # See w_at_epoch() in scripts/train.py.
+                        # See w_at_step() in scripts/train.py.
                         # Delete this block to train at constant w.
     w_start: 0.0        # w during warmup
-    warmup_epochs: 4    # epochs at w_start. A GUESS: no measurement says how
-                        # many steps conditioning needs. The end-of-warmup
-                        # val_enrol_sens_db is what tells you if 4 was enough.
-    ramp_epochs: 3      # then linear w_start -> w. Epochs 7+ train at full w.
+    # INDEXED IN GRADIENT STEPS since 2026-09-03, not epochs. An epoch-indexed
+    # warmup silently changes length whenever the training set changes size: the
+    # same 4 + 3 epochs were 11,606 steps at 4,976 trials and would be 23,212 at
+    # 9,955, doubling the one knob that stops the early mute in the middle of the
+    # data-scaling curve that exists to measure data volume alone.
+    # decisions-m2.md 2026-09-03.
+    warmup_steps: 6632  # steps at w_start. = 4 epochs x 1,658 steps/epoch at the
+                        # 4,976-trial baseline (floor(4976 / batch_size 3), with
+                        # drop_last -- the loader counts TRIALS and
+                        # both_directions widens the batch rather than
+                        # lengthening the epoch). So the 2026-09-01 run's
+                        # schedule is now reproduced EXACTLY at any dataset size.
+                        # Still A GUESS in absolute terms: no measurement says
+                        # how many steps conditioning needs. The end-of-warmup
+                        # val_enrol_sens_db is what tells you if it was enough.
+    ramp_steps: 4974    # then linear w_start -> w. = 3 epochs x 1,658. Full w
+                        # from step 11,606: epoch 7.0 at 4,976 trials (matching
+                        # the baseline), epoch 3.5 at 9,955.
+    # warmup_epochs: 4  # LEGACY epoch-indexed form. Still honoured by
+    # ramp_epochs: 3    # schedule_in_steps() so runs up to 2026-09-01 reproduce.
+                        # Do NOT set alongside the *_steps keys -- mixing units
+                        # is refused with an assertion.
   w_m:   9.62          # weight on L_MR inside the present branch. MEASURED at
                     # the do-nothing anchor over 300 crops, 2026-08-20:
                     # L_pres -5.909 dB, L_MR 0.1842, target ratio 0.3

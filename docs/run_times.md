@@ -9,12 +9,20 @@ script finishes — newest first. Runs under a minute write nothing, which is wh
 keeps this file short enough to be worth reading. Set `RUN_LOG=0` to suppress.
 
 Machine unless stated: laptop, Intel i5-1135G7, **4 physical cores / 8 threads**,
-15 GB RAM, NVMe. No usable GPU (`torch.cuda.is_available() == False`).
+15 GB RAM, **5400 rpm SATA HDD** (Toshiba MQ04ABF1) -- corrected 2026-09-03, this
+file previously said NVMe. The NVMe in the machine is a 238 GB Samsung holding
+Windows (NTFS) and is not mounted on Linux; `/` and all project data live on the
+spinning disk. Measured 81 MB/s sequential read, but small-file work is
+seek-bound -- the 2026-09-03 bundle zipped 130,619 files at ~6.5 MB/s. **Every
+row in this file was measured on the HDD**, so none of them are NVMe numbers.
+No usable GPU (`torch.cuda.is_available() == False`).
 Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
 <!-- rows appended below by src/run_log.py -->
+| 2026-09-03 | `scripts/make_kaggle_bundle.py --split sir0` | 9,955 train + 200 val trials staged + zipped, `sir0` | 2.1 h | 4,979 new trials copied (4,976 already current); 30.3 GB zip at a sustained 6.5 MB/s, 130,619 entries. Staging + verify 42 min, data zip 1.4 h. Added by hand: the script does not use `run_log.timed`. |
+| 2026-09-03 | `scripts/render_enrollment_bank.py --split sir0_train --variants 3` | 4,979 trials x 3 variants | 1.2 h | 8 workers, 16 kHz PCM_16 |
 | 2026-09-03 | `scripts/measure_rtf_wesep.py` | --pretrain ../wesep_pretrained/tfmap_context_causal_100/ | 23 min |  |
 | 2026-09-03 | `scripts/render_trials.py --split sir0_train` | 4,979 trials rendered | 1.1 h | 8 workers, 16 kHz PCM_16 |
 | 2026-09-03 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-03-est-wesep-tfmap-causal --metrics content --listener judge --out experiments/results/2026-09-03-evaluate-wesep-judge | 11 min |  |
