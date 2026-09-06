@@ -262,7 +262,7 @@ of crops. Routing such a crop to the present branch would put an all-zero refere
 into \eqref{eq:alpha}, where $\alpha$ becomes $0/0$. the implementation asserts
 against this rather than relying on the labels agreeing.
 
-\paragraph{Weights.}
+\paragraph{Weights.} [TODO This doesnt make sense]
 
 The weight $w$ on the silent branch is derived rather than chosen. Silent crops make up a measured \num{0.297} of the training crops, and the objective is intended to weight silence at twice its frequency in the data, following \cite{li2026cartse}. Carrying that through gives $w = 0.458$, which reproduces the same focus on silence as the source objective, but using the actual frequency of silence in this project's training data rather than the source's.
 
