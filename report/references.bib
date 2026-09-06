@@ -216,6 +216,40 @@
              ({SIR} and {SAR})}
 }
 
+% The two ITU-T listening-test protocols. These are the HUMAN test procedures;
+% the DNSMOS entries below are the neural models that predict their outcome
+% without running a panel. Protocol and predictor are separate and both cited.
+@techreport{itu2003p835,
+  author      = {{International Telecommunication Union}},
+  title       = {Subjective Test Methodology for Evaluating Speech
+                 Communication Systems that Include Noise Suppression
+                 Algorithm},
+  institution = {ITU-T},
+  type        = {Recommendation},
+  number      = {P.835},
+  address     = {Geneva},
+  year        = {2003},
+  month       = nov,
+  note        = {Rates the same clip three times on separate axes ({SIG},
+                 {BAK}, {OVRL}) so a system cannot hide noise by damaging
+                 speech. Approved 11/2003 and not revised since}
+}
+
+@techreport{itu2018p808,
+  author      = {{International Telecommunication Union}},
+  title       = {Subjective Evaluation of Speech Quality with a
+                 Crowdsourcing Approach},
+  institution = {ITU-T},
+  type        = {Recommendation},
+  number      = {P.808},
+  address     = {Geneva},
+  year        = {2018},
+  month       = jun,
+  note        = {One overall rating per clip. A separate protocol from
+                 {P.835}, not a summary of it. Revised 06/2021; the 2018
+                 text is the one the {DNSMOS} papers follow}
+}
+
 @inproceedings{reddy2021dnsmos,
   author    = {Reddy, Chandan K. A. and Gopal, Vishak and Cutler, Ross},
   title     = {{DNSMOS}: A Non-Intrusive Perceptual Objective Speech Quality

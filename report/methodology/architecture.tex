@@ -183,7 +183,7 @@ The result is a quantity of the same shape as the spectrogram itself, one value 
 
 
 
-\subsection{Objective function}
+\subsection{Objective function} [TODO UPDATE WITH NEW LOSS FUNCTION]
 \label{sec:objective}
 
 The objective has to express two different requirements, because the training data contains two different situations. Where the target speaks, the output should match the target signal. Where the target is silent as the result of either the trial contains no target speech at all, or because the four-second crop happened to land in a gap between the target's utterances, there is no signal to match, and the correct output is silence. A single loss cannot serve both use cases and so the objective is therefore split, and each crop is scored by the branch that applies to it.

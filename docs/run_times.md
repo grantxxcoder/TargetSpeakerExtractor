@@ -21,6 +21,8 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
 <!-- rows appended below by src/run_log.py -->
+| 2026-09-04 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-04-train-sir0-10000/ --metrics content --out experiments/results/2026-09-04-train-sir0-10000/ | 6 min |  |
+| 2026-09-04 | `scripts/make_estimates.py` | 200 trials, sir0 | 27 min | cpu, whole-clip |
 | 2026-09-04 | `scripts/train.py --split sir0` | 9,955 trials x 16 epochs (no early stop, best epoch 6), sir0 | 10.5 h | batch 3, cuda (T4), **2364 s/epoch**. Third point on the data-scaling curve; `w_schedule` step-indexed for the first time (warmup 6632 / ramp 4974). 2364 s/epoch against 1244 at 4,976 trials = 1.90x for 2.00x the data. Copied by hand from the Kaggle session's own run_times.md before deleting kaggle_out. |
 | 2026-09-03 | `scripts/make_kaggle_bundle.py --split sir0` | 9,955 train + 200 val trials staged + zipped, `sir0` | 2.1 h | 4,979 new trials copied (4,976 already current); 30.3 GB zip at a sustained 6.5 MB/s, 130,619 entries. Staging + verify 42 min, data zip 1.4 h. Added by hand: the script does not use `run_log.timed`. |
 | 2026-09-03 | `scripts/render_enrollment_bank.py --split sir0_train --variants 3` | 4,979 trials x 3 variants | 1.2 h | 8 workers, 16 kHz PCM_16 |
