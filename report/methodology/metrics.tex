@@ -46,12 +46,7 @@ The Interferer Content Rate (ICR) is the first metric used to highlight one part
  where $\mathcal{S}$ is a fixed stopword list, taken from the NLTK English stopword corpus \cite{bird2009nltk}. Function words are removed because almost any two English sentences share them, so an overlap counted over these words would rather count as grammatical issues than content. These content words will be used to make interferer-exclusive bag of words of which will indicate which words the model picks up from the interfering speaker. 
 
  \paragraph{Interferer-exclusive content.}                                                                                                    
-Firstly, if both the target and interfer say the same word, it is not possible to know which speaker the model heard, thus these words are not considered unique to the interferer. Let $\mathcal{D}$ be the unique content words of the interferer that are not present in the target,
- \begin{equation}                                                                                                                             
-    \mathcal{D} = \mathcal{C}(y_d) \setminus \mathcal{C}(y_s),                                                                       
- \label{eq:exclusive}                                                                                                                         
- \end{equation}                                                                                                                               
- and the words that will be considered as leaked from the interferer are the intersection of the model output, $y_{\hat{s}}$ and the interferer-exclusive content words, $\mathcal{D}$,                                                                          
+Firstly, if both the target and interfer say the same word, it is not possible to know which speaker the model heard, thus these words are not considered unique to the interferer. Let $\mathcal{D}$ be the unique content words of the interferer that are not present in the target, and the words that will be considered as leaked from the interferer are the intersection of the model output, $y_{\hat{s}}$ and the interferer-exclusive content words, $\mathcal{D}$, 
  \begin{equation}                                                                                                                             
  \mathcal{L}(y_{\hat{s}}) = \mathcal{C}(y_{\hat{s}}) \cap \mathcal{D}.                                                                                            
  \label{eq:leaked}                                                                                                                            
@@ -61,24 +56,54 @@ Firstly, if both the target and interfer say the same word, it is not possible t
 The contribution that this paper makes is to turn the ICR metric into a rate, as sentences are varying lengths, and thus the amount of leaked words changes with the length of the sentence. The rate secondly helps to answer the following situation: should the model that is finally chosen leak fewer words frequently, or leak more words infrequently. The rating definition is aimed to answer that question, and is defined as follows:
 
 \paragraph{The rate.}                                                                                                                        
-The rate can be reported at several thresholds. For a set of trials $\mathcal{T}$, and a threshold $k$ of leaked words in a trial, the ICR metric is defined as the fraction of trials in which the number of leaked words $\ell$ is greater than or equal to $k$,                
-\begin{equation}                                                                                                                             
-\textup{ICR}@k                                                                                                                               
-= \frac{\big|\{\, i \in \mathcal{T}_k \;:\; \ell_i \ge k \,\}\big|}                                                                        
-        {|\mathcal{T}_k|},                                                                                                                  
-\qquad                                                                                                                                       
-\mathcal{T}_k = \{\, i \in \mathcal{T} \;:\; a_i \ge k \,\}.                                                                                 
+The rate can be reported at several thresholds. For a set of trials $\mathcal{T}$, and a threshold $k$ of leaked words in a trial, the ICR metric is defined as the fraction of trials in which the number of leaked words $\ell$ is greater than or equal to $k$, 
+\begin{equation}                                                                                                                          
+\textup{ICR}@k = \frac{\big|\{\, i \in \mathcal{T}_k \;:\; \ell_i \ge k \,\}\big|}{|\mathcal{T}_k|},
+\qquad\mathcal{T}_k = \{\, i \in \mathcal{T} \;:\; a_i \ge k \,\}.                                                                                 
 \label{eq:icrk}                                                                                                                              
 \end{equation}                                                                                                                               
-Lower percentages are better.                                                                      
+Lower percentages are better. The rate is used to suggest how many words that are heard by the model that overlap with the interferer such that it is not considered chance if the word was heard.                                                                    
                                                                                                                                             
 The eligible set $\mathcal{T}_k$ depends on $k$. If in a trial there is only one exclusive content word available, it is impossible to achieve $\textup{ICR}@2$, so if we keep this trial in the denominator it would skew the results. 
 
-\subsection{Non-Response Rate}
-\label{sec:nrr}
-The Non-Response Rate (NRR) is a metric specifically meant for the fact that live speech-to-text models are prompted, and thus respond in a way that is not necessarily a transcription of the audio. 
+\subsection{Fabrication Rate}
+\label{sec:fr}
+The Fabrication Rate (FR) acts as the second part to the ICR metric, where the metric aims to highlight the case where the model has hallucinated a word that is neither present in the target nor the interferer. This metric is again only computable as the LibriSpeech~\cite{panayotov2015librispeech} dataset contains the exact transcriptions of the audio, and thus it is possible to determine if a word is hallucinated. The FR metric is defined as follows:
+Over the $N$ trials with a non-empty response, the statistic is the mean invented count per trial of the number of words in the model output that are not present in either the target or interferer, 
+\begin{equation}
+    \mathrm{FR}_{\text{count}} = \frac{1}{N} \sum_{i=1}^{N} \big| \mathcal{I}_i \big|,
+    \label{eq:frcount}
+\end{equation}
+where $\mathcal{I}_i$ is the set of words in the $i$-th trial's output that are not present in either the target or interferer and $\mathbb{1}\!$ is the indicator function for non-membership. The FR metric can also be reported with a threshold $k$ of invented words to consider a trial as a fabrication. The $k$ value is used to determine the number of required words to not be included in either the target or interferer to be considered a hallucination. A word that is mis-transcribed is not necessarily a hallucination, as it is possible that the model heard the word but did not transcribe it correctly. A hallucination is a word that is invented by the model as a by-product of the probabilistic generation process that is a plausible but fabricated word, and not necessarily a mis-transcription of a word that was actually heard. [TODO: I might need a reference for this kind of definition]
+\begin{equation}
+    \mathrm{FR}@k = \frac{1}{N} \sum_{i=1}^{N} \mathbb{1}\! \left[\, \big| \mathcal{I}_i \big| \ge k \,\right],
+    \qquad k = 2 \text{ by convention.}
+    \label{eq:frk}
+\end{equation}
 
+\subsection{Deep Noise Suppression Mean Opinion Score}
+\label{sec:dnsmos}
+The Deep Noise Suppression Mean Opinion Score (DNSMOS) is a model based instrument that is used to evaluate the quality of the audio output as if heard from a human listener. The instrument itself is a neural network that predicts what a collection of humans would have rated an audio clip on a scale of 1-5, where 1 is bad and 5 is excellent. In this works, two different DNSMOS protocols are used. Specifically ITU-T P.835 \cite{itu2003p835} and ITU-T P.808 \cite{itu2018p808}, predicted by the corresponding DNSMOS models \cite{reddy2022dnsmos835, reddy2021dnsmos}. The former returns three metrics namely:
+\begin{itemize}
+    \item \textbf{SIG:} The quality of the speech in the audio clip.
+    \item \textbf{BAK:} The background noise quality of the audio, which measures how much the background noise is affecting the speech in the audio.
+    \item \textbf{OVRL:} The overall quality of the audio.
+\end{itemize}
+This protocol was used in the SLT 2026 REAL-TSE Challenge \cite{wang2026realtse} to measure how good the different teams TSE models were, but they found that some of the entrants were finding ways to game the metric by making the audio sound better to the model, and not necessarily perform actual target speaker extraction. The challenge organisers therefore made use of the latter protocol in their final evaluation, the P808, which is a single metric from a separately trained model to measure overall quality of the audio clip. 
 
+\subsection{Signal to Distortion/Interference/Artefact Ratios}
+\label{sec:sdiar}
+This section discusses the following ratios: Signal-to-Distortion Ratio (SDR), Signal-to-Interference Ratio (SIR), and Signal-to-Artefacts Ratio (SAR). The ratios are used in the following manner: SDR is used to measure how wrong the output audio is in total, and the SIR and SAR are used to measure in which direction the output audio is wrong. The SIR measures how much of real audio that is not target speech is present in the output audio such as an interfering speaker or background noise, and the SAR measures how much of the output audio is not real audio, such as artefacts from the model. The ratios are defined as follows where $y_{\text{tgt}}$ is the target speech, $e_{\text{int}}$ is the interfering speech, and $e_{\text{art}}$ is the artefacts from the model:
+\begin{equation}
+SDR = 10\log_{10} \dfrac{\lVert y_{\text{tgt}}\rVert^2}{\lVert e_{\text{int}} + e_{\text{art}}\rVert^2}
+\end{equation}
+\begin{equation}
+SIR = 10\log_{10} \dfrac{\lVert y_{\text{tgt}}\rVert^2}{\lVert e_{\text{int}}\rVert^2}
+\end{equation}
+\begin{equation}
+SAR = 10\log_{10} \dfrac{\lVert y_{\text{tgt}} + e_{\text{int}}\rVert^2}{\lVert e_{\text{art}}\rVert^2}
+\end{equation}
+which are all measured in decibels (dB) where the higher ratio means better extraction of the target from the other audio in question. When training the model, the Scale-Invariant Signal-to-Distortion Ratio (SI-SDR) introduced by Le Roux et al. \cite{leroux2019sisdr} is used as the loss function which takes inspiration from the SDR metric and was defined earlier in equation~\ref{eq:lpres}. 
 \subsection{Anchors}                                  
 \label{sec:anchors}
 % floor, ceiling, text floor, text ceiling; a bare score is meaningless

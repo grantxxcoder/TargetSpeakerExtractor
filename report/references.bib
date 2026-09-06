@@ -216,6 +216,40 @@
              ({SIR} and {SAR})}
 }
 
+% The two ITU-T listening-test protocols. These are the HUMAN test procedures;
+% the DNSMOS entries below are the neural models that predict their outcome
+% without running a panel. Protocol and predictor are separate and both cited.
+@techreport{itu2003p835,
+  author      = {{International Telecommunication Union}},
+  title       = {Subjective Test Methodology for Evaluating Speech
+                 Communication Systems that Include Noise Suppression
+                 Algorithm},
+  institution = {ITU-T},
+  type        = {Recommendation},
+  number      = {P.835},
+  address     = {Geneva},
+  year        = {2003},
+  month       = nov,
+  note        = {Rates the same clip three times on separate axes ({SIG},
+                 {BAK}, {OVRL}) so a system cannot hide noise by damaging
+                 speech. Approved 11/2003 and not revised since}
+}
+
+@techreport{itu2018p808,
+  author      = {{International Telecommunication Union}},
+  title       = {Subjective Evaluation of Speech Quality with a
+                 Crowdsourcing Approach},
+  institution = {ITU-T},
+  type        = {Recommendation},
+  number      = {P.808},
+  address     = {Geneva},
+  year        = {2018},
+  month       = jun,
+  note        = {One overall rating per clip. A separate protocol from
+                 {P.835}, not a summary of it. Revised 06/2021; the 2018
+                 text is the one the {DNSMOS} papers follow}
+}
+
 @inproceedings{reddy2021dnsmos,
   author    = {Reddy, Chandan K. A. and Gopal, Vishak and Cutler, Ross},
   title     = {{DNSMOS}: A Non-Intrusive Perceptual Objective Speech Quality
@@ -236,4 +270,33 @@
   year      = {2022},
   note      = {Returns {SIG}, {BAK} and {OVRL} separately, per {ITU-T} {P.835}.
                {OVRL} is the score the {REAL-TSE} Challenge saw over-optimised}
+}
+
+% TODO: confirm the author list -- cited from the arXiv identifier recorded in
+% src/live_model_metric/speech_gate.py, which names the paper but not its authors.
+@misc{whisper_hallucination_2025,
+  title        = {Investigation of {Whisper} {ASR} Hallucinations Induced by
+                  Non-Speech Audio},
+  howpublished = {arXiv:2501.11378},
+  year         = {2025},
+  note         = {Evaluates {VAD} gating against confidence thresholding and
+                  pattern matching; finds both give meaningful reductions and
+                  that no single method eliminates the problem}
+}
+
+@inproceedings{panayotov2015librispeech,
+  author    = {Panayotov, Vassil and Chen, Guoguo and Povey, Daniel
+               and Khudanpur, Sanjeev},
+  title     = {Librispeech: An {ASR} Corpus Based on Public Domain Audio Books},
+  booktitle = {Proceedings of the {IEEE} International Conference on Acoustics,
+               Speech and Signal Processing ({ICASSP})},
+  pages     = {5206--5210},
+  year      = {2015},
+  address   = {South Brisbane, QLD, Australia},
+  publisher = {{IEEE}},
+  doi       = {10.1109/ICASSP.2015.7178964},
+  note      = {Source of every mixture in this work and of the starred
+               references $y^\star$. Chosen because it supplies both a clean
+               per-speaker signal and exact ground-truth text, neither of which
+               real conversational corpora provide}
 }

@@ -4,19 +4,12 @@
 \section{Prompt for live-model transcription}
 \label{app:prompt}
 
-% TODO: fill in once the judge model is chosen. The prompt must be reproduced
-% here EXACTLY as issued, including whitespace, because the metric is defined
-% against a fixed prompt and prompt wording is a known source of variance.
-%
-% Two wordings are required, differing only by the minimum change needed to be
-% grammatical across input modalities ("what you heard" for audio input,
-% "what you received" for text input). Both are published.
-%
-% The prompt must NOT instruct the judge to choose between speakers -- for
-% example "report the clearest voice" -- because speaker selection is the
-% extractor's task, and instructing it hands that task to the judge instead.
+\begin{verbatim}
+Write down the words spoken in this audio, exactly as spoken.
 
-\emph{To be completed once the judge model is selected.}
+If no words are audible, leave the transcript empty and set status to no_speech.
+\end{verbatim}
+
 
 \section{Pinned components of the measuring instrument}
 \label{app:pinned}

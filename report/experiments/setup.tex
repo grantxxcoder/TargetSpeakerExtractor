@@ -1,0 +1,29 @@
+\section{Experimental setup}
+\label{sec:experimental_setup}
+During the course of experiments, the following setup was used to ensure reproducible and consistent training and evalution of the models. 
+
+\subsection{Data setup}
+\label{sec:data_setup_experiments}
+
+\subsection{Transcription tool setup}
+\label{sec:transcription}
+
+\paragraph{Offline ASR model}
+\label{sec:offline_asr}
+The offline transcriber is the \texttt{faster-whisper} implementation \cite{faster_whisper} of the Whisper \cite{radford2023whisper} model. Of the available options, it was run using the \texttt{small.en} package size as this was found to be the best configuration for quick but balanced transcription performance. The model was set to a sampling temperature of zero to ensure deterministic output, and the language was fixed to English.
+
+
+\paragraph{Live judge}
+\label{sec:live_judge}
+The live listener is \texttt{gemini-3.7-flash} \cite{google2026geminilive}, which was connected to via the \texttt{google-generativeai} Python package through the Application Programming Interface (API). The judge, like the ASR model, does not separate anything. The Gemini model is prompted to transcribe the estimated audio from the extractor, and then transcribes what it is able to hear. The judge is held out and never appears in the training loop in any form. This includes training using the judge as a proxy objective, This is to ensure that the judge is not biased towards any particular extractor and represents a fair evaluation of the extractor's performance. The live model is the tool for which this work is being built for and so it's result is the most important with respect to the overall evaluation of the extractor. 
+
+The prompt used can be found in \autoref{app:prompt}. It is deliberately worded to avoid instructing the judge to guess or pick a speaker to prevent the judge acting on the extractor's behalf. Secondly, it does not instruct the judge to guess as this would be a form of hallucination, which is a metric that is being measured and thus should not be confounded by the prompt. Finally, since live models by default will return some kind of reponse, the judge is prompted to return a structured response of a status field alongside the transcript. The status field is used to indicate whether the judge heard speech or not, and if it did not hear speech, the transcript is left empty. This allows for a clear distinction for whether the model hallucinates as the status field can be used to determine whether the model heard speech or not.
+
+\paragraph{Speech gating} [TODO mention the VAD tool used which was the same in the dataset setup]
+\label{sec:speech_gate}
+During experiments, it was common for both transcription tools to invent words when handed audio containing no speech frequently which led to many false positives. To address this issue, a speech gate was implemented to filter out any audio that appeared not to have speech that essentially acts as a pre-filter for the transcription tools. This method was considered for four reasons: \textit{(i)} if the gate is applied to a mixture that contained speech and the gate determines that the estimated audio does not contain speech, then it is already an indication that the extractor has failed to extract the target speaker, \textit{(ii)} if the gate is applied to a mixture that does not contain speech and the gate determines that the estimated audio does contain speech, then it is already an indication that the extractor has hallucinated, \textit{(iii)} if the gate is applied to a mixture that does not contain speech and the gate determines that the estimated audio does not contain speech, then it is already an indication that the extractor has correctly determined that there is no speech, and \textit{(iv)} this method is a practical implementation in a real system thus has a natural application to the evaluation of the extractor. Therefore it covers all possible scenarios and is a practical solution to the problem of hallucination. This method is support by \cite{whisper_hallucination_2025} and is applied for both the ASR and live judge.
+ 
+
+\subsection{Latency measures}
+During the course of experiments, the latency of the different systems was measured to compare the implemented model against \textit{(i)} the latency specification for live transcription, and \textit{(ii)} the latency of established systems. There are two main components to consider: time to consume and time to process the audio. The first component considers the real-time factor (RTF). The RTF is the ratio of the time taken to process the audio to the length of the audio, and for a model to be able to keep up with real-time audio, the RTF must be less than 1. This is The second component considers the latency created by the architecture itself which cannot be improved by faster hardware. To produce the output frame for a given window, the model must first have received that entire window, and the final lookahead samples (if considered) of it have not yet arrived. This forces a delay of the processing of the window as per the \autoref{sec:stft}. For the model to be able to keep up with real-time audio, the RTF needs to be less than one, and secondly, the budget for processing a frame must be less than 200-300ms as a standard for live transcription. 
+Finally, to check whether a system can live stream audio, a probe is put in place. Considering a time $T$, a model as the result of shifted normalisation transcribes further than $T$ seconds of audio. A test to put in place is by replacing the audio after a time $T$ changes the output the model has already produced before $T$, then that output depends on audio which has not yet arrived, and the model cannot be streamed.

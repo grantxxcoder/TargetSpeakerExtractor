@@ -129,7 +129,7 @@ Two mechanism findings:
 |---|---|---|---|---|
 | 1. Floor | 2.913 | 4.090 | 2.031 | 2.497 |
 | 2. Baseline | 2.937 | 3.366 | 2.266 | 2.237 |
-| 3. Extension | — | — | — | — |
+| 3. Extension | — | — | — | — |    
 | 5. WeSep | **3.010** | 3.450 | **2.640** | **2.510** |
 | 4. Ceiling | 3.550 | 4.175 | 3.592 | 3.429 |
 
@@ -496,9 +496,16 @@ any resume: `train.py` refuses a resume whose config differs from the checkpoint
    predicts what the listener recovered (ΔSDR ~4 % of variance). (b) Judge and
    ASR agree on ranking but fail by opposite mechanisms. (c) LCF-WER on
    two-speaker mixtures is dominated by interferer suppression.
-6. **Do NOT render more data.** It would help — the model is data-limited — but
-   2.5x bought +0.44 dB and 2x more buys less, for ~5 h and 33 GB.
-   `decisions-m2.md` 2026-09-01.
+6. ~~**Do NOT render more data.**~~ **ANSWERED 2026-09-04, and it was worth it
+   once.** 9,955 trials gave best held-out separation **2.900 dB** against 2.584,
+   margin over pass-through **0.991 -> 1.307 dB (+32 %)**. Three points now make
+   the curve log-linear — 0.55 / 0.99 / 1.31 dB of margin at 1,989 / 4,976 /
+   9,955 — so **~+0.32 dB per doubling, still paying, and the next one costs
+   ~20,000 trials** (~30 GB rendered, ~10 h upload, 21 h train). The original
+   advice was directionally right about diminishing returns and is now measured
+   rather than projected. **Do not render a fourth point** unless the downstream
+   metrics show this one moved LCF-WER, which is not yet known.
+   `decisions-m2.md` 2026-09-04.
 
 Watch the train/held-out gap, not the total. Both totals fell the whole way
 through the run that overfitted.

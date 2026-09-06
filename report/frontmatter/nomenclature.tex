@@ -5,23 +5,44 @@
 \section*{Abbreviations}
 \begin{tabular}{@{}ll@{}}
 ASR  & Automatic speech recognition \\
+BAK & Background intrusiveness (DNSMOS P.835 sub-score) \\
 BSRNN & Band-split recurrent neural network \\
 DNSMOS & Deep noise suppression mean opinion score \\
+FR & Fabrication rate \\
+GLU & Gated linear unit \\
 ICR   & Interferer content rate \\
+ITU-T & ITU Telecommunication Standardization Sector \\
 LCF-WER & Live-model content fidelity word error rate \\
 LSTM  & Long short-term memory \\
-NRR   & Non-response rate \\
-SAR & Signal-to-artifacts ratio \\
+MLP & Multilayer perceptron \\
+NLTK & Natural Language Toolkit \\
+OVRL & Overall quality (DNSMOS P.835 sub-score) \\
+REAL-TSE & Real-world target speaker extraction (challenge) \\
+SAR & Signal-to-artefacts ratio \\
+SDR & Signal-to-distortion ratio \\
+SIG & Speech signal quality (DNSMOS P.835 sub-score) \\
 SIR  & Signal-to-interference ratio \\
 SI-SDR & Scale-invariant signal-to-distortion ratio \\
+SLT & IEEE Workshop on Spoken Language Technology \\
 STFT  & Short-time Fourier transform \\
-TF Map & Time-Frequency Map \\
+TF Map & Time-frequency map \\
 TSE   & Target speaker extraction \\
-WER   & Word error rate \\  
-
+WER   & Word error rate \\
 \end{tabular}
+
+% TODO: CARTSE is used in the text but its expansion is not given in the source
+% paper (Li and Seki, 2026, CyberAgent system description). Either confirm the
+% expansion and add a row, or keep it as a bare system name.
 
 \section*{Symbols}
+
+\subsection*{Signals and transcriptions}
 \begin{tabular}{@{}ll@{}}
-% TODO
+$x$ & Mixture signal \\
+$s$ & Target reference signal \\
+$\hat{s}$ & Model output, the estimated target \\
+$d$ & Interfering speech signal \\
+$y_{(\cdot)}$ & Transcription of the subscripted signal \\
+$y^\star_s$ & Ground-truth LibriSpeech transcription of the target \\
 \end{tabular}
+

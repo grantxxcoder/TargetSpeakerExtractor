@@ -689,3 +689,66 @@ the count as `no_response`, so the pairing survives. `nrr.py` is kept and marked
 superseded, not deleted: historical rows in `RESULTS.md`, `project-state.md` and
 the `results.json` files carry an `nrr` column and this is the definition that
 produced them.
+
+---
+
+## 2026-09-04 — `judge_prompt_v2.txt` CONSIDERED, NOT USED. The prompt is frozen
+
+**The instrument stays `src/live_model_metric/judge_prompt.txt`,
+sha256[:12] `d118b7d3bf30`.** `judge_prompt_v2.txt` exists in the tree, has never
+produced a recorded number, and is not to be adopted. Logged because an unused
+prompt variant sitting next to the live one is exactly the thing that gets picked
+up by mistake.
+
+### What is in use
+
+    Write down the words spoken in this audio, exactly as spoken.
+
+    If no words are audible, leave the transcript empty and set status to no_speech.
+
+144 bytes, `d118b7d3bf30`. `judge_gate.yaml:19` points at it. Every judge result
+in the project was run with it: the baseline row 2026-09-02, the WeSep row
+2026-09-03, the ICR sweep and the FR sweep.
+
+### What v2 added, and why it is not an improvement
+
+385 bytes, sha256[:12] `64d4b994a9a2`. It adds a role line ("You are an audio
+transcriber"), expands the no-speech instruction, and appends two imperatives:
+"Be very careful to transcribe correctly. Do not hallucinate."
+
+**Those last two are the problem, not the fix.** Fabrication is the thing FR
+measures (`decisions-m4.md` 2026-09-03: both extractors raise it ~48 % above
+doing nothing, and the two extractors are indistinguishable on it despite a
+25-point LCF-WER gap). Instructing the judge not to hallucinate is **tuning the
+measuring instrument against the quantity it measures.** Any drop in FR afterwards
+would be unattributable between the front end and the prompt, and the metric's
+gaming-resistance claim — the primary contribution — would be weaker for it. The
+judge's listening behaviour must stay fixed while the extractor varies.
+
+The no-speech wording is a real question, but it is J1's structured-field design
+that carries it (`decisions-m4.md` 2026-08-31: the signal is a structured field,
+never in-band text, because the normaliser maps `####` and `[no speech]` both to
+`''`). v2 changes the wording, not the mechanism.
+
+### The cost of switching, stated
+
+The prompt's sha is part of the judge cache key, by design, so that editing it
+cannot silently reuse stale answers. Pointing `judge_gate.yaml` at v2 therefore
+**re-buys every judge call at a prompt no results table refers to** — no error,
+just a full cache miss and a fresh bill, producing numbers not comparable to
+anything already recorded.
+
+**M4 closed 2026-09-03. Reopening it for an untested prompt variant is not
+justified**, and a prompt change late in the project would invalidate every judge
+row rather than add one.
+
+### Consequences to carry
+
+- `judge_prompt_v2.txt` is kept, not deleted, as the record of what was
+  considered — same treatment as `nrr.py`. It must never be pointed at by a
+  config.
+- `scripts/judge_smoke.py:52` names v2 in a `--prompt-file` help string as its
+  example. **Misleading**: change the example to `judge_prompt.txt` so a smoke
+  run cannot be made against the unused prompt by copy-paste.
+- The appendix reproduces `judge_prompt.txt` verbatim **with its hash**, which is
+  the machine-checkable form of CLAUDE.md's "record the exact prompt".
