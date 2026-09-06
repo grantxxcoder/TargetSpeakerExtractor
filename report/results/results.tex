@@ -6,6 +6,9 @@
 \section{Content fidelity}
 \label{sec:results_content}
 
+\subsection{The live judge}
+\label{sec:results_content_judge}
+
 \begin{table}[htbp]
 \centering
 \caption{Content recovered by the live judge. \texttt{gemini-3.7-flash}, audio in
@@ -26,6 +29,9 @@ Ceiling (clean)     & 1.05 & 0.00 & 0.00 & 0.20 & 1.0 \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\subsection{The offline transcriber}
+\label{sec:results_content_asr}
 
 \begin{table}[htbp]
 \centering
@@ -51,19 +57,26 @@ pass is missing and the evaluation must be re-run before these figures are
 final.}
 \end{table}
 
+\subsection{Headroom captured}
+\label{sec:results_content_headroom}
+
 \begin{table}[htbp]
 \centering
 \caption{Headroom captured: the fraction of the floor-to-ceiling gap each
-system closes. Higher is better.}
+system closes, derived from \autoref{tab:content_judge} and
+\autoref{tab:content_asr}. Higher is better.}
 \label{tab:headroom}
 \begin{tabular}{@{}llccc@{}}
 \toprule
 system & listener & LCF-WER (\%) & ICR@2 (\%) & mean leak (\%) \\
 \midrule
-Baseline & judge & 10.5 & 17.9 & 20.8 \\
-WeSep    & judge & \textbf{59.3} & \textbf{66.7} & \textbf{79.6} \\
-Baseline & ASR   & 10.4 & 18.8 & 23.7 \\
-WeSep    & ASR   & \textbf{51.6}$^\dagger$ & \textbf{76.8}$^\dagger$ & \textbf{82.4}$^\dagger$ \\
+Ours (4{,}976) & judge & 10.5 & 17.9 & 20.8 \\
+Ours (9{,}955) & judge & 12.3 & 19.2 & 23.7 \\
+WeSep          & judge & \textbf{59.3} & \textbf{66.7} & \textbf{79.6} \\
+\midrule
+Ours (4{,}976) & ASR   & 10.4 & 18.8 & 23.7 \\
+Ours (9{,}955) & ASR   & 9.6  & 24.6 & 32.6 \\
+WeSep          & ASR   & \textbf{51.6}$^\dagger$ & \textbf{76.8}$^\dagger$ & \textbf{82.4}$^\dagger$ \\
 \bottomrule
 \end{tabular}
 
