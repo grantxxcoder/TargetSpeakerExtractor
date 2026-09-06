@@ -21,6 +21,10 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
 <!-- rows appended below by src/run_log.py -->
+| 2026-09-06 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-04-train-sir0-10000/ --metrics content --listener judge --judge-rpm 10 --out experiments/results/2026-09-06-evaluate-10000-judge | 12 min |  |
+| 2026-09-06 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-04-train-sir0-10000/ --metrics content --listener judge --judge-rpm 10 --out experiments/results/2026-09-06-evaluate-10000-judge **(failed)** | 85 s |  |
+| 2026-09-06 | `scripts/measure_rtf.py` | --checkpoint models/model_sir0_10000-e6.pt --chunk-ms 80 --threads 4 --device cpu --out experiments/results/2026-09-06-rtf-10000-cpu | 2 min |  |
+| 2026-09-06 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-04-train-sir0-10000/ --metrics signal,perceptual --out experiments/results/2026-09-06-eval-10000-signal-perceptual | 17 min |  |
 | 2026-09-04 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-04-train-sir0-10000/ --metrics content --out experiments/results/2026-09-04-train-sir0-10000/ | 6 min |  |
 | 2026-09-04 | `scripts/make_estimates.py` | 200 trials, sir0 | 27 min | cpu, whole-clip |
 | 2026-09-04 | `scripts/train.py --split sir0` | 9,955 trials x 16 epochs (no early stop, best epoch 6), sir0 | 10.5 h | batch 3, cuda (T4), **2364 s/epoch**. Third point on the data-scaling curve; `w_schedule` step-indexed for the first time (warmup 6632 / ramp 4974). 2364 s/epoch against 1244 at 4,976 trials = 1.90x for 2.00x the data. Copied by hand from the Kaggle session's own run_times.md before deleting kaggle_out. |

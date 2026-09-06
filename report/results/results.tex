@@ -1,4 +1,227 @@
 \chapter{Results}
 \label{ch:results}
 
-% TODO
+% CLAIM THIS SECTION MUST SUPPORT: judge and offline ASR agree on the ranking of
+% systems but fail by opposite mechanisms. See the error composition below.
+\section{Content fidelity}
+\label{sec:results_content}
+
+\begin{table}[htbp]
+\centering
+\caption{Content recovered by the live judge. \texttt{gemini-3.7-flash}, audio in
+/ text out}
+\label{tab:content_judge}
+\small
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+ & LCF-WER & ICR@2 & mean leak & invented & FR@2 \\
+system & (\%) & (\%) & (\%) & /trial & (\%) \\
+\midrule
+Floor (do nothing)  & 63.27 & 75.73 & 63.33 & 1.24 & 32.0 \\
+Ours (4{,}976 trials) & 56.72 & 62.14 & 50.15 & 1.83 & 41.7 \\
+Ours (9{,}955 trials) & 55.59 & 61.17 & 48.32 & \textbf{2.01} & \textbf{43.7} \\
+Extension (gate)    & --- & --- & --- & --- & --- \\
+WeSep    & \textbf{26.40} & \textbf{25.24} & \textbf{12.92} & 1.80 & 38.8 \\
+Ceiling (clean)     & 1.05 & 0.00 & 0.00 & 0.20 & 1.0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Content recovered by the offline transcriber,
+\texttt{faster-whisper small.en}. Lower is better in every column.}
+\label{tab:content_asr}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+system & WER (\%) & ICR@2 (\%) & mean leak (\%) & invented/trial \\
+\midrule
+Floor (do nothing)    & 65.22 & 66.99 & 51.30 & 2.61 \\
+Ours (4{,}976 trials) & 59.05 & 54.37 & 39.13 & not yet scored \\
+Ours (9{,}955 trials) & 59.52 & 50.49 & 34.58 & \textbf{3.08} \\
+Extension (gate)      & --- & --- & --- & --- \\
+WeSep    & \textbf{34.60}$^\dagger$ & \textbf{15.53}$^\dagger$ & \textbf{9.02}$^\dagger$ & not yet scored \\
+Ceiling (clean)       & 5.85 & 0.00 & 0.00 & 0.88 \\
+\bottomrule
+\end{tabular}
+
+\vspace{0.5em}
+{\footnotesize $^\dagger$ \textbf{Provisional.} The results artefact for this
+pass is missing and the evaluation must be re-run before these figures are
+final.}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Headroom captured: the fraction of the floor-to-ceiling gap each
+system closes. Higher is better.}
+\label{tab:headroom}
+\begin{tabular}{@{}llccc@{}}
+\toprule
+system & listener & LCF-WER (\%) & ICR@2 (\%) & mean leak (\%) \\
+\midrule
+Baseline & judge & 10.5 & 17.9 & 20.8 \\
+WeSep    & judge & \textbf{59.3} & \textbf{66.7} & \textbf{79.6} \\
+Baseline & ASR   & 10.4 & 18.8 & 23.7 \\
+WeSep    & ASR   & \textbf{51.6}$^\dagger$ & \textbf{76.8}$^\dagger$ & \textbf{82.4}$^\dagger$ \\
+\bottomrule
+\end{tabular}
+
+\vspace{0.5em}
+{\footnotesize $^\dagger$ Derived from the provisional row of
+\autoref{tab:content_asr}.}
+\end{table}
+
+% CLAIMS THIS SECTION MUST SUPPORT:
+%  (a) The offline ASR deletes MORE on the baseline's audio while the judge
+%      deletes LESS (9.28 -> 12.60 against 5.97 -> 3.43). Same total by opposite
+%      routes. This inverts the expectation that the ASR tolerates artefacts:
+%      measured, the ASR is the brittle listener.
+%  (b) WeSep wins by silencing the interferer, NOT by preserving the target.
+%      Judge insertions fall 26.22 -> 8.99 (those words were the other speaker)
+%      while deletions RISE to 6.78, worse than the baseline's 3.43 and worse
+%      than doing nothing. LCF-WER on two-speaker mixtures is therefore
+%      dominated by interferer suppression, and a system can lose target words
+%      while halving the score. State this wherever LCF-WER is quoted.
+\section{Error composition}
+\label{sec:results_errors}
+
+\begin{table}[htbp]
+\centering
+\caption{Substitution (S), deletion (D) and insertion (I) rates for each listener. Lower is better.}
+\label{tab:error_split}
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+& \multicolumn{3}{c}{judge} & \multicolumn{3}{c}{offline ASR} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+system & $S$ & $D$ & $I$ & $S$ & $D$ & $I$ \\
+\midrule
+Floor    & 29.22 & 5.97 & 28.08 & 32.89 & 9.28  & 23.05 \\
+Ours (4{,}976) & 27.07 & 3.43 & 26.22 & 28.13 & 12.60 & 18.39 \\
+Ours (9{,}955) & 25.64 & 3.00 & 26.95 & 28.20 & 11.79 & 19.53 \\
+Extension (gate) & --- & --- & --- & --- & --- & --- \\
+WeSep    & 10.62 & 6.78 & 8.99  & 18.51 & 8.91  & 7.19 \\
+Ceiling  & 0.87  & 0.15 & 0.03  & 3.43  & 0.67  & 1.75 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% CLAIMS THIS SECTION MUST SUPPORT:
+%  (a) No signal-domain measure predicts what the listener recovered: SI-SDR
+%      improved by 1.99 dB while 30 % of trials got WORSE on content, and delta-SDR
+%      explains only ~4 % of the variance in content outcome.
+%  (b) SAR is the single column the baseline wins, and it is the one that says
+%      why: WeSep removes 7.1 dB more interferer and pays for it in artefact.
+%  (c) NEVER quote delta-SAR. The floor's +30 dB is an artefact of the cap, not a
+%      measurement, so any improvement against it is meaningless. Absolute SAR
+%      of +10.34 dB means roughly 9 % of the output energy was invented.
+\section{Signal-domain separation}
+\label{sec:results_signal}
+
+\begin{table}[htbp]
+\centering
+\caption{Signal-domain decomposition, in \si{\decibel}; higher is better. The
+ceiling reaches \SI{+30}{\decibel} by construction, being the cap imposed by the
+denominator floor $\tau = 10^{-3}$, and is not a measurement.}
+\label{tab:signal}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+system & SDR & SIR & SAR \\
+\midrule
+Floor (do nothing)  & $-1.12$ & $-1.12$ & $+30.00$ \\
+Ours (4{,}976 trials)     & $+0.86$ & $+3.21$ & $+10.34$ \\
+Ours (9{,}955 trials)     & $+1.29$ & $+3.66$ & $\mathbf{+11.11}$ \\
+Extension (gate)    & --- & --- & --- \\
+WeSep   & $\mathbf{+4.68}$ & $\mathbf{+10.34}$ & $+8.26$ \\
+Ceiling (clean)     & $+30.00$ & $+30.00$ & $+30.00$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% CLAIMS THIS SECTION MUST SUPPORT:
+%  (a) THE DIVERGENCE. The baseline improved content by 6.1 points while OVRL
+%      FELL from 2.497 to 2.237. A human listener would say it damaged the audio;
+%      the listener recovered more of the words. A conventional perceptual metric
+%      would have rejected a system that measurably helps the task.
+%  (b) SIG fell 0.72 while BAK rose 0.24 -- three times as far -- confirming from
+%      an independent instrument that artefact added outweighs interference
+%      removed. This is the perceptual analogue of the SIR/SAR split.
+%  (c) P808 is flat at +0.02. The metric the REAL-TSE organisers switched TO is
+%      nearly blind to what this model does, while OVRL, the one that was gamed,
+%      moves.
+\section{Perceptual quality}
+\label{sec:results_perceptual}
+
+\begin{table}[htbp]
+\centering
+\caption{DNSMOS, personalised model. All scores 1--5 and higher is better.}
+\label{tab:dnsmos}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+system & P808 & SIG & BAK & OVRL \\
+\midrule
+Floor (do nothing)  & 2.913 & \textbf{4.090} & 2.031 & 2.497 \\
+Ours (4{,}976 trials)     & 2.937 & 3.366 & 2.266 & 2.237 \\
+Ours (9{,}955 trials)     & 2.955 & 3.233 & 2.286 & 2.183 \\
+Extension (gate)    & --- & --- & --- & --- \\
+WeSep   & \textbf{3.010} & 3.450 & \textbf{2.640} & \textbf{2.510} \\
+Ceiling (clean)     & 3.550 & 4.175 & 3.592 & 3.429 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% CLAIMS THIS SECTION MUST SUPPORT:
+%  (a) The causality probe must be reported BEFORE the timings are interpreted.
+%      WeSep moved its output before the cut by 1.12e-02 under a scale-matched
+%      perturbation, against our own model's 1.68e-08. Every output frame depends
+%      on the whole clip, so its RTF is academic: a model that needs the entire
+%      utterance cannot stream at any speed.
+%  (b) Mechanism: `causal: true` is not a false claim, it is narrower than it
+%      reads. The separator's RNNs are causal, but SubbandNorm normalises over all
+%      channels AND all time frames -- a whole-utterance statistic computed before
+%      the causal separator sees anything.
+%  (c) No WeSep chunk finishes inside its own 80 ms, so the backlog grows without
+%      bound. Two causes: 27.2 M parameters in the timed forward against our
+%      7.19 M, and the 5 s enrolment re-embedded through a full speaker encoder on
+%      every chunk against our cheap TF-Map cue. The protocol is matched; the cost
+%      is not.
+\section{Latency and throughput}
+\label{sec:results_latency}
+
+\begin{table}[htbp]
+\centering
+\caption{Latency and throughput, measured over 2{,}250 chunks of
+\SI{80}{\milli\second} on CPU (i5-1135G7, 4 threads), 2026-09-03. These are
+properties of the model rather than of a trial, so the floor and ceiling anchors
+do not apply. The requirement is $\textup{RTF} < 1$ and latency within
+\SI{200}{}--\SI{300}{\milli\second}.}
+\label{tab:latency}
+\small
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+ & \multicolumn{2}{c}{RTF} & \multicolumn{2}{c}{latency (\si{\milli\second})} & meets \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+system & mean & p99 & mean & p99 & budget \\
+\midrule
+Baseline         & \textbf{0.528} & \textbf{0.706} & \textbf{162.2} & \textbf{176.5} & yes \\
+Extension (gate) & --- & --- & --- & --- & --- \\
+WeSep & 2.854 & 5.300 & 348.3 & 544.0 & no$^\ddagger$ \\
+\bottomrule
+\end{tabular}
+
+\vspace{0.5em}
+{\footnotesize $^\ddagger$ And cannot stream at all, independently of its throughput. See the causality result above.}
+\end{table}
+
+
+% TODO: write out as prose. The four that must appear:
+%  1. Signal and perceptual rows are listener-independent; only content has a
+%     listener at all.
+%  2. `sir0_val` is symmetric by construction and therefore harder than
+%     `eval_public` -- 7.8 points apart on the floor alone. Which set defines the
+%     benchmark is still undecided.
+%  3. Every judge figure is an aggregate. Per-trial judge numbers carry up to 16
+%     points of noise (SEM approx. 0.5 over n = 103), so no per-trial judge
+%     comparison is meaningful.
+%  4. No figure here is comparable to any published REAL-TSE result: different
+%     data, different metric, different protocol.
