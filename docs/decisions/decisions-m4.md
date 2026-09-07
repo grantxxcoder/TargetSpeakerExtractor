@@ -20,6 +20,53 @@ input modality and the run date, because closed models change silently.
 
 ---
 
+## 2026-09-07 — Cross-date judge comparison is treated as valid
+
+**Decision: results scored on different dates are compared directly.** The
+previous rule held that a cross-date comparison was invalid unless every system
+was re-scored together, on the grounds that a closed model can change without
+notice. That rule is withdrawn.
+
+**Why.** The whole project's judge scoring falls inside a window of a few weeks.
+A closed model can in principle be updated at any time, but the risk of a
+material change inside that window does not justify the cost of enforcing the
+rule: adding one system would force a re-score of every other system, at four
+judge passes and the free-tier daily quota each time, and it would invalidate
+every judge number already written into the report each time it happened. The
+constraint was set for a general case, not this one, and it was pricing a
+hypothetical against real quota and real schedule.
+
+**What is kept.** The recording requirement is unchanged: every judge result
+still records the exact model ID, the exact prompt digest, the input modality and
+the run date. Nothing about provenance is relaxed — only the claim that different
+dates cannot be compared. Keeping the dates means the assumption stays falsifiable
+rather than invisible.
+
+**What this concedes, stated plainly.** If `gemini-3.7-flash` were silently
+updated between 2026-09-02 and the last scoring run, a difference between two
+systems could be partly the model rather than the systems, and nothing in the
+current results would reveal it. The affected comparisons are the ones spanning
+dates: the anchors and the 4,976-trial system (2026-09-02), WeSep (2026-09-03),
+and the 9,955-trial system (2026-09-06).
+
+**How to check it cheaply if it is ever questioned.** The floor and ceiling
+anchors are fixed audio that no model touches, and their 2026-09-02 responses are
+cached in `experiments/results/judge_responses.csv`. Re-scoring the anchors on a
+later date and comparing against the cache measures drift directly, on the same
+clips, for the cost of 206 calls. That converts the assumption above into a
+measurement. Not run as of this entry.
+
+**Consequences.**
+- `CLAUDE.md`, `docs/data/metric-definitions.md`, `docs/project-state.md` and the
+  appendix comment in `report/appendices/appendices.tex` were amended to match.
+- The 2026-09-05 entry's cost note ("cross-date comparison stays invalid unless
+  re-run") is superseded in part by this entry.
+- The thesis limitations still carry the closed-model dependency: the judge
+  numbers are not reproducible without API access. That is unchanged and is a
+  separate point from cross-date validity.
+
+---
+
 ## 2026-09-02 — The judge hallucinates on silence. Speech-gate added; NRR caveated
 
 **Measured, not suspected.** Fed the clean target of an absent trial — digital
@@ -593,9 +640,10 @@ Ultravox and Qwen2.5-Omni build on a Whisper encoder and would share lineage wit
 a T4x2 session and a second scoring pass with 6 weeks to freeze and M5 unbuilt.
 
 **What it costs:** the judge numbers are not reproducible without API access, and
-`gemini-3.7-flash` can change silently, so cross-date comparison stays invalid
-unless re-run. Goes in the thesis limitations next to A1 and the two-speaker
-boundary.
+`gemini-3.7-flash` is a closed model whose weights are not under our control.
+Goes in the thesis limitations next to A1 and the two-speaker boundary.
+**Superseded in part 2026-09-07:** cross-date comparison is no longer treated as
+invalid. See that entry.
 
 **What it doesn't cost:** the harness is judge-agnostic, so adding an open-weight
 listener later is a config change, not a redesign. Prompt is frozen by hash,

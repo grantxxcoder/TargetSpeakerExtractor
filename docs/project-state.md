@@ -23,7 +23,8 @@ All rows: `sir0_val`, `condition=both`, n=103. Lower is better except where said
 
 **Content through the live judge** — `gemini-3.7-flash`, audio in / text out,
 prompt sha256[:12] `d118b7d3bf30`, run 2026-09-02 (baseline) and 2026-09-03
-(WeSep). Closed model: comparisons across dates are invalid unless re-run.
+(WeSep). Dates recorded per result; cross-date comparison treated as valid
+(decisions-m4.md 2026-09-07).
 
 | system | LCF-WER | ICR@2 | mean leak | invented/trial | FR@2 |
 |---|---|---|---|---|---|

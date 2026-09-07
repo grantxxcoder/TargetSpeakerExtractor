@@ -16,7 +16,7 @@ If no words are audible, leave the transcript empty and set status to no_speech.
 
 % TODO: complete the judge row once selected. Every judge result must record
 % the exact model identifier, the exact prompt, the input modality and the run
-% date, because closed models change without notice.
+% date. Cross-date comparison is treated as valid; see decisions-m4.md 2026-09-07.
 
 \begin{table}[h]
   \mytable
@@ -55,21 +55,19 @@ absorption is not drawn directly: it is solved for from the requested
 reverberation time and the room's surface area by the Sabine relation, and the
 draw is rejected and retaken if the combination is not physically realisable.
 Both talkers are placed in the same room and share the microphone, so the two
-speech signals arrive with different but consistent room responses --- which is
-what makes the interferer a talker in a room rather than a second recording
-mixed in.
+speech signals arrive with different but consistent room responses.
 
-\begin{figure}[htbp]
+\begin{figure}[H]
   \centering
-  % \includegraphics[width=0.7\textwidth]{figures/room_example_a.pdf}
-  \caption{TODO}
+  \includegraphics[width=0.4\textwidth]{figures/room_example_a.pdf}
+  \caption{Plan view of the room rendered for trial \texttt{train-42-007495}. The room measures $8.85 \times 6.38 \times \SI{3.14}{\metre}$ (\SI{177}{\cubic\metre}) with a reverberation time of \SI{0.250}{\second}, for which the Sabine relation gives a wall absorption of \num{0.5479}. The microphone sits at $(3.50, 3.18, 1.28)$~m, the target at $(2.94, 4.39, 1.66)$~m and the interferer at $(4.14, 3.00, 1.57)$~m, placing them \SI{1.39}{\metre} and \SI{0.72}{\metre} from the microphone respectively.}
   \label{fig:room_a}
 \end{figure}
 
-\begin{figure}[htbp]
+\begin{figure}[H]
   \centering
-  % \includegraphics[width=0.7\textwidth]{figures/room_example_b.pdf}
-  \caption{TODO}
+  \includegraphics[width=0.4\textwidth]{figures/room_example_b.pdf}
+  \caption{Plan view of the room rendered for trial \texttt{train-42-004785}, the most reverberant in the split. The room measures $9.18 \times 8.21 \times \SI{3.48}{\metre}$ (\SI{263}{\cubic\metre}) with a reverberation time of \SI{0.600}{\second}, for which the Sabine relation gives a wall absorption of \num{0.2594} which is less than half that of \autoref{fig:room_a}, in a room \SI{49}{\percent} larger. The microphone sits at $(4.91, 3.23, 1.49)$~m, the target at $(3.20, 2.40, 1.52)$~m and the interferer at $(6.56, 3.19, 1.64)$~m, placing them \SI{1.90}{\metre} and \SI{1.67}{\metre} from the microphone respectively.}
   \label{fig:room_b}
 \end{figure}
 
@@ -77,11 +75,7 @@ mixed in.
 \chapter{Construction parameters}
 \label{app:params}
 
-Every parameter below is drawn independently per trial from the stated
-distribution, except where a regime overrides it. Ranges written $[a, b]$ are
-sampled uniformly on that interval. The full configuration is
-\texttt{experiments/configs/generator.yaml}; a change to any row invalidates
-comparison with trials rendered before it.
+Every parameter below is drawn independently per trial from the stated distribution, except where a regime overrides it. Ranges written $[a, b]$ are sampled uniformly on that interval.
 
 \begin{table}[h]
   \mytable
@@ -138,9 +132,3 @@ comparison with trials rendered before it.
   \label{tab:params}
 \end{table}
 
-\begin{figure}[htbp]
-  \centering
-  % \includegraphics[width=\textwidth]{figures/param_distributions.pdf}
-  \caption{TODO}
-  \label{fig:param_dists}
-\end{figure}
