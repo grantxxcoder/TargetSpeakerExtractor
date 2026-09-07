@@ -284,6 +284,98 @@
                   that no single method eliminates the problem}
 }
 
+% ---------------------------------------------------------------------------
+% Data sources and construction tooling. Licences and attribution
+% obligations are tracked in docs/data/data-licences.md.
+% ---------------------------------------------------------------------------
+
+@inproceedings{carletta2005ami,
+  author    = {Carletta, Jean and Ashby, Simone and Bourban, Sebastien and
+               Flynn, Mike and Guillemot, Mael and Hain, Thomas and
+               Kadlec, Jaroslav and Karaiskos, Vasilis and Kraaij, Wessel and
+               Kronenthal, Melissa and Lathoud, Guillaume and Lincoln, Mike and
+               Lisowska, Agnes and McCowan, Iain and Post, Wilfried and
+               Reidsma, Dennis and Wellner, Pierre},
+  title     = {The {AMI} Meeting Corpus: A Pre-announcement},
+  booktitle = {Machine Learning for Multimodal Interaction ({MLMI})},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {3869},
+  pages     = {28--39},
+  year      = {2005},
+  publisher = {Springer},
+  note      = {Workshop held 2005; Springer proceedings dated 2006.
+               Licensed {CC BY 4.0}. Source of the secondary real-audio
+               transfer set}
+}
+
+@inproceedings{wichern2019wham,
+  author    = {Wichern, Gordon and Antognini, Joe and Flynn, Michael and
+               Zhu, Licheng Richard and McQuinn, Emmett and Crow, Dwight and
+               Manilow, Ethan and Le Roux, Jonathan},
+  title     = {{WHAM!}: Extending Speech Separation to Noisy Environments},
+  booktitle = {Proceedings of Interspeech},
+  pages     = {1368--1372},
+  year      = {2019},
+  note      = {Licensed {CC BY-NC 4.0}, which is the binding constraint on
+               redistribution of every constructed mixture}
+}
+
+@misc{cosentino2020librimix,
+  author       = {Cosentino, Joris and Pariente, Manuel and Cornell, Samuele and
+                  Deleforge, Antoine and Vincent, Emmanuel},
+  title        = {{LibriMix}: An Open-Source Dataset for Generalizable Speech
+                  Separation},
+  howpublished = {arXiv:2005.11262},
+  year         = {2020},
+  note         = {Reference only, never run here. Cited for its level-setting
+                  convention, which this project follows}
+}
+
+@inproceedings{scheibler2018pyroomacoustics,
+  author    = {Scheibler, Robin and Bezzam, Eric and Dokmani{\'c}, Ivan},
+  title     = {Pyroomacoustics: A Python Package for Audio Room Simulation and
+               Array Processing Algorithms},
+  booktitle = {Proceedings of the {IEEE} International Conference on Acoustics,
+               Speech and Signal Processing ({ICASSP})},
+  pages     = {351--355},
+  year      = {2018},
+  note      = {Version 0.10.1. Shoebox room impulse responses by the
+               image-source method, with a Sabine {T60} feasibility check}
+}
+
+@misc{silero2021vad,
+  author       = {{Silero Team}},
+  title        = {Silero {VAD}: Pre-trained Enterprise-grade Voice Activity
+                  Detector},
+  howpublished = {\url{https://github.com/snakers4/silero-vad}},
+  year         = {2021},
+  note         = {Version 6.2.1, used unmodified. Defines what counts as speech
+                  for both the corpus index and the evaluation speech gate}
+}
+
+@techreport{itu2015bs1770,
+  author      = {{International Telecommunication Union}},
+  title       = {Algorithms to Measure Audio Programme Loudness and True-peak
+                 Audio Level},
+  institution = {ITU-R},
+  type        = {Recommendation},
+  number      = {BS.1770-4},
+  address     = {Geneva},
+  year        = {2015},
+  note        = {Integrated loudness, as implemented by \texttt{pyloudnorm}
+                 0.2.0. All trial levels are set in these units}
+}
+
+% TODO: the 31 May 2026 registration deadline is a challenge-website fact, not
+% something stated in wang2026realtse. Add the URL and an access date, or drop
+% the date from the text and say only that registration had closed.
+@misc{realtse2026site,
+  title        = {{SLT} 2026 {REAL-TSE} Challenge --- Participation},
+  howpublished = {Challenge website},
+  year         = {2026},
+  note         = {URL AND ACCESS DATE STILL TO BE ADDED}
+}
+
 @inproceedings{panayotov2015librispeech,
   author    = {Panayotov, Vassil and Chen, Guoguo and Povey, Daniel
                and Khudanpur, Sanjeev},

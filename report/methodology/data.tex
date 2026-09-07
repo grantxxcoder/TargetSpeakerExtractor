@@ -1,0 +1,31 @@
+\section{Data construction}
+\label{sec:data}
+The section describes the construction of the dataset used for this work. It includes a description of the necessity of constructing the data from scratch, the source of the audio used, and the construction of the trials. 
+
+\subsection{Why the data is constructed}
+\label{sec:construct}
+There are three main considerations for the dataset that need to be met: \textit{(i)} training requires a clean target signal as a reference for what the extractor should output, \textit{(ii)} the data must possess exact transcriptions of the target signal to allow for transcription-based evaluation, and \textit{(iii)} the data must possess both best case and worst case scenarios in order to interpret the performance of the extractor relative to these scenarios. These considerations limit the available choices of publically available datasets. For inspiration for the construction of the dataset, the 2026 REAL-TSE challenge \cite{wang2026realtse} entries were considered. The organisers of the challenge noted that the contributions to a successful system were attributed to well crafted data. 
+
+
+\subsection{Source of audio}
+\label{sec:audio}
+The audio data was collected from a variety of sources to produce a diverse dataset. Speech was chosen for target and interferer from the LibriSpeech \cite{panayotov2015librispeech} dataset, which is a corpus of read English speech derived from audiobooks. The background noise was chosen from WHAM! \cite{wichern2019wham} which is a dataset of real-world noise recordings considering environments such as offices, streets, and cafés. 
+
+
+\subsection{Trial construction}
+\label{sec:trial_construction}
+The trials are structured in a way to replicate the conditions of a real-world target speaker extraction scenario. Due to the difficulty of the TSE task, it was decided that the data should reflect a variety of conditions, but primarily focus on the base case task of a target speaker close to a recording device with an interfering speaker in a similar proximity and faint background noise. The difficulty came in constructing the dataset to be realistic enough to simulate a real-world scenario, but also not so difficult that a simple extractor of limited capacity would be unable to learn the task. 
+
+A single trial consists of the following components: \textit{(i)} target speech, \textit{(ii)} interferer speech, \textit{(iii)} noise bed, \textit{(iv)} the mixture of the first three components, and \textit{(v)} an enrollment clip of the target speaker. The trial belongs to one of four conditions: both speakers present, only the target speaker present, only the interferer speaker present, and neither speaker present. The mixture is constructed to be 15-20 seconds long. The trials are drawn from two separate regimes: a base case and a difficult case. The base case is constructed to be a simple but realistic scenario, and difficult cases are edge cases that are constructed to be more challenging for the extractor. There are two both male and female speakers in the dataset. To simulate room acoustics, including reverberation, room dimensions, source and microphone positions, the \texttt{pyroomacoustics} \cite{pyroomacoustics} package is used to simulate the room impulse response. The trials are constructed to be as realistic as possible, but also to be reproducible and controllable. A sample of the room construction can be found in the Appendix \ref{sec:room_construction}. 
+
+\paragraph{Enrollment.} [TODO validatae the enrollment clip length and whether it is a single clip or multiple clips]
+The enrollment clip is a short audio segment of the target speaker. The clip is used to provide the extractor with a reference of what the target speaker sounds like. The clips are taken from the same source as the target speech, which is LibriSpeech. To avoid bias in the extractor, the enrollment clip is first attempted to be drawn from a different book reading. If this is unsuccessful, then the clip is drawn from a different chapter of the same book. Finally, if this is also unsuccessful, then the clip is drawn from a different utterance of the same chapter. The reason for this is to avoid the extractor memorising the target speech by learning to recognise the content rather than the \emph{manner} that the target speaker speaks. The distribution of enrollment clips across the dataset is shown in Figure \ref{fig:enrollment_distribution}. 
+
+\paragraph{Parameter distribution choice.}
+The Signal-to-Interference Ratio (SIR) is chosen uniformly from the range of -5 to 15 dB, and the Signal-to-Noise Ratio (SNR) is chosen uniformly from the range of 0 to 20 dB. These two ratios simulate the relative loudness of the target speaker to the interferer and background noise, respectively. A negative number for the SIR indicates that the interferer is louder than the target speaker, and the lower the SNR, the louder the background noise is relative to the target speaker. 
+\paragraph{Target-absent trials.}
+
+\paragraph{Splits.}
+
+\paragraph{Limitations.}
+
