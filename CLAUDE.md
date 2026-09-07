@@ -77,8 +77,9 @@ real conversational TSE.
   File it by SUBJECT, not by the date it happened to be decided.
 - Every live-model (judge) result must record the exact model ID, the
   exact prompt, the input modality (audio or text), and the run date.
-  Closed models change silently, so comparisons across dates are invalid
-  unless re-run.
+  Record the date so drift can be checked if it is ever suspected; within
+  this project's timeframe, cross-date comparison is treated as valid. See
+  decisions-m4.md 2026-09-07.
 - Never compare an audio-input judge result to a text-input one without
   stating that in the text condition the judge is close to a pass-through,
   so the number mostly reflects the front-end ASR, not the judge's

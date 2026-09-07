@@ -400,8 +400,9 @@ instrument rather than an anecdote.
 
 **Pin and date everything.** Record the exact judge model ID, the exact
 prompt, the exact response-transcription ASR, the **input modality**, and the
-run date for every number. Closed live models change silently. Cross-date
-comparisons are invalid unless re-run.
+run date for every number, so that drift can be checked if it is ever
+suspected. Amended 2026-09-07: cross-date comparison is treated as valid within
+this project's timeframe. See `decisions/decisions-m4.md` 2026-09-07.
 
 **Two ASRs, kept separate.** The text condition introduces a *front-end* ASR
 (part of the system under test, inside the latency budget). The judge harness
