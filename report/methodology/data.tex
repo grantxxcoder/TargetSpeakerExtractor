@@ -4,7 +4,16 @@ The section describes the construction of the dataset used for this work. It inc
 
 \subsection{Why the data is constructed}
 \label{sec:construct}
-There are three main considerations for the dataset that need to be met: \textit{(i)} training requires a clean target signal as a reference for what the extractor should output, \textit{(ii)} the data must possess exact transcriptions of the target signal to allow for transcription-based evaluation, and \textit{(iii)} the data must possess both best case and worst case scenarios in order to interpret the performance of the extractor relative to these scenarios. These considerations limit the available choices of publically available datasets. For inspiration for the construction of the dataset, the 2026 REAL-TSE challenge \cite{wang2026realtse} entries were considered. The organisers of the challenge noted that the contributions to a successful system were attributed to well crafted data. 
+There are three main considerations for the dataset that need to be met: \textit{(i)} training requires a clean target signal as a reference for what the extractor should output, \textit{(ii)} the data must possess exact transcriptions of the target signal to allow for transcription-based evaluation, and \textit{(iii)} the data must possess both best case and worst case scenarios in order to interpret the performance of the extractor relative to these scenarios. These considerations limit the available choices of publically available datasets.
+
+Constructing the data is also the established practice. The 2026 REAL-TSE challenge \cite{wang2026realtse} supplied no training set at all, and required that participants document whichever open-source data they used. The organisers after reviewing the submissions, describe the data recipe that the entrants converged on:
+
+\begin{quote}
+``Most teams synthesized mixtures from publicly available speech corpora such as LibriSpeech\ldots; added noise from WHAM!\ldots; and introduced reverberation with measured/simulated RIRs, while varying the number of speakers, SNR/SIR, RT60, chunk length, and enrollment quality. Many teams also injected target-absent or noise-only segments, forcing systems not only to extract the target when present but also to suppress non-target speech and avoid false extraction.''
+\hfill\cite{wang2026realtse}
+\end{quote}
+
+The dataset constructed here follows that recipe, and the sections below describe each of its components in turn. The organisers further observed that several of the strongest entries were built on backbones near-identical to the official baseline architecture, the BSRNN, yet scored substantially better. They attribute the success to data simulation, real-data adaptation, pseudo-label filtering, loss design and post-processing rather than to architecture alone. 
 
 
 \subsection{Source of audio}
@@ -18,7 +27,7 @@ The trials are structured in a way to replicate the conditions of a real-world t
 \begin{figure}[h]
     \centering
     \includegraphics[width=0.7\textwidth]{figures/trial_timeline_low_overlap.pdf}
-    \caption{Visual representation of the trial construction. The target and interferer are drawn from LibriSpeech, and the noise bed is drawn from WHAM!. The mixture is constructed by adding the three components together, and the enrollment clip is drawn from the same source as the target speech.}
+    \caption{Visual representation of the trial construction. The target and interferer are drawn from LibriSpeech, and the noise bed is drawn from WHAM!. The shaded areas show the overlapping regions of speech.}
     \label{fig:trial_construction}
 \end{figure} 
 
@@ -45,5 +54,5 @@ The remaining parameters and their distributions can be found in the Appendix \r
 
 \paragraph{Splits.} The dataset is split into a training and validation sets. Each of these sets have their own distinct set of speakers such that there is no overlap of speakers between the sets. The training set consists of \num{9955} trials, consisting of \num{1172} unique speakers. The validation set consists of \num{200} trials drawn from \num{40} speakers. The idea behind this is to ensure that the model does not memorise speakers, but rather to learn to extract the target speaker based on the enrollment clip. Finally, in a final evaluation holdout set, there are no target-absent trials. The training split was progressively built up in stages from \num{1989} to \num{4976} and then finally to \num{9955} trials. This was done to measure the effect of the quantity of data on the performance of the extractor. The final evaluation holdout set consists of \num{103} trials.
 
-\paragraph{Limitations.} The dataset is constructed to be as realistic as possible, but it is still a simulated dataset. The dataset is restricted to two speakers, which can confound the extractor to expect the target to be present if two speakers are present. Secondly, the combined audio forms \emph{read} speech and not \emph{conversational} speech. This means that the resulting audio does not have natural turn-taking, or conversational dynamics. These dynamics are simulated through the overlap of the target and interferer, but it is not a perfect simulation. Next, the dataset is restricted to English speech, and shoebox rooms only.
+\paragraph{Limitations.} The dataset is constructed to be as realistic as possible, but it is still a simulated dataset. The dataset is restricted to two speakers, which can confound the extractor to expect the target to be present if two speakers are present. Secondly, the combined audio forms \emph{read} speech and not \emph{conversational} speech. This means that the resulting audio does not have natural turn-taking, or conversational dynamics. These dynamics are simulated through the overlap of the target and interferer, but it is not a perfect simulation. Next, the dataset is restricted to English speech, and shoebox rooms only. Finally, the noise beds use are from WHAM! \cite{wichern2019wham} and range in length from 5 to 20 seconds long. This means that the noise beds are not long enough occassionally to cover the entire trial. To solve this, the noise bed is looped to cover the entire trial. 
 
