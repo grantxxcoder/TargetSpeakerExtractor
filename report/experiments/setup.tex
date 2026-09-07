@@ -2,8 +2,20 @@
 \label{sec:experimental_setup}
 During the course of experiments, the following setup was used to ensure reproducible and consistent training and evalution of the models. 
 
-\subsection{Data setup}
-\label{sec:data_setup_experiments}
+\subsection{Training setup}
+\label{sec:training}
+
+\subsubsection{Data pipeline}
+\label{exp:data}
+
+\subsubsection{Model construction: baseline}
+\label{exp:baseline}
+
+\subsubsection{Model construction: extension}
+\label{exp:extension}
+
+\subsubsection{Hyperparameter configuration}
+\label{exp:hyperparam}
 
 \subsection{Transcription tool setup}
 \label{sec:transcription}
@@ -26,4 +38,16 @@ During experiments, it was common for both transcription tools to invent words w
 
 \subsection{Latency measures}
 During the course of experiments, the latency of the different systems was measured to compare the implemented model against \textit{(i)} the latency specification for live transcription, and \textit{(ii)} the latency of established systems. There are two main components to consider: time to consume and time to process the audio. The first component considers the real-time factor (RTF). The RTF is the ratio of the time taken to process the audio to the length of the audio, and for a model to be able to keep up with real-time audio, the RTF must be less than 1. This is The second component considers the latency created by the architecture itself which cannot be improved by faster hardware. To produce the output frame for a given window, the model must first have received that entire window, and the final lookahead samples (if considered) of it have not yet arrived. This forces a delay of the processing of the window as per the \autoref{sec:stft}. For the model to be able to keep up with real-time audio, the RTF needs to be less than one, and secondly, the budget for processing a frame must be less than 200-300ms as a standard for live transcription. 
-Finally, to check whether a system can live stream audio, a probe is put in place. Considering a time $T$, a model as the result of shifted normalisation transcribes further than $T$ seconds of audio. A test to put in place is by replacing the audio after a time $T$ changes the output the model has already produced before $T$, then that output depends on audio which has not yet arrived, and the model cannot be streamed.
+Finally, before either timing figure is interpreted, a probe checks whether a system can stream at all. A real-time factor cannot distinguish a model that is merely slow from one that requires the entire utterance before it can produce anything. The probe replaces all audio after a time $T$ and measures how far the output \emph{before} $T$ moves: if changing the future changes what the model has already produced, then that output depends on audio which has not yet arrived, and the model cannot be streamed. For a strictly causal model the movement must be zero. The replacement is made at matched loudness so that the overall level of the input is preserved.
+
+\subsection{Model selection rule}
+\label{sec:model_selection}
+At the end of a training pass, the model has one set of weights. The objective function however, has many components that can be minimised and thus the final best model is not necessarily the one with the overall validation loss at the lowest point. 
+
+The weight $w$, as found in equation \ref{eq:total}, balancing the target-present and target-absent halves of the objective was calculated from the data split to match the proportion of target-absent crops in the set. This is done as a means to ensure that each branch contributes a proportionate amount to the total loss. During experiments, it was found that the absent branch could be continuously optimised further, but eventually would worsen the present branch. This is because the absent branch is a much simpler task to solve than the present branch, where the model can simply learn to output silence and thus the loss will continue to decrease which is not a desirable outcome.
+
+Selection is therefore made on the \emph{present branch alone}. The rationale behind this is that the training will introduce a loss term to encourage silence on absent cases, but it should not be the marker of a successful model. However, this does not mean to abandon the absent branch entirely. The absent branch ensures that a model will learn not to talk over silence, which on this data affects roughly a quarter of trials. Silence is therefore handled as an eligibility constraint. For a model to be considered for selection it must be quiet enough on target-absent crops to be considered and only if the condition is met will the model be selected. Therefore the model must be at least 10 dB down on the absent branch to be considered for selection.
+
+
+\subsection{Model comparison}
+[TODO] Compare to WeSep methodology
