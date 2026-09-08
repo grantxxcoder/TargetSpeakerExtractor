@@ -1,0 +1,73 @@
+# Per-frame speaker-state labels (decisions-pending.md D14).
+#
+# Reads the manifests and the VAD index, writes one span index per split. It
+# reads NO audio: the manifest records which utterances went into each trial and
+# where they were placed, and the VAD index records where the speech is inside
+# each utterance, so the spans reconstruct exactly. See src/data/state_labels.py
+# for why that matters beyond cost -- `overlap_achieved` was computed from these
+# same spans, and re-detecting activity would create a second, inconsistent
+# definition of "speaking".
+#
+# Nothing here defines the VAD. That lives in generator.yaml's `vad:` block and
+# is already baked into data/index/vad_segments.csv; this file must never restate
+# it, or the two could drift.
+
+seed: 42                 # nothing here is random. Recorded because every run
+                         # logs a seed (CLAUDE.md), and a reader should not have
+                         # to infer that determinism from the absence of a value.
+
+sample_rate: 16000       # must match generator.yaml; asserted, not assumed
+
+paths:
+  manifests: data/manifests
+  vad_index: data/index/vad_segments.csv
+  rendered: data/rendered
+  out_dir: data/index
+
+# --- the one real knob ----------------------------------------------------
+
+# How far past the end of dry speech a reverberation tail still counts as that
+# speaker being audible, as a multiple of the trial's own `t60_s`.
+#
+# 1.0 reuses A5's existing convention -- the renderer already pads the mixture
+# tail by exactly `t60_s` (decisions-m0.md 2026-08-13) -- rather than inventing a
+# level threshold that would then need defending. A1 is what forces the question:
+# the reference is the full reverberant target, so while a tail is ringing the
+# correct output IS the tail, and a label built from dry activity alone would
+# teach a gate to suppress it.
+#
+# 0.0 is the dry-only arm. The build reports the class histogram at both, so the
+# sensitivity is measured rather than assumed. Expect the difference to be modest:
+# the VAD index bridges gaps under 250 ms already, so this mostly moves trailing
+# edges rather than mid-sentence pauses.
+tail_t60_mult: 1.0
+
+# --- frame rates the labels get rasterised to -----------------------------
+#
+# Stored as SPANS in seconds, not as a fixed-rate mask, precisely because two
+# different rates consume them:
+#   0.008  the model's STFT hop (128 at 16 kHz) -- the extractor's own frames
+#   0.020  WavLM's stride (50 Hz) -- the state detector in PR2
+# Listed here only so the build can report a histogram at each; the rasterising
+# itself happens at load time via state_labels.states_at_frames().
+report_hop_s: [0.008, 0.020]
+
+# --- validation ------------------------------------------------------------
+#
+# The reconstruction is CHECKED against the manifest rather than trusted. Four
+# columns were derived from the same spans, so all four must come back:
+#   target_speech_s / interferer_speech_s   sum of span lengths (before tails)
+#   target_activity / interferer_activity   speech seconds / mixture_length_s
+#   target_footprint_s                      first onset to last utterance end
+#   overlap_achieved                        shared seconds / mixture_length_s
+#
+# Tolerance is in seconds (and in ratio units for the two normalised columns).
+# 0.002 s is well inside the VAD index's own 4-decimal storage, so anything
+# larger is a real disagreement and not rounding.
+tolerance_s: 0.002
+tolerance_ratio: 0.0005
+
+# Fail the whole build on a mismatch rather than warn. A silently wrong label set
+# would poison the detector, the loss and every number downstream of them, and
+# would be far harder to notice later than a build that refuses to finish.
+strict: true
