@@ -28,6 +28,12 @@ actually taken go to the decision log of the milestone they belong to —
   with a shared trunk; `K > 2` deferred until the judge work is done. See Group D.
 - **D13 — DECIDED 2026-09-01: build the per-band gate**, as the `n_experts = 2`
   case of D12 with the identity as expert 0. See Group D.
+- **D14 — PROPOSAL: per-frame speaker-state supervision.** Free four-state labels
+  from the rendered stems; an auxiliary head, a frozen state detector used as a
+  training-only loss (zero inference cost, no architecture change), and the state
+  posterior as the supervised input to D13's gate controller. **Gated on D10's
+  free ICR measurement**, and it corrects a recorded ceiling: M6's 2.2-point
+  oracle was measured per trial, not per frame. See Group D.
 - **J4 — PROPOSAL: a metric *system* (normalised requirement axes, composed and
   plotted) rather than metrics in isolation.** Diagnosis accepted; ranking by
   polygon area rejected as order-dependent, and the baseline normalisation must
@@ -1399,3 +1405,224 @@ run stays comparable. That is the only sense of the freeze that matters.
 
 Rendered comparison of all six options:
 `docs/extra/adaptive-masking-options.pdf`.
+
+### D14. Per-frame speaker-state supervision — labels, an auxiliary head, and a frozen state detector as a loss
+
+**Status: PROPOSAL, raised 2026-09-08 (Grant). M5-scale. Only PART of it fits
+before the 14 Oct freeze — see Sequence. The three pieces are separable and must
+NOT be run as one arm.**
+
+**The gap it addresses.** The model has no per-frame representation of who is
+speaking. The only present/absent signal anywhere in the system is `crop_absent`
+— one bit per 4 s crop. Every level failure in M2 traces back to this: the
+2026-08-25 mute, and the 2026-08-27 diagnosis that one shared gain serves both
+branches at a cost of +24 dB on absent crops. `L_gain` penalises the symptom;
+nothing supplies the missing variable.
+
+**The four states.** target only / interferer only / both / none. Exactly what
+B9's mix produces, and only coherent under the two-speaker boundary
+(`decisions-m0.md` 2026-08-14) — a third talker would break the state set, which
+is one more reason not to add one.
+
+**Labels are free.** `target.wav` and `interferer.wav` are rendered per trial.
+Per STFT frame (hop 128 = 8 ms, ~497 per 4 s crop), active/inactive on each stem
+gives the state. No re-render, no new data.
+
+**Label from the REVERBERANT stems, not from VAD on the dry sources.** A1 makes
+the reference the full reverberant target, so during a decay tail the correct
+output *is* the tail and the frame must be labelled target-active. Labelling from
+dry voice activity would train the model to gate off exactly the tail the
+reference contains. Consequence: `none` is rarer than B9's 25 % trial-level
+absent rate suggests, because tails fill the gaps.
+
+### Three separable pieces
+
+| | what changes | inference cost |
+|---|---|---|
+| **A. auxiliary state head** | ~10 k params, training pressure only; deleted at inference | zero |
+| **B. frozen state detector as a loss** | the objective only. **No architecture change** | **zero** |
+| **C. state posterior into D13's gate controller** | one term in a line D13 already specifies | ~1 k params |
+
+**A — auxiliary head.** Mean-pool the separator output over the 32 bands ->
+`(B, 128, T)` -> 1x1 conv -> 4 logits per frame. Cross-entropy against the
+labels. Teaches the separator's features to encode who is talking; changes no
+audio, so it is deletable at inference unless C is built.
+
+**B — the frozen detector, and why it is the cleanest arm in Group D.** Train a
+small detector once, offline, on stems and mixtures with the same labels, then
+FREEZE it. In the loss, score the model's output spectrogram against the *mapped*
+state:
+
+    input state      required output state
+    target only  ->  target only
+    both         ->  target only      <- the interferer must go
+    interferer   ->  none
+    none         ->  none
+
+Two readouts of one variable: the labels stay honest (what IS happening), the
+target is aspirational (what SHOULD be audible). When the interferer is still
+audible the frozen detector puts mass on `both`, cross-entropy against
+`target only` is large, and the gradient flows back through the estimator saying
+"reduce whatever made this frame look like two voices". That is how a
+classification becomes a pressure on the audio.
+
+**The freeze is the mechanism, not a detail.** A jointly-trained detector and
+extractor share one objective and can satisfy it by agreeing with each other
+while the audio does not change. Frozen, the only available move is to change the
+audio.
+
+**Zero parameters added at inference.** The extractor is architecturally
+identical — same 7.19 M, same band plan, same latency — and only its weights
+differ. **This is the only proposal in Group D with no capacity confound**, which
+makes its comparison against the baseline unusually clean. Build it non-causal:
+it never streams, so future context is free accuracy, the same argument that
+makes an enrollment-side encoder latency-free in D5. Build it convolutional, not
+recurrent — recurrent activations over a 497-step sequence are what created E1's
+batch ceiling and there is no reason to reintroduce that in a scorer. Score the
+estimator's spectrogram directly, skipping an iSTFT/STFT round trip in the loss
+path.
+
+**A sibling of the planned proxy, not a new category.** CLAUDE.md already commits
+to frozen-ASR/SSL feature matching. Cite: perceptual / deep-feature losses,
+Johnson et al., ECCV 2016; in speech enhancement, Germain, Chen & Koltun,
+"Speech Denoising with Deep Feature Losses", Interspeech 2019. **BORROWED, with a
+difference to state:** those losses match features of *what was said*; this
+matches *who is audible when*. Complementary axis, and the identity axis is where
+the 2026-08-30 gender shortcut hides.
+
+**Constraints.** The detector must not be `small.en` (the eval scorer), must be a
+different family from the ASR proxy, and must never be the judge in any form.
+Family check recorded, not assumed.
+
+**Reward-model overoptimisation is the failure mode, and it is already familiar.**
+A frozen learned scorer optimised against gets gamed off-distribution eventually.
+Signature: the term falls while an independent measure stalls — seen twice
+(2026-08-25, total loss falling into a mute; 2026-09-04, `enrol_sens` and
+`pres_abs_gap` at their best on an epoch below pass-through). Mitigations, all
+cheap: never select on the term, keep its weight modest, and **measure the
+detector's accuracy on the extractor's own outputs against true labels every
+epoch** — we own the stems for every output, so calibration drift is directly
+observable. If it drifts, re-fit the detector on model outputs *with true labels*
+(distribution repair, not syncing to the model's preference). Post-freeze.
+
+**C — the state posterior as D13's gate controller.** D13 already specifies
+`alpha[t,b] = sigmoid(w_b . h[t,b] + b_b)`: an implicit, unsupervised controller
+learning from the extraction loss alone. Add the posterior as an extra input:
+
+    alpha[t,b] = sigmoid( w_b . h[t,b] + u_b . p[t] + b_b )
+
+**Augment, do not replace.** `p[t]` is one vector per frame shared across bands;
+using it alone would discard the per-band expressiveness M5 chose deliberately
+(artefacts in high bands, speech energy in low). ~1 k extra parameters.
+
+**It attacks D13's own stated failure mode.** D13 step 4 fears "a gate that
+saturates near 1 everywhere". An unsupervised scalar has one weak signal to learn
+from and saturation is the safe answer; supervising the intermediate gives it a
+strong gradient and a reason to vary. It also makes the gate diagnosable — state
+accuracy is directly measurable, where an implicit gate that fails explains
+nothing.
+
+**Detach the posterior before the gate, as an ablation arm.** Otherwise head A
+gets a second gradient from the extraction loss, which may prefer it to always
+claim `both` so the mask always applies — the same collusion as B, internalised.
+Detached, A is trained only by honest cross-entropy and the gate learns to use it.
+
+### The recorded 2.2-point ceiling does not apply to a per-frame gate
+
+M6 warns that D13's oracle ceiling is 2.2 LCF-WER points (59.1 -> 56.9) against a
+judge SEM of ~0.5, so a realistic gate may not clear the noise floor. **That
+ceiling was measured by bucketing on trial difficulty, one constant per trial**
+(`decisions-m3.md` 2026-09-01). A per-frame gate is strictly more expressive than
+a best-constant-per-trial gate, so the relevant bound sits above the cheating
+per-trial oracle's 6.6 points, not below 2.2. **Nobody has measured a per-frame
+oracle.** That is a gap in the log and closing it needs no training.
+
+### Prior art — the state set is published; the composition may not be
+
+- Frame-level {non-speech, target, non-target} conditioned on a speaker embedding
+  is **personal VAD**: Ding et al., ICASSP 2020. Three of the four states.
+- Per-frame per-speaker activity from speaker profiles is **TS-VAD**: Medennikov
+  et al., Interspeech 2020, the standard diarization approach.
+- HMM and factorial-HMM separation: Roweis, 2000; Mysore & Smaragdis, 2010-11.
+  Hybrid HMM-DNN is the 2012-16 ASR era.
+- **A temporal smoother over the posterior was considered and dropped.** A
+  learned transition matrix with causal filtering only (never forward-backward,
+  which needs the future) is cheap and optional — but a learned duration prior
+  would encode our sampler's `overlap_ratio` distribution rather than real
+  turn-taking, because LibriSpeech reads have none. It would look good on
+  `sir0_val` and is a prime candidate to fail the AMI transfer check.
+- **The GMM-UBM contrast** (target vs a speaker-independent average; Reynolds et
+  al., 2000) resurfaced here as a candidate observation channel and is **not
+  revived**: D3a closed D1, and a static corpus-average channel would repeat the
+  measured 2026-08-25 failure where the cue degenerated into the long-term mean
+  spectrum, varied 4.7 %, and was ignored. See
+  `literature/novelty-review-contrastive-phonetic-cue.md`.
+
+**Requires a novelty review before any of B is written**, as D1 got. The claim
+cannot be the state set or the HMM framing; at most it is the composition, plus
+tuning its operating point against a live-model content metric rather than SI-SDR
+or diarization error.
+
+### Two controls, without which head A means nothing
+
+1. **Ablate the enrollment and re-measure state accuracy.** If accuracy holds up
+   without the cue, the head is a voice-activity detector and the "who" half is
+   unearned.
+2. **Split accuracy same- vs cross-gender.** The extractor already leans on
+   gender (56.1 % vs 44.4 %, 2026-08-30) and a frame classifier is an easier
+   place to hide it; pooled accuracy would conceal it.
+
+`both_directions` helps: roles swap per mixture, so "target = louder" is not
+learnable from the distribution.
+
+### Weighting: derive it, do not pick it
+
+Head A's neutral default is inverse class frequency from the measured label
+histogram — `both` will dominate and an unweighted head will simply predict it.
+Head B's asymmetry (a missed target frame becomes a deletion the judge never
+hears; a leaked interferer frame becomes an insertion it attributes to the
+target) costs differently in the metric, and the metric can measure which. Same
+discipline as `w_g` = 1.69 and `w` from the measured 0.297 absent rate: derived,
+not tuned.
+
+### Sequence, and what fits before 14 October
+
+0. **MEASURE ICR FIRST — D10's free measurement, which gates this whole family.**
+   `interferer_text` is in every `meta.json`, so one transcription pass yields
+   target WER and interferer content overlap together. If leakage is not the
+   dominant error, both D10 and head B lose their motivation. Nothing here starts
+   before that number exists.
+1. **Label script.** Hours. Shared dependency of everything below, and of the
+   sweep.
+2. **State-conditioned oracle sweep. No training, no GPU.** Extend `sweep_alpha`
+   with a per-state blend set from the true labels. Parameterisation limit to fix
+   first: D11's `alpha` blends toward the *mixture*, which on target-absent frames
+   passes the interferer straight through, so a second axis is required — a gain
+   toward silence on target-absent frames. A 3x3 grid over `sir0_val` `both`
+   (n=103) is ~900 transcriptions, under an hour of CPU. **A deliverable either
+   way:** it closes the per-frame-oracle gap and either retires or confirms M6's
+   measurement risk for M5's gate.
+3. **C, folded into M5's already-scheduled gate arm** — one term in one line,
+   ~1 k parameters, no separate run. Only if step 2 says the headroom clears the
+   judge's SEM.
+4. **A alone, then B alone. Post-freeze, or if something is cut.** One variable
+   per run: the 2026-08-25 lesson was three variables and one number,
+   attributable to none of them.
+
+### Stopping rules
+
+- **Step 0 says leakage is not dominant** -> drop B; A and C survive on the
+  level/gating argument alone.
+- **Step 2 lands near 2.2 points** -> drop C, and M6's recorded caution stands.
+  **Says little about B**, which is not restricted to blending two existing
+  signals and can change the mask itself.
+- **Head A fails either control** -> C is not built. A gate driven by a bad state
+  estimate is worse than no gate.
+
+### Honest cost ranking against the rest of Group D
+
+B is the most interesting piece and the most expensive: a label script, a
+detector architecture, a detector training run, then the arm. `BETA` is one number
+with `BETA = 1` recovering `L_pres` exactly, and D10 is one term on a stem already
+loaded. **Neither is beaten by this on cost-to-evidence.** What D14 contributes
+inside the freeze is steps 1-3, not B.
