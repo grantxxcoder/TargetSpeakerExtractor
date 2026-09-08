@@ -1,0 +1,617 @@
+<title>M4 Status — The Divergence Result</title>
+<style>
+  :root {
+    --ground:        #f8f6f3;
+    --surface:       #ffffff;
+    --surface-sunk:  #f1eee9;
+    --line:          #ddd8d1;
+    --line-strong:   #c3bcb2;
+    --text:          #1d2128;
+    --text-soft:     #5b6470;
+    --text-faint:    #8b939d;
+    --accent:        #2f6d92;
+    --accent-soft:   #e3edf3;
+    --done:          #3d7355;
+    --done-soft:     #e3ede7;
+    --signal:        #9a6f14;
+    --signal-soft:   #f3ebd9;
+    --risk:          #a2433a;
+    --risk-soft:     #f4e4e2;
+
+    --serif: ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif;
+    --sans:  ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono:  ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:        #14161c;
+      --surface:       #1b1e26;
+      --surface-sunk:  #101218;
+      --line:          #2b3038;
+      --line-strong:   #3d434d;
+      --text:          #e8e6e2;
+      --text-soft:     #a4adb8;
+      --text-faint:    #737d89;
+      --accent:        #6aa8cd;
+      --accent-soft:   #1c2c38;
+      --done:          #6fae8a;
+      --done-soft:     #1a2620;
+      --signal:        #d3a851;
+      --signal-soft:   #2a2317;
+      --risk:          #d97f74;
+      --risk-soft:     #2c1d1b;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:        #14161c;
+    --surface:       #1b1e26;
+    --surface-sunk:  #101218;
+    --line:          #2b3038;
+    --line-strong:   #3d434d;
+    --text:          #e8e6e2;
+    --text-soft:     #a4adb8;
+    --text-faint:    #737d89;
+    --accent:        #6aa8cd;
+    --accent-soft:   #1c2c38;
+    --done:          #6fae8a;
+    --done-soft:     #1a2620;
+    --signal:        #d3a851;
+    --signal-soft:   #2a2317;
+    --risk:          #d97f74;
+    --risk-soft:     #2c1d1b;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 940px; margin: 0 auto; padding: 0 28px 96px; }
+  .prose { max-width: 68ch; }
+
+  /* ---- masthead ---- */
+  .masthead {
+    border-bottom: 2px solid var(--text);
+    padding: 56px 0 20px;
+    margin-bottom: 40px;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    margin-bottom: 22px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(34px, 5.5vw, 52px);
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+    margin: 0 0 16px;
+    text-wrap: balance;
+  }
+  .standfirst {
+    font-family: var(--serif);
+    font-size: clamp(17px, 2.2vw, 20px);
+    line-height: 1.5;
+    color: var(--text-soft);
+    max-width: 60ch;
+    margin: 0;
+  }
+
+  /* ---- verdict strip ---- */
+  .verdict {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(138px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    margin: 36px 0 56px;
+  }
+  .vcell { background: var(--surface); padding: 16px 18px; }
+  .vlabel {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-bottom: 8px;
+  }
+  .vnum {
+    font-family: var(--mono);
+    font-size: 26px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+  }
+  .vnote { font-size: 12.5px; color: var(--text-soft); margin-top: 5px; line-height: 1.4; }
+  .is-done { color: var(--done); }
+  .is-signal { color: var(--signal); }
+  .is-risk { color: var(--risk); }
+
+  /* ---- sections ---- */
+  section { margin-bottom: 60px; }
+  h2 {
+    font-family: var(--serif);
+    font-size: 27px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0 0 6px;
+    text-wrap: balance;
+  }
+  .sub {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 20px;
+  }
+  h3 {
+    font-family: var(--sans);
+    font-size: 15px;
+    font-weight: 650;
+    margin: 28px 0 8px;
+    letter-spacing: -0.005em;
+  }
+  p { margin: 0 0 14px; }
+  a { color: var(--accent); }
+  strong { font-weight: 650; }
+  code {
+    font-family: var(--mono);
+    font-size: 0.87em;
+    background: var(--surface-sunk);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 1px 4px;
+  }
+
+  /* ---- the segment-bar motif: speech spans against silence ---- */
+  .track {
+    display: flex;
+    gap: 2px;
+    height: 9px;
+    margin: 10px 0 0;
+  }
+  .seg { flex: 1; background: var(--line-strong); opacity: 0.35; border-radius: 1px; }
+  .seg.on { background: var(--done); opacity: 1; }
+  .seg.part { background: var(--signal); opacity: 1; }
+
+  /* ---- milestone ladder ---- */
+  .ladder { border-top: 1px solid var(--line); }
+  .rung {
+    display: grid;
+    grid-template-columns: 86px 1fr 150px;
+    gap: 18px;
+    padding: 15px 0;
+    border-bottom: 1px solid var(--line);
+    align-items: baseline;
+  }
+  .rung-id {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+  .rung-name { font-size: 14.5px; }
+  .rung-name em { color: var(--text-soft); font-style: normal; display: block; font-size: 13px; margin-top: 2px; }
+  .rung-when {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-soft);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  .rung.now { background: var(--accent-soft); margin: 0 -14px; padding-left: 14px; padding-right: 14px; }
+  .rung.now .rung-id { color: var(--accent); }
+
+  /* ---- tables ---- */
+  .scroll { overflow-x: auto; margin: 18px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; min-width: 460px; }
+  th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    font-weight: 500;
+    padding: 0 14px 8px 0;
+    border-bottom: 1px solid var(--line-strong);
+    white-space: nowrap;
+  }
+  td {
+    padding: 9px 14px 9px 0;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+
+  /* ---- inventory columns ---- */
+  .cols {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(258px, 1fr));
+    gap: 26px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    padding: 20px 22px 22px;
+  }
+  .card h3 { margin-top: 0; }
+  .card ul { margin: 0; padding-left: 17px; }
+  .card li { margin-bottom: 7px; font-size: 13.5px; line-height: 1.5; }
+  .card li:last-child { margin-bottom: 0; }
+  .tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    padding: 2.5px 7px;
+    border-radius: 2px;
+    vertical-align: 1.5px;
+  }
+  .t-done   { background: var(--done-soft);   color: var(--done); }
+  .t-signal { background: var(--signal-soft); color: var(--signal); }
+  .t-risk   { background: var(--risk-soft);   color: var(--risk); }
+
+  /* ---- callout ---- */
+  .note {
+    border-left: 3px solid var(--accent);
+    background: var(--surface);
+    padding: 16px 20px;
+    margin: 22px 0;
+  }
+  .note.warn { border-left-color: var(--risk); }
+  .note p:last-child { margin-bottom: 0; }
+  .note-h {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-bottom: 7px;
+  }
+
+  /* ---- ordered next steps ---- */
+  ol.steps { list-style: none; counter-reset: s; padding: 0; margin: 0; }
+  ol.steps > li {
+    counter-increment: s;
+    display: grid;
+    grid-template-columns: 34px 1fr;
+    gap: 16px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  ol.steps > li::before {
+    content: counter(s);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    border: 1px solid var(--line-strong);
+    border-radius: 50%;
+    width: 26px; height: 26px;
+    display: grid; place-items: center;
+    font-variant-numeric: tabular-nums;
+  }
+  ol.steps h3 { margin: 0 0 4px; }
+  ol.steps p { margin: 0; font-size: 13.5px; color: var(--text-soft); }
+
+  footer {
+    border-top: 1px solid var(--line);
+    padding-top: 20px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--text-faint);
+    line-height: 1.7;
+  }
+
+  @media (max-width: 620px) {
+    .rung { grid-template-columns: 62px 1fr; }
+    .rung-when { grid-column: 2; text-align: left; }
+  }
+</style>
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow">
+      Real-time Target Speaker Extraction &middot; M4 status &middot; 7 September 2026
+    </div>
+    <h1>The measuring instrument is finished, and it has produced the result the thesis was built to look for.</h1>
+    <p class="standfirst">Making the filter better by every conventional audio measure did not make the
+    Gemini understand any more of what the target speaker said. Three independent instruments
+    agree. Three systems are now measured end to end, and the report stands at 49 pages with the
+    methodology and results chapters substantially written.</p>
+  </header>
+
+  <div class="verdict">
+    <div class="vcell">
+      <div class="vlabel">Report written</div>
+      <div class="vnum">49 pp</div>
+      <div class="vnote">methodology and results substantially done</div>
+    </div>
+    <div class="vcell">
+      <div class="vlabel">Systems measured</div>
+      <div class="vnum">3</div>
+      <div class="vnote">plus two reference points, top and bottom</div>
+    </div>
+    <div class="vcell">
+      <div class="vlabel">Measurements each</div>
+      <div class="vnum">13</div>
+      <div class="vnote">comprehension, audio quality, speed</div>
+    </div>
+    <div class="vcell">
+      <div class="vlabel">Training examples</div>
+      <div class="vnum">9,955</div>
+      <div class="vnote">built here &middot; third point on the scaling curve</div>
+    </div>
+    <div class="vcell">
+      <div class="vlabel">Central finding</div>
+      <div class="vnum">confirmed</div>
+      <div class="vnote">on three instruments that share no code</div>
+    </div>
+    <div class="vcell">
+      <div class="vlabel">To submission</div>
+      <div class="vnum">59 days</div>
+      <div class="vnote">5 November</div>
+    </div>
+  </div>
+
+  <section class="prose">
+    <div class="sub">Start here</div>
+    <h2>What the project is, without any terminology.</h2>
+    <p>When two people talk at once, a voice assistant such as Gemini Live hears both and often reports
+    the wrong words. This project builds a filter that sits in front of it and tries to isolate one
+    chosen speaker &mdash; identified by a short sample of their voice recorded earlier &mdash; before
+    the assistant listens.</p>
+    <p>Two listeners are used to judge the filter's output, and the difference between them is the
+    point. <strong>Gemini</strong> (<code>gemini-3.7-flash</code>, given audio and asked what it heard)
+    stands in for the live assistant the filter is built to serve. <strong>Whisper</strong>
+    (<code>faster-whisper small.en</code>) is a conventional speech-to-text transcriber, the cheap
+    stand-in the field would normally reach for. Both are held out of training entirely.</p>
+    <p>The contribution is not the filter. It is a way of <em>measuring</em> whether the filter
+    actually helps Gemini understand the right person. That sounds obvious, but the field
+    measures something else: how clean the audio looks on a signal analyser, or how pleasant it sounds
+    to a person. Neither of those is the same question, and this project set out to show they can point
+    in different directions.</p>
+    <div class="note">
+      <div class="note-h">The one-sentence contribution</div>
+      <p>A defined, hard-to-cheat way to measure how much of what a chosen speaker said a live voice
+      assistant actually recovers &mdash; plus the software that computes it, and the evidence that
+      conventional audio measures do not predict it.</p>
+    </div>
+  </section>
+
+  <section class="prose">
+    <div class="sub">The central result</div>
+    <h2>We doubled the training data. Every audio measure improved and Gemini understood no more.</h2>
+    <p>The same filter was trained twice, once on roughly 5,000 examples and once on roughly 10,000,
+    with nothing else changed. Conventional audio measures all improved, as expected. What the two
+    listeners actually recovered did not.</p>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th>What was measured</th><th class="num">5,000 examples</th><th class="num">10,000 examples</th><th>Direction</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Separation quality</td><td class="num">+0.86</td><td class="num">+1.29</td><td><span class="tag t-done">better</span></td></tr>
+          <tr><td>Interfering voice removed</td><td class="num">+3.21</td><td class="num">+3.66</td><td><span class="tag t-done">better</span></td></tr>
+          <tr><td>Distortion introduced</td><td class="num">+10.34</td><td class="num">+11.11</td><td><span class="tag t-done">better</span></td></tr>
+          <tr><td>Predicted listening quality</td><td class="num">2.24</td><td class="num">2.18</td><td><span class="tag t-risk">worse</span></td></tr>
+          <tr><td>Words wrong &mdash; Whisper</td><td class="num">59.1%</td><td class="num">59.5%</td><td><span class="tag t-risk">slightly worse</span></td></tr>
+          <tr><td>Words wrong &mdash; Gemini</td><td class="num">56.7%</td><td class="num">55.6%</td><td><span class="tag t-signal">slightly better</span></td></tr>
+          <tr><td><strong>Words invented &mdash; Gemini</strong></td><td class="num">1.83</td><td class="num"><strong>2.01</strong></td><td><span class="tag t-risk">worse</span></td></tr>
+          <tr><td><strong>Words invented &mdash; Whisper</strong></td><td class="num">2.73</td><td class="num"><strong>3.08</strong></td><td><span class="tag t-risk">worse</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>The first three rows are decibels, where higher is better. The rest are what a listener got out
+    of the audio. <strong>Gemini and Whisper do not even agree on the sign of the change</strong>, and
+    both agree the bigger model makes up more words that nobody said.</p>
+    <div class="note">
+      <div class="note-h">Why this is the thesis, and not a disappointment</div>
+      <p>Had the audio measures and the comprehension measures moved together, the project would have
+      had no reason to exist &mdash; the field could keep using the cheap measure. They did not move
+      together, on our own model, on three instruments that share no code. That is the argument the
+      thesis makes, and it is now measured rather than asserted.</p>
+    </div>
+  </section>
+
+  <section class="prose">
+    <div class="sub">Where the systems stand</div>
+    <h2>What Gemini recovered from each system.</h2>
+    <p>Every row below is the same 103 recordings, put through the same pipeline, and read by the same
+    Gemini model under the same fixed instruction. The top and bottom rows are reference points
+    rather than systems: doing nothing at all, and handing Gemini a clean recording of the
+    target speaker.</p>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th>System</th><th class="num">Words wrong</th><th class="num">Picked up the wrong speaker</th><th class="num">Words invented</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Doing nothing</td><td class="num">63.3%</td><td class="num">75.7%</td><td class="num">1.24</td></tr>
+          <tr><td>Our filter, 5,000 examples</td><td class="num">56.7%</td><td class="num">62.1%</td><td class="num">1.83</td></tr>
+          <tr><td>Our filter, 10,000 examples</td><td class="num">55.6%</td><td class="num">61.2%</td><td class="num">2.01</td></tr>
+          <tr><td><strong>Published filter, off the shelf</strong></td><td class="num"><strong>26.4%</strong></td><td class="num"><strong>25.2%</strong></td><td class="num">1.80</td></tr>
+          <tr><td>Clean recording of the target</td><td class="num">1.1%</td><td class="num">0.0%</td><td class="num">0.20</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>A published filter downloaded off the shelf beats ours substantially on our own data. <strong>The
+    report says so plainly</strong>, and the honest reading is that our filter is limited by the amount
+    of training data we could generate and afford to train on, not by the idea. Two things sit
+    alongside that, and both matter.</p>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th></th><th class="num">Published filter</th><th class="num">Ours</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Size</td><td class="num">33.5 M parts</td><td class="num">7.2 M &middot; 4.6&times; smaller</td></tr>
+          <tr><td>Can it run live?</td><td class="num"><span class="tag t-risk">No</span></td><td class="num"><span class="tag t-done">Yes</span></td></tr>
+          <tr><td>Keeps up with the audio</td><td class="num">2.9&times; too slow</td><td class="num">0.78&times; &mdash; fits</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>The published filter is not merely slow. We tested it and found it needs the <em>whole</em>
+    recording before it can produce anything, so it cannot be used in a live conversation at any speed.
+    Ours can. That is the difference between a research result and something that could sit in front of
+    a real assistant, and it is the reason the comparison is reported rather than hidden.</p>
+  </section>
+
+  <section class="prose">
+    <div class="sub">A prediction we got wrong</div>
+    <h2>Gemini and Whisper fail in opposite directions on identical audio.</h2>
+    <p>We expected Whisper to cope better with the filter's artefacts than Gemini would. The opposite
+    happened. On our filter's output Gemini <em>dropped fewer</em> words than it did from the raw
+    mixture, while Whisper <em>dropped more</em>. Same audio file, opposite direction.</p>
+    <p>This is recorded in the write-up as a failed prediction, because it matters: it means a cheap
+    Whisper cannot stand in for Gemini when measuring this task, which is the assumption the whole
+    project rests on.</p>
+  </section>
+
+  <section class="prose">
+    <div class="sub">Stated plainly</div>
+    <h2>What has not been done, so it is not mistaken for progress.</h2>
+    <div class="cols">
+      <div class="card">
+        <h3>The close comparison <span class="tag t-risk">Priority</span></h3>
+        <p>Our two comparison systems are far apart. That shows the measurement can separate very
+        different systems, which is a low bar. A third filter, a small variant of our own, is designed
+        and specified but not yet built &mdash; it would test whether the measurement separates systems
+        that are genuinely <em>close</em>. For a thesis whose contribution is a measurement, that is the
+        question that matters most.</p>
+      </div>
+      <div class="card">
+        <h3>Statistical confidence <span class="tag t-signal">Cheap</span></h3>
+        <p>Gemini gives slightly different answers each time it is asked. Our two filters differ
+        by about one point, which may be smaller than that variation. The repeat measurements already
+        exist and cost nothing further to analyse &mdash; until they are, we cannot claim the two
+        filters differ at all.</p>
+      </div>
+      <div class="card">
+        <h3>Real recordings <span class="tag t-signal">Planned</span></h3>
+        <p>Everything so far is measured on audio we built ourselves, which is what makes exact
+        measurement possible. A check on genuine meeting recordings is planned, to test whether the
+        result carries over. Only the audio-quality measure can run there, since real recordings have no
+        exact transcript.</p>
+      </div>
+      <div class="card">
+        <h3>Three chapters <span class="tag t-signal">In hand</span></h3>
+        <p>Introduction, literature review and conclusion are still to write. The results tables are
+        complete and every number in them is measured, so these are a writing job rather than a
+        research one.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="prose">
+    <div class="sub">Where the plan stands</div>
+    <h2>The technical work is running about three weeks ahead of schedule.</h2>
+    <div class="ladder">
+      <div class="rung">
+        <div class="rung-id">M0</div>
+        <div class="rung-name">Data built<em>Constructed two-speaker recordings with exact transcripts</em></div>
+        <div class="rung-when">closed</div>
+      </div>
+      <div class="rung">
+        <div class="rung-id">M1</div>
+        <div class="rung-name">Filter and training built<em>From scratch, no pretrained weights</em></div>
+        <div class="rung-when">closed</div>
+      </div>
+      <div class="rung">
+        <div class="rung-id">M2</div>
+        <div class="rung-name">Filter trained<em>Three checkpoints across the data-scaling curve</em></div>
+        <div class="rung-when">done &middot; due 17 Sep</div>
+      </div>
+      <div class="rung">
+        <div class="rung-id">M3</div>
+        <div class="rung-name">Conventional measurements<em>Audio quality, listening quality, speed</em></div>
+        <div class="rung-when">done &middot; due 24 Sep</div>
+      </div>
+      <div class="rung now">
+        <div class="rung-id">M4</div>
+        <div class="rung-name">The measurement works end to end<em>All three comprehension scores, the Gemini judge, the reference points</em></div>
+        <div class="rung-when">done &middot; due 1 Oct</div>
+      </div>
+      <div class="rung">
+        <div class="rung-id">M5</div>
+        <div class="rung-name">Second filter, for the close comparison<em>Designed and specified; not built. Cuttable.</em></div>
+        <div class="rung-when">14 Oct</div>
+      </div>
+      <div class="rung">
+        <div class="rung-id">M6</div>
+        <div class="rung-name">The comparison<em>Partly satisfied by the off-the-shelf filter already measured</em></div>
+        <div class="rung-when">14 Oct</div>
+      </div>
+      <div class="rung">
+        <div class="rung-id">M7</div>
+        <div class="rung-name">Submitted</div>
+        <div class="rung-when">5 Nov</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="prose">
+    <div class="sub">Next</div>
+    <h2>In order, with a decision point.</h2>
+    <ol>
+      <li>
+        <h3>Build and train the second filter</h3>
+        <p>The only remaining item with a hard compute dependency. If it is not training by the end of
+        September it will be cut, and the comparison will rest on the off-the-shelf filter already
+        measured. That decision is recorded in advance so it is not made under pressure.</p>
+      </li>
+      <li>
+        <h3>Analyse the repeat measurements</h3>
+        <p>Free, and it settles whether our two filters can be said to differ at all.</p>
+      </li>
+      <li>
+        <h3>Write the results chapter</h3>
+        <p>Tables are complete; the argument around them is not yet written. This is the part of the
+        thesis nobody else could write.</p>
+      </li>
+      <li>
+        <h3>Introduction and conclusion, then the real-recording check</h3>
+        <p>Both wait on the results being settled. The real-recording check runs if the second filter
+        goes smoothly.</p>
+      </li>
+    </ol>
+    <div class="note">
+      <div class="note-h">One thing I would value your view on</div>
+      <p>The second filter is expected to improve comprehension by only a small margin &mdash; the
+      best possible version of it is worth about two points. Its value is almost entirely as a test of
+      the measurement rather than as a better system. Is that a worthwhile use of the remaining
+      experiment time, or is it better spent on the real-recording check and the write-up?</p>
+    </div>
+  </section>
+
+  <footer>
+    Real-time Target Speaker Extraction &middot; M4 status, 7 September 2026<br>
+    Sources: <code>docs/decisions/decisions-m3.md</code>, <code>decisions-m4.md</code>,
+    <code>docs/project-state.md</code>, <code>docs/run_times.md</code><br>
+    Every figure above is measured on this project's own data and code. No number is projected.
+    59 days to submission, 5 November.
+  </footer>
+
+</div>
