@@ -2128,6 +2128,139 @@ should come from the profile: the longest one that fits the session cap.
 - The target column, which needs per-window labels in `dataset_loader.py`.
 - Head A, which is a separate idea and shares those labels.
 
+### MEASURED 2026-09-11 on a T4 — the arm is affordable, and the lever is EPOCHS not the teacher
+
+**The full-fidelity teacher costs +53 % per step. Shortening the scored segment
+does NOT buy the same measurement more cheaply -- `L_state` moves 4.1x across
+segment lengths -- so the epoch count gives way instead. 13 windows at 10 epochs
+lands at 10.0 h against a 12 h cap.**
+
+`experiments/results/2026-09-11-state-teacher-cost/`, Tesla T4, batch 3 trials =
+6 examples, AMP on, synthetic audio.
+
+| windows | s/step | overhead | 16-ep hours | peak GB | L_state |
+|---|---|---|---|---|---|
+| 0 (baseline) | 0.669 | — | 10.5 | 6.59 | — |
+| 1 | 0.743 | +11 % | 11.7 | 6.67 | 0.2542 |
+| 3 | 0.780 | +17 % | 12.2 | 6.67 | 0.1385 |
+| 5 | 0.822 | +23 % | 12.9 | 6.73 | 0.1038 |
+| 7 | 0.870 | +30 % | 13.7 | 7.14 | 0.0892 |
+| 9 | 0.926 | +38 % | 14.5 | 7.55 | 0.0742 |
+| **13 (full)** | **1.022** | **+53 %** | **16.0** | **8.37** | **0.0623** |
+
+**The profile is trustworthy because the baseline reproduces.** 0.669 s/step
+against the recorded 0.674 (`decisions-m2.md` 2026-08-28).
+
+### The finding: subsampling is not a saving
+
+**`L_state` runs 0.2542 at one window to 0.0623 at thirteen -- a factor of
+4.1.** A shorter segment gives the BiLSTM readout less context than the 13
+windows it was fitted on, so it is a DIFFERENT measurement, not a cheaper one.
+`w_state` would need re-deriving at every length, and the numbers would not be
+comparable across arms.
+
+That retires the lever I had been planning on. **The mini-batch argument for
+subsampling was sound in principle and inapplicable in practice**: the term is a
+mean over windows, so a random subset would be unbiased -- but the head is a
+BiLSTM over the sequence, so a loss on 4 windows still needs all 13 embeddings
+to feed the recurrence and the backward flows through it to all 13 regardless.
+Only a shorter CONTIGUOUS segment shortens both, and that is what drifts.
+
+**Caveat on the 4.1x.** The sweep ran on synthetic noise, which contains no
+interferer, so `L_state` there measures how confidently the teacher says "no
+second voice" -- and more context makes it more confident, which is the right
+direction. The EXISTENCE of drift is the finding; the magnitude is specific to
+this input and should not be quoted as a general property.
+
+### DECIDED: 13 windows, 10 epochs
+
+**Full-fidelity teacher, no drift, no re-derivation.** 10.0 h with two hours
+spare.
+
+**10 epochs costs nothing that was being used.** The 2026-09-04 run selected
+epoch 6 of 16; the run before it selected epoch 2 of 20. The back half has never
+produced a checkpoint. Early stopping still applies, so it is a ceiling and not
+a target.
+
+**Memory does not bind: 8.37 GB of 14.6.** So the teacher goes on the same card
+and `state_device: cuda`. The second T4 buys nothing here and is better spent on
+E7's data parallelism if that lands.
+
+### w_state = 0.002692, derived and verified
+
+`scripts/derive_w_state.py`, `experiments/results/2026-09-11-wstate-anchor-sir0`.
+**Verified, not extrapolated:** at that value the term contributes **15.00 %** of
+the gradient reaching the waveform, measured with two backward passes at the
+suggested weight rather than scaled from a measurement elsewhere.
+
+**At w_state = 1.0 it contributes 5571 % on real audio -- 370x too strong.** Any
+guessed value would have been wrong by orders of magnitude, and a run at 1.0
+would have looked like the idea failing when it was the arithmetic.
+
+**15 % is a judgement, not a derivation**, and is recorded as one: four existing
+terms share the update, so an equal share is ~25 %, and a new unvalidated proxy
+should get less than an equal say. The script tabulates 5 % to 30 %. If the arm
+shows nothing at 15 %, the next question is 30 %, not whether the idea failed.
+
+### Three bugs the profiling found, all fixed
+
+1. **The profiler ran fp32 while training runs AMP.** Baseline came back at
+   4.765 s/step and 12.23 GB against the recorded 0.674 -- 7x slow. Every
+   overhead percentage would have been divided by a baseline seven times too
+   large, making the teacher look seven times cheaper than it is. It now mirrors
+   `train.py`: `autocast` on the model forward only, `GradScaler`, loss in fp32,
+   and it PRINTS the recorded 0.674 beside the measured baseline so a
+   misconfigured profile is visible before the sweep rather than after.
+2. **`cudnn RNN backward can only be called in training mode`.** The teacher's
+   BiLSTM was in `eval()`, and cuDNN refuses RNN backward there -- but gradients
+   must flow through the recurrence to reach the audio. The head now runs in
+   `train()` mode, which is numerically free ONLY because dropout is forced to
+   0.0 at construction: `Dropout(0.0)` is the identity in both modes and
+   LayerNorm is mode-independent. An assertion now fails loudly if a head with
+   nonzero dropout is ever loaded, since a stochastic teacher would make the
+   extractor chase a moving target.
+3. **Two Kaggle runs produced the same traceback from an already-fixed file.**
+   The notebook's copy cell skipped files that already existed, and
+   `/kaggle/working` persists across runs in a session -- so it kept the
+   previous run's code after the dataset was updated. The line numbers in the
+   traceback were the only evidence. It now overwrites, and asserts the presence
+   of two fixed lines before running anything.
+
+### And one that was not a bug in the code
+
+**`../ecapa_pretrained/` is 24 KB of SYMLINKS into the HuggingFace cache**, not
+files -- SpeechBrain's `from_hparams` links rather than copies. Zipped as links,
+the upload succeeds, the dataset lists five files, and the teacher fails to load
+on Kaggle with an error about a missing path. `make_kaggle_bundle.py` now
+dereferences (85 MB resolved) and re-hashes against the hashes stored inside the
+teacher checkpoint, so what is uploaded is provably what the head was fitted
+against -- the same discipline as `--prefix-manifest`.
+
+### Figures, report-ready
+
+`scripts/plot_state_teacher_cost.py` renders three single-panel PDFs from
+`results.json`, half-textwidth each so any two sit side by side:
+
+| | |
+|---|---|
+| `state_teacher_cost.pdf` | run length against windows, 16 vs 10 epochs, with the cap |
+| `state_teacher_drift.pdf` | **the finding** -- L_state against windows |
+| `state_teacher_memory.pdf` | peak memory, which does not bind |
+
+Separate rather than multi-panel because they argue different things: the cost
+figure supports a scheduling decision, the drift figure is a result about the
+teacher.
+
+### The arm is now fully specified
+
+`experiments/configs/bsrnn_state.yaml` differs from the baseline in exactly five
+keys: `w_state` 0.002692, `state_teacher`, `ecapa_dir`, `state_device` cuda, and
+`epochs` 10. Nothing else -- same architecture, same parameter count, same
+latency, same data, same seed, same schedule. **No capacity confound: the
+teacher is training-only and deleted at inference.**
+
+Control is `models/model_sir0_10000-e6.pt`, not a fresh baseline run.
+
 ### Two controls, without which head A means nothing
 
 1. **Ablate the enrollment and re-measure state accuracy.** If accuracy holds up
@@ -2153,10 +2286,13 @@ not tuned.
 ### Sequence, and what fits before 14 October
 
 0. **MEASURE ICR FIRST — D10's free measurement, which gates this whole family.**
-   `interferer_text` is in every `meta.json`, so one transcription pass yields
-   target WER and interferer content overlap together. If leakage is not the
-   dominant error, both D10 and head B lose their motivation. Nothing here starts
-   before that number exists.
+   **ANSWERED 2026-09-11, and it passes. See the measured section at the end of
+   D14.** Leakage is 58.5 % of our content-word error mass, and the per-trial
+   rank correlation between how much leaked and how bad the WER was is +0.622
+   over 103 trials, surviving inside difficulty strata. Head B and D10 keep their
+   motivation. **No transcription pass was needed** — the ICR aggregate had been
+   computed on 2026-09-04 and never read back, and every transcript was already
+   in `experiments/results/transcripts.csv`.
 1. **Label script.** Hours. Shared dependency of everything below, and of the
    sweep.
 2. **State-conditioned oracle sweep. No training, no GPU.** Extend `sweep_alpha`
@@ -2191,3 +2327,106 @@ detector architecture, a detector training run, then the arm. `BETA` is one numb
 with `BETA = 1` recovering `L_pres` exactly, and D10 is one term on a stem already
 loaded. **Neither is beaten by this on cost-to-evidence.** What D14 contributes
 inside the freeze is steps 1-3, not B.
+
+
+### MEASURED 2026-09-11 — step 0 passes. Leakage is the dominant single error, but it is not the only one
+
+`../tse_venv/bin/python scripts/analyse_leakage_share.py`, 1.2 s measured, no GPU, no ASR
+pass. Results in `experiments/results/2026-09-11-leakage-share/`. `sir0_val`
+`both`, n=103, the same trials and the same cached transcripts that produced the
+published numbers, so this is not a different measurement of a different set.
+
+**The aggregate already existed and had never been read.** `results.json` in
+`experiments/results/2026-09-04-train-sir0-10000/` carries `icr_at_2` and
+`mean_leak` for floor, our baseline and ceiling, written 2026-09-04. D14 was
+written as though the number did not exist. It did. Cost of the actual
+measurement: reading a file.
+
+Also found: **`scripts/eval_asr_wer.py` is a zero-byte file**, committed empty in
+`38bf48f` on 31 August. D14's step 0 named it as the tool to run. It has never
+contained anything.
+
+#### The published aggregate, read back
+
+| system | WER | sub | del | ins | ICR@2 | mean leaked |
+|---|---|---|---|---|---|---|
+| floor, raw mixture | 65.2 | 32.9 | 9.3 | 23.1 | 67.0 % | 51.3 % |
+| ours, baseline | 59.5 | 28.2 | 11.8 | 19.5 | 50.5 % | 34.6 % |
+| WeSep | 34.6 | 18.5 | 8.9 | 7.2 | 15.5 % | 9.0 % |
+| ceiling, clean target | 5.8 | 3.4 | 0.7 | 1.7 | 0.0 % | 0.0 % |
+
+#### Why the aggregate alone does not answer the question
+
+ICR@2 = 50.5 % says the interferer leaks *often*. It does not say leakage causes
+most of the *damage*. Three measures were added underneath it.
+
+**1. Error-mass attribution.** Of the content words the listener reported that
+the target did not say, how many did the interferer actually say? Same
+normaliser and stopword list as `icr.py`, so this is consistent with the
+published ICR rather than a parallel definition.
+
+| system | wrong content words | the interferer's | neither speaker's | leakage share |
+|---|---|---|---|---|
+| floor | 904 | 635 | 269 | **70.2 %** |
+| ours | 742 | 434 | 308 | **58.5 %** |
+| WeSep | 406 | 94 | 312 | **23.2 %** |
+| ceiling | 91 | 0 | 91 | 0 % |
+
+**2. Per-trial rank correlation, leaked fraction against WER, within one
+system.** The cross-system comparison is n=2 and confounded — WeSep is better at
+everything at once. Within our baseline, across 103 trials, rho = **+0.622**.
+WeSep +0.468, floor +0.628.
+
+**3. Leakage quartiles, our baseline.** Least-leaky quarter of trials: WER
+24.9 %. Most-leaky quarter: **101.5 %**. A 76.6-point spread inside a single
+frozen model.
+
+#### The confound control, which is what makes this defensible
+
+A positive correlation could be nothing but difficulty: a heavily overlapped
+trial leaks more *and* is harder for every other reason. Repeating measure 2
+inside strata holds difficulty roughly fixed. Our baseline:
+
+| stratum | n | rho | mean WER | mean leaked |
+|---|---|---|---|---|
+| overlap low | 65 | +0.602 | 64.4 % | 37.4 % |
+| overlap mid | 33 | +0.740 | 66.6 % | 31.2 % |
+| target louder | 42 | +0.687 | 42.1 % | 14.5 % |
+| interferer louder | 55 | +0.300 | 89.0 % | 53.8 % |
+
+It survives everywhere it can be measured. The one weak cell, interferer louder
+at +0.300, is a ceiling effect and not a counterexample: mean WER there is
+89.0 %, so there is almost no room left for more leakage to make things worse.
+Overlap `none` (n=0) and `high` (n=5) are below the n>=8 floor and are not ranked.
+
+#### What this authorises, and what it does not
+
+**Authorises head B.** The thing head B applies pressure against is the single
+largest identified component of our error, it is over half of it, and it tracks
+WER trial by trial rather than only in a two-point average.
+
+**Does NOT authorise the assumption that removing leakage removes the error.**
+Two limits, both measured here:
+
+1. **41.5 % of our wrong content words were said by nobody.** WeSep, having
+   largely solved leakage (23.2 % share), has *more* invented words in absolute
+   terms than we do — 312 against our 308. Driving leakage to zero leaves that
+   residue untouched, and `fabrication.py` already recorded the same effect
+   independently: both extractors raise fabrication ~48 % above doing nothing.
+   The realistic prize is roughly the 434 leaked words, not the 742.
+
+2. **Our model already deletes more target content than doing nothing.**
+   Deletions: mixture 9.3, ours 11.8, ceiling 0.7. Extraction is *adding* 2.5
+   points of deletion while removing 3.5 points of insertion and 4.7 of
+   substitution — net WER gain of only 5.7 points for a 16.7-point cut in
+   leakage. **Head B's pressure is one-sided: it rewards making no non-target
+   voice audible and says nothing about keeping the target audible.** Nothing in
+   `L_state` opposes deleting the target; only `L_pres` and `L_gain` do. Deletion
+   rate and enrolment sensitivity are therefore the two numbers to watch on the
+   M5 arm, not `L_state` alone.
+
+Recorded so it is not re-derived: the M5 arm's epoch 1 read enrolment
+sensitivity -13.54 dB against the baseline's -12.08 dB at the same epoch — less
+responsive to the enrolment, which is the direction this failure mode predicts.
+One epoch, one seed, and the baseline climbed to -9.17 by epoch 2, so it is a
+thing to check at epoch 3, not a finding.

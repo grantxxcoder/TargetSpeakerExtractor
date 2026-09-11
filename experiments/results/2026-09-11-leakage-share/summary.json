@@ -1,0 +1,136 @@
+{
+  "split": "sir0_val",
+  "condition": "both",
+  "systems": {
+    "floor (mixture)": {
+      "n_trials": 103,
+      "wrong_content_words": 904,
+      "wrong_from_interferer": 635,
+      "leakage_share_of_error_pct": 70.2433628318584,
+      "spearman_leak_vs_wer": 0.6278538743651203,
+      "n_for_correlation": 103,
+      "wer_low_leak_quartile": 19.800791056361703,
+      "wer_high_leak_quartile": 92.20721450035522,
+      "strata": {
+        "overlap_achieved": {
+          "low": {
+            "n": 65,
+            "spearman": 0.5990307539258934,
+            "mean_wer": 75.79485585007477,
+            "mean_leaked_fraction": 0.5652194456862235
+          },
+          "mid": {
+            "n": 33,
+            "spearman": 0.7794555684231466,
+            "mean_wer": 66.33936445623976,
+            "mean_leaked_fraction": 0.4193927065683634
+          }
+        },
+        "sir_db": {
+          "interferer louder": {
+            "n": 55,
+            "spearman": 0.25520463102189145,
+            "mean_wer": 92.45848333201084,
+            "mean_leaked_fraction": 0.7219400040528848
+          },
+          "target louder": {
+            "n": 42,
+            "spearman": 0.767860734465554,
+            "mean_wer": 50.36919240244678,
+            "mean_leaked_fraction": 0.2405968836231994
+          }
+        }
+      }
+    },
+    "ours (baseline)": {
+      "n_trials": 103,
+      "wrong_content_words": 742,
+      "wrong_from_interferer": 434,
+      "leakage_share_of_error_pct": 58.490566037735846,
+      "spearman_leak_vs_wer": 0.6224314217879485,
+      "n_for_correlation": 103,
+      "wer_low_leak_quartile": 24.94511735282518,
+      "wer_high_leak_quartile": 101.52515377906761,
+      "strata": {
+        "overlap_achieved": {
+          "low": {
+            "n": 65,
+            "spearman": 0.601624501754517,
+            "mean_wer": 64.38807197402134,
+            "mean_leaked_fraction": 0.3738892232902712
+          },
+          "mid": {
+            "n": 33,
+            "spearman": 0.7398306414127074,
+            "mean_wer": 66.62982922835239,
+            "mean_leaked_fraction": 0.3123560142828917
+          }
+        },
+        "sir_db": {
+          "interferer louder": {
+            "n": 55,
+            "spearman": 0.2995327495517932,
+            "mean_wer": 88.98601542933122,
+            "mean_leaked_fraction": 0.5375283845440418
+          },
+          "target louder": {
+            "n": 42,
+            "spearman": 0.6870226315556874,
+            "mean_wer": 42.135161947992096,
+            "mean_leaked_fraction": 0.14475888318767577
+          }
+        }
+      }
+    },
+    "WeSep": {
+      "n_trials": 103,
+      "wrong_content_words": 406,
+      "wrong_from_interferer": 94,
+      "leakage_share_of_error_pct": 23.15270935960591,
+      "spearman_leak_vs_wer": 0.4675816131711818,
+      "n_for_correlation": 103,
+      "wer_low_leak_quartile": 24.218046593794593,
+      "wer_high_leak_quartile": 72.20489902673016,
+      "strata": {
+        "overlap_achieved": {
+          "low": {
+            "n": 65,
+            "spearman": 0.49741814876200774,
+            "mean_wer": 46.675368651832805,
+            "mean_leaked_fraction": 0.13286564828360495
+          },
+          "mid": {
+            "n": 33,
+            "spearman": 0.46281377454532474,
+            "mean_wer": 28.809884892053933,
+            "mean_leaked_fraction": 0.0461461938734666
+          }
+        },
+        "sir_db": {
+          "interferer louder": {
+            "n": 55,
+            "spearman": 0.40657328701644424,
+            "mean_wer": 45.729835669918245,
+            "mean_leaked_fraction": 0.11509445100354192
+          },
+          "target louder": {
+            "n": 42,
+            "spearman": 0.5838359753083525,
+            "mean_wer": 33.08346047729757,
+            "mean_leaked_fraction": 0.09144113683587368
+          }
+        }
+      }
+    },
+    "ceiling (clean)": {
+      "n_trials": 103,
+      "wrong_content_words": 91,
+      "wrong_from_interferer": 0,
+      "leakage_share_of_error_pct": 0.0,
+      "spearman_leak_vs_wer": NaN,
+      "n_for_correlation": 103,
+      "wer_low_leak_quartile": 5.427202976234587,
+      "wer_high_leak_quartile": 11.311728000304651
+    }
+  }
+}
