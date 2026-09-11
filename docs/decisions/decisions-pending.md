@@ -1439,7 +1439,7 @@ absent rate suggests, because tails fill the gaps.
 
 | | what changes | inference cost |
 |---|---|---|
-| **A. auxiliary state head** | ~10 k params, training pressure only; deleted at inference | zero |
+| **A. auxiliary state head** | **516 params** (corrected 2026-09-11; the "~10 k" first written here was never derived -- `Conv1d(128, 4, 1)` is 4x128 weights + 4 biases), training pressure only; deleted at inference | zero |
 | **B. frozen state detector as a loss** | the objective only. **No architecture change** | **zero** |
 | **C. state posterior into D13's gate controller** | one term in a line D13 already specifies | ~1 k params |
 
