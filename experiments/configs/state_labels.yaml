@@ -47,7 +47,11 @@ tail_t60_mult: 1.0
 # Stored as SPANS in seconds, not as a fixed-rate mask, precisely because two
 # different rates consume them:
 #   0.008  the model's STFT hop (128 at 16 kHz) -- the extractor's own frames
-#   0.020  WavLM's stride (50 Hz) -- the state detector in PR2
+#   0.020  a 50 Hz reporting grid, kept as a second reference rate.
+#          Was WavLM's stride; WavLM was dropped 2026-09-10 (AUC 0.547 on
+#          per-frame speaker identity, decisions-pending.md D14). Its
+#          replacement, ECAPA-TDNN, works on ~0.5-1 s WINDOWS rather than
+#          frames, so no fixed stride here corresponds to it.
 # Listed here only so the build can report a histogram at each; the rasterising
 # itself happens at load time via state_labels.states_at_frames().
 report_hop_s: [0.008, 0.020]

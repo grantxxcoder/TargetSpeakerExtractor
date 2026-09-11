@@ -1563,6 +1563,352 @@ cannot be the state set or the HMM framing; at most it is the composition, plus
 tuning its operating point against a live-model content metric rather than SI-SDR
 or diarization error.
 
+### MEASURED 2026-09-10 — WavLM cannot do this job. Backbone switched to ECAPA-TDNN
+
+**A frozen general-purpose SSL encoder does not carry frame-level speaker
+identity at 0 dB interference. WavLM Base+ is therefore not usable as the
+teacher's backbone, and this is a reportable negative result, not just a
+setback.**
+
+### What was built and what it scored
+
+Frozen WavLM Base+ (torchaudio, sha256 `1697ecbb...`), layer 8, plus a 594 k
+`StateHead` reading `[frames, enrolment, frames * enrolment]`. Cache: 500
+`sir0_train` trials x 6 gain variants, 600 k labelled frames, ~1 h. Trained 12
+epochs on CPU in ~3 min.
+
+| | recall |
+|---|---|
+| `none` (silence) | **0.934**, stable every epoch |
+| `target` | 0.26-0.74, unstable |
+| `interferer` | 0.17-0.52, unstable |
+| `both` | 0.35-0.61 |
+
+**Activity detection works; identity does not.** `target` and `interferer`
+recall move inversely with a near-constant sum (~0.8), which is the signature of
+a model that detects "one voice" and then guesses which. Balanced recall was
+flat across the run: 0.557 -> 0.578 -> 0.573.
+
+**Balanced identity accuracy on single-speaker frames: 0.570 against 0.500
+chance.** Do NOT quote the raw 0.584 -- the split is 2.4:1 target-to-interferer,
+so always answering "target" scores 0.722, and the raw figure is worse than a
+constant predictor.
+
+### Three parameter-free tests, and they rule out every cheap fix
+
+Run on cached features, no training. AUC over 14,406 single-speaker frames from
+130 trials; 0.500 is a coin flip.
+
+| scoring | AUC |
+|---|---|
+| pooled enrolment (what was trained) | 0.521 |
+| attention over 249 enrolment frames, best temperature | 0.535 |
+| contrastive: attention minus a 500-speaker background, best | **0.547** |
+
+1. **The layer is not the problem.** All 12 layers score 0.700-0.800 on a
+   per-trial variant of the test (n=40, SE +-0.068 -- the whole spread is noise).
+   Layer 5 is nominally best by 3 trials. No re-cache is justified.
+2. **Mean pooling destroys identity, but removing it does not save it.**
+   Pooled enrolment vectors from 40 DIFFERENT speakers are 64-90 % similar at
+   every layer. Attention (the K>1 generalisation of pooling, and D2's TF-Map
+   mechanism applied to SSL features) buys 1.4 AUC points.
+3. **The contrastive term works in the right direction and is far too weak.**
+   +1.2 points at low temperature, and it goes BELOW chance (0.494) as the
+   temperature sharpens -- sharper matching matches phonetic content harder,
+   confirming D1's confound is real and that the contrast cannot cancel it here.
+
+**Correction to a number quoted earlier in this entry's working:** a per-trial
+test gave 0.725 and was misleading -- it averaged hundreds of frames per side.
+Per frame, which is what the teacher must do, the ceiling is AUC 0.55.
+
+### Why, and what it implies
+
+WavLM's pretraining objective is masked prediction, which rewards phonetic
+content. Layer 8 is mid-stack and ASR-oriented. Speaker identity is present but
+not linearly separable per frame under 0 dB interference. The head reached
+roughly what AUC 0.547 permits, so **the bottleneck was the representation, not
+the classifier.**
+
+**Reportable finding, independent of whether the teacher is ever built:** a
+general-purpose speech representation does not supply frame-level speaker
+identity in two-speaker mixtures at 0 dB, which is a measured argument for why
+TSE needs purpose-built speaker models rather than SSL features. It also
+retrospectively supports `decisions-m1.md` 2026-08-19's choice of the spectral
+TF-Map over an SSL embedding path.
+
+### Decision
+
+**Switch the backbone to ECAPA-TDNN** (Desplanques et al., Interspeech 2020),
+SpeechBrain's VoxCeleb-trained `spkrec-ecapa-voxceleb`, snapshotted to
+`../ecapa_pretrained/` with hashes pinned. Verification training rewards exactly
+the discrimination masked prediction does not.
+
+**Rejected, both on independence grounds:** WeSep's checkpoint carries 512 ECAPA
+tensors but they were jointly trained with its separator, and WeSep is this
+project's comparison baseline -- a teacher derived from it would couple the
+system under test to the system it is measured against. `wespeaker` (installed
+in `../wesep_venv`) is the same toolkit family.
+
+**Consequence to carry: resolution drops from 20 ms to ~0.5-1 s.** ECAPA emits
+one embedding per window, not one vector per frame. Acceptable for gating,
+and it must be stated wherever the teacher is described as "per-frame".
+
+**HARD GATE before any rewrite.** Re-run the same AUC test on ECAPA embeddings
+at 0.5 / 1 / 2 s windows. **Continue only above ~0.75.** If ECAPA also lands in
+the 0.50s, frame-level identity is not recoverable from off-the-shelf models at
+this difficulty, and the teacher is dropped in favour of `BETA` (M5's artefact
+weight) or D10 -- one number each, neither depending on identity being
+recoverable.
+
+### Artefacts deleted 2026-09-10
+
+`../wavlm_pretrained/` (361 MB), `../state_detector_cache/` (1.1 GB),
+`scripts/upload_kaggle_wavlm.py`, `models/state_detector_notebook.pt`. All
+regenerable; the numbers above are the deliverable. The label pipeline
+(`src/data/state_labels.py`, `scripts/build_state_labels.py`,
+`data/index/state_*.csv`) is backbone-independent and is KEPT.
+
+### MEASURED 2026-09-10 — the teacher WORKS on ECAPA. Two runs, and the output shape moved identity but not overlap detection
+
+**Frozen ECAPA-TDNN + a 150 k head tells the two speakers apart 94.0 % of the
+time. WavLM managed 57.0 %. The teacher is viable.** What it does NOT do
+reliably is detect a second voice: 76.2 %, flat across both output
+parameterisations.
+
+### The gate that authorised the switch
+
+Before any head was built, plain cosine similarity between a window embedding
+and the enrolment embedding, no training at all, `sir0_train`, 120 trials:
+
+| window | windows | AUC | cos own speaker | cos other | margin |
+|---|---|---|---|---|---|
+| 0.5 s | 1,113 | 0.866 | +0.203 | +0.029 | +0.174 |
+| **1.0 s** | 666 | **0.957** | +0.324 | +0.045 | +0.279 |
+| 2.0 s | 241 | 0.992 | +0.443 | +0.057 | +0.387 |
+
+**1.0 s adopted.** Longer is more accurate and coarser; this is the knee.
+**Consequence to carry into every description: the teacher's resolution is ~1
+SECOND, not per-frame.** It can say "the target is speaking around here"; it
+cannot mark a word boundary.
+
+**A1's dry-enrolment/reverberant-mixture gap is NOT a problem here.** Similarity
+to the *other* speaker sits at +0.03 to +0.06 while own-speaker rises to +0.44.
+A channel mismatch would depress both together. Retires a suspect.
+
+### Run 1 — four-way softmax. 500 trials cached, 425 trained, epoch 3 of 20
+
+| | all windows | pure only |
+|---|---|---|
+| identity (which speaker) | **0.911** | 0.920 |
+| is the target audible | 0.857 | 0.882 |
+| is a non-target audible | 0.767 | 0.785 |
+| `both` as a 4-way label | 0.369 | 0.391 |
+
+Identity is symmetric (target 0.904, interferer 0.918) and always answering
+"target" would score 0.644, so the figure is real. **Transitions cost only ~2
+points** (0.911 vs 0.920), which settles the window length: 1 s was right, and
+shrinking to 0.5 s for purity would have cost more identity than it gained.
+
+**Measured purity distribution** (150 trials, 11,700 windows): mean 0.937,
+median 1.000, **74.0 % perfectly pure**, 85.7 % at or above the 0.8 training
+threshold, ambiguous (tied majority) 0.02 %. Ties are real but negligible;
+handled by exclusion rather than argued away.
+
+### The finding that motivated run 2
+
+**`both` scored 0.369 as a 4-way class while THE SAME PREDICTIONS gave 0.857 and
+0.767 on the two questions `both` is the conjunction of.** The four states were
+always a pair of bits (`sl.states_from_masks`: target = bit 0, interferer = bit
+1), so a four-way softmax forced a commitment to one category and hid what the
+head knew.
+
+### Run 2 — two independent binary outputs. Same cache, epoch 2 of 20
+
+| | 4-way | binary | change |
+|---|---|---|---|
+| identity | 0.911 | **0.940** | **+2.9** |
+| target audible | 0.857 | 0.860 | flat |
+| **non-target audible** | 0.767 | **0.762** | **flat** |
+| `both` recall (reporting only) | 0.369 | 0.416 | +4.7 |
+
+**The reframe bought identity, not overlap detection.** The prediction was
+"modest gain, watch the non-target question"; that question did not move.
+**So `both` was hiding information about IDENTITY, not about second-voice
+detection**, and the non-target limit is data or information rather than output
+shape.
+
+**Identity 0.940 now exceeds the untrained cosine reference** (AUC 0.951,
+roughly 0.88-0.90 balanced at its best threshold), so the head adds to identity
+rather than passing it through. Bases differ — indicative, not an exact
+comparison.
+
+**Do NOT read the non-target recall gain as progress.** Recall rose 0.729 →
+0.756 while specificity fell 0.806 → 0.767: the operating point sliding, with
+balanced accuracy unchanged.
+
+### What 0.762 costs the loss, stated plainly
+
+Misses 24 % of genuine leakage; false-alarms on 23 % of already-clean windows.
+**A noisy teacher, directionally right — never to be described as a detector.**
+The gradient is useful because it averages over many windows and many steps.
+
+### Two corrections made in the course of this work
+
+1. **I claimed ECAPA had a structural ceiling on second-voice detection**, from
+   plain cosine scoring 0.405 (below chance, because one scalar cannot separate
+   "target" from "target plus someone else"). Wrong: the head reaches 0.762-0.767
+   from the full 192-d embedding. The information is there; cosine discards it.
+   **That question is where the head earns its keep** — everything else it
+   roughly inherits from cosine.
+2. **The diagnostics were reporting the LAST epoch, not the selected one.** Cell
+   25 evaluated whatever was in memory after the loop. On run 1 that was epoch 20
+   against a selected epoch 3, understating identity 0.854 vs 0.911 and `both`
+   0.246 vs 0.369. Now reloads the checkpoint and asserts it reproduces the
+   recorded score.
+
+### Both runs are badly data-limited
+
+Best epoch **3 of 20** then **2 of 20**, on 425 training trials — memorising
+almost immediately, with 150 k parameters against ~33,000 windows. Train loss
+fell 12x while held-out loss rose 65 %.
+
+**Actions taken 2026-09-10:** cache extended 500 → 2,000 trials (70/30
+rich-to-random held fixed so the class balance does not move with the data
+volume; ~4.8 h at a measured 11.4 s/trial, ~65 MB). And a threshold sweep, since
+every number above is at 0.5 for both questions and AUC will say whether that is
+simply the wrong place to stand.
+
+**The two questions must NOT share an operating point, and neither should be
+tuned for balanced accuracy.** Target-audible drives "do not mute my speaker" —
+a miss deletes speech the judge never hears, so favour recall. Non-target-audible
+drives "remove the interferer" — a false alarm penalises output that was already
+clean and fights the signal-domain terms directly, so favour specificity.
+Thresholds are reporting and inference choices; the loss uses raw probabilities,
+so tuning them needs no retraining.
+
+### Costs, for the record
+
+| | |
+|---|---|
+| trial selection | quota, not a sort: 5,025 of 9,955 trials have NO overlapping frames, so random sampling starves `both`; sorting by overlap overshoots to 69.6 % `both` |
+| cache, 500 trials | 95 min, 16 MB (WavLM's was 881 MB for the same trials) |
+| head training | ~3 min on CPU, 4 threads |
+| variant recipe | 3 fixed + 3 partial; an earlier 4-fixed recipe drove `both` from 17.0 % of frames to 7.5 % |
+
+`mixture == target + interferer + noise` verified exact 2026-09-10, so any
+suppression level is synthesisable from the stems.
+
+### 2026-09-10 — 1,000 trials, and the enrolment bank turned on for the teacher
+
+**Doubling the data bought ~2 points on the hard question and nothing on the
+easy one. The head still peaks at epoch 2 of 20, so the limit is memorisation,
+not sample size — and the fix already exists in this repo.**
+
+### The data-scaling point
+
+| | 500 trials (428 fit) | 1,000 trials (850 fit) |
+|---|---|---|
+| target audible, AUC | 0.944 | 0.938 - 0.947 |
+| **non-target audible, AUC** | **0.795** | **0.812 - 0.820** |
+
+Two measurements of the 1,000-trial model on different splits, so the range is
+the honest form. **Identity was already saturated**; second-voice detection
+improved ~2 points, consistent with roughly +2 per doubling, which would predict
+~0.835 at 2,000 trials for a further 3.3 h of caching. Not yet spent.
+
+Class balance at 1,000 trials, 78,000 windows: target audible 54.8 %
+(`pos_weight` 0.82), non-target audible 33.3 % (`pos_weight` 2.01). Window
+purity mean 0.965 / 0.977, with 92 % / 95 % at or above the 0.8 training
+threshold.
+
+### The threshold question, and a correction
+
+**Reported thresholds returned to 0.50 / 0.50.** They had been set to
+0.50 / 0.65 on the argument that the non-target question should favour
+specificity, because a false alarm penalises output that was already clean.
+
+**That argument was wrong for this term.** The loss uses raw probabilities --
+BCE against a constant 0 for the non-target column -- so it never thresholds.
+The threshold affects REPORTING and any hard inference-time decision, and
+nothing else. Reporting at 0.65 merely made the number look worse: 0.724
+against 0.733.
+
+**The sweep also shows 0.5 is essentially optimal anyway.** Best balanced
+accuracy is 0.866 at threshold 0.60 for the target question (0.862 at 0.50) and
+0.734 at 0.55 for the non-target (0.733 at 0.50). **Gains of +0.004 and +0.002:
+the operating point is not what is limiting this.**
+
+**Also corrected: an invalid diagnostic of my own.** A "headroom" column
+computed as AUC minus balanced-accuracy-at-0.5 is meaningless -- the two are
+different scales. Replaced with the best balanced accuracy found by sweeping,
+minus what 0.5 gives, which is the only honest form. AUC remains the number to
+quote as a question's ceiling because it is threshold-free.
+
+### DECIDED: rotate the enrolment per epoch (bank K=3)
+
+**The head peaks at epoch 2 of 20 at 425, 428 AND 850 training trials.**
+Training loss falls 0.473 -> 0.057 while held-out rises 0.464 -> 0.769. Data
+volume does not move the peak, so the head is memorising something that more
+trials do not dilute.
+
+**The enrolment is the route.** One fixed 192-d vector per trial, seen 78 times
+per epoch (6 variants x 13 windows). At 850 trials that is 850 vectors to
+memorise, and 149 k parameters against ~10,000 semi-independent windows is
+about 15 parameters per effective sample.
+
+**This project has already had and fixed this exact failure.** The extractor's
+identity cue "stayed a fixed waveform across all 24 epochs and was memorisable"
+(`decisions-m2.md` 2026-08-30), and `scripts/render_enrollment_bank.py` is the
+fix built for it. K=3 is **already rendered on disk** for `sir0_train` as
+`enrollment_v00/01/02.wav` -- different sentences, offsets and EQ per variant.
+
+**Cost is ~2 extra ECAPA forwards per trial**, because `v00` is byte-identical
+to `enrollment.wav` (verified 2026-09-10) so the cached embedding IS variant 0.
+Roughly 15 min to patch 1,000 existing cache files, and no re-render.
+
+**Rotation is TRAINING-only.** The holdout keeps one fixed enrolment so its
+curve stays comparable epoch to epoch and run to run -- the same rule
+`dataset_loader.py` enforces by forcing `enrollment_variants` to 1 when
+`random_crop` is off. A short bank falls back DOWN to v00 rather than failing,
+matching `_enrollment_path`.
+
+`ROTATE_ENROLMENT` is an ablation flag: `False` reproduces every run before
+2026-09-10 exactly. **The arm to report is 1,000 trials with one enrolment
+versus three, everything else held.** If the best epoch moves from 2 to 6-8,
+the memorisation diagnosis is confirmed and the head has real headroom.
+
+### Sequencing: the hyperparameter search was STOPPED and deferred
+
+Optuna (`optuna==5.0.0`, pinned) is set up over head width and depth, dropout,
+learning rate, weight decay, batch size and `min_purity`, on a THREE-way split
+(700 fit / 150 search / 150 report) with a threshold-free mean-AUC objective and
+median pruning. `AUDIBLE_DB` is deliberately excluded from the search: it defines
+what counts as a second voice, so tuning it would optimise the question rather
+than the answer.
+
+**It was killed after one trial.** Reason: if the bank removes the
+memorisation, the settings the search is currently finding -- heavier dropout,
+heavier weight decay, early stopping -- are tuned to compensate for a failure
+about to be removed, and none would be the right values afterwards. The search
+runs AFTER the bank arm, on the final data setup.
+
+The threshold being wrong was NOT a reason to stop it: the objective is mean
+AUC, which is threshold-free by construction.
+
+### Not yet done
+
+- **`sir0_val` is still uncached.** All splits above come from `sir0_train` and
+  share speakers. The teacher is not validated until it is measured on a
+  speaker-disjoint set.
+- **GPU cost of the term is unmeasured**, and it gates the whole integration.
+  13 windows x 6 examples = 78 ECAPA forwards AND backwards per step against a
+  current 0.674 s/step. The 78 ms/window figure is CPU; training is a T4.
+  `scripts/profile_step.py` is where that number comes from, and no more
+  integration code should be written before it exists.
+- Rows for `docs/run_times.md`: the 1,000-trial cache (~68 min for 350 new
+  trials) and the rate difference that made it, 12.1 s/trial clean against
+  44.9 s/trial while a browser and an IDE competed for the same 8 cores.
+
 ### Two controls, without which head A means nothing
 
 1. **Ablate the enrollment and re-measure state accuracy.** If accuracy holds up
