@@ -91,6 +91,21 @@ class LossBSRNNState(LossBSRNN):
                 "LossBSRNN instead if the state term is not wanted.")
         self.teacher = teacher
         self.w_state = w_state
+        # Which windows of the output to score. None = all of them, which is
+        # what a normal run uses.
+        #
+        # A SHORTER CONTIGUOUS SEGMENT IS THE ONLY SUBSAMPLING THAT SAVES
+        # ANYTHING HERE. The term is a mean over windows, so a random subset
+        # would be an unbiased estimate of it -- the mini-batch argument. But
+        # the teacher's head is a BiLSTM over the window sequence, so a loss on
+        # 4 windows still needs all 13 embeddings to feed the recurrence, and
+        # the backward flows through it to all 13 regardless. Shortening the
+        # SEQUENCE shortens both. The cost is that the head then sees less
+        # context than the 13 windows it was fitted on, so
+        # scripts/profile_state_teacher.py reports L_state at each length: a
+        # setting that is cheap AND changes what the teacher says is not a
+        # saving.
+        self.window_starts = None
         # this is needed because the teacher needs to know who the target is, and the loss function is the only place that has access to the enrolment embedding. 
         self.enrolment_embedding = None
 
@@ -116,7 +131,8 @@ class LossBSRNNState(LossBSRNN):
                 "speaker. Set it each step, beside loss_fn.w.")
 
 
-        logits = self.teacher(s_output, self.enrolment_embedding)
+        logits = self.teacher(s_output, self.enrolment_embedding,
+                              window_starts=self.window_starts)
         logits = logits[..., NON_TARGET_AUDIBLE]
 
         return F.binary_cross_entropy_with_logits(

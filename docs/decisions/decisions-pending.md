@@ -1909,6 +1909,225 @@ AUC, which is threshold-free by construction.
   trials) and the rate difference that made it, 12.1 s/trial clean against
   44.9 s/trial while a browser and an IDE competed for the same 8 cores.
 
+### 2026-09-11 — the teacher is FINISHED at AUC 0.87, and the integration is built
+
+**A sequence model over the windows was worth ten times everything else tried.
+The teacher is frozen at that point and no further work on it is planned.** The
+loss term, its subclass, its tests, its weight-derivation script and its config
+are written; the one thing that can still stop the arm is unmeasured.
+
+### The architecture change, which is the result
+
+Same features, same split, same threshold-free objective. Only the head differs:
+
+| head | params | mean AUC | target | **non-target** |
+|---|---|---|---|---|
+| per-window MLP | 149 k | 0.8836 | 0.9473 | **0.8199** |
+| **BiLSTM** | **339 k** | **0.9216** | **0.9721** | **0.8710** |
+| self-attention | 473 k | 0.9170 | 0.9669 | 0.8672 |
+
+Against every other intervention on the same question:
+
+| | gain |
+|---|---|
+| 500 -> 1,000 trials | +1.7 |
+| enrolment bank, K=3 | +0.8 |
+| 42-trial hyperparameter search | +0.7 |
+| **sequence model over the 13 windows** | **+5.1** |
+
+**Why it works.** A single window at cosine +0.23 to the enrolment is genuinely
+ambiguous between "the target alone, quieter" and "the target plus someone
+else": `both` sits at +0.233 between `target` at +0.321 and `interferer` at
++0.044, because a verification embedding describes whichever voice dominates.
+The neighbouring windows resolve much of that.
+
+**BiLSTM over attention:** better (0.9216 vs 0.9170), 30 % fewer parameters,
+converged at epoch 1 rather than 7.
+
+**CAVEAT TO CARRY INTO THE WRITE-UP.** Part of the gain is comparison across
+windows and part is temporal SMOOTHING, since speaker states come in runs of
+hundreds of milliseconds. The prior is legitimate, but it means **an isolated
+window of leakage may be smoothed away and go unpenalised** -- the teacher is
+better at sustained leakage than at brief leakage.
+
+### Final teacher, and the numbers the loss depends on
+
+1,000 `sir0_train` trials (850 fit / 150 holdout), BiLSTM hidden 128 / 1 layer,
+enrolment bank K=3 rotated per epoch, epoch 3, seed 42, audibility -20 dB.
+sha256 `16f6d8a43d5ecacf24e1...`.
+
+| | balanced | recall | specificity | precision |
+|---|---|---|---|---|
+| is the target audible | 0.906 | 0.908 | 0.903 | 0.914 |
+| **is a non-target audible** | **0.802** | **0.795** | **0.808** | **0.679** |
+
+identity on single-speaker windows **0.942** (WavLM managed 0.570).
+
+**The arm uses the NON-TARGET column only**, which is the worse one. Not a
+choice: its required answer is a constant zero, so it needs no labels. The
+target column's required answer depends on whether the target was speaking in
+that window, which needs per-window labels in the loader -- the second
+increment.
+
+### Three interventions that did NOT work, recorded so they are not retried
+
+1. **Enrolment bank (K=3, rotated per epoch).** PREDICTED the best epoch would
+   move from 2 to 6-8 if the enrolment was the memorisation route. **It stayed
+   at exactly 2.** +0.008 AUC. The prediction was wrong and the diagnosis with
+   it.
+2. **Doubling the data, 500 -> 1,000 trials.** +0.017 on the hard question,
+   nothing on the easy one. Best epoch still 2.
+3. **42 Optuna trials over the MLP head.** 0.8836 -> 0.8907, and the whole run
+   was wasted anyway: it tuned an architecture the BiLSTM had already replaced,
+   0.7 points of search against 3.8 points of architecture. `SearchableHead`
+   now carries a comment recording that so it is not repeated.
+
+**The pattern underneath all three:** the head converges in ONE epoch and then
+degrades. It is not overfitting so much as exhausting what the features contain,
+which is why data, regularisation and hyperparameters all bought under a point
+each and the architecture bought five.
+
+**A false negative I produced along the way, worth recording as a method
+lesson.** I tested "does temporal context help" with hand-made scalar summaries
+of neighbours' cosine -- own-minus-local-max scored 0.509, i.e. nothing -- and
+reported the question settled. A learned model over the full 192-d sequence then
+gained 5.1 points. **A cheap proxy test can only rule something out when the
+proxy is as expressive as the thing it stands in for.**
+
+### The integration, and what it deliberately does not touch
+
+| file | |
+|---|---|
+| `src/models/state_teacher.py` | new. Frozen ECAPA + BiLSTM readout, hash-checked, shape inferred from the state dict because the checkpoint does not record it |
+| `src/models/losses_state.py` | new. `LossBSRNNState(LossBSRNN)` -- a SUBCLASS in its own file, so `losses.py` is untouched |
+| `scripts/derive_w_state.py` | new. Anchor measurement and weight derivation |
+| `tests/test_losses_state.py` | new. 8 tests |
+| `experiments/configs/bsrnn_state.yaml` | new. Four keys differ from the baseline, verified |
+| `scripts/train.py` | five changes |
+
+**`build_loss_fn` BRANCHES on `w_state` rather than multiplying by zero.** A
+config without the key gets the plain `LossBSRNN` object, so every run before
+today reproduces by construction and no old config can reach the new code path
+at all. Verified: the baseline config still builds `LossBSRNN`.
+
+**`total` deliberately EXCLUDES `L_state`.** It is what `ReduceLROnPlateau` and
+the loss curve read, and the four terms are what it has always meant; a fifth
+would make every run before 2026-09-11 incomparable with every run after.
+`L_state` gets its own column, NaN when the term is off -- a missing term is a
+gap in the curve, not a zero.
+
+**`selection_score` includes it in no mode, and that is the point.** A frozen
+learned scorer can be improved by finding its blind spots rather than by
+removing the interferer, and the teacher has never heard masked audio -- only
+real mixtures and synthetic suppressions. Selecting on it would make that
+invisible, because the quantity being gamed would also be the quantity choosing
+the checkpoint. **The signature to watch is `L_state` falling while `L_pres`
+stalls**, and both now print side by side in the epoch breakdown.
+
+### The test that matters, and the one I mislabelled
+
+`test_the_state_term_is_what_carries_the_gradient` is the test with teeth.
+Proven by deliberately introducing the bug: with the teacher's forward wrapped
+in `no_grad`, `|grad(w_state=1) - grad(w_state=0)|` goes from **182.17 to
+exactly 0.000000**.
+
+**`test_gradient_reaches_the_waveform`, which I had called "THE test", still
+PASSES under that bug** -- the four base terms deliver gradient regardless, so
+the waveform's gradient only moves 26874.5 -> 26836.6, a 0.14 % change. "Gradient
+is non-zero" is not a test of this term.
+
+**And `L_state` logs 0.1048 either way.** The number in the training curve is
+identical whether the term works or not. That is the failure mode, confirmed
+rather than argued -- the same dead-gradient shape D9 already records for the
+original "add WER to the loss" idea.
+
+### w_state must be DERIVED, and the first attempt found two bugs
+
+**MEASURED: at `w_state = 1.0` the term contributed 0.68 % of the gradient on
+synthetic audio and 5571 % on real audio.** Two orders of magnitude in one
+direction and three in the other, so ANY guessed value would be wrong. L_state
+is a cross-entropy in nats; the others are dB. There is no meaningful
+conversion -- BCE is a log-probability, dB is a power ratio -- and `L_MR` is the
+standing precedent that a term need not be in dB provided its weight reconciles
+the units.
+
+**Anchors, 6 batches of `sir0_val`:**
+
+| anchor | L_state |
+|---|---|
+| oracle (clean target) | **0.1212** |
+| model (`model_sir0_10000-e6.pt`) | 1.8200 |
+| passthrough (the mixture) | **2.1064** |
+
+**Headroom 1.99 nats**, and the wiring check passes: the clean target contains
+no second voice and reads near zero. **The checkpoint has removed only ~15 % of
+the teacher's leakage reading**, so there is room for the term to push into.
+
+**Two bugs the first run exposed, both fixed:**
+
+1. **`remix_gains: true` invalidated every synthetic anchor.** The loader
+   rebuilds the mixture at a fresh SIR each epoch, so what it returns is NOT
+   `target + interferer + noise` from disk -- the residual measured 0.2x to 1.7x
+   the mixture's own level. The `partial_6/12/20db` anchors read as WORSE than
+   the raw mixture on `L_pres`, `L_gain` and `L_abs`, which is what gave it
+   away. The script now forces `remix_gains=False`.
+2. **The suggested weight printed as `0.0`** because `%.1f` was applied to
+   0.0027. It now prints `%.4g` and, more importantly, RE-MEASURES the share at
+   the suggested value instead of trusting a linear extrapolation from a 5571 %
+   measurement -- which is nowhere near the small-perturbation regime that
+   extrapolation assumes.
+
+### The one thing that can still stop this, and it is unmeasured
+
+**GPU cost per step.** 13 windows x 6 examples is 78 ECAPA forwards AND
+backwards every step, against a current 0.674 s/step. Every timing in this
+entry is CPU; training is a T4. `scripts/profile_step.py` is where that number
+comes from, and **no further integration code should be written before it
+exists** -- if it says 5 s/step the term must score a random subset of windows
+instead of all 13, which changes the shape of `losses_state.py`.
+
+**Levers, and the first one is less available than it looks.**
+
+**Subsampling windows is the SGD argument, and it is sound in principle.** The
+term is a mean over 13 windows, so scoring a random subset is an unbiased
+estimate of it -- the same reason a mini-batch estimate of the full-dataset
+gradient works, and the reason even a single sample converges given enough
+steps. Variance costs steps, not correctness.
+
+**But the BiLSTM couples the windows, so random subsampling saves almost
+nothing.** The head runs bidirectionally over the whole 13-window sequence, so:
+
+- computing the loss on 4 windows still needs all 13 ECAPA embeddings to feed
+  the recurrence, so the expensive forward is unchanged;
+- and the backward flows through the recurrence to all 13 hidden states anyway,
+  so the backward is unchanged too.
+
+**What DOES save time is scoring a shorter CONTIGUOUS segment** -- 2.5 s of the
+4.008 s chunk is 7 windows instead of 13, and the recurrence runs over 7. The
+cost is that the head then sees a shorter context than the 13 windows it was
+fitted on, which is a mild distribution shift and must be measured rather than
+assumed.
+
+So the levers, in order: **score a shorter contiguous segment**; put the teacher
+on the second T4; precompute enrolment embeddings (worth ~5 s of the ~18 s of
+audio per example, so a real saving but not the main one -- an earlier claim
+that it was the larger half was true only for a single-window design).
+
+**AND THE NUMBER 4 WAS INVENTED.** An earlier note in this conversation
+suggested "score 4 of 13 random windows" as though it were derived. It was not.
+The only non-arbitrary anchor available is that a 1 s window at 0.25 s hop means
+about **4 NON-OVERLAPPING windows span the 4 s chunk**, so 13 windows carry
+nowhere near 13 windows of independent information -- but that is an argument
+about redundancy, not a derivation of a subsample size. The segment length
+should come from the profile: the longest one that fits the session cap.
+
+### Still not done
+
+- **`sir0_val` is uncached**, so the teacher has never been measured on
+  speaker-disjoint data. All 1,000 trials come from `sir0_train`.
+- The target column, which needs per-window labels in `dataset_loader.py`.
+- Head A, which is a separate idea and shares those labels.
+
 ### Two controls, without which head A means nothing
 
 1. **Ablate the enrollment and re-measure state accuracy.** If accuracy holds up
