@@ -2488,17 +2488,27 @@ does not.
   is plateau-driven rather than horizon-driven, so `epochs: 100 -> 10` still
   does not change the training path, but the reason given was wrong.
 
-**Fix for the next arm, not this one.** Give the train loader its own
-generator so shuffling stops depending on how much RNG anything constructed
-before it happened to consume:
+**DECLINED 2026-09-11.** A fix exists -- give the train loader its own
+`torch.Generator`, reseeded per epoch from `(seed, epoch)` to stay correct on
+resume -- and it was not taken. The reasoning, which stands:
 
-```python
-generator=torch.Generator().manual_seed(seed),
-```
+Ordering is seed noise. Every single-run A/B comparison in this project has
+carried it, including the 2026-09-04 baseline that everything is measured
+against, which is itself one run. Pinning one future arm's ordering does not
+give the project a noise floor and does not change how any existing number
+reads. It removes one source of run-to-run variation while leaving the rest --
+cuDNN's nondeterministic RNN backward, and the fact that two arms have
+different gradients from step 1 by construction.
 
-Not applied while a run is in flight. It also needs a decision on resume: a
-per-loader generator seeded once restarts at epoch 0's permutation when a run
-resumes, which is a separate defect of the same family.
+**What the real gap is, and it is not this.** No same-config replicate exists
+anywhere in `experiments/results/`, so ordering noise -- and run-to-run noise
+generally -- has never been measured on this codebase. Until it is, no
+single-run delta is separable from scatter, with or without the generator fix.
+That is the same problem `report-todo.md` #9 records one layer up for the
+judge: "a system difference smaller than it cannot honestly be claimed."
+
+Re-open only if a Group D arm lands a delta small enough that ordering could
+plausibly account for it, and only alongside an actual noise measurement.
 
 **The general lesson, worth more than this instance.** Any arm that adds a
 module — D13's gate, D12's experts, D5's speaker encoder — will consume RNG at
