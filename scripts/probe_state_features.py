@@ -93,6 +93,17 @@ def features_for(model, mixture, enrolment, capture):
 def collect(args, model, capture, labels, manifest, trial_dirs, hop_s):
     """Walk the trials once, returning per-trial features and labels."""
     rows = []
+
+    def stranger_cue(directory):
+        """An enrolment from a speaker who appears in NEITHER role here.
+
+        Deterministic -- a fixed rotation by half the trial list -- so the
+        control is reproducible rather than a fresh random draw per run.
+        """
+        index = trial_dirs.index(directory)
+        other = trial_dirs[(index + len(trial_dirs) // 2) % len(trial_dirs)]
+        return read_wav(other / "enrollment.wav", args.sample_rate)
+
     for count, directory in enumerate(trial_dirs, 1):
         trial_id = directory.name
         if trial_id not in labels:
@@ -131,12 +142,22 @@ def collect(args, model, capture, labels, manifest, trial_dirs, hop_s):
                 row["states_bands"] = states[::args.band_stride].astype(np.int64)
 
             if args.ablate_enrolment:
-                # D14 control 1: a DIFFERENT speaker's cue, same mixture. If the
-                # probe still works, it never needed the cue.
-                other = read_wav(directory / ("interferer_enrollment.wav"
-                                 if which == "target" else "enrollment.wav"),
-                                 args.sample_rate)
-                za = features_for(model, mixture, other, capture)
+                # D14 control 1: a cue from a speaker who is NOT IN THIS MIXTURE.
+                #
+                # FIXED 2026-09-11. This first used the other speaker in the SAME
+                # trial, which is not an ablation -- it is a different VALID
+                # instruction, so the model simply extracts the other voice. The
+                # measured result was 61.3 % against 61.0 %, which reads as "the
+                # cue is ignored" until you look at the per-class recalls:
+                # target/interferer went 72.0/39.6 -> 39.9/72.2, a clean SWAP.
+                # That is the signature of a model obeying the new cue, not one
+                # ignoring the old one, and it makes the control uninformative
+                # about whether the head is a bare voice-activity detector.
+                #
+                # A stranger from another trial has no role to swap into, so if
+                # accuracy survives THAT, the cue really is doing nothing.
+                za = features_for(model, mixture, stranger_cue(directory),
+                                  capture)
                 row["mean_ablated"] = za.mean(dim=1).numpy().astype(np.float32)
             rows.append(row)
 
