@@ -75,44 +75,100 @@ QUESTIONS = ("target_audible", "non_target_audible")
 TARGET_AUDIBLE, NON_TARGET_AUDIBLE = 0, 1
 
 
+def head_shape_from_state_dict(state_dict):
+    """(hidden, n_layers) read off the saved weights.
+
+    The notebook's checkpoints do not record the trunk's shape -- verified
+    2026-09-11, the saved keys are the metrics and the data settings only -- so
+    it is inferred rather than configured. That is the more robust choice
+    anyway: a recorded shape can disagree with the weights, an inferred one
+    cannot.
+
+    `project.0.weight` is (hidden, 3*embedding_dim + 1). A bidirectional LSTM
+    writes `weight_ih_l{k}` and `weight_ih_l{k}_reverse` per layer, so counting
+    the forward ones gives the depth.
+    """
+    hidden = state_dict["project.0.weight"].shape[0]
+    n_layers = sum(1 for k in state_dict
+                   if k.startswith("across_windows.weight_ih_l")
+                   and not k.endswith("_reverse"))
+    return int(hidden), int(n_layers)
+
+
 class StateHead(nn.Module):
     """The trainable part of the teacher, as fitted in notebooks/state_detector.
 
-    Kept here rather than imported from the notebook so a checkpoint can be
-    loaded without the notebook existing. `hidden_sizes` and `dropout` come
-    from the checkpoint, so a head tuned to a different shape still loads.
+    Kept here rather than imported from the notebook so a checkpoint loads
+    without the notebook existing. Attribute names match both the notebook's
+    `StateHead` and its `SearchableHead`, so a hand-picked and a tuned
+    checkpoint load into the same class.
+
+    WHY A RECURRENT TRUNK RATHER THAN A PER-WINDOW MLP
+    --------------------------------------------------
+    MEASURED 2026-09-10, same features, same split, same objective:
+
+        per-window MLP  149 k   mean AUC 0.8836   non-target 0.8199
+        BiLSTM          339 k   mean AUC 0.9216   non-target 0.8710
+        self-attention  473 k   mean AUC 0.9170   non-target 0.8672
+
+    +5.1 points on the question this loss uses, against +1.7 for doubling the
+    data, +0.8 for rotating the enrolment and +0.7 for a 42-trial
+    hyperparameter search. Ten times the effect of the next best intervention.
+
+    A single window at cosine +0.23 to the enrolment is ambiguous between "the
+    target alone, quieter" and "the target plus someone else" -- `both` sits at
+    +0.233 between `target` at +0.321 and `interferer` at +0.044, because a
+    verification embedding describes whichever voice dominates. The neighbouring
+    windows resolve much of that.
+
+    Bidirectional, which costs nothing because the teacher never streams. It
+    also means this head must NEVER be reused inside the causal extractor.
     """
 
-    def __init__(self, embedding_dim=192, hidden_sizes=(256,), dropout=0.1,
-                 n_outputs=len(QUESTIONS)):
+    def __init__(self, embedding_dim=192, hidden=128, n_layers=1,
+                 dropout=0.0, n_outputs=len(QUESTIONS)):
         super().__init__()
         self.norm_window = nn.LayerNorm(embedding_dim)
         self.norm_enrolment = nn.LayerNorm(embedding_dim)
-        layers, width = [], 3 * embedding_dim + 1
-        for hidden in hidden_sizes:
-            layers += [nn.Linear(width, hidden), nn.GELU(), nn.Dropout(dropout)]
-            width = hidden
-        layers.append(nn.Linear(width, n_outputs))
-        self.network = nn.Sequential(*layers)
+        self.project = nn.Sequential(
+            nn.Linear(3 * embedding_dim + 1, hidden), nn.GELU())
+        self.across_windows = nn.LSTM(
+            hidden, hidden, num_layers=n_layers, batch_first=True,
+            bidirectional=True,
+            dropout=dropout if n_layers > 1 else 0.0)
+        self.output = nn.Sequential(nn.Dropout(dropout),
+                                    nn.Linear(2 * hidden, n_outputs))
 
-    def forward(self, window_embeddings, enrolment_embedding):
-        """(B, W, 192) and (B, 192) -> logits (B, W, 2).
+    def per_window_features(self, window_embeddings, enrolment_embedding):
+        """(B, W, 192) and (B, 192) -> (B, W, 577).
 
-        The cosine similarity is passed as its own input because it is the
-        single most informative feature available -- MEASURED AUC 0.951 on the
-        identity question with no training at all -- and a linear layer would
-        otherwise have to learn to sum 192 product terms to recover it.
+        The cosine is computed on the RAW embeddings, before LayerNorm, and
+        passed as its own input: it is the single most informative feature
+        available -- MEASURED AUC 0.951 on the identity question with no
+        training at all -- and a linear layer would otherwise have to learn to
+        sum 192 product terms to recover it.
+
+        The product is there because agreement is a PRODUCT: no linear map of
+        [window, enrolment] can compute an inner product between its halves.
+        The two LayerNorms put the three blocks on comparable scales so the
+        product is not the quietest input.
         """
         window_unit = nn.functional.normalize(window_embeddings, dim=-1)
         enrolment_unit = nn.functional.normalize(enrolment_embedding, dim=-1)
-        cosine = (window_unit * enrolment_unit.unsqueeze(1)).sum(-1, keepdim=True)
-
+        cosine = (window_unit * enrolment_unit.unsqueeze(1)).sum(-1,
+                                                                 keepdim=True)
         window = self.norm_window(window_embeddings)
         enrolment = self.norm_enrolment(enrolment_embedding)
         enrolment = enrolment.unsqueeze(1).expand_as(window)
+        return torch.cat([window, enrolment, window * enrolment, cosine],
+                         dim=-1)
 
-        return self.network(
-            torch.cat([window, enrolment, window * enrolment, cosine], dim=-1))
+    def forward(self, window_embeddings, enrolment_embedding):
+        """(B, W, 192) and (B, 192) -> logits (B, W, 2)."""
+        hidden = self.project(
+            self.per_window_features(window_embeddings, enrolment_embedding))
+        hidden, _ = self.across_windows(hidden)
+        return self.output(hidden)
 
 
 class StateTeacher(nn.Module):
@@ -142,12 +198,21 @@ class StateTeacher(nn.Module):
 
         self._load_backbone(Path(ecapa_dir), checkpoint, verify_hashes, device)
 
+        hidden, n_layers = head_shape_from_state_dict(checkpoint["state_dict"])
         self.head = StateHead(
             embedding_dim=int(checkpoint.get("embedding_dim", 192)),
-            hidden_sizes=tuple(checkpoint.get("hidden_sizes", (256,))),
-            dropout=0.0,   # eval-time: dropout would make the teacher noisy
+            hidden=hidden, n_layers=n_layers,
+            # dropout 0.0 regardless of what it was trained at: the teacher must
+            # be DETERMINISTIC. Dropout here would make the same audio score
+            # differently on consecutive steps, so the extractor would be
+            # chasing a moving target for no reason.
+            dropout=0.0,
         )
-        self.head.load_state_dict(checkpoint["state_dict"])
+        # strict=True: a shape or name mismatch means the checkpoint and this
+        # class disagree about the architecture, and a partially-loaded teacher
+        # would produce plausible numbers from partly-random weights.
+        self.head.load_state_dict(checkpoint["state_dict"], strict=True)
+        self.head_shape = dict(hidden=hidden, n_layers=n_layers)
 
         self.to(device)
         self.eval()
@@ -258,6 +323,8 @@ class StateTeacher(nn.Module):
             window_seconds=self.window_seconds,
             window_hop_seconds=self.window_hop_seconds,
             audible_db=self.audible_db,
+            head_hidden=self.head_shape["hidden"],
+            head_layers=self.head_shape["n_layers"],
             frozen_parameters=sum(p.numel() for p in self.parameters()),
         ), sort_keys=True)
 

@@ -21,6 +21,7 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
 <!-- rows appended below by src/run_log.py -->
+| 2026-09-11 | `scripts/derive_w_state.py` | sir0, 6 batches | 17 min |  |
 | 2026-09-06 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-04-train-sir0-10000/ --metrics content --listener judge --judge-rpm 10 --out experiments/results/2026-09-06-evaluate-10000-judge | 12 min |  |
 | 2026-09-06 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-04-train-sir0-10000/ --metrics content --listener judge --judge-rpm 10 --out experiments/results/2026-09-06-evaluate-10000-judge **(failed)** | 85 s |  |
 | 2026-09-06 | `scripts/measure_rtf.py` | --checkpoint models/model_sir0_10000-e6.pt --chunk-ms 80 --threads 4 --device cpu --out experiments/results/2026-09-06-rtf-10000-cpu | 2 min |  |

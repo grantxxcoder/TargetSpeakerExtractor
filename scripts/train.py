@@ -49,8 +49,38 @@ def build_loss_fn(config):
     # A negative deadzone punishes a PERFECT match -- reads as a dead term.
     assert gain_delta_db >= 0.0, f"loss.gain_delta_db must be >= 0, got {gain_delta_db}"
 
-    return LossBSRNN(wm=wm, w=w, tau_pres=tau_pres, tau_abs=tau_abs, p=p, windows=windows,
-                     sample_rate=sample_rate, wg=wg, gain_delta_db=gain_delta_db)
+    # THE STATE TERM (decisions-pending.md D14) IS OPT-IN, AND THE BRANCH IS THE
+    # OPT-IN. A config without `w_state` gets the plain LossBSRNN object, so a
+    # pre-2026-09-11 run reproduces by construction rather than by a weight
+    # multiplied by zero -- and no old config can reach the new code path even
+    # by accident.
+    w_state = float(config["loss"].get("w_state", 0.0))
+    assert w_state >= 0.0, f"loss.w_state must be >= 0, got {w_state}"
+
+    # this is the option to disable the effect of the head B for the trainer teacher setup
+    if w_state <= 0.0:
+        return LossBSRNN(wm=wm, w=w, tau_pres=tau_pres, tau_abs=tau_abs, p=p,
+                         windows=windows, sample_rate=sample_rate, wg=wg,
+                         gain_delta_db=gain_delta_db)
+
+    # Imported here, not at module scope: the teacher pulls in speechbrain and
+    # a 21 M-parameter checkpoint, and a baseline run should not pay for either.
+    from src.models.losses_state import LossBSRNNState              
+    from src.models.state_teacher import StateTeacher               
+
+    teacher_path = config["loss"].get("state_teacher")
+    assert teacher_path, (
+        "loss.w_state > 0 needs loss.state_teacher, the frozen detector "
+        "checkpoint. It defines part of the objective, so it is named in the "
+        "config and hash-pinned, never defaulted.")
+    teacher = StateTeacher(teacher_path,
+                           config["loss"].get("ecapa_dir", "../ecapa_pretrained"),
+                           device=config["loss"].get("state_device", "cpu"))
+
+    return LossBSRNNState(wm=wm, w=w, tau_pres=tau_pres, tau_abs=tau_abs, p=p,
+                          windows=windows, sample_rate=sample_rate, wg=wg,
+                          gain_delta_db=gain_delta_db,
+                          teacher=teacher, w_state=w_state)
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +210,7 @@ def w_at_epoch(config, epoch):
 
 # One definition, used by both the stdout line and history.csv -- so a log
 # pasted out of a killed run is a valid history.csv with no editing.
-HISTORY_FIELDS = ["total", "L_pres", "L_MR", "L_gain", "L_abs", "n_present", "n_absent"]
+HISTORY_FIELDS = ["total", "L_pres", "L_MR", "L_gain", "L_abs", "L_state", "n_present", "n_absent"]
 
 # VAL-ONLY leading indicators; the loss terms are lagging ones.
 #   enrol_sens_db    output movement on an enrolment swap. Near 0 dB = strongly
@@ -228,6 +258,15 @@ def format_epoch_breakdown(epoch, num_epochs, tr, va, epoch_seconds, w_trained):
     (decisions-m2.md 2026-08-29). L_pres is negated SI-SDR, so a train L_pres of
     -5.51 against a val +0.17 is the 5.68 dB gap that run ended with.
 
+    `L_state` is printed only when the state term is in use, because otherwise
+    it is a row of NaNs. THE PATTERN TO WATCH THERE IS NOT THE GAP: it is
+    `L_state` falling while `L_pres` stalls or worsens. The teacher is a frozen
+    learned scorer, so the model can improve on it by finding its blind spots
+    instead of by removing the interferer -- and it has never heard masked
+    audio, only real mixtures and synthetic suppressions. That divergence is
+    the signature of reward-model overoptimisation, and it is why `L_state`
+    appears in no selection mode. decisions-pending.md D14.
+
     Goes to stderr on purpose: stdout carries one CSV row per epoch and must
     stay a valid history.csv so a killed Kaggle session can be recovered by
     pasting it into a file. See scripts/make_kaggle_notebook.py.
@@ -237,8 +276,12 @@ def format_epoch_breakdown(epoch, num_epochs, tr, va, epoch_seconds, w_trained):
         f"lr {va['lr']:.2e}  w_trained {w_trained:.3f}",
         f"  {'term':<7} {'train':>10} {'val':>10} {'gap(val-train)':>15}",
     ]
-    for term in ("total", "L_pres", "L_MR", "L_gain", "L_abs"):
-        train_value, val_value = tr[term], va[term]
+    for term in ("total", "L_pres", "L_MR", "L_gain", "L_abs", "L_state"):
+        # L_state is NaN if the teacher isnt used
+        train_value, val_value = tr.get(term, float("nan")), va.get(term, float("nan"))
+        if term == "L_state" and not np.isfinite(train_value) \
+                and not np.isfinite(val_value):
+            continue
         lines.append(f"  {term:<7} {train_value:>10.4f} {val_value:>10.4f} "
                      f"{val_value - train_value:>15.4f}")
     lines.append(f"  crops   train {tr['n_present']} present / {tr['n_absent']} absent"
@@ -386,6 +429,14 @@ def add_parts(sums, counts, parts):
     if parts["n_absent"]:
         sums["L_abs"] += parts["L_abs"] * parts["n_absent"]
         counts["absent"] += parts["n_absent"]
+    # L_state applies to EVERY crop, present and absent alike: there is no
+    # situation in which a second voice belongs in the output, so it has its own
+    # count rather than sharing either branch's. Absent unless the state loss is
+    # in use, so `.get` rather than a key.
+    if parts.get("L_state") is not None:
+        n_all = parts["n_present"] + parts["n_absent"]
+        sums["L_state"] += parts["L_state"] * n_all
+        counts["all"] += n_all
 
 
 def epoch_report(sums, counts, w, wm, wg):
@@ -402,13 +453,24 @@ def epoch_report(sums, counts, w, wm, wg):
     L_MR = sums["L_MR"] / n_present if n_present else float("nan")
     L_gain = sums["L_gain"] / n_present if n_present else float("nan")
     L_abs = sums["L_abs"] / n_absent if n_absent else float("nan")
+    # NaN, not 0.0, when the term is off: a missing term is a GAP in the curve,
+    # not a zero. Plotting it as zero would suggest a perfectly satisfied
+    # objective rather than an absent one.
+    n_all = counts.get("all", 0)
+    L_state = sums["L_state"] / n_all if n_all else float("nan")
 
+    # `total` deliberately EXCLUDES the state term. It is the number
+    # ReduceLROnPlateau and the curve read, and the four terms above are what it
+    # has always meant -- adding a fifth would make every run before 2026-09-11
+    # incomparable to every run after. w_state's contribution is visible in its
+    # own column, and derive_w_state.py reports its gradient share.
     return {
         "total": (1 - w) * (L_pres + wm * L_MR + wg * L_gain) + w * L_abs,
         "L_pres": L_pres,
         "L_MR": L_MR,
         "L_gain": L_gain,
         "L_abs": L_abs,
+        "L_state": L_state,
         "n_present": n_present,
         "n_absent": n_absent,
     }
@@ -434,6 +496,22 @@ def selection_score(val_loss, config):
     handled by an eligibility bar (see `selection_eligible`) rather than by a
     second arbitrary exchange rate between two quantities that are not
     commensurable. decisions-m2.md 2026-08-30.
+
+    NO MODE INCLUDES `L_state`, AND THAT IS DELIBERATE. It is a frozen learned
+    scorer, and a model can improve on it by finding its blind spots rather than
+    by removing the interferer -- reward-model overoptimisation. Selecting on it
+    would make that failure invisible, because the thing being gamed would also
+    be the thing choosing the checkpoint.
+
+    This project has watched a headline number improve for a bad reason twice
+    already: 2026-08-25, total loss falling the whole way into a mute; and
+    2026-09-04, `enrol_sens` and `pres_abs_gap` reaching their best values of the
+    run on the epoch where held-out separation dropped below pass-through. The
+    state term is a more gameable quantity than either.
+
+    So `L_state` is LOGGED and never SELECTED ON. If it falls while
+    `present_branch` stalls, that is the signature, and it should be reported in
+    the same breath as any result. decisions-pending.md D14.
     """
     mode = str(config["training"].get("select_on", "present_branch"))
     if mode == "total":
@@ -548,6 +626,10 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
 
             mixture, target, enrollment, crop_absent = unpack(batch, device)
 
+            # I can only use the teacher loss if I have the enrollment to supply the teacher with.
+            if hasattr(loss_fn, "enrolment_embedding"):
+                loss_fn.enrolment_embedding = loss_fn.teacher.embed_enrolment(enrollment)
+
             optimizer.zero_grad()
             with amp_ctx(use_amp):
                 s_output = model(mixture, enrollment)
@@ -592,6 +674,10 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
         with torch.no_grad():
             for batch in val_loader:
                 mixture, target, enrollment, crop_absent = unpack(batch, device)
+
+                # Same setter as the training loop for the teacher loss
+                if hasattr(loss_fn, "enrolment_embedding"):
+                    loss_fn.enrolment_embedding = loss_fn.teacher.embed_enrolment(enrollment)
 
                 # Val runs in the same precision as training on purpose: a
                 # metric measured in a precision the model was not trained in

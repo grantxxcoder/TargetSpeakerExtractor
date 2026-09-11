@@ -1,0 +1,290 @@
+# M5 ARM: the baseline objective plus the frozen speaker-state teacher.
+# decisions-pending.md D14. Copied from bsrnn_baseline.yaml on 2026-09-11; the
+# ONLY difference is the `w_state` block at the end of `loss:`.
+#
+# THE COMPARISON THIS CONFIG EXISTS TO MAKE. Same architecture, same parameter
+# count, same latency, same data, same seed, same schedule -- one term added.
+# The teacher is training-only and deleted at inference, so unlike every other
+# proposal in Group D this arm carries NO capacity confound: a difference
+# cannot be the extra parameters, because there are none.
+#
+# The control is models/model_sir0_10000-e6.pt, not a fresh baseline run: two
+# runs differing by a seed are not a comparison.
+
+seed: 42
+
+data:
+  sample_rate: 16000    # read by the loss (windows_ms -> n_fft) and the loader
+  chunk_s: 4.008        # decisions-m1.md 2026-08-18 (CARTSE) gave 4.0; the extra
+                        # 8 ms is a SPEED fix, not a modelling one. fp16
+                        # tensor-core LSTM kernels need the batch dimension to be
+                        # a multiple of 8; band_rnn's batch is examples x T, and
+                        # 4.0 s gives T=503 (prime), so only batch sizes
+                        # divisible by 4 aligned. 4.008 s gives T=504 = 8 x 63,
+                        # so EVERY batch size aligns. Measured 2026-08-28:
+                        # 2.993 -> 0.674 s/step at batch 3, a 4.44x speedup, for
+                        # a 0.2 % LONGER crop. decisions-pending.md E3f.
+  both_directions: true   # Train every trial TWICE: the same mixture asked for
+                        # the target, then for the other speaker. The only thing
+                        # in the data that makes reading the enrollment
+                        # compulsory -- with one direction, a model that ignores
+                        # it can fit every example, and measured, it did (output
+                        # moved 8 % on an enrollment swap). Needs interferer.wav
+                        # and interferer_enrollment.wav, so the split must be
+                        # rendered after 2026-08-26. NOTE batch_size then counts
+                        # TRIALS: a step sees 2x that many examples.
+                        # decisions-m2.md 2026-08-26.
+  enrollment_variants: 3  # 4 until 2026-08-31; lowered to 3 to buy upload budget
+                        # for the 5,000-trial render. The bank costs
+                        # (K-1) x 2 x ~160 kB per trial, so K=4 -> K=3 saves
+                        # 320 kB/trial, ~1.6 GB at 5,000 trials. Untested whether
+                        # 3 rotations regularise as well as 4 -- the arm that
+                        # measured the bank used K=4 (decisions-m2.md 2026-08-30),
+                        # so this is a change to a measured setting and the run
+                        # cannot be compared to that arm on the bank axis alone.
+                        # Enrollment bank size, TRAINING ONLY -- val always
+                        # reads variant 0, which IS enrollment.wav, so val stays
+                        # comparable with every run before the bank existed.
+                        # 1 = the single rendered clip, i.e. every run up to
+                        # 2026-08-29. >1 rotates through K distinct utterances by
+                        # the same speaker, one per epoch, so the identity cue
+                        # stops being a fixed waveform to memorise. Requires
+                        # scripts/render_enrollment_bank.py to have run on the
+                        # split. decisions-m2.md 2026-08-30.
+  remix_gains: true    # Rebuild the mixture each epoch at another trial's SIR
+                        # and SNR, drawn from the same difficulty regime. TRAIN
+                        # ONLY -- a val set that changed difficulty per epoch
+                        # would make its own curve unreadable. false = the
+                        # mixture exactly as rendered, i.e. every run up to
+                        # 2026-08-29. Needs no new audio: the noise bed comes
+                        # back as mixture - target - interferer, and only the
+                        # mixture changes, never the reference. Costs one extra
+                        # windowed read per trial and saves a duplicate one.
+                        # decisions-m2.md 2026-08-30.
+  num_workers: 0        # DataLoader workers. 0 on the laptop: 4 cores, already
+                        # saturated by the model. Raise on GPU (the Kaggle
+                        # notebook sets 4) or the wav reads starve the device.
+  batch_size: 3        # decisions-m1.md 2026-08-18, provisional on GPU memory
+                       # and should be 12. Still 3: the laptop has no usable GPU
+                       # (docs/run_times.md). Raise to 12 when running `--split
+                       # mid` or `full` on Kaggle -- and note w's absent-rate
+                       # calibration assumed batch 12, where ~1.5 % of batches
+                       # have no absent crop at the measured 0.297 absent rate.
+   
+model:
+  bands:                # task #1 — plan is inherited and unjustified, see decisions-m1.md
+    plan: wesep_16k
+  separator:
+    feature_dim: 128    # N, Yu et al. §4.2 for the 16 kHz model
+    num_repeat: 6       # six-layer band + sequence module
+    lstm_hidden: 192
+    causal: true 
+    norm: cLN
+  mask:
+    mlp_hidden: 384     # Tanh + GLU output
+    residual_branch: true   # S = M (x) X + R, paper eq. 2
+  stft:
+    n_fft: 512          # 32 ms at 16 kHz (Yu et al., Interspeech 2023 §4.2), consider making this larger at 1024 as we have the budget for it
+    hop: 128            # 8 ms
+  lookahead_frames: 0   # 0-16. Each frame = one hop = 8 ms.
+  tfmap_scale: 16.0      # scale factor for the attention logits in TFMap, see src/models/conditioning.py
+
+loss:
+  # M2 objective, decisions-m2.md 2026-08-20. Six deviations from CARTSE
+  # recorded there; the deviations are in src/models/losses.py, the numbers here.
+  w:     0.458          # weight on the absent half. Deviation 5: 0.297 absent
+                    # rate carried through CARTSE's eta = 2.0. NOTE the measured
+                    # rate on mid_train is 0.3028 (val 0.2850), so this is
+                    # slightly off its own derivation. Not re-derived before the
+                    # warmup run: changing two things at once would make the
+                    # result uninterpretable. decisions-m2.md 2026-08-25.
+  w_schedule:           # Absent-branch warmup. WHY: the 2-epoch mid run learned
+                        # SILENCE before conditioning -- by epoch 1 the output
+                        # was already -18.5 dB below the mixture with enrolment
+                        # sensitivity -14.31 dB. With w = 0 the silence shortcut
+                        # pays nothing, so the only way down is to reconstruct
+                        # the target, which on `both` crops needs the enrolment.
+                        # See w_at_step() in scripts/train.py.
+                        # Delete this block to train at constant w.
+    w_start: 0.0        # w during warmup
+    # INDEXED IN GRADIENT STEPS since 2026-09-03, not epochs. An epoch-indexed
+    # warmup silently changes length whenever the training set changes size: the
+    # same 4 + 3 epochs were 11,606 steps at 4,976 trials and would be 23,212 at
+    # 9,955, doubling the one knob that stops the early mute in the middle of the
+    # data-scaling curve that exists to measure data volume alone.
+    # decisions-m2.md 2026-09-03.
+    warmup_steps: 6632  # steps at w_start. = 4 epochs x 1,658 steps/epoch at the
+                        # 4,976-trial baseline (floor(4976 / batch_size 3), with
+                        # drop_last -- the loader counts TRIALS and
+                        # both_directions widens the batch rather than
+                        # lengthening the epoch). So the 2026-09-01 run's
+                        # schedule is now reproduced EXACTLY at any dataset size.
+                        # Still A GUESS in absolute terms: no measurement says
+                        # how many steps conditioning needs. The end-of-warmup
+                        # val_enrol_sens_db is what tells you if it was enough.
+    ramp_steps: 4974    # then linear w_start -> w. = 3 epochs x 1,658. Full w
+                        # from step 11,606: epoch 7.0 at 4,976 trials (matching
+                        # the baseline), epoch 3.5 at 9,955.
+    # warmup_epochs: 4  # LEGACY epoch-indexed form. Still honoured by
+    # ramp_epochs: 3    # schedule_in_steps() so runs up to 2026-09-01 reproduce.
+                        # Do NOT set alongside the *_steps keys -- mixing units
+                        # is refused with an assertion.
+  w_m:   9.62          # weight on L_MR inside the present branch. MEASURED at
+                    # the do-nothing anchor over 300 crops, 2026-08-20:
+                    # L_pres -5.909 dB, L_MR 0.1842, target ratio 0.3
+  w_g:   1.69           # weight on L_gain inside the present branch.
+                        # DERIVED, not chosen: scripts/derive_w_g.py over 200
+                        # sir0_val crops, 2026-08-28. Full numbers in
+                        # experiments/results/2026-08-28-wg-anchor-sir0/ and
+                        # decisions-m2.md 2026-08-28.
+                        # Muting the mixture to the epoch-7 checkpoint's level
+                        # BOUGHT 8.639 on the absent branch and a further 0.155
+                        # on L_MR, against zero opposition. Break-even is 1.242;
+                        # above that the mute costs more than it earns. 1.69 is
+                        # the geometric midpoint of [1.242, 2.297], so it sits
+                        # clear of both edges. Cross-check: the marginal bound
+                        # w/(1-w) = 0.845 agrees in magnitude.
+  gain_delta_db: 3.0    # L_gain deadzone half-width. Inside +-3 dB of the
+                        # target's level the term is exactly 0, so it spends no
+                        # gradient on errors nobody can hear.
+                        # NOTE dB, NOT percent: 10 % amplitude is 0.83 dB, which
+                        # is tighter than a listener can resolve. +-3 dB is an
+                        # amplitude range of 0.71x-1.41x.
+  ablate_w_g:   [0.0, 1.69, 2.30]   # 0 arm required. 1.69 = shipped value,
+                                    # 2.30 = the ceiling, i.e. the point past
+                                    # which level outweighs content
+  tau_pres: 0.001       # floor inside L_pres only: caps the present reward at
+                        # 30 dB. Was a single `tau` shared by both halves;
+                        # split 2026-08-25.
+  tau_abs:  0.01        # floor inside L_abs only: caps the SILENCE reward at
+                        # 20 dB. Measured to be powerless against the mute
+                        # collapse (the binding penalty is at the loud end, not
+                        # the quiet end) -- kept as a separate knob, not as a
+                        # fix. decisions-m2.md 2026-08-25.
+  p:     0.3          # magnitude compression, Yu et al. Interspeech 2023 eq (3)
+  windows_ms: [8, 16, 32, 64]   # multi-resolution window set, straddles the
+                    # model's own 32 ms framing (Deviation 6)
+  complex_term: real_plus_imag   # L1(real) + L1(imag), NOT the modulus. eq (3)
+                                 # leaves the complex term uncompressed
+  reduction:    mean             # over (F, N) only, never over the batch --
+                                 # the masked means need per-example values
+  ablate_w_m:   [0.0, 2.89, 9.62]   # the 0 arm is required
+
+
+  # --- THE STATE TERM (decisions-pending.md D14) ---------------------------
+  #
+  # A frozen teacher listens to the OUTPUT and answers, per ~1 s window, "is a
+  # non-target voice audible here?". Required answer: ZERO, everywhere,
+  # unconditionally. No labels needed and no branch on crop_absent -- there is
+  # no situation in which a second voice belongs in the output.
+  #
+  # WHY IT EXISTS. L_pres sums interferer leakage, residual noise and invented
+  # artefact into one denominator (verified mutually orthogonal to six decimals,
+  # decisions-m3.md 2026-09-01), so per unit of energy they cost the same. For
+  # this project they are not equally bad: the interferer's words get
+  # transcribed as the target's by a live judge, which is the failure ICR was
+  # defined to catch. This term prices that specifically.
+  #
+  # WHAT THE TEACHER IS. Frozen ECAPA-TDNN (Desplanques et al., Interspeech
+  # 2020; SpeechBrain VoxCeleb checkpoint) plus a 339 k bidirectional readout,
+  # fitted once offline on the rendered stems. MEASURED 2026-09-11, held out:
+  #     is a non-target audible   balanced 0.802, recall 0.795, precision 0.679
+  #     is the target audible     balanced 0.906   (NOT used by this arm)
+  # A NOISY PROXY, NOT A DETECTOR: it misses about one leak in five and a third
+  # of its penalties are undeserved. Usable because the loss never thresholds --
+  # noise costs the term STRENGTH, not direction.
+  #
+  # RESOLUTION IS ~1 SECOND, not per-frame, because a verification embedding
+  # needs about that much audio. Never write this up as frame-level.
+  #
+  # HEADROOM, measured 2026-09-11: L_state is 0.12 on the clean target and 2.11
+  # on the raw mixture, so the term has ~2.0 nats of range to work in. The
+  # checkpoint sits at 1.82, i.e. it has removed only ~15 % of the teacher's
+  # leakage reading.
+
+  # DERIVED, never guessed -- scripts/derive_w_state.py. L_state is a
+  # cross-entropy in nats; L_pres and friends are in dB. The units do not match,
+  # so the weight is what reconciles them, exactly as w_m reconciles the
+  # unitless L_MR. There is no meaningful dB conversion: BCE is a
+  # log-probability, dB is a power ratio.
+  #
+  # 0.0 UNTIL THE DERIVATION LANDS. At 0.0, build_loss_fn returns the plain
+  # LossBSRNN and this config reproduces the baseline byte for byte -- the
+  # BRANCH is the opt-in, not a multiplication by zero.
+  w_state: 0.0
+
+  # The frozen detector. Named here and never defaulted: it defines part of the
+  # objective, so a run is not reproducible without knowing which one was used.
+  #   sha256 16f6d8a43d5ecacf24e149d740d68e2a2ab75845d238e255a1805c4d16c106ca
+  #   1,000 sir0_train trials, 850 fit / 150 holdout, BiLSTM head (hidden 128,
+  #   1 layer), enrolment bank K=3 rotated per epoch, epoch 3, seed 42,
+  #   audibility threshold -20 dB.
+  state_teacher: models/state_detector_notebook.pt
+
+  # The backbone snapshot, hash-pinned inside the checkpoint and re-checked at
+  # load. Nothing is fetched at runtime: Kaggle runs with networking off, and an
+  # unpinned fetch would make every number irreproducible.
+  ecapa_dir: ../ecapa_pretrained
+
+  # cpu or cuda. On a single T4 the teacher shares the card with the extractor;
+  # "cuda:1" puts it on the second, where it competes for no memory at all.
+  # UNMEASURED as of 2026-09-11 -- run profile_step.py first. 13 windows x 6
+  # examples is 78 ECAPA forwards AND backwards per step against a current
+  # 0.674 s/step, and that number can still kill this arm.
+  state_device: cpu
+
+training:
+  amp: true             # Automatic Mixed Precision: fp16 for the model forward,
+                        # fp32 for the master weights and for the whole loss.
+                        # Measured 1.58x on the T4 (4.741 -> 2.993 s/step) and
+                        # 1.86x less memory. MUST stay config-driven: it changes
+                        # training numerics, so a run's history is only readable
+                        # next to the flag that produced it. CUDA-only; ignored
+                        # on CPU. decisions-pending.md E3d.
+  lr: 0.0005
+  epochs: 100
+  patience: 10
+  grad_clip: 5.0
+  weight_decay: 1.0e-4  # 0.0 until 2026-08-31. Turned on as the second half of
+                        # the response to memorisation: more data attacks the
+                        # numerator, weight decay attacks the capacity. AdamW's
+                        # 0.01 default would decay every LSTM weight, which is
+                        # why it was refused before -- 1e-4 is two orders below
+                        # that, deliberately timid.
+                        # CONFOUND, stated: this run changes data volume AND
+                        # regularisation together, so an improvement cannot be
+                        # attributed between them. Accepted because both attack
+                        # the same hypothesis (too much capacity for the data)
+                        # and a workable checkpoint matters more than a clean
+                        # ablation with 6 weeks to freeze. decisions-m2.md
+                        # 2026-08-31.
+                        # NOTE dropout is NOT the other "free regulariser":
+                        # no dropout exists in src/models/ or this config, so
+                        # adding it means editing the architecture frozen on
+                        # 2026-08-28. project-state.md's claim that both are
+                        # config-level is wrong.
+  lr_factor: 0.5        # ReduceLROnPlateau on val total
+  lr_patience: 3        # must stay < patience or training stops before the
+                        # lr ever drops
+
+  # MODEL SELECTION -- which epoch's weights get kept, and when to stop. This is
+  # NOT the training objective and it is never backpropagated: validation runs
+  # under no_grad. `w` = 0.458 balances GRADIENTS between the two branches; it
+  # was never derived to rank finished models, and ranking with it kept a
+  # checkpoint at 1.13 dB held-out separation when the same run reached 2.36 dB
+  # (remix arm, 2026-08-30). decisions-m2.md 2026-08-30.
+  select_on: present_branch   # present_branch | total | separation.
+                              # `total` = the pre-2026-08-30 behaviour, kept so
+                              # the old runs remain reproducible.
+                              # `separation` = L_pres alone; available and NOT
+                              # advised -- it is blind to absent crops, which
+                              # are a quarter of the trials.
+  select_abs_max: -10.0       # Silence bar, in L_abs. An epoch is only eligible
+                              # to be kept if it is at least this quiet on
+                              # target-absent crops. A CONSTRAINT rather than a
+                              # second weighting: "quiet enough, then the best
+                              # separator". null disables it.
+  keep_top_k: 3               # Also keep the k best eligible epochs as
+                              # model_<split>_e{NNN}.pt. Insurance: the criterion
+                              # is a judgement call, and re-scoring a run later
+                              # needs the weights to still exist. 0 disables.
