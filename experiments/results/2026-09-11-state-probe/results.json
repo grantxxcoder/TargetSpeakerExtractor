@@ -1,0 +1,40 @@
+{
+  "linear, mean-pooled  (D14's head, 516 params)": {
+    "balanced_accuracy": 0.6103511652845599,
+    "per_class_recall": [
+      0.9309194565744784,
+      0.7203578075283664,
+      0.39640991775229634,
+      0.39371747928309886
+    ]
+  },
+  "MLP,    mean-pooled  (hidden 128, 17k params)": {
+    "balanced_accuracy": 0.6196726640935248,
+    "per_class_recall": [
+      0.9264919941775837,
+      0.7471933721558504,
+      0.3917272017770307,
+      0.4132780882636346
+    ]
+  },
+  "linear, band-resolved (16388 params)": {
+    "balanced_accuracy": 0.5902074898785425,
+    "per_class_recall": [
+      0.9942307692307693,
+      0.362200956937799,
+      0.38516746411483255,
+      0.6192307692307693
+    ]
+  },
+  "linear, mean-pooled, WRONG enrolment (control)": {
+    "balanced_accuracy": 0.6125276719251296,
+    "per_class_recall": [
+      0.9309194565744784,
+      0.39917151948129914,
+      0.7221588521342378,
+      0.397860859510503
+    ]
+  },
+  "gender:same gender": 0.5337905936426688,
+  "gender:different gender": 0.6653061779172698
+}

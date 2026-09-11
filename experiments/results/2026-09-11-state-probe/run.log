@@ -1,0 +1,31 @@
+checkpoint models/model_sir0_10000-e6.pt  (epoch 6)   hop 8 ms
+100 trials, both directions
+
+  10/100 trials
+  20/100 trials
+  30/100 trials
+  40/100 trials
+  50/100 trials
+  60/100 trials
+  70/100 trials
+  80/100 trials
+  90/100 trials
+  100/100 trials
+
+collected 200 examples
+trial-disjoint split: 70 fit trials, 30 test
+
+test-set frame counts: none 16488  target only 16657  interferer only 16657  both 10378
+chance (balanced) = 25.0 %
+
+probe                                               bal acc   per-class recall
+----------------------------------------------------------------------------------------------------
+linear, mean-pooled  (D14's head, 516 params)         61.0 %   none  93.1  targ  72.0  inte  39.6  both  39.4
+MLP,    mean-pooled  (hidden 128, 17k params)         62.0 %   none  92.6  targ  74.7  inte  39.2  both  41.3
+linear, band-resolved (16388 params)                  59.0 %   none  99.4  targ  36.2  inte  38.5  both  61.9
+linear, mean-pooled, WRONG enrolment (control)        61.3 %   none  93.1  targ  39.9  inte  72.2  both  39.8
+
+  same gender          balanced acc  53.4 %   (18054 frames)
+  different gender     balanced acc  66.5 %   (42126 frames)
+
+wrote experiments/results/2026-09-11-state-probe/results.json

@@ -2515,3 +2515,139 @@ module — D13's gate, D12's experts, D5's speaker encoder — will consume RNG 
 construction and silently reshuffle its own training set relative to its
 control. Every future "one term added" comparison in Group D has this bug
 unless the generator fix lands first.
+
+### BUILT 2026-09-11 — head A as code. Runnable except for one thing: the loader owes it labels
+
+`src/models/state_head.py` (the head, the class weights, the cross-entropy, the
+per-class recall, the checkpoint stripper), `src/models/losses_state_head.py`
+(`LossBSRNNStateHead`), the `state_head` flag on `BSRNN_TFMAP` and in
+`build_model`, and `tests/test_state_head.py` (25 tests, all passing).
+
+**516 parameters, verified by a test rather than by arithmetic in a document.**
+`AuxStateHead(feature_dim=128).n_parameters == 516`.
+
+**Where it taps: the separator's output, BEFORE `lookahead_shift`.** The shift
+moves frame `t`'s features to position `t-k` so the MASK for `t` is built from a
+state that has seen `t+k`; the state LABEL for `t` is still about `t`. Reading
+the head off the shifted tensor would pair frame `t`'s label with frame `t+k`'s
+features — invisible at today's `lookahead_frames: 0` and a silent k-frame
+misalignment the moment that key is raised.
+
+**It is trained on the HONEST label, not `REQUIRED_OUTPUT_STATE`.** That mapping
+(`both -> target only`) belongs to head B, which scores output audio. Head A
+reads internal features, and a model that has correctly noticed "both speakers
+are here, and I am about to suppress one" should be rewarded for noticing.
+Training it on the required-output mapping would ask the features to forget the
+interferer they need in order to remove it.
+
+**Class weights are inverse frequency normalised to mean 1.** Normalising is
+what makes the term's magnitude independent of which split's histogram was used,
+so a weight derived against it keeps meaning what it meant — and it fixes chance
+at ln(4) = 1.386 nats, so the term is readable without a baseline run.
+
+**The head forks the RNG at construction, which settles the 2026-09-11 shuffle
+problem for this arm without the global generator fix that was DECLINED.**
+Adding any module advances the global RNG, changes the dataloader's shuffle and
+changes which trial `drop_last` discards. `torch.random.fork_rng` makes head A's
+init deterministic and invisible to everything built after it; a test asserts
+that `torch.randn(3)` after building the model is bit-identical with the head on
+and off. **This is the narrow fix, not the general one** — D13's gate and D12's
+experts still have the bug, because their parameters must sit in the main RNG
+stream to stay comparable with anything else.
+
+**Off by default; `forward`'s return type is unchanged.** `return_state=True`
+opts in, and asking for state from a headless model RAISES rather than returning
+`None` — a silently skipped term would train a baseline and be reported as head
+A having had no effect. `drop_state_head()` strips the weights so a head-A
+checkpoint loads `strict=True` into the baseline architecture at eval, instead
+of eval being loosened to `strict=False` and swallowing a genuinely missing
+separator weight too.
+
+**A diagnostic arm came free: `state_head_detach`.** The head still learns to
+read the features but no gradient reaches the separator, so it measures how
+decodable state already is, online, with no pressure applied. That is the
+control for "did the auxiliary loss change the features, or were they always
+like this?" — the training-time counterpart of `scripts/probe_state_features.py`.
+
+**NOT DONE, and the arm cannot run until it is:** `dataset_loader.py` does not
+yet emit per-frame state labels for a crop, so `loss_fn.state_labels` has
+nothing to be set from. One loader change, shared with head B's target column.
+No config exists yet either, deliberately — an untested YAML for an arm that
+cannot start is a liability, and the weight has to be derived against a real
+`L_head` reading the way `w_g` and `w_state` were.
+
+**A and B do not compose.** `LossBSRNNStateHead` and `LossBSRNNState` are
+siblings, both subclassing `LossBSRNN`. That is the intended constraint, not an
+oversight: D14 says A alone, then B alone. Running both gives one number
+attributable to neither, which is the 2026-08-25 mistake.
+
+### MEASURED 2026-09-11 — probing head A's features BEFORE building the arm. Capacity settled, and a gender shortcut found
+
+`scripts/probe_state_features.py --limit 100 --max-seconds 8.0`, 13 min on CPU.
+`experiments/results/2026-09-11-state-probe/`. 100 `sir0_val` trials, both
+directions, `model_sir0_10000-e6.pt` frozen, `z` captured off `model.separator`
+with a forward hook, probes fit on a TRIAL-DISJOINT 70/30 split (frames within a
+trial are far too correlated for a frame-level split to mean anything).
+
+**Why before the arm.** Head A is a ~10 h training run whose premise is that the
+separator's features can be pushed to encode speaker state. Whether they ALREADY
+do is free to check, and it decides the head's design.
+
+#### Capacity: 516 parameters is right, and my band-resolved argument was wrong
+
+| probe | params | balanced accuracy |
+|---|---|---|
+| linear, mean-pooled — **D14's specified head** | 516 | **61.0 %** |
+| MLP, mean-pooled, hidden 128 | 17,028 | 62.0 % |
+| linear, band-resolved (no mean-pool) | 16,388 | **59.0 %** |
+| chance | | 25.0 % |
+
+33x the parameters buys 1.0 point. **The band-resolved probe is WORSE**, which
+kills the argument made in conversation that mean-pooling discards which
+frequencies the second voice occupies and that capacity should go on the band
+axis. It discards nothing the probe can use. Head A stays at 516.
+
+#### The features do not already encode state usably
+
+| state | recall |
+|---|---|
+| none | 93.1 % |
+| target only | 72.0 % |
+| interferer only | 39.6 % |
+| **both** | **39.4 %** |
+
+Nearly all of the 61 % is detecting silence. **The two states a gate needs --
+`both` and `interferer only` -- sit at ~39 %.** Two consequences, opposite in
+sign: head A has real work to do, so its auxiliary loss is not redundant; and
+piece C driven by today's features would fail D14's own stopping rule ("a gate
+driven by a bad state estimate is worse than no gate").
+
+#### The gender shortcut, which D14 predicted
+
+| | balanced accuracy | frames |
+|---|---|---|
+| same gender | **53.4 %** | 18,054 |
+| different gender | **66.5 %** | 42,126 |
+
+A 13-point gap. D14's control 2 called it: "a frame classifier is an easier place
+to hide it; pooled accuracy would conceal it." On the case that matters -- two
+speakers of the same gender -- the features are close to useless beyond silence
+detection, and a substantial part of the headline is gender. **Head A trained on
+this would be trained to lean on the shortcut harder, and any gate built on it
+would inherit it.** Report the split, never the pooled number.
+
+#### Control 1 was built wrong and is inconclusive
+
+The "wrong enrolment" arm substituted the OTHER SPEAKER IN THE SAME TRIAL, which
+is not an ablation -- it is a different valid instruction. It scored 61.3 %
+against 61.0 %, which naively reads as "the cue is ignored". The per-class
+recalls say otherwise:
+
+    real enrolment     target 72.0   interferer 39.6
+    wrong enrolment    target 39.9   interferer 72.2
+
+**They swap cleanly**, which is the signature of features that track WHICH
+speaker was requested, with the roles trading when the cue trades. Encouraging,
+but it is not the control D14 asked for. The correct ablation is a stranger from
+a DIFFERENT trial, where there is no role to swap into. Rerun before acting on
+control 1 either way.
