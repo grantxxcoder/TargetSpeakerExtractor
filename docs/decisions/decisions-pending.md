@@ -2430,3 +2430,78 @@ sensitivity -13.54 dB against the baseline's -12.08 dB at the same epoch — les
 responsive to the enrolment, which is the direction this failure mode predicts.
 One epoch, one seed, and the baseline climbed to -9.17 by epoch 2, so it is a
 thing to check at epoch 3, not a finding.
+
+### MEASURED 2026-09-11 — the arm and its control do NOT see the same training order. Building the teacher reshuffles the dataset
+
+`bsrnn_state.yaml`'s header claims "same data, same seed, same schedule -- one
+term added". **The first two words are wrong and this is why.**
+
+The arm's epoch 1 logged 12,624 present / 7,284 absent crops against the
+baseline's 12,625 / 7,283. One crop in 19,908, which looked like rounding.
+It is not.
+
+**The chain, each link verified:**
+
+1. The train loader is `shuffle=True, drop_last=True, batch_size=3`
+   (`train.py` ~899). `sir0_train` holds **9,955** trials. 9,955 / 3 leaves one
+   over, so `drop_last` discards **whichever trial lands last in the shuffle**.
+   9,954 x 2 directions = 19,908, matching both runs exactly.
+2. Counted locally through the real `TrialDataset` at seed 42, epoch 0, without
+   `drop_last`: **12,626 / 7,284, total 19,910**. Both logged runs are that
+   minus one trial's two crops — confirming the data on disk is the same and
+   the difference is entirely *which* trial was dropped.
+3. `build_loss_fn` (`train.py` 555) runs before the first batch is drawn. For
+   the arm it constructs `StateHead` — two `LayerNorm`, two `Linear`, one
+   bidirectional `LSTM` — and **every one of those draws from the global RNG at
+   construction time**.
+4. Direct test, seed 42, the same stand-in for `build_model`'s consumption:
+
+   | | permutation starts | trial dropped |
+   |---|---|---|
+   | no teacher built | 6707, 1302, 4478, 4939 | 8201 |
+   | teacher built | 7502, 7622, 5487, 2436 | 1658 |
+
+**So the arm and the control see the same crops in a completely different
+order.** The crops themselves are stable — `_crop_offset_start` keys on
+`(seed, epoch, idx)`, so a given trial always yields the same window — but the
+SGD trajectory is not.
+
+**Consequence for reading the arm.** The epoch-1 result (val `L_pres` -2.4230
+against the baseline's -1.6081 at the same epoch) carries an ordering
+perturbation of unknown size on top of the teacher's effect. There is no
+same-config replicate anywhere in `experiments/results/`, so ordering noise has
+never been measured on this codebase and cannot be subtracted. The gain is
+~1.9x the epoch-0 spread across all eight prior runs, which is the best
+available evidence it is real, but those runs differ by more than ordering.
+**Epoch 3-4 remains the check**: ordering noise washes out, a teacher effect
+does not.
+
+**Two things this was NOT, both claimed in conversation and both wrong:**
+
+- `num_workers`. The arm's source config says 0 and the baseline's *recorded*
+  config says 4, but that is a post-patch artefact: both Kaggle notebooks set
+  `NUM_WORKERS = 4` and write it back before `train.py` reads it, and both
+  *source* configs say 0. The loader is worker-count independent by design
+  anyway — every draw keys on `(seed, epoch, idx)` explicitly to sidestep
+  per-worker RNG copies.
+- "No LR scheduler." There is one: `ReduceLROnPlateau` (`train.py` ~1132). It
+  is plateau-driven rather than horizon-driven, so `epochs: 100 -> 10` still
+  does not change the training path, but the reason given was wrong.
+
+**Fix for the next arm, not this one.** Give the train loader its own
+generator so shuffling stops depending on how much RNG anything constructed
+before it happened to consume:
+
+```python
+generator=torch.Generator().manual_seed(seed),
+```
+
+Not applied while a run is in flight. It also needs a decision on resume: a
+per-loader generator seeded once restarts at epoch 0's permutation when a run
+resumes, which is a separate defect of the same family.
+
+**The general lesson, worth more than this instance.** Any arm that adds a
+module — D13's gate, D12's experts, D5's speaker encoder — will consume RNG at
+construction and silently reshuffle its own training set relative to its
+control. Every future "one term added" comparison in Group D has this bug
+unless the generator fix lands first.
