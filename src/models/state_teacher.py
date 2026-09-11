@@ -216,6 +216,24 @@ class StateTeacher(nn.Module):
 
         self.to(device)
         self.eval()
+        # cuDNN REFUSES RNN BACKWARD IN EVAL MODE -- "cudnn RNN backward can
+        # only be called in training mode", hit on a T4 2026-09-11. Gradients
+        # MUST flow through the recurrence to reach the audio, so the head goes
+        # back into train() mode.
+        #
+        # That is numerically free HERE and only here: dropout is forced to 0.0
+        # at construction (a stochastic teacher would make the extractor chase a
+        # moving target), Dropout(0.0) is the identity in both modes, and
+        # LayerNorm is mode-independent. The assertion below is what keeps that
+        # true if the head ever changes.
+        for module in self.head.modules():
+            if isinstance(module, nn.Dropout):
+                assert module.p == 0.0, (
+                    f"the teacher's head carries dropout p={module.p}. It runs "
+                    f"in train() mode for cuDNN's sake, so any nonzero dropout "
+                    f"would make the teacher stochastic and the target it "
+                    f"defines would move between steps.")
+        self.head.train()
         # THE FREEZE. requires_grad=False, never no_grad() on the forward: under
         # no_grad the term still computes and still logs a plausible number
         # while having EXACTLY ZERO effect on the model. That is the same dead-
@@ -248,9 +266,14 @@ class StateTeacher(nn.Module):
                         f"would move every number this term produces with "
                         f"nothing appearing in a diff.")
 
+        # "cuda:0", not "cuda": speechbrain parses the string itself and warns
+        # "Could not parse CUDA device string" before falling back to device 0.
+        # Harmless, but it buries real output in a profiling run.
+        if str(device) == "cuda":
+            device = "cuda:0"
         classifier = EncoderClassifier.from_hparams(
             source=str(ecapa_dir), savedir=str(ecapa_dir),
-            run_opts={"device": device})
+            run_opts={"device": str(device)})
         classifier.eval()
         # The three modules, taken directly rather than via encode_batch():
         # that method may wrap its forward in no_grad, which would silently sever

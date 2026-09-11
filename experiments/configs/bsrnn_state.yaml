@@ -208,10 +208,28 @@ loss:
   # unitless L_MR. There is no meaningful dB conversion: BCE is a
   # log-probability, dB is a power ratio.
   #
-  # 0.0 UNTIL THE DERIVATION LANDS. At 0.0, build_loss_fn returns the plain
-  # LossBSRNN and this config reproduces the baseline byte for byte -- the
-  # BRANCH is the opt-in, not a multiplication by zero.
-  w_state: 0.0
+  # DERIVED 2026-09-11, scripts/derive_w_state.py, and VERIFIED rather than
+  # extrapolated: at this value the term contributes 15.00 % of the gradient
+  # reaching the waveform (target 15 %), measured with two backward passes.
+  # experiments/results/2026-09-11-wstate-anchor-sir0.
+  #
+  # HOW FAR THIS IS FROM A GUESS. At w_state = 1.0 the term contributes 5571 %
+  # of the base gradient on real audio -- 370x too strong. L_state is a
+  # cross-entropy in nats; the other terms are dB. The units do not match and
+  # the weight is what reconciles them, exactly as w_m reconciles the unitless
+  # L_MR. There is no meaningful dB conversion: BCE is a log-probability, dB is
+  # a power ratio.
+  #
+  # 15 % IS A JUDGEMENT, NOT A DERIVATION. Four existing terms share the update,
+  # so an equal share would be ~25 %, and a new unvalidated proxy should get
+  # less than an equal say. The derivation script tabulates 5 % to 30 %, so this
+  # is a knob: if the arm shows nothing here, the next question is 30 %, not
+  # whether the idea failed.
+  #
+  # SET TO 0.0 to turn the term off -- build_loss_fn then returns the plain
+  # LossBSRNN and this config reproduces the baseline byte for byte, since the
+  # BRANCH is the opt-in rather than a multiplication by zero.
+  w_state: 0.002692
 
   # The frozen detector. Named here and never defaulted: it defines part of the
   # objective, so a run is not reproducible without knowing which one was used.
@@ -226,12 +244,16 @@ loss:
   # unpinned fetch would make every number irreproducible.
   ecapa_dir: ../ecapa_pretrained
 
-  # cpu or cuda. On a single T4 the teacher shares the card with the extractor;
-  # "cuda:1" puts it on the second, where it competes for no memory at all.
-  # UNMEASURED as of 2026-09-11 -- run profile_step.py first. 13 windows x 6
-  # examples is 78 ECAPA forwards AND backwards per step against a current
-  # 0.674 s/step, and that number can still kill this arm.
-  state_device: cpu
+  # MEASURED 2026-09-11 on a T4, batch 3 trials = 6 examples, AMP:
+  #   baseline, no teacher   0.669 s/step   6.59 GB
+  #   full 13-window teacher 1.022 s/step   8.37 GB   +53 %
+  # experiments/results/2026-09-11-state-teacher-cost.
+  #
+  # cuda, on the SAME card. Memory is not the constraint -- 8.37 GB of 14.6 --
+  # so "cuda:1" buys nothing here; the second T4 is better spent on E7's data
+  # parallelism if that ever lands. The +53 % is paid for with epochs instead
+  # (training.epochs above).
+  state_device: cuda
 
 training:
   amp: true             # Automatic Mixed Precision: fp16 for the model forward,
@@ -242,7 +264,23 @@ training:
                         # next to the flag that produced it. CUDA-only; ignored
                         # on CPU. decisions-pending.md E3d.
   lr: 0.0005
-  epochs: 100
+  # 10, not the baseline's 100. MEASURED on a T4 2026-09-11: the teacher costs
+  # +53 % per step at full fidelity (0.669 -> 1.022 s/step), which turns the
+  # 16-epoch baseline's 10.5 h into 16.0 h against a 12 h Kaggle session cap.
+  # 10 epochs brings it to 10.0 h with two hours spare.
+  #
+  # This costs nothing that was being used. The 2026-09-04 run SELECTED epoch 6
+  # of 16; the run before it selected epoch 2 of 20. The back half has never
+  # contributed a checkpoint.
+  #
+  # It is the epoch count rather than the teacher that gives way, because
+  # shortening the scored segment is NOT a saving: L_state moves 4.1x across
+  # segment lengths (experiments/results/2026-09-11-state-teacher-cost), so a
+  # short segment is a DIFFERENT measurement, not a cheaper one, and w_state
+  # would need re-deriving for each.
+  #
+  # Early stopping still applies, so this is a ceiling and not a target.
+  epochs: 10
   patience: 10
   grad_clip: 5.0
   weight_decay: 1.0e-4  # 0.0 until 2026-08-31. Turned on as the second half of

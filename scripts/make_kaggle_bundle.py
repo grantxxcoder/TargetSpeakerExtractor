@@ -43,6 +43,7 @@ so it is ~10k symlinks and not ~130k. See scripts/make_kaggle_notebook.py.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import shutil
 import subprocess
 import tempfile
@@ -70,6 +71,13 @@ CODE = [
     "src/models/bsrnn.py",
     "src/models/conditioning.py",
     "src/models/losses.py",
+    # The state-teacher path (decisions-pending.md D14). Inert unless a config
+    # sets loss.w_state > 0 -- build_loss_fn branches on it -- so shipping them
+    # costs a baseline run nothing.
+    "src/models/losses_state.py",
+    "src/models/state_teacher.py",
+    "scripts/profile_state_teacher.py",
+    "experiments/configs/bsrnn_state.yaml",
     "src/models/modules.py",
     "src/models/stft.py",
     "experiments/configs/bsrnn_baseline.yaml",
@@ -146,6 +154,60 @@ def stage_code(out: Path) -> None:
     (out / "docs").mkdir(parents=True, exist_ok=True)
     (out / "docs/bundle_commit.txt").write_text(git_commit() + "\n")
     print(f"  code: {len(CODE)} files, stamped commit {git_commit()[:12]}")
+
+
+def stage_teacher(out: Path, teacher_rel: str, ecapa_dir: Path) -> None:
+    """Stage the frozen teacher and DEREFERENCE its backbone snapshot.
+
+    WHY DEREFERENCE. SpeechBrain's from_hparams SYMLINKS into the HuggingFace
+    cache rather than copying, so ../ecapa_pretrained is 24 KB of pointers into
+    /home/<user>/.cache/... -- which does not exist on Kaggle. Zipped as links,
+    the upload succeeds, the dataset lists five files, the size looks plausible
+    at 24 KB, and the run fails at load time inside speechbrain with an error
+    about a missing path. That is a whole session spent finding out.
+
+    Resolved, the snapshot is ~85 MB.
+
+    The copies are then RE-HASHED against the hashes recorded inside the teacher
+    checkpoint, so what gets uploaded is provably what the head was fitted
+    against. Same discipline as --prefix-manifest, which proves the reused rows
+    are byte-identical rather than trusting that they are.
+    """
+    import torch
+
+    src_teacher = REPO / teacher_rel
+    if not src_teacher.exists():
+        sys.exit(f"missing {teacher_rel} -- train the detector first, or pass "
+                 f"--no-teacher")
+    dst_teacher = out / teacher_rel
+    dst_teacher.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src_teacher, dst_teacher)
+
+    checkpoint = torch.load(src_teacher, map_location="cpu", weights_only=False)
+    expected = checkpoint.get("ecapa_hashes", {})
+
+    dst_ecapa = out / "ecapa_pretrained"
+    dst_ecapa.mkdir(parents=True, exist_ok=True)
+    total = 0
+    for src in sorted(Path(ecapa_dir).iterdir()):
+        if not src.is_file():        # is_file() FOLLOWS the link, which is the point
+            continue
+        dst = dst_ecapa / src.name
+        shutil.copy2(src, dst, follow_symlinks=True)
+        total += dst.stat().st_size
+        if src.name in expected:
+            actual = hashlib.sha256(dst.read_bytes()).hexdigest()
+            if actual != expected[src.name]:
+                sys.exit(
+                    f"{src.name} staged as {actual[:16]}... but the teacher was "
+                    f"fitted against {expected[src.name][:16]}.... The backbone "
+                    f"has changed since the head was trained; re-snapshot it or "
+                    f"retrain the head, but do not upload this.")
+    assert total > 10 * 2**20, (
+        f"the staged backbone is only {total / 2**20:.1f} MB. It is still "
+        f"symlinks -- dereferencing failed and Kaggle would get dead pointers.")
+    print(f"  teacher: {teacher_rel} + backbone {total / 2**20:.0f} MB "
+          f"dereferenced, {len(expected)} hashes verified")
 
 
 def stage_data(out: Path, split: str, new_only: int = 0) -> None:
@@ -328,6 +390,17 @@ def main() -> None:
     ap.add_argument("--code-only", action="store_true",
                     help="skip the audio entirely; use after a code change")
     ap.add_argument("--no-zip", action="store_true")
+    # The frozen state teacher (D14). Staged INTO the code bundle, not the data
+    # bundle: it is ~86 MB and changes when the detector is retrained, which is
+    # the code bundle's rate of change, not the audio's.
+    ap.add_argument("--teacher", default="models/state_detector_notebook.pt",
+                    help="the frozen state-detector checkpoint to stage")
+    ap.add_argument("--ecapa-dir", default="../ecapa_pretrained",
+                    help="its backbone snapshot. DEREFERENCED when staged -- "
+                         "speechbrain symlinks into the HuggingFace cache, and "
+                         "those links are dead on Kaggle.")
+    ap.add_argument("--no-teacher", action="store_true",
+                    help="skip it; a baseline run does not need it")
     ap.add_argument("--new-only", type=int, default=0, metavar="N",
                     help="stage only TRAIN rows N onward; the first N are already "
                          "uploaded. N = the row count of the uploaded manifest.")
@@ -346,6 +419,8 @@ def main() -> None:
     print(f"bundling split '{args.split}'")
     print(f"staging code -> {code_dir}")
     stage_code(code_dir)
+    if not args.no_teacher:
+        stage_teacher(code_dir, args.teacher, Path(args.ecapa_dir))
 
     if not args.code_only:
         if args.new_only:

@@ -56,7 +56,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from src.models.losses import LossBSRNN  # noqa: E402
 from src.models.losses_state import LossBSRNNState  # noqa: E402
 from src.models.state_teacher import StateTeacher  # noqa: E402
-from train import build_model, git_commit  # noqa: E402
+from train import amp_ctx, build_model, git_commit  # noqa: E402
 
 # Seconds of the chunk handed to the teacher. None = the whole thing.
 SEGMENT_SECONDS = (1.0, 1.5, 2.0, 2.5, 3.0, 4.008)
@@ -74,25 +74,39 @@ def synthetic_batch(batch_size, chunk_samples, sample_rate, device, seed=42):
 
 
 def time_steps(model, loss_fn, batch, n_steps, warmup, device, teacher=None,
-               window_starts=None):
+               window_starts=None, use_amp=True):
     """Mean seconds per full training step: forward, loss, backward, step.
 
+    MIRRORS scripts/train.py EXACTLY, and it has to. Measured on a T4
+    2026-09-11: without AMP the baseline is 4.765 s/step and 12.23 GB peak,
+    against the RECORDED 0.674 s/step -- 7x slow, because real training runs
+    fp16 with a GradScaler. Every overhead percentage measured against an fp32
+    baseline would have been meaningless.
+
+    autocast wraps the MODEL FORWARD ONLY. The losses carry 1e-12 epsilons
+    inside log10 and fp16's smallest normal is ~6e-5, so they underflow to zero
+    and return NaN -- see amp_ctx in train.py. The teacher is part of the loss
+    and stays fp32 with it.
+
     Warmup matters on CUDA: the first steps pay kernel autotuning and allocator
-    growth, and including them would overstate the cost by a wide margin.
+    growth, and including them would overstate the cost badly.
     """
     mixture, target, enrolment, crop_absent = batch
     optimiser = torch.optim.AdamW(model.parameters(), lr=1e-4)
+    scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 
     def one_step():
         if teacher is not None:
             loss_fn.enrolment_embedding = teacher.embed_enrolment(enrolment)
         optimiser.zero_grad()
-        output = model(mixture, enrolment)
+        with amp_ctx(use_amp):
+            output = model(mixture, enrolment)
         if window_starts is not None:
             loss_fn.window_starts = window_starts
         loss, parts = loss_fn(target, output.float(), mixture, crop_absent)
-        loss.backward()
-        optimiser.step()
+        scaler.scale(loss).backward()
+        scaler.step(optimiser)
+        scaler.update()
         return parts
 
     for _ in range(warmup):
@@ -126,6 +140,10 @@ def main():
                         help="TRIALS. both_directions doubles it into examples.")
     parser.add_argument("--steps", type=int, default=12)
     parser.add_argument("--warmup", type=int, default=4)
+    parser.add_argument("--no-amp", action="store_true",
+                        help="fp32. The config default is amp: true, and the "
+                             "recorded 0.674 s/step baseline is an AMP number, "
+                             "so fp32 is a different experiment.")
     parser.add_argument("--out", default=None)
     arguments = parser.parse_args()
 
@@ -144,6 +162,10 @@ def main():
         print(f"gpu    {torch.cuda.get_device_name(0)}   "
               f"{torch.cuda.get_device_properties(0).total_memory / 2**30:.1f} GB")
 
+    use_amp = (not arguments.no_amp) and bool(config["training"].get("amp", False)) \
+        and device.type == "cuda"
+    print(f"amp    {use_amp}   (config says {config['training'].get('amp')})")
+
     model = build_model(config).to(device)
     batch = synthetic_batch(examples, chunk_samples, sample_rate, device)
 
@@ -160,9 +182,15 @@ def main():
 
     baseline_seconds, baseline_gb, _ = time_steps(
         model, LossBSRNN(**loss_kwargs), batch, arguments.steps,
-        arguments.warmup, device)
+        arguments.warmup, device, use_amp=use_amp)
     print(f"\nbaseline, no teacher: {baseline_seconds:.3f} s/step   "
           f"{baseline_gb:.2f} GB peak")
+    # The recorded figure for this exact configuration, so a misconfigured
+    # profile is visible immediately rather than after the sweep.
+    print("  recorded 2026-08-28 at batch 3 with AMP on a T4: 0.674 s/step")
+    if use_amp and baseline_seconds > 2.0:
+        print("  *** that is far above the recorded baseline. Check amp and")
+        print("      batch size before trusting any overhead below. ***")
     results.append(dict(segment_seconds=0.0, n_windows=0,
                         seconds_per_step=baseline_seconds, peak_gb=baseline_gb,
                         L_state=None, overhead_pct=0.0))
@@ -180,7 +208,7 @@ def main():
             continue
         seconds, peak_gb, parts = time_steps(
             model, loss_fn, batch, arguments.steps, arguments.warmup, device,
-            teacher=teacher, window_starts=starts)
+            teacher=teacher, window_starts=starts, use_amp=use_amp)
         overhead = 100 * (seconds - baseline_seconds) / baseline_seconds
         print(f"{segment:>8.2f}s {len(starts):>8} {seconds:>9.3f} "
               f"{overhead:>9.0f}% {peak_gb:>9.2f} {parts['L_state']:>9.4f}")
@@ -215,6 +243,7 @@ def main():
         batch_trials=trials, batch_examples=examples,
         chunk_s=float(config["data"]["chunk_s"]),
         steps=arguments.steps, warmup=arguments.warmup,
+        amp=use_amp,
         baseline_seconds_per_step=baseline_seconds,
         rows=results), indent=2))
     plot(results, baseline_seconds, out_dir, device)
