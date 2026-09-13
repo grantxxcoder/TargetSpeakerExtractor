@@ -55,13 +55,18 @@ from src.live_model_metric.icr import (  # noqa: E402
 from src.live_model_metric.lcf_wer import count_errors  # noqa: E402
 
 SPLIT, CONDITION = "sir0_val", "both"
-MANIFEST = Path("data/manifests/sir0_val.csv")
+MANIFEST_DIR = Path("data/manifests")
 MINIMUM_STRATUM = 8   # below this a rank correlation is noise, so it is skipped
-OUT = Path("experiments/results/2026-09-11-leakage-share")
+OUT = Path("experiments/results/2026-09-12-leakage-share")
 
 SYSTEMS = {
     "floor (mixture)": None,
     "ours (baseline)": "experiments/results/2026-09-04-train-sir0-10000/",
+    # The M5 state-teacher arm, added 2026-09-12. Its aggregate says leakage
+    # FELL (ICR@2 50.5 -> 46.6) while WER ROSE (59.5 -> 61.2) entirely through
+    # insertions (+2.21). Whether those are the SAME trials is the question the
+    # aggregate cannot answer and this script can.
+    "ours (state teacher)": "experiments/results/2026-09-12-est-state-e6",
     "WeSep": "experiments/results/2026-09-03-est-wesep-tfmap-causal",
     "ceiling (clean)": None,
 }
@@ -205,15 +210,52 @@ def confound_control(rows, manifest):
     return out
 
 
-def main():
-    with open(MANIFEST, newline="") as handle:
+def parse_systems(argv):
+    """`--systems name=dir,name=dir` overrides the built-in SYSTEMS table.
+
+    Added 2026-09-12 so a post-processed or floored estimate directory can be
+    measured without editing this file. `floor` and `ceiling` keep their special
+    meaning: a name starting with either reads the mixture or the clean stem
+    instead of an estimate, so those two still need no directory.
+    """
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--systems", default=None,
+                    help="comma-separated name=directory pairs; replaces the "
+                         "built-in table")
+    ap.add_argument("--out", default=None)
+    # Added 2026-09-13. The split was hardcoded to sir0_val, the only dev split
+    # that existed when this was written. sir0_privval carries 1,421 `both`
+    # trials against sir0_val's 103, and the paired bootstrap downstream reads
+    # this script's per_trial.json -- so the wider split is unusable for a
+    # system comparison until this is an argument. decisions-m3.md 2026-09-13.
+    ap.add_argument("--split", default=SPLIT)
+    ap.add_argument("--condition", default=CONDITION)
+    args = ap.parse_args(argv)
+    systems = None
+    if args.systems:
+        systems = {}
+        for item in args.systems.split(","):
+            name, _, directory = item.partition("=")
+            systems[name] = directory or None
+    return (systems, (Path(args.out) if args.out else None),
+            args.split, args.condition)
+
+
+def main(systems=None, out=None, split=None, condition=None):
+    systems = systems or SYSTEMS
+    out = out or OUT
+    split = split or SPLIT
+    condition = condition or CONDITION
+    with open(MANIFEST_DIR / f"{split}.csv", newline="") as handle:
         manifest = {r["trial_id"]: r for r in csv.DictReader(handle)}
 
-    summary = {"split": SPLIT, "condition": CONDITION, "systems": {}}
+    summary = {"split": split, "condition": condition, "systems": {}}
     per_trial_dump = {}
 
-    for name, estimate_directory in SYSTEMS.items():
-        trials = load_trials(SPLIT, condition=CONDITION,
+    for name, estimate_directory in systems.items():
+        trials = load_trials(split, condition=condition,
                              estimate_directory=estimate_directory)
         if name.startswith("floor"):
             audio_for = lambda t: t.mixture          # noqa: E731
@@ -228,11 +270,13 @@ def main():
             summary["systems"][name]["strata"] = confound_control(rows, manifest)
         per_trial_dump[name] = rows
 
-    OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / "summary.json").write_text(json.dumps(summary, indent=2))
-    (OUT / "per_trial.json").write_text(json.dumps(per_trial_dump, indent=2))
-    print(f"\nwrote {OUT}/summary.json and per_trial.json")
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "summary.json").write_text(json.dumps(summary, indent=2))
+    (out / "per_trial.json").write_text(json.dumps(per_trial_dump, indent=2))
+    print(f"\nwrote {out}/summary.json and per_trial.json")
 
 
 if __name__ == "__main__":
-    main()
+    import sys as _sys
+    _systems, _out, _split, _condition = parse_systems(_sys.argv[1:])
+    main(_systems, _out, _split, _condition)
