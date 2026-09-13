@@ -147,7 +147,8 @@ class BSRNN_TFMAP(nn.Module):
         self.state_head = (AuxStateHead(feature_dim, detach_features=state_head_detach)
                            if state_head else None)
 
-    def forward(self, mixture, enrollment, return_state=False):
+    def forward(self, mixture, enrollment, return_state=False,
+                return_mask=False):
         """(B, T_samples), (B, T_enroll) -> (B, T_samples)
 
         With `return_state=True`, returns `(waveform, state_logits)` where the
@@ -187,7 +188,26 @@ class BSRNN_TFMAP(nn.Module):
         state_logits = None if self.state_head is None else self.state_head(z)
 
         z = lookahead_shift(z, self.lookahead_frames)
+        # D17: ask the estimator to keep the mask in the graph BEFORE the call,
+        # and clear the flag after, so a caller that does not want the mask
+        # never pays for a retained tensor.
+        self.estimator.keep_mask_grad = bool(return_mask)
         waveform = self.stft.inverse(self.estimator(z, mix_bands), n)
+        mask = self.estimator.last_mask_grad if return_mask else None
+        self.estimator.keep_mask_grad = False
+        self.estimator.last_mask_grad = None
+
+        if return_mask and not return_state:
+            return waveform, mask
+        if return_mask and return_state:
+            # Three-tuple ONLY when both are asked for, so neither existing
+            # caller's return shape changes. Same guard as the state-only path.
+            if state_logits is None:
+                raise RuntimeError(
+                    "return_state=True but this model was built without head A. "
+                    "Construct BSRNN_TFMAP(state_head=True), or set "
+                    "model.state_head: true in the config.")
+            return waveform, state_logits, mask
 
         if not return_state:
             return waveform

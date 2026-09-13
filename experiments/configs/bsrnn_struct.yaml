@@ -1,3 +1,26 @@
+# D17 ARM: the mask-structure term. decisions-pending.md 2026-09-13.
+#
+# ############################################################################
+# # NOT READY TO TRAIN. w_struct BELOW IS 0.0, WHICH IS THE BASELINE.        #
+# # Run scripts/derive_w_struct.py first and paste the derived value in.     #
+# # Training this file as it stands runs the CONTROL, not the arm.           #
+# ############################################################################
+#
+# Identical to bsrnn_baseline.yaml in every other respect, so the arm and its
+# control differ in ONE axis. Do not edit anything else here.
+#
+# WHAT THE ARM TESTS. Measured 2026-09-12/13: 84.2 % of the mask's variance is
+# one number per frame and it varies 6.5x less across frequency than the ideal
+# mask -- a broadband volume knob, which cannot separate two voices that overlap
+# in time and frequency. Measured across ~2k / ~5k / ~10k training trials, MORE
+# DATA MAKES IT WORSE (freq/time -0.162 [-0.205, -0.118] at matched epoch), so
+# this is the objective's own optimum rather than a data shortage.
+#
+# HOW IT IS JUDGED: LCF-WER on sir0_privval, PER SIR BAND. Never on how closely
+# the mask matches the oracle -- that is the term's own score, and a term that
+# moves its own score while losing the metric is what the state teacher already
+# demonstrated (decisions-m2.md 2026-09-12).
+
 seed: 42
 
 data:

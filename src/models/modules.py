@@ -325,6 +325,14 @@ class Estimator(nn.Module):
         # it retains tensors and is for diagnostics, never for training.
         self.capture_parts = False
         self.last_parts = None
+
+        # KEEP THE MASK IN THE AUTOGRAD GRAPH, for the D17 structure term.
+        # Separate from capture_parts on purpose: capture_parts DETACHES, which
+        # is right for diagnostics and silently wrong for a loss -- a detached
+        # mask trains nothing and the run would look fine while teaching the
+        # model nothing at all.
+        self.keep_mask_grad = False
+        self.last_mask_grad = None
         self.trunks, self.mask_heads = nn.ModuleList(), nn.ModuleList()
         self.res_heads = nn.ModuleList() if residual_branch else None # we need the additional prediction head to predict the residual spectrogram 
         
@@ -373,6 +381,14 @@ class Estimator(nn.Module):
         if self.mask_floor > 0.0:
             magnitude = (mr.pow(2) + mi.pow(2) + 1e-12).sqrt()
             mr = mr + (self.mask_floor - magnitude).clamp_min(0.0)
+
+        if self.keep_mask_grad:
+            # AFTER floor and hysteresis, so the loss sees the mask that is
+            # actually applied. Both are off during training, so at present this
+            # is the raw predicted magnitude -- but if either is ever turned on
+            # in training, supervising the pre-modification mask would be a bug
+            # that nothing else would catch.
+            self.last_mask_grad = (mr.pow(2) + mi.pow(2) + 1e-12).sqrt()
 
         xr, xi = mix.real, mix.imag
         er = xr * mr - xi * mi

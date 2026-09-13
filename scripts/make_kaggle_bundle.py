@@ -81,6 +81,12 @@ CODE = [
     "src/models/modules.py",
     "src/models/stft.py",
     "experiments/configs/bsrnn_baseline.yaml",
+    # D17, 2026-09-13. The arm's config and the script that sets its one weight.
+    # derive_w_struct.py needs only the val split and runs on CPU, so it does not
+    # have to go up -- it is bundled so the weight can be re-derived in the same
+    # environment that trains, which is the only way the number is reproducible.
+    "experiments/configs/bsrnn_struct.yaml",
+    "scripts/derive_w_struct.py",
     "docs/run_times.md",   # src.run_log appends here; give it a real file
 ]
 

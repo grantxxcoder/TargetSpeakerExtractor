@@ -138,7 +138,7 @@ class LossBSRNNState(LossBSRNN):
         return F.binary_cross_entropy_with_logits(
             logits, torch.zeros_like(logits), reduction="none").mean(dim=-1)
 
-    def __call__(self, s_target, s_output, x_input, crop_absent):
+    def __call__(self, s_target, s_output, x_input, crop_absent, **kwargs):
         """The M2 objective plus the state term.
 
             L = base + w_state * mean_all_crops[ L_state ]
@@ -149,7 +149,11 @@ class LossBSRNNState(LossBSRNN):
         splitting it by `crop_absent` would only shrink the number of examples
         it is averaged over. This method is used to add the loss terms together and return the total loss and a dictionary of the individual loss components.
         """
-        total, parts = super().__call__(s_target, s_output, x_input, crop_absent)
+        # **kwargs carries D17's mask/oracle_mask/mixture_mag straight through.
+        # Forwarding blind is deliberate: this subclass has no business knowing
+        # which optional terms the parent objective gained.
+        total, parts = super().__call__(s_target, s_output, x_input,
+                                       crop_absent, **kwargs)
 
         loss_state = self._loss_non_target_audible(s_output).mean()
         total = total + self.w_state * loss_state

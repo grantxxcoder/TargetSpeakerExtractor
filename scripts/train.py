@@ -40,6 +40,14 @@ def build_loss_fn(config):
     # .get(), so a pre-2026-08-27 config still loads and trains its own objective.
     wg = float(config["loss"].get("w_g", 0.0))
     gain_delta_db = float(config["loss"].get("gain_delta_db", 3.0))
+    # D17. Absent key = 0.0 = term disabled, so every pre-2026-09-13 config
+    # reproduces its own objective exactly.
+    w_struct = float(config["loss"].get("w_struct", 0.0))
+    struct_floor_db = float(config["loss"].get("struct_floor_db", -40.0))
+    assert w_struct >= 0.0, f"loss.w_struct must be >= 0, got {w_struct}"
+    assert struct_floor_db <= 0.0, (
+        f"loss.struct_floor_db is dB BELOW the clip peak and must be <= 0, "
+        f"got {struct_floor_db}")
 
     # Convex weight: a typo of 4.58 for 0.458 makes (1 - w) negative, training
     # the model to destroy the target while the curve still looks like it falls.
@@ -61,7 +69,8 @@ def build_loss_fn(config):
     if w_state <= 0.0:
         return LossBSRNN(wm=wm, w=w, tau_pres=tau_pres, tau_abs=tau_abs, p=p,
                          windows=windows, sample_rate=sample_rate, wg=wg,
-                         gain_delta_db=gain_delta_db)
+                         gain_delta_db=gain_delta_db,
+                         w_struct=w_struct, struct_floor_db=struct_floor_db)
 
     # Imported here, not at module scope: the teacher pulls in speechbrain and
     # a 21 M-parameter checkpoint, and a baseline run should not pay for either.
@@ -80,6 +89,7 @@ def build_loss_fn(config):
     return LossBSRNNState(wm=wm, w=w, tau_pres=tau_pres, tau_abs=tau_abs, p=p,
                           windows=windows, sample_rate=sample_rate, wg=wg,
                           gain_delta_db=gain_delta_db,
+                          w_struct=w_struct, struct_floor_db=struct_floor_db,
                           teacher=teacher, w_state=w_state)
 
 
@@ -439,6 +449,11 @@ def add_parts(sums, counts, parts):
         sums["L_pres"] += parts["L_pres"] * parts["n_present"]
         sums["L_MR"] += parts["L_MR"] * parts["n_present"]
         sums["L_gain"] += parts["L_gain"] * parts["n_present"]
+        # D17, present branch only -- see LossBSRNN._loss_mask_shape on why the
+        # ideal mask is meaningless on a target-absent crop. NaN when the term
+        # is not in use, and NaN * n would poison the sum, so it is gated.
+        if not math.isnan(parts.get("L_struct", float("nan"))):
+            sums["L_struct"] += parts["L_struct"] * parts["n_present"]
         counts["present"] += parts["n_present"]
     if parts["n_absent"]:
         sums["L_abs"] += parts["L_abs"] * parts["n_absent"]
@@ -451,6 +466,30 @@ def add_parts(sums, counts, parts):
         n_all = parts["n_present"] + parts["n_absent"]
         sums["L_state"] += parts["L_state"] * n_all
         counts["all"] += n_all
+
+
+def oracle_mask_and_mag(model, target, mixture, clip=2.0):
+    """The ideal mask |target| / |mixture| on the MODEL'S OWN STFT grid, and the
+    mixture magnitude the structure term weights by.
+
+    Computed here rather than inside the loss because the grid belongs to the
+    model -- n_fft, hop and window are the model's, and a loss that built its own
+    would supervise the mask on a different grid from the one it was predicted
+    on, which is a misalignment nothing else would catch.
+
+    CLIPPED to [0, clip]. The ratio is unbounded: it exceeds 1 whenever the
+    interferer is out of phase with the target, and explodes wherever the mixture
+    is near silent. Same clip as scripts/plot_mask_grid.py so the training target
+    and the diagnostic picture are the same object.
+
+    NO GRADIENT. The oracle is data, not a prediction.
+    """
+    with torch.no_grad():
+        S = model.stft(target).abs()
+        X = model.stft(mixture).abs()
+        frames = min(S.shape[-1], X.shape[-1])
+        S, X = S[..., :frames], X[..., :frames]
+        return (S / X.clamp_min(1e-8)).clamp(0.0, clip), X
 
 
 def epoch_report(sums, counts, w, wm, wg):
@@ -472,6 +511,7 @@ def epoch_report(sums, counts, w, wm, wg):
     # objective rather than an absent one.
     n_all = counts.get("all", 0)
     L_state = sums["L_state"] / n_all if n_all else float("nan")
+    L_struct = sums.get("L_struct", 0.0) / n_present if n_present else float("nan")
 
     # `total` deliberately EXCLUDES the state term. It is the number
     # ReduceLROnPlateau and the curve read, and the four terms above are what it
@@ -485,6 +525,11 @@ def epoch_report(sums, counts, w, wm, wg):
         "L_gain": L_gain,
         "L_abs": L_abs,
         "L_state": L_state,
+        # EXCLUDED from `total` for the same reason L_state is: `total` is what
+        # ReduceLROnPlateau and the curve read, and adding a term would make
+        # every run before 2026-09-13 incomparable to every run after. D17's
+        # contribution is visible in its own column.
+        "L_struct": L_struct,
         "n_present": n_present,
         "n_absent": n_absent,
     }
@@ -567,6 +612,13 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
         raise ValueError("Config must be provided to build the loss function.")
 
     loss_fn = build_loss_fn(config)
+    # D17. `log_struct` computes and LOGS L_struct while leaving it out of the
+    # gradient, which is what a derivation script reads to set w_struct -- the
+    # same arrangement that let derive_w_g.py set w_g while L_gain was shipped
+    # off. Defaults ON when the key is absent so the column exists for every
+    # future run; the cost is one extra STFT pair per batch and a retained mask.
+    log_struct = bool(config["loss"].get("log_struct", True))
+    want_mask_val = getattr(loss_fn, "w_struct", 0.0) > 0.0 or log_struct
     grad_clip = float(config["training"]["grad_clip"])
     patience = int(config["training"]["patience"])
     keep_top_k = int(config["training"].get("keep_top_k", 3))
@@ -645,12 +697,23 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
                 loss_fn.enrolment_embedding = loss_fn.teacher.embed_enrolment(enrollment)
 
             optimizer.zero_grad()
+            # D17: only ask for the mask when the term is configured. The flag
+            # retains a (B, F, T) tensor in the graph, so a run that does not use
+            # it should not pay for it.
+            want_mask = getattr(loss_fn, "w_struct", 0.0) > 0.0 or log_struct
             with amp_ctx(use_amp):
-                s_output = model(mixture, enrollment)
+                if want_mask:
+                    s_output, mask = model(mixture, enrollment, return_mask=True)
+                else:
+                    s_output, mask = model(mixture, enrollment), None
+            oracle, mix_mag = (oracle_mask_and_mag(model, target, mixture)
+                               if want_mask else (None, None))
             # arg order is (reference, output, mixture, mask) -- reference
             # FIRST, the reverse of the usual (pred, target). See LossBSRNN.
             # .float() is not cosmetic: see amp_ctx on why the loss stays fp32.
-            loss, parts = loss_fn(target, s_output.float(), mixture, crop_absent)
+            loss, parts = loss_fn(target, s_output.float(), mixture, crop_absent,
+                                  mask=None if mask is None else mask.float(),
+                                  oracle_mask=oracle, mixture_mag=mix_mag)
             scaler.scale(loss).backward()
             # UNSCALE BEFORE CLIPPING. scale() multiplied the loss by ~65536 so
             # small gradients survive fp16, so the gradients sitting here are
@@ -697,9 +760,16 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
                 # metric measured in a precision the model was not trained in
                 # describes a model that does not exist. The loss is still fp32.
                 with amp_ctx(use_amp):
-                    s_output = model(mixture, enrollment)
+                    if want_mask_val:
+                        s_output, mask = model(mixture, enrollment, return_mask=True)
+                    else:
+                        s_output, mask = model(mixture, enrollment), None
                 s_output = s_output.float()
-                _, parts = loss_fn(target, s_output, mixture, crop_absent)
+                oracle, mix_mag = (oracle_mask_and_mag(model, target, mixture)
+                                   if want_mask_val else (None, None))
+                _, parts = loss_fn(target, s_output, mixture, crop_absent,
+                                   mask=None if mask is None else mask.float(),
+                                   oracle_mask=oracle, mixture_mag=mix_mag)
                 add_parts(val_sums, val_counts, parts)
                 diagnostic_accumulate(diag, model, mixture, enrollment,
                                       s_output, crop_absent, amp=use_amp)

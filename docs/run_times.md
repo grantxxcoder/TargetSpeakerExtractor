@@ -21,6 +21,9 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
 <!-- rows appended below by src/run_log.py -->
+| 2026-09-13 | `scripts/derive_w_struct.py` | 50 crops, sir0 | 10 min | cpu, two backward passes per batch |
+| 2026-09-13 | `scripts/derive_w_struct.py` | 2 crops, sir0 | 2 min | cpu, two backward passes per batch |
+| 2026-09-13 | `scripts/evaluate.py` | --split sir0_privval --condition both --systems floor,ceiling --metrics content --out experiments/results/2026-09-13-eval-privval-anchors **(failed)** | 4.6 h |  |
 | 2026-09-13 | `scripts/measure_mask_flatness.py` | 5 checkpoints x 50 trials | 1.6 h | cpu, whole-clip |
 | 2026-09-13 | `scripts/make_estimates.py` | 0 trials, sir0ext **(failed)** | 2.2 h | cpu, whole-clip |
 | 2026-09-13 | `scripts/make_estimates.py` | 0 trials, sir0ext **(failed)** | 36 min | cpu, whole-clip |
