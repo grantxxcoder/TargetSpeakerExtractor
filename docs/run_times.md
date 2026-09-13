@@ -21,6 +21,8 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
 <!-- rows appended below by src/run_log.py -->
+| 2026-09-13 | `scripts/measure_mask_flatness.py` | 5 checkpoints x 50 trials | 1.6 h | cpu, whole-clip |
+| 2026-09-13 | `scripts/make_estimates.py` | 0 trials, sir0ext **(failed)** | 2.2 h | cpu, whole-clip |
 | 2026-09-13 | `scripts/make_estimates.py` | 0 trials, sir0ext **(failed)** | 36 min | cpu, whole-clip |
 | 2026-09-13 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-13-est-noresidual --metrics content --out experiments/results/2026-09-13-eval-noresidual | 22 min |  |
 | 2026-09-13 | `scripts/make_estimates.py` | 103 trials, sir0 | 47 min | cpu, whole-clip |

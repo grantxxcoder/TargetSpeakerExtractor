@@ -3133,3 +3133,80 @@ advance occurred. R is not fabricating, and it is not earning its keep either.
 SILENT mixture and asserts the output is non-zero: the capability to fabricate is
 real and is now pinned by a test, even though the measurement says it is not
 being used.
+
+### MEASURED 2026-09-13 — objective or data? It is the OBJECTIVE. More data makes the mask WORSE, not better
+
+`scripts/measure_mask_flatness.py`, 50 `sir0_val` `both` trials, the SAME trials
+for every checkpoint, 1.6 h CPU. Five checkpoints that already existed.
+
+| checkpoint | trials | epoch | share(loud) | f/t ours |
+|---|---|---|---|---|
+| `model_sir0.pt` | ~1,989 | 9 | 0.6415 | 0.9561 |
+| `model_sir0_5000-e7.pt` | ~4,976 | 7 | 0.7766 | 0.7646 |
+| `model_sir0_10000-e6.pt` | ~9,955 | 6 | 0.7958 | 0.6158 |
+| `model_sir0_10000-e7.pt` | ~9,955 | 7 | 0.7738 | 0.6026 |
+| `model_sir0_10000-last.pt` | ~9,955 | 15 | 0.7739 | **0.4826** |
+| **ideal mask** | | | | **1.0136** |
+
+`share` = fraction of mask variance explained by one number per frame; 1.0 is a
+pure volume knob. `f/t` = variation across frequency relative to across time;
+**ours must RISE toward 1.0136, and falling is worse.**
+
+### Paired bootstrap, 50 trials, 10,000 draws
+
+| comparison | share(loud) | f/t (loud) |
+|---|---|---|
+| **DATA 5k -> 10k, epoch MATCHED at 7** | -0.0029 [-0.027, +0.022] **inside noise** | **-0.1620 [-0.205, -0.118] REAL** |
+| DATA 2k -> 10k | +0.1322 [+0.105, +0.160] REAL | -0.3535 [-0.392, -0.315] REAL |
+| **EPOCH 6 -> 15, data FIXED** | -0.0219 [-0.047, +0.001] inside noise | **-0.1332 [-0.187, -0.074] REAL** |
+
+**The epoch-matched data comparison is the one that answers D15's successor.**
+Doubling the training set from ~5k to ~10k trials, at the same epoch, left the
+volume-knob share statistically UNCHANGED and made the frequency/time ratio
+significantly WORSE.
+
+**More training does the same thing.** At fixed data, epoch 6 -> 15 moved f/t
+-0.133, also real, also the wrong way.
+
+**Both axes push the model TOWARD the volume knob.** That is exactly what is
+expected if the objective's optimum IS a volume knob — better optimisation, by
+either route, converges on it harder.
+
+### The trap in this table, stated because it inverts the obvious reading
+
+**The ~2k model has the best-looking numbers and is the worst model.** Lowest
+share (0.64) and an f/t of 0.956, nearly the ideal's 1.014. It is not more
+structured: **an unstructured, noisy mask ALSO has f/t ~ 1, because noise varies
+equally in both axes.** That checkpoint memorised its training set
+(decisions-m2.md 2026-08-29) and is beaten by pass-through. Training then sheds
+that noise and converges onto the knob.
+
+**Nobody may read this table as "less data is better".** It says the opposite:
+what training buys, on this objective, is a cleaner volume knob.
+
+### Verdict, against the rule registered BEFORE the run
+
+Three outcomes were registered: flatness constant (objective), flatness falling
+with data (data), epoch swamping data (inconclusive). **The result is the first
+on `share` and something stronger on `f/t` — not merely "data does not help" but
+"data actively makes it worse".** Recording the mismatch rather than pretending
+the rule anticipated it.
+
+**Epoch does NOT swamp data.** On `share`, data moves 0.132 (2k->10k) against
+epoch's 0.022. On `f/t` the two are comparable (-0.162 vs -0.133) but point the
+SAME way, so the confound cannot explain the result away — it reinforces it.
+
+### What this authorises, and what it does not
+
+- **MORE DATA WILL NOT FIX THE FLAT MASK. The data hypothesis is REFUTED**, not
+  merely unsupported. Scaling the training set is no longer a candidate answer to
+  the 84 % finding.
+- **The structure loss is justified by evidence rather than by elimination.**
+  Supervise the mean-removed across-frequency deviation against the free oracle
+  mask, with the residual branch handled — R is inert (2026-09-13) so it will not
+  absorb the term, which this measurement also settles.
+- **It does NOT predict the intervention works.** Flatness is a property of the
+  mask, not of what a listener transcribes. This selects the arm; only LCF-WER on
+  `sir0_privval`, per SIR band, scores it.
+- **Single seed, n=50, one architecture.** Run-to-run training variance is still
+  unmeasured and sits on top of every interval here.
