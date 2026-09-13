@@ -99,26 +99,45 @@ def read_interferer(batch, data_root, split, sample_rate, n_samples):
 
     Read here rather than taken from the loader, which does not return it --
     it opens interferer.wav internally to build the second direction and then
-    discards it. A derivation script reading its own reference signals is
-    normal, and it keeps dataset_loader.py untouched for a measurement that is
-    not part of training.
+    discards it.
 
-    random_crop=False, so the crop is deterministic and starts at 0 -- the same
-    window the loader handed us. Verified additive 2026-09-10:
-    mixture == target + interferer + noise exactly, because each stem is stored
-    at the gain it contributes.
+    IT MUST BE READ AT THE BATCH'S OWN CROP OFFSET, and this is the bug that was
+    here until 2026-09-12. The old code took `audio[:n_samples]`, on the stated
+    grounds that "random_crop=False, so the crop is deterministic and starts at
+    0". Deterministic yes; at 0 no -- `_crop_offset_start` draws from
+    (seed, 0, idx) either way, so the offset is reproducible and almost never
+    zero.
+
+    WHAT THAT CORRUPTED. `noise` is recovered as mixture - target - interferer.
+    With a misaligned interferer that leaves the true interferer inside `noise`
+    and subtracts a time-shifted copy, so the synthetic anchor
+    `target + beta*interferer + noise` contains a SECOND voice at amplitude
+    (1 - beta). At beta = 1 it still reconstructs the mixture exactly, which is
+    why nothing looked wrong; below that it gets worse the harder the interferer
+    is "suppressed", and the anchors read 2.106 -> 2.589 -> 2.714 -> 2.744 as
+    attenuation went 0 -> 6 -> 12 -> 20 dB, i.e. backwards. The teacher itself is
+    monotonic and clean: scripts/diagnose_state_teacher.py, 2026-09-12.
+
+    The derived `w_state` never depended on this -- it comes from the measured
+    gradient share at the model anchor -- so 0.002692 stands. Only the dynamic-
+    range display was affected.
+
+    Verified additive 2026-09-10: mixture == target + interferer + noise exactly,
+    because each stem is stored at the gain it contributes.
     """
     import soundfile as sf
+    starts = batch["meta"]["crop_start"]
     stems = []
-    for trial_id, direction in zip(batch["trial_id"], batch["direction"]):
+    for offset, trial_id, direction in zip(starts, batch["trial_id"], batch["direction"]):
         # `direction` says which speaker was the TARGET for this example, so the
         # interferer is the other stem. Getting this backwards would make every
         # partial anchor measure the wrong speaker.
         name = "interferer.wav" if direction == "target" else "target.wav"
+        start = int(offset)
         audio, rate = sf.read(Path(data_root) / split / trial_id / name,
-                              dtype="float32")
+                              dtype="float32", start=start,
+                              frames=n_samples)
         assert rate == sample_rate, f"{trial_id}/{name} is {rate} Hz"
-        audio = audio[:n_samples]
         if len(audio) < n_samples:
             audio = np.pad(audio, (0, n_samples - len(audio)))
         stems.append(audio)
