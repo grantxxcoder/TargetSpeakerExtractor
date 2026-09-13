@@ -372,6 +372,20 @@ def build_model(config):
         # measuring a model that never existed. Loud, because silently reviving
         # the flat softmax on a NEW run is the bug this whole file is about.
         tfmap_scale=_tfmap_scale(config),
+        # Head A, decisions-pending.md D14 piece A. Absent key => False, which
+        # is the architecture every run up to 2026-09-11 trained, so no old
+        # config or checkpoint changes meaning. Training-only: the head is
+        # stripped before inference (state_head.drop_state_head), so a model
+        # trained with it deploys at the same 7.19 M parameters and the same
+        # latency as the baseline.
+        state_head=bool(config["model"].get("state_head", False)),
+        state_head_detach=bool(config["model"].get("state_head_detach", False)),
+        # D4a, decisions-pending.md D4. Absent key => False, the 2026-08-28
+        # frozen architecture. Unlike the state head this one adds parameters to
+        # the audio path (+37,698, +0.52 %), so the arm is NOT parameter-matched
+        # to its control and the write-up has to say so.
+        tfmap_inject=bool(config["model"].get("tfmap_inject", False)),
+        tfmap_gate_init=float(config["model"].get("tfmap_gate_init", 0.0)),
     )
 
 
@@ -831,6 +845,19 @@ SPLIT_MANIFESTS = {
     # target/interferer loudness -- the arm that tests whether the model only
     # ignores the enrollment because "keep the loud voice" already works.
     "sir0":  (("sir0_train",  "sir0_train"),  ("sir0_val",  "sir0_val")),
+    # sir0ext: sir0's TRAINING data, evaluated on the expanded 2,800-trial dev
+    # split built 2026-09-13 from eval_private's released speakers. EVAL ONLY in
+    # practice -- the train half is deliberately identical to `sir0` so a
+    # checkpoint trained under `sir0` is scored on the wider set WITHOUT
+    # retraining, and the two splits differ in exactly one axis.
+    #
+    # WHY IT EXISTS. The paired bootstrap on 2026-09-12 put sir0_val's
+    # resolution at +-8 LCF-WER over its 103 `both` trials, so an arm moving the
+    # metric less than ~5 points is unreadable. sir0_privval carries 1,421
+    # `both` trials, and SIR spans [-10, +15] against sir0_val's [-10, +10] --
+    # a SUPERSET, reported per SIR band, never as one blended mean.
+    # decisions-m3.md 2026-09-13.
+    "sir0ext": (("sir0_train", "sir0_train"), ("sir0_privval", "sir0_privval")),
     "full":  (("train",       "train"),       ("val",       "val")),
 }
 

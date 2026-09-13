@@ -68,6 +68,9 @@ VAL_SPLITS = {
     "smoke": ("smoke_val", "smoke_val"),
     "mid":   ("mid_val",   "val"),
     "sir0":  ("sir0_val",  "sir0_val"),
+    # The expanded dev split added 2026-09-13, so WeSep can be scored on the
+    # same wider set as our own model. decisions-m3.md 2026-09-13.
+    "sir0ext": ("sir0_privval", "sir0_privval"),
     "full":  ("val",       "val"),
 }
 
