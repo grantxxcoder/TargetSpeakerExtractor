@@ -283,6 +283,51 @@ speaker cue can be regularised; a model that ignores the cue cannot be
 regularised into using it. The current failure is the second kind, so the risk
 is worth taking — behind D4a, which carries none of it.
 
+### BUILT 2026-09-11 — D4a exists as code and as a runnable config. It REVERSES a recorded drop
+
+`conditioning.TFMapInjector`, `BandSequenceModel.forward(x, cue, gates)`, the
+`tfmap_inject` flag on `BSRNN_TFMAP` and in `build_model`,
+`experiments/configs/bsrnn_tfmap_inject.yaml`, `tests/test_tfmap_inject.py`
+(20 tests, all passing; suite 467).
+
+**Stated plainly: D4a was DROPPED on 2026-08-30 and this un-drops it.** The drop
+was correct on its own terms — `diagnose_cue.py` measured the cue surviving the
+stack (swap a stranger's enrolment, the cue moves 28.6 % and the output moves
+48.2 %), so the *dilution* premise is not supported. What survives that
+measurement is the headroom: 62 % of the output is still enrolment-independent.
+**This arm must therefore be written up as testing the remaining headroom, never
+as testing dilution**, and the honest prior is that it does little.
+
+**One shared per-band projection, not six.** 37,698 parameters, +0.524 % on
+7,189,644 — verified by building both configs, not by arithmetic in a document.
+Six separate projections would be 222 k (+3.1 %) and would add expressiveness
+that could explain a gain by itself. Shared re-presents the identical cue at
+every depth, which is the honest form of the claim.
+
+**NOT parameter-matched to its control**, unlike D14's head A. +0.52 % is small
+but not zero, and a gain of that order is not attributable.
+
+**Gates start at zero, so the arm begins as exactly the baseline function** — a
+test asserts the two models agree to 1e-6 when built at the same seed. Cite
+ReZero (Bachlechner et al., UAI 2021). The ordering this implies is real and
+tested: at gate 0 the projection receives no gradient and the gates, sitting one
+multiply from the loss, move first.
+
+**THE GATES ARE THE MEASUREMENT, and this is the reason to run it even expecting
+nothing.** 6 x 32 scalars saying how much cue each block wants in each band. If
+they stay near zero, D3a's conclusion is confirmed by a second, completely
+different method, and D4b/D5 can be closed rather than left hanging. That is a
+publishable negative result for the cost of one run. Log them every epoch.
+
+**Cost: +2.7 % forward on CPU** (1.210 -> 1.243 s per 4.008 s chunk, 4 threads,
+forward only, 3 reps). Not a training-step measurement and must not be quoted as
+one. Latency is unchanged in kind: the TF-Map is already causal per frame and
+every added op is a 1x1 convolution over time, asserted by a causality test.
+
+**RNG forked at construction**, as with head A, so the arm and its control draw
+the same trials in the same order. Narrow fix, not the general one that was
+declined.
+
 ### D5. A speaker encoder with an auxiliary speaker-ID loss
 
 **Status: proposal, not scheduled. Larger than D4 and subsumes part of D1.**
@@ -2651,3 +2696,440 @@ speaker was requested, with the roles trading when the cue trades. Encouraging,
 but it is not the control D14 asked for. The correct ablation is a stranger from
 a DIFFERENT trial, where there is no role to swap into. Rerun before acting on
 control 1 either way.
+
+### D15. Penalise mask ROUGHNESS over time — attack fabrication, not leakage
+
+**Status: PROPOSAL, raised 2026-09-12 (Grant). Step 0 is free and answers most
+of it. Nothing here is built.**
+
+**The gap it addresses, and it is the half nobody is working on.** Measured
+2026-09-11: **41.5 % of our wrong content words were said by nobody** — 308
+invented words against 434 leaked ones. Every open proposal in Group D attacks
+leakage (D10, D14 B, D13's gate). Nothing attacks invention, and `fabrication.py`
+recorded independently that both extractors raise fabrication ~48 % above doing
+nothing — **extraction is CAUSING part of this, not failing to remove it.**
+
+**The mechanism, and it is textbook.** A time-frequency mask that changes
+abruptly between neighbouring frames produces isolated, flickering spectral
+peaks — **musical noise**, the classic artefact of spectral-subtraction and
+masking systems. It is perceived as chirping, and for our purposes the important
+property is not how it sounds: a spurious spectral transient looks to an ASR
+front end like an onset, and onsets are what word hypotheses are built from.
+**Invented words are exactly the error that a flickering mask would produce.**
+
+**Nothing in the current model or objective opposes it.** `Estimator` predicts a
+complex mask per band per frame through a 1x1 conv on the feature stream, and GLU
+bounds its MAGNITUDE. No term and no architectural constraint says anything about
+how much it may change from frame t to frame t+1. `L_MR` prices detail at four
+resolutions but is minimised by matching the reference, not by being smooth, and
+was measured to reward muting (decisions-m2.md 2026-08-28).
+
+**Borrowed, and the difference matters.** Temporal smoothing of a spectral gain
+is standard in speech enhancement: the decision-directed a-priori SNR estimator
+(Ephraim & Malah, IEEE TASSP 1984) is essentially a recursive smoother and is
+the canonical musical-noise fix; cepstral-domain smoothing (Breithaupt, Gerkmann
+& Martin, ICASSP 2008) is its modern form. In images the same idea is total
+variation regularisation (Rudin, Osher & Fatemi, Physica D 1992). **BORROWED
+WITH A DIFFERENCE:** those smooth a gain to improve PERCEIVED quality, and are
+tuned on PESQ-style measures. Here the justification is content fidelity for a
+downstream listener, and the arm would be judged on invented-word count and
+LCF-WER, never on DNSMOS. That is a different claim with a different acceptance
+test, and our metric can actually distinguish them.
+
+### The trap, stated before the arm rather than after
+
+**Speech has real transients.** Plosive releases, stop bursts and word onsets
+are genuine fast changes, and a mask that cannot move quickly smears them. We
+are ALREADY deleting more than doing nothing does — deletions 11.8 against the
+raw mixture's 9.3 — so blunt smoothing attacks the error we have too much of by
+making worse the other error we have too much of. **"Smoother is better" is
+false and must not be the form of the hypothesis.**
+
+**The fix for that is to derive the target from the ORACLE mask, which is free.**
+We own `target.wav` and `mixture.wav` for every trial, so the ideal mask is
+computable exactly, and with it the frame-to-frame variation a CORRECT mask
+exhibits. The hypothesis then becomes falsifiable and self-limiting: penalise
+roughness **beyond what the oracle mask itself shows**, per band, the same
+deadzone shape as `L_gain`'s +-3 dB. If our mask is already no rougher than the
+oracle's, there is nothing here and the proposal dies at step 0 for the cost of
+an afternoon.
+
+### Sequence
+
+0. **MEASURE THE ROUGHNESS GAP. No training, no GPU, hours.** For `sir0_val`,
+   compute per band the mean absolute first difference along time of (a) the
+   oracle mask |S_target| / |X_mixture| and (b) our checkpoint's predicted mask.
+   Three outcomes and all are useful:
+   - ours is much rougher -> the premise holds, go to 1
+   - ours is comparable -> **the proposal is dead**, recorded, no run spent
+   - ours is SMOOTHER -> we are over-smoothing already, which would explain the
+     deletions and points the opposite way
+   Correlate the per-trial gap against that trial's invented-word count from
+   `transcripts.csv`, the same way D14 step 0 correlated leakage against WER.
+   A gap that does not track invention is not the mechanism.
+1. **A loss term.** L1 of the mask's first difference along time, per band,
+   deadzoned at the oracle's own roughness. One term, one weight, derived
+   against a measured anchor exactly as `w_g` = 1.69 and `w_state` = 0.002692
+   were — never picked.
+2. **Or an architectural constraint instead**, if the term is hard to weight: a
+   causal one-pole smoother on the mask with a per-band learned coefficient.
+   Zero added latency (causal IIR, one multiply-add per bin), ~32 parameters,
+   and a hard constraint rather than a soft penalty. Init at no smoothing so the
+   arm starts as the baseline, the same discipline as D4a's zero-init gates.
+
+**Cost-to-evidence: the best in Group D right now.** Step 0 needs no GPU, no
+training and no API budget; it either kills the idea or hands the arm a derived
+weight. Compare D14 B, which cost a label script, a detector architecture, a
+detector training run and a 10.25 h arm to move its own term 1.4 %
+(decisions-m2.md 2026-09-12).
+
+**It also composes with everything.** It constrains the mask's behaviour over
+time and says nothing about who the target is, so it is orthogonal to D4a, D13
+and D14, and can be added to whichever of those survives.
+
+### MEASURED 2026-09-12 — D15's premise is WRONG, and what replaced it is worse news
+
+D15 proposed penalising mask ROUGHNESS on the theory that a flickering mask was
+producing musical noise and inventing words. **Step 0 was run and it refutes
+that.** `scripts/plot_mask_grid.py` and a 12-trial measurement on
+`model_sir0_10000-e6.pt`, against the ideal mask `|target| / |mixture|`:
+
+| | varies along TIME | varies along FREQUENCY | freq / time |
+|---|---|---|---|
+| our mask | 0.0445 | 0.0238 | **0.53** |
+| ideal mask | 0.1540 | 0.1551 | **1.01** |
+| shortfall | **3.5x** | **6.5x** | |
+
+**Our mask is not too rough. It is 3.5x too SMOOTH along time and 6.5x too
+smooth along frequency.** The third outcome D15 listed for step 0 — "ours is
+SMOOTHER, which points the opposite way" — is the one that happened. Smoothing
+is retired as an intervention. The step 0 measurement cost an afternoon and
+saved a training run, which is exactly what it was for.
+
+### The replacement finding, and it is structural
+
+**84.2 % of our mask's variance is explained by a single number per frame.**
+
+**The model has not learned a time-frequency mask. It has learned a broadband
+volume knob.** It raises the output when the target speaks and lowers it when
+they do not, applying nearly the same gain to every frequency in a frame. The
+ideal mask varies equally in both axes; ours varies half as much across
+frequency as across time.
+
+This is not a tuning problem and no loss weight fixes it. Two overlapping voices
+occupy the same frequencies at the same instant, and the only way to separate
+them is to decide per time-frequency cell which voice owns it. **A broadband gain
+cannot do that even in principle.** It can only be loud when the target talks,
+which is voice activity detection wearing an extractor's architecture.
+
+It explains, at one stroke:
+- why leakage survives — a volume knob passes both voices when both speak;
+- why 62 % of the output is enrolment-independent (2026-08-30) — a volume knob
+  needs to know WHEN someone speaks, not WHO;
+- why the state probe reads "somebody is speaking" at 93 % and "which of the
+  two" at 39 % (2026-09-11);
+- why the frozen state teacher moved leakage a little and cost fidelity — the
+  only lever the model has is to turn the knob down harder.
+
+### CONFIRMED 2026-09-12 — the holes really do delete target speech
+
+`experiments/results/2026-09-12-eval-floor0.05`, an inference-time mask floor of
+0.05 on the baseline checkpoint, n=103, ASR stand-in:
+
+| | floor 0.00 | floor 0.05 |
+|---|---|---|
+| deletions | 11.79 | **8.64** (−3.14, −27 %) |
+| ICR@2 | 50.49 | 58.25 (+7.77) |
+| no response | 2.91 | 0.97 |
+| LCF-WER | 59.52 | 63.33 |
+
+**The deletion drop is the largest single metric movement this project has
+produced.** It confirms that the zeroed bins were carrying target speech.
+
+**And it shows the floor is the wrong cure.** Filling a hole with the raw mixture
+fills it with BOTH speakers, so leakage rises more than deletions fall. What is
+wanted is a fill that is target-selective — which is the argument for
+redistributing the existing gain across frequency rather than adding the mixture
+back, i.e. `scripts/postprocess_mask.py`.
+
+**A floor is still worth keeping as a knob**, because deletions and leakage now
+have a measured exchange rate and nothing else in the project trades between
+them explicitly.
+
+### MEASURED 2026-09-12 — frequency structure is the lever. A free post-hoc version beats a 10-hour training arm on leakage
+
+All paired bootstraps, 10,000 draws, n=103, `sir0_val` `both`, ASR stand-in.
+The metric's irrelevance floor is 1.57 points (decisions-m3.md), so anything
+under that is not a claim.
+
+| intervention | cost | leakage change | LCF-WER | verdict on leakage |
+|---|---|---|---|---|
+| frozen state teacher (D14 B) | **10.25 GPU-h** | -1.93 | +1.72 | inside noise |
+| post-hoc frequency sharpening | **free** | **-6.99** | +10.01 | **REAL**, [-10.41, -3.85], 0.0 % opposite sign |
+| mask floor 0.05 | free | +5.39 (worse) | +3.81 | REAL, wrong way |
+
+**Sharpening the mask across frequency -- crudely, after the fact, with no
+learning -- removed 3.6x more leakage than the entire teacher arm did, and unlike
+the teacher the effect is unambiguous.** It took leakage from 34.58 to 27.42
+against WeSep's 9.0, closing roughly a quarter of that gap with a post-processor.
+
+It cost +10.01 LCF-WER, which is also real. That is the expected price of
+imposing structure on a model never trained to produce it: the sharpening is
+applied to the output ratio, which carries the additive residual and an analysis
+mismatch, and nothing optimises the result.
+
+### The two knobs point opposite ways and both lose, which is itself the finding
+
+| | deletions | mean leaked | LCF-WER |
+|---|---|---|---|
+| baseline | 11.79 | 34.58 | **59.52** |
+| fill the holes (floor 0.05) | **8.64** | 40.87 | 63.33 |
+| sharpen across frequency | 15.13 | **27.42** | 69.53 |
+
+**The baseline already sits near a local optimum on the deletion-versus-leakage
+trade-off.** Moving it after the fact costs more than it gains in either
+direction. So the remaining gain is not in re-weighting that trade-off -- it is in
+giving the model the ability to make fine time-frequency decisions in the first
+place, which is what the 84 %-volume-knob measurement says it cannot currently do.
+
+**This is now the best-evidenced direction in Group D**, and it was established
+for the cost of an afternoon of CPU rather than a training session.
+
+### CORRECTION and the headline, 2026-09-12 — HARD sharpening: real leakage removal at no measurable WER cost
+
+The `mid` setting (1.3/0.7, unsupported bins scaled to 0.3) cost +10.01 LCF-WER
+and +7.19 insertions, and was written up above as "sharpening adds artefacts".
+**That was the setting, not the idea.** The `hard` setting (1.5/0.5, unsupported
+bins removed outright) behaves completely differently:
+
+| | measured | 95 % interval | verdict |
+|---|---|---|---|
+| mean leaked % | **-6.38** | [-10.56, -2.45] | **REAL improvement** |
+| LCF-WER | -0.90 | [-5.18, +3.12] | inside noise AND below the 1.57 floor |
+| insertions | -3.81 | [-9.03, +0.63] | inside noise |
+| deletions | +3.29 | [-1.78, +8.54] | inside noise |
+
+**A free post-processor removed leakage for real and cost nothing measurable on
+the headline metric.** The 10.25-hour teacher arm achieved neither.
+
+**PARTIAL SUPPRESSION IS WORSE THAN COMPLETE SUPPRESSION.** down=0.3 leaves a
+scaled copy of every unsupported bin and insertions rose 7.19; down=0.0 removes
+them and insertions fell 3.81. That is the classic musical-noise result -- a
+half-removed component is an artefact, a removed one is silence -- and it should
+govern any future mask post-processing or gating rule this project writes.
+
+**Two caveats that travel with it.**
+1. **-0.90 LCF-WER is NOT an improvement.** It is inside the interval and below
+   the irrelevance floor. The claim is "unchanged", never "better".
+2. **It is not a uniform win**: better on 29 trials, worse on 46, tied on 28. The
+   flat corpus number comes from helping a lot on a few trials and hurting
+   slightly on many. Any write-up must say so.
+
+### MEASURED 2026-09-12 — the corrected internal-mask run. Region growing needs something structured to grow FROM
+
+Re-run on the fixed `apply_hysteresis` (RMS level restoration). Output level
+-4.11 dB against the baseline's -5.65 dB, so the level explosion is gone and this
+run measures the intervention.
+
+| variant | leakage | LCF-WER |
+|---|---|---|
+| frozen state teacher, 10.25 GPU-h | -1.93 (noise) | +1.72 (at the 1.57 floor) |
+| sharpen output ratio, partial removal | **-6.99 REAL** | +10.01 REAL worse |
+| **sharpen output ratio, full removal** | **-6.38 REAL** | -0.90 unchanged |
+| sharpen internal mask, full removal | **-10.37 REAL** | **+16.91 REAL worse** |
+
+Internal-mask bootstrap: leakage -10.37 [-15.29, -5.54], 0.0 % opposite sign;
+LCF-WER +16.91 [+5.28, +30.98], 0.1 % opposite sign. Both real.
+
+**EVERY sharpening variant removes leakage substantially and unambiguously.** Four
+independent settings, all outside the interval, against a training arm that could
+not manage it once. **Frequency structure is the lever. That is settled.**
+
+### The internal-mask failure is the informative result
+
+It removed the MOST leakage (-10.37, best of the day, 34.58 -> 25.01 against
+WeSep's 9.0) and did the MOST damage (+16.91 LCF-WER, insertions +11.32).
+
+**Why: the mask it grows from is flat.** At 84 % of variance explained by one
+number per frame, the bins that clear a relative threshold are chosen by tiny
+fluctuations -- effectively noise. So the structure imposed is arbitrary. It
+deletes the interferer, and it deletes everything else with equal indifference.
+The output ratio works better precisely because it is NOT flat: it carries real
+spectral content, so thresholding it selects meaningful bins.
+
+**REGION GROWING NEEDS A MEANINGFUL CONFIDENCE MAP TO GROW FROM, AND THIS MODEL
+DOES NOT PRODUCE ONE.** No post-processor can manufacture that. The model has to
+learn to emit a mask that HAS structure worth growing -- which is the
+architectural form of the idea, and it now rests on measurement rather than
+intuition.
+
+**Consequence for the plan.** The cheap post-hoc route is exhausted: its best
+outcome is -6.38 leakage at no WER cost, already achieved, and the ceiling above
+it is blocked by the mask's flatness rather than by the growing rule. The next
+move is to make the mask structured during training, not to keep tuning
+thresholds on a flat one.
+
+### MEASURED 2026-09-13 — the volume knob, DECOMPOSED. What frequency shape exists is a FIXED EQ curve, and it carries no speaker information
+
+`scripts/diagnose_mask_structure.py`, 12 `sir0_val` `both` trials, whole clips,
+`model_sir0_10000-e6.pt`, seed 42, 16 min CPU.
+`experiments/results/2026-09-13-mask-structure/`.
+
+**Why, when 84.2 % was already measured.** "One number per frame explains the
+mask" has two readings and the mask-grid picture cannot tell them apart, because
+both draw as vertical stripes: the model applies a genuinely FLAT gain, or it
+applies a FIXED spectral shape — the persistent dark band below 500 Hz is
+visible in `mask_grid_sir0_val-42-000004_floor0.png` — scaled up and down by one
+number per frame. Neither can separate two overlapping voices, but only the
+second means the model learned anything about frequency at all.
+
+**The decomposition.** Two-way additive, ours, standard ANOVA form on the mask
+magnitude: `M(f,t) = mu + eq(f) + gain(t) + interaction(f,t)`. The three terms
+are orthogonal by construction, so the variance shares are exact rather than
+fitted. `interaction` is THE ONLY TERM THAT CAN SEPARATE TWO VOICES: it is the
+only one that says "this frequency, at this instant, belongs to the target", a
+statement whose answer must change from frame to frame.
+
+| frames | mask | gain(t) | eq(f) | interaction |
+|---|---|---|---|---|
+| all | **ours** | **83.5 %** | 7.1 % | **9.4 %** |
+| all | ideal | 53.0 % | 2.5 % | 44.5 % |
+| speech (93 %) | ours | 82.6 % | 7.7 % | 9.7 % |
+| speech | ideal | 52.0 % | 2.6 % | 45.4 % |
+| **overlap (26 %)** | **ours** | **46.4 %** | **35.2 %** | **18.3 %** |
+| **overlap** | ideal | 16.1 % | 8.0 % | **75.9 %** |
+
+**Replicates 84.2 % by a different method** (83.5 % over all frames). The
+earlier figure came from `postprocess_mask.py`'s frame-mean ratio; this is a
+variance decomposition. Two methods, one answer.
+
+**Overlap frames are the honest test and are reported separately.** Ducking
+silence is free and is not a skill; pooling it inflates `gain(t)`. Overlap =
+frames where the target AND the interferer are both active, the only regime where
+separation is a question.
+
+### The two findings, and the second is the one that was not already known
+
+**1. During overlap, 81.7 % of our mask is "one fixed shape x one number".** A
+quantity that cannot separate two voices under any setting of that number. The
+genuine per-cell decision is 18.3 % against the correct answer's 75.9 %.
+
+**2. The frequency shape our mask has is STATIC, so it carries no speaker
+information.** 35.2 % during overlap is not a small number — it is the second
+largest term — but it is the same curve held across the clip. A contour that does
+not change when the speakers change cannot encode which of them owns a bin. What
+looked like partial frequency selectivity is a baked-in EQ.
+
+**And the ideal mask says the model is applying its one tool to the wrong
+problem.** For the correct answer, `gain(t)` is worth only 16.1 % during overlap
+— obviously, since you cannot turn one voice down without the other. Ours spends
+46.4 % of its behaviour there.
+
+### Three caveats that travel with these numbers
+
+1. **Shares are relative to each mask's OWN variance.** Ours varies far less in
+   absolute terms (0.0238 across frequency against the ideal's 0.1551,
+   2026-09-12), so the absolute shortfall is LARGER than the share gap suggests.
+   "18.3 % against 75.9 %" must never be read as "we do a quarter of the job".
+2. **"Fixed EQ" is measured WITHIN a clip.** Whether it is the same curve across
+   clips — i.e. baked into the weights rather than adapted per mixture — is NOT
+   measured. The script stores shares, not the curves.
+3. **n=12 trials, one checkpoint, no interval.** A structural share this large is
+   not a candidate for sampling noise, but no significance is claimed.
+
+### What it authorises
+
+- **The next training arm prices the INTERACTION term, not the mask as a whole.**
+  A plain mask-MSE against the ideal ratio mask would be largely satisfied by
+  `gain(t)`, which the model already produces. The term has to target what is
+  left after `gain(t)` and `eq(f)` are removed, or it buys nothing.
+- **The interaction share is a per-epoch readout that does not need the ASR.**
+  It reads out in one epoch, against a metric whose noise floor is +-8 LCF-WER
+  points on `sir0_val`. That makes a 1-2 epoch smoke run a real gate before
+  committing a 10 h session.
+- **It does NOT authorise building anything yet.** The free step 0 is the oracle
+  volume knob: take the IDEAL mask, flatten it to `gain(t) x eq(f)`, synthesise,
+  and score it. If a PERFECT volume knob still transcribes badly, flatness is
+  proven to be the cost and the arm is justified. If it scores near the 5.85
+  ceiling, flatness is a red herring and our fault is that the GAIN is wrong — a
+  far cheaper fix. One ASR pass, no GPU, decisive either way. **Run this first.**
+
+### MEASURED 2026-09-13 — D6's residual-branch ablation. R is INERT, and the fabrication hypothesis it was built to test is DEAD
+
+D6 flagged `Estimator`'s additive residual `R` as "unbounded and unconditioned"
+and asked for an ablation arm. This runs it, at inference, for CPU hours.
+
+**The hypothesis, stated before the run so it cannot be rewritten after.** The
+output is `S = M (x) X + R`. The mask is MULTIPLIED, so in a bin where |X| = 0 it
+contributes exactly 0 — verified, `masked_energy_in_silent_bins` measured
+0.0000. `R` is ADDED from a raw Conv1d with no GLU and no bound, so it is the
+ONLY path that can place energy in a cell the microphone never recorded.
+Emitting sound nobody made is physically what an invented word is, and invented
+words are 41.5 % of our wrong content words with no mechanism assigned. **The
+proposal was that R is that mechanism.**
+
+### Step 0, the correlation. It refused the hypothesis before the ablation ran
+
+`scripts/diagnose_residual.py`, n=103, `sir0_val` `both`,
+`model_sir0_10000-e6.pt`. Per-trial R contribution against per-trial invented
+words, the same shape as D14 step 0 and D15 step 0:
+
+| measure | mean | r vs invented words | significant at n=103? |
+|---|---|---|---|
+| R's share of output energy | 8.6 % | **-0.161** | no (crit 0.194) |
+| R's share after cancellation | 6.9 % | **-0.178** | no |
+| output energy in silent bins | **0.72 %** | **-0.149** | no |
+
+**All three negative, none significant.** Trials where R contributes more do not
+invent more.
+
+**The sharpest number against the mechanism: R is not aimed at the silence.**
+Silent bins are 10 % of all bins and hold **8.0 %** of R's energy (p10 7.1 %,
+p90 9.0 %) — slightly LESS than proportional, and almost constant across trials.
+A fabrication mechanism would concentrate there. R is spread uniformly.
+
+### The ablation. Deleting R changes nothing measurable
+
+`--residual-scale 0.0`, same checkpoint, same 103 trials, ASR stand-in.
+Paired bootstrap, 10,000 draws.
+
+| | baseline | R deleted | difference | 95 % interval | verdict |
+|---|---|---|---|---|---|
+| LCF-WER | 59.52 | 59.72 | **+0.20** | [-3.02, +3.30] | INSIDE NOISE, and below the 1.57 floor |
+| mean leaked % | 34.58 | 37.21 | +2.13 | [-1.39, +5.88] | INSIDE NOISE |
+| insertions | 19.53 | 18.63 | -0.90 | | below the floor |
+| deletions | 11.79 | 10.77 | -1.02 | | below the floor |
+| substitutions | 28.20 | 30.33 | +2.13 | | |
+| **invented content words** | **308** | **306** | **-2** | | **0.6 % of 308** |
+
+Per trial: better on 24, worse on 33, tied on 46.
+
+**Deleting 8.6 % of the output energy moved the headline metric 0.20 points and
+the invented-word count by two words.** None of the three outcomes registered in
+advance occurred. R is not fabricating, and it is not earning its keep either.
+
+### What this closes, and what it does not
+
+- **The fabrication mechanism is NOT R.** Recorded as refuted. The 41.5 % of
+  error mass that is invented words remains unexplained, and the next candidate
+  has to come from somewhere else. This was my hypothesis and the data killed
+  it; the cost was one afternoon of CPU, which is what step 0 is for.
+- **D6's residual ablation is ANSWERED at inference.** `residual_branch: true`
+  contributes nothing measurable to content fidelity on this checkpoint.
+- **It does NOT authorise removing R.** This ablates R from a model TRAINED WITH
+  R; "no measurable difference at +-3 points" is not "useless". A
+  trained-without-R arm is the only thing that settles it, and at 197,890
+  parameters (2.75 % of the model) the prize is small. **Not scheduled.**
+- **The 84 % volume-knob finding is NOT qualified by this.** The worry was that
+  it described only the multiplicative path while R did the real work. R carries
+  8.6 % of the energy and removing it changes nothing, so the mask really is
+  the model. **The structural finding stands, and is now stronger.**
+
+### The reusable part
+
+`Estimator.residual_scale` and `Estimator.capture_parts`, `--residual-scale` on
+`make_estimates.py`, `scripts/diagnose_residual.py`,
+`tests/test_residual_ablation.py` (6 tests). One of those tests feeds the model a
+SILENT mixture and asserts the output is non-zero: the capability to fabricate is
+real and is now pinned by a test, even though the measurement says it is not
+being used.
