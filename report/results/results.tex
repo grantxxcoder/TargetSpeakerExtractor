@@ -8,12 +8,12 @@
 \section{Content fidelity}
 \label{sec:results_content}
 
-\subsection{The live judge}
+\subsection{The live judge - Gemini Live}
 \label{sec:results_content_judge}
 
 \begin{table}[htbp]
 \centering
-\caption{Content recovered by the live judge. \texttt{gemini-3.7-flash}, audio in
+\caption{Content recovered Gemini Live. \texttt{gemini-3.7-flash}, audio in
 / text out}
 \label{tab:content_judge}
 \small
@@ -68,9 +68,9 @@ system closes, derived from \autoref{tab:content_judge} and
 \toprule
 system & listener & LCF-WER (\%) & ICR@2 (\%) & mean leak (\%) \\
 \midrule
-Ours (4{,}976) & judge & 10.5 & 17.9 & 20.8 \\
-Ours (9{,}955) & judge & 12.3 & 19.2 & 23.7 \\
-WeSep          & judge & \textbf{59.3} & \textbf{66.7} & \textbf{79.6} \\
+Ours (4{,}976) & Gemini Live & 10.5 & 17.9 & 20.8 \\
+Ours (9{,}955) & Gemini Live & 12.3 & 19.2 & 23.7 \\
+WeSep          & Gemini Live & \textbf{59.3} & \textbf{66.7} & \textbf{79.6} \\
 \midrule
 Ours (4{,}976) & ASR   & 10.4 & 18.8 & 23.7 \\
 Ours (9{,}955) & ASR   & 9.6  & 24.6 & 32.6 \\
@@ -100,7 +100,7 @@ WeSep          & ASR   & \textbf{51.6} & \textbf{76.8} & \textbf{82.4} \\
 \label{tab:error_split}
 \begin{tabular}{@{}lcccccc@{}}
 \toprule
-& \multicolumn{3}{c}{judge} & \multicolumn{3}{c}{offline ASR} \\
+& \multicolumn{3}{c}{Gemini Live} & \multicolumn{3}{c}{Offline ASR} \\
 \cmidrule(lr){2-4}\cmidrule(lr){5-7}
 system & $S$ & $D$ & $I$ & $S$ & $D$ & $I$ \\
 \midrule
