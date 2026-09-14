@@ -1,10 +1,13 @@
 # D17 ARM: the mask-structure term. decisions-pending.md 2026-09-13.
 #
-# ############################################################################
-# # NOT READY TO TRAIN. w_struct BELOW IS 0.0, WHICH IS THE BASELINE.        #
-# # Run scripts/derive_w_struct.py first and paste the derived value in.     #
-# # Training this file as it stands runs the CONTROL, not the arm.           #
-# ############################################################################
+# w_struct = 46.2981, DERIVED 2026-09-13 by scripts/derive_w_struct.py at a
+# 15 % parameter-gradient share over 50 crops of sir0_val, re-measured 0.1500.
+# experiments/results/2026-09-13-wstruct-anchor-sir0. NOT chosen by hand.
+#
+# CAVEAT CARRIED: derived at chunk_s 1.0 because a 4.008 s crop exhausted a 15 GB
+# machine; training uses 4.008. The share is a ratio over the same crops so it
+# should be stable, but that has NOT been checked. Re-derive on a T4 before this
+# number is quoted in the write-up. decisions-m3.md 2026-09-13.
 #
 # Identical to bsrnn_baseline.yaml in every other respect, so the arm and its
 # control differ in ONE axis. Do not edit anything else here.
@@ -192,15 +195,15 @@ loss:
   # but contributes no gradient, exactly as L_gain was shipped off while
   # derive_w_g.py read it. Set this from scripts/derive_w_struct.py against a
   # measured anchor -- never by hand, and never before that script has run.
-  w_struct: 0.0
+  w_struct: 46.2981
   struct_floor_db: -40.0   # a mixture bin this far under the clip's peak is
                            # treated as silent and excluded. |target|/|mixture|
                            # is meaningless where the denominator is noise.
   log_struct: true         # compute and log L_struct even at w_struct 0. One
                            # extra STFT pair per batch; measure the step-time
                            # cost before quoting it.
-  ablate_w_struct: [0.0]   # filled in once the weight is derived. The 0 arm is
-                           # the baseline and is required.
+  ablate_w_struct: [0.0, 46.2981]   # the 0 arm IS bsrnn_baseline.yaml and is
+                                    # already trained: model_sir0_10000-e6.pt.
 
 training:
   amp: true             # Automatic Mixed Precision: fp16 for the model forward,
