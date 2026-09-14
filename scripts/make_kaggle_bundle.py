@@ -78,6 +78,13 @@ CODE = [
     "src/models/state_teacher.py",
     "scripts/profile_state_teacher.py",
     "experiments/configs/bsrnn_state.yaml",
+    # Reachable from train.py through bsrnn.py / dataset_loader.py and missing
+    # until 2026-09-14, when the bundle verifier caught the ImportError. Head A
+    # (D14) added them; the CODE list was never updated. Found by walking the
+    # import graph rather than by guessing -- do that again if this breaks.
+    "src/models/state_head.py",
+    "src/data/state_labels.py",
+    "src/data/vad.py",              # state_labels does `from src.data import vad`
     "src/models/modules.py",
     "src/models/stft.py",
     "experiments/configs/bsrnn_baseline.yaml",
