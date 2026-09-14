@@ -1212,3 +1212,64 @@ number from it is compared to anything. Re-measurement was started 2026-09-13.
 
 `>= +5` now spans +5..+15, wider than the other bands. Split it into +5..+10 and
 +10..+15 when reporting, or the top band averages two different difficulties.
+
+## 2026-09-13/14 — the anchors on `sir0_privval`, and they are NOT the sir0_val anchors
+
+`experiments/results/2026-09-13-eval-privval-anchors`, `both` condition,
+faster-whisper `small.en` STAND-IN, not a live-model result.
+
+| | sir0_val (103 trials) | **sir0_privval** |
+|---|---|---|
+| floor, raw mixture | 65.22 | **53.49** |
+| ceiling, clean target | 5.85 | **3.90** |
+| floor ICR@2 | 66.99 | 60.49 |
+| floor mean_leak | 51.30 | 43.92 |
+
+**The new set's floor is 11.7 LCF-WER points easier, exactly as designed and
+exactly as warned.** SIR runs to +15 dB here against +10 on `sir0_val`, so the
+raw mixture is more often already intelligible. **Nothing measured on
+`sir0_privval` may be compared to a `sir0_val` number**, and the per-SIR-band
+reporting is what makes results from this split mean anything.
+
+The usable range narrows too: floor-to-ceiling is 49.6 points here against 59.4
+on `sir0_val`. More trials bought resolution; the wider SIR range spent some of
+the dynamic range. Both are real and both must be stated.
+
+---
+
+## 2026-09-13 — w_struct DERIVED. The mask is 99.6 % of the way to a pure volume knob
+
+`scripts/derive_w_struct.py`, `experiments/results/2026-09-13-wstruct-anchor-sir0`,
+50 present crops, `model_sir0_10000-e6.pt`, 10 min CPU.
+
+| anchor | mean L_struct |
+|---|---|
+| flat mask (pure volume knob) | 0.165366 |
+| **our model's mask** | **0.164718** |
+| oracle (ideal mask itself) | **0.000000** |
+
+**Our mask sits 99.6 % of the way from the ideal mask to a flat one.**
+
+The oracle reading exactly 0.000000 is the wiring check: the loss and its target
+are on the same STFT grid. If that were nonzero the term would be supervising
+against a misaligned object and nothing else would catch it.
+
+**This is an INDEPENDENT confirmation of the 84.2 % finding**, measured a
+different way and in the units the loss actually uses -- not "how much variance
+is one number per frame" but "how far is this mask's frequency shape from flat".
+Two methods, same conclusion.
+
+**w_struct = 46.2981** at a 15 % gradient share on the PARAMETERS, re-measured at
+0.1500. Large only because L_struct is numerically tiny beside the other terms.
+
+### Two caveats that travel with the number
+
+**Derived at chunk_s 1.0, training uses 4.008.** Memory forced it: one LSTM layer
+in this stack allocates ~381 MB of activations at batch 1, twelve are retained
+for backward, and the first version of the script took a 15 GB machine down. The
+share is a ratio measured on the same crops so it should be stable, but **this
+has not been checked**. Re-derive at 4.008 on a T4 before the number is quoted in
+the write-up.
+
+**Small-sample instability is real:** 17.4 at 2 crops, 124.6 at 4, 46.3 at 50.
+Do not use a derivation under ~50 crops for anything.
