@@ -220,7 +220,8 @@ def w_at_epoch(config, epoch):
 
 # One definition, used by both the stdout line and history.csv -- so a log
 # pasted out of a killed run is a valid history.csv with no editing.
-HISTORY_FIELDS = ["total", "L_pres", "L_MR", "L_gain", "L_abs", "L_state", "n_present", "n_absent"]
+HISTORY_FIELDS = ["total", "L_pres", "L_MR", "L_gain", "L_abs", "L_state", "L_struct",
+                  "n_present", "n_absent"]
 
 # VAL-ONLY leading indicators; the loss terms are lagging ones.
 #   enrol_sens_db    output movement on an enrolment swap. Near 0 dB = strongly
@@ -277,6 +278,15 @@ def format_epoch_breakdown(epoch, num_epochs, tr, va, epoch_seconds, w_trained):
     the signature of reward-model overoptimisation, and it is why `L_state`
     appears in no selection mode. decisions-pending.md D14.
 
+    `L_struct` (D17) prints on the same terms. It is the mask's frequency SHAPE
+    error against the ideal mask with each frame's mean removed, so it is the
+    only column that says whether the model is still applying a broadband gain
+    rather than choosing bins. LOWER IS BETTER and 0.0 is the oracle's score.
+    It is deliberately NOT in `total` (see epoch_report), so this column is the
+    only place it can be read -- before 2026-09-14 it was computed every batch
+    and then dropped here and from HISTORY_FIELDS, which made the D17 arm
+    unreadable while still paying its cost.
+
     Goes to stderr on purpose: stdout carries one CSV row per epoch and must
     stay a valid history.csv so a killed Kaggle session can be recovered by
     pasting it into a file. See scripts/make_kaggle_notebook.py.
@@ -286,10 +296,11 @@ def format_epoch_breakdown(epoch, num_epochs, tr, va, epoch_seconds, w_trained):
         f"lr {va['lr']:.2e}  w_trained {w_trained:.3f}",
         f"  {'term':<7} {'train':>10} {'val':>10} {'gap(val-train)':>15}",
     ]
-    for term in ("total", "L_pres", "L_MR", "L_gain", "L_abs", "L_state"):
-        # L_state is NaN if the teacher isnt used
+    for term in ("total", "L_pres", "L_MR", "L_gain", "L_abs", "L_state", "L_struct"):
+        # L_state and L_struct are NaN when their term is not in use -- skip the
+        # row rather than print a line of NaNs. The other four always apply.
         train_value, val_value = tr.get(term, float("nan")), va.get(term, float("nan"))
-        if term == "L_state" and not np.isfinite(train_value) \
+        if term in ("L_state", "L_struct") and not np.isfinite(train_value) \
                 and not np.isfinite(val_value):
             continue
         lines.append(f"  {term:<7} {train_value:>10.4f} {val_value:>10.4f} "
@@ -511,7 +522,13 @@ def epoch_report(sums, counts, w, wm, wg):
     # objective rather than an absent one.
     n_all = counts.get("all", 0)
     L_state = sums["L_state"] / n_all if n_all else float("nan")
-    L_struct = sums.get("L_struct", 0.0) / n_present if n_present else float("nan")
+    # NaN, not 0.0, when the term never ran, and here that matters MORE than it
+    # does for the four above: 0.0 is the ORACLE's score on this term (a perfect
+    # shape match, see derive_w_struct.py), so a disabled term logged as 0.0
+    # reads as a solved one. The key exists only where add_parts accumulated it,
+    # which it does only for a non-NaN L_struct.
+    L_struct = (sums["L_struct"] / n_present
+                if n_present and "L_struct" in sums else float("nan"))
 
     # `total` deliberately EXCLUDES the state term. It is the number
     # ReduceLROnPlateau and the curve read, and the four terms above are what it
