@@ -53,6 +53,19 @@ actually taken go to the decision log of the milestone they belong to —
   activations, which rules out 8-bit optimisers (~43 MB of ~13 GB) and audio
   compression (cannot touch GPU memory at all). Beyond 6 needs `hop` 128->256.
   See Group E.
+- **D18 — PROPOSAL: why `L_struct` FLATTENED the mask.** The shape term is an L1
+  to a target the model cannot predict, whose optimum is a flat mask. Free test,
+  no training. See the 2026-09-15 menu.
+- **D19 — PROPOSAL: run the flatness instrument on WeSep.** Is the volume knob
+  ours or the task's? No training run. The single cheapest redirect available.
+  See the 2026-09-15 menu.
+- **J5 — PROPOSAL: run-to-run training variance.** Ten training runs, all
+  `seed: 42`, no replicate anywhere. The third noise source is unmeasured and M6
+  needs it. See the 2026-09-15 menu.
+- **O1/O2/O3 — obligations, not options.** Score the struct control on
+  `sir0_privval` (1.2 h, its registered acceptance test is unrun), write D17 up,
+  and produce M6's stratified tables. See the 2026-09-15 menu.
+
 - **A1 needs sign-off only, not a decision.** Reference is the full reverberant
   target: separate and denoise, do not dereverberate. Removing a 0.6 s tail inside
   a 300 ms causal window is not possible, and trying trades residue for artefacts,
@@ -3210,3 +3223,138 @@ SAME way, so the confound cannot explain the result away — it reinforces it.
   `sir0_privval`, per SIR band, scores it.
 - **Single seed, n=50, one architecture.** Run-to-run training variance is still
   unmeasured and sits on top of every interval here.
+
+---
+
+## 2026-09-15 — THE MENU: what is open, what each costs, and what it buys
+
+**Written as a decision menu, not a decision.** Nothing below is taken. Every
+cost is from `run_times.md` or a completed comparable run; none is estimated.
+Ordered by information per hour, obligations first.
+
+### Obligations — these are not optional and two of them are cheap
+
+| # | what | cost | why it is not optional |
+|---|---|---|---|
+| **O1** | **Score the struct control on `sir0_privval`.** `2026-09-14-est-privval-control` is 1,421 rendered trials with a `meta.yaml`, and it has never been through `evaluate.py`. | **1.2 h**, measured | D17's config names LCF-WER on `sir0_privval` **per SIR band** as its acceptance test. The arm has that number (47.37); the control does not. **The arm is currently unjudged against its own registered test.** |
+| **O2** | **Write D17 up.** The arm ran, was evaluated four ways, and appears in no decision log. | ~1 h, writing | Project rule: every experiment gets a logged result. It is the only unlogged run in the repo. |
+| **O3** | **M6's stratified tables (B13) and latency curve (B11).** Scoring only, no training. | unmeasured; `evaluate.py` already emits the columns | M6 is the thesis's central finding and its checklist is 2 of 8. A headline aggregate must never appear alone. |
+
+### D17's result, stated here because the options below branch on it
+
+**In plain words: the arm was told to give the mask frequency detail, and it
+produced a mask with half the frequency detail it started with.** The live judge
+could not tell the two systems apart.
+
+| on `sir0_val` `both`, n=103, same trials | baseline e6 | struct e12 |
+|---|---|---|
+| LCF-WER (judge) | 55.59 | **55.36** (−0.23, inside the ~3-point paired floor) |
+| leakage ICR@2 | 61.17 | 65.05 (worse) |
+| fabrication FR@2 | 43.69 | 48.04 (worse) |
+| mask variation across frequency, `d_freq` | 0.0253 | **0.0121 — halved** |
+| freq/time ratio (ideal 1.014, must RISE) | 0.616 | **0.306 — fell** |
+
+**Flag, per the rule about headline numbers moving for bad reasons:** LCF-WER is
+flat and the *direction* is wrong on every diagnostic. Read this as a null with a
+mechanism, not as a tie.
+
+**And `train_L_struct` is absent from `2026-09-14-train-sir0-struct/history.csv`.**
+The logging fix landed alongside the run. **We cannot say whether the term
+descended.**
+
+---
+
+### D18. Why L_struct FLATTENED the mask — the degenerate-optimum hypothesis
+
+**Status: proposal. The cheap half needs no training.**
+
+**Hypothesis.** `_loss_mask_shape` is an energy-weighted **L1** between the
+model's mean-removed frequency shape and the oracle's. When the target is not
+predictable from the input, the L1-optimal constant prediction is the
+**conditional median of the oracle deviation, which is ~0** — i.e. a flat mask.
+So a shape loss the model cannot fit does not teach shape; **it actively pays the
+model to remove the shape it had.** That is exactly the measured signature.
+
+**Test 1, free, no training.** On cached crops, compute the term for (a) the
+model's mask, (b) a constant-zero shape, (c) the oracle. **If (b) beats (a), the
+term's own optimum is the flat mask** and every "supervise the shape" variant
+inherits the fault.
+
+**Test 2, one training run.** If Test 1 confirms it, the fix is a loss whose
+optimum is not zero — correlation or cosine across frequency (scale-free, so a
+flat prediction scores worst, not best), or a variance-matching penalty. Same
+weight-derivation procedure.
+
+**What it is worth.** D15's successor and D17 are the same idea; if the loss form
+is the fault, the idea has never actually been tested. If Test 1 refutes it, the
+shape idea is dead on evidence and M5 should spend its remaining weeks elsewhere.
+
+### D19. Is the volume knob OURS or the TASK'S? Run the flatness instrument on WeSep
+
+**Status: proposal. Cheapest high-information item on this page.**
+
+WeSep `tfmap_context_causal_100` scores **26.40 LCF-WER against our 55.59** on the
+same 103 trials — floor 63.27, ceiling 1.05. It is causal, out of domain by its
+own config, and it beats us by ~29 points.
+
+**The measurement.** Point `scripts/measure_mask_flatness.py` at WeSep's mask.
+
+- **WeSep's `f/t` near the ideal 1.01** ⇒ the volume knob is a property of **our
+  objective**, and that is the most defensible finding in the project: a
+  published, better-scoring causal model on the same trials does not do it.
+- **WeSep's `f/t` also ~0.5** ⇒ the knob is what causal band-split masking does,
+  the flatness diagnosis does not explain the 29-point gap, **and D18/D15/D17 are
+  the wrong tree entirely.**
+
+Either answer redirects M5. Neither needs a training run. The one obstacle is
+reaching WeSep's internal mask rather than its waveform; if that is not
+exposed, the free fallback is the mask implied by output/input magnitude.
+
+**Carry the caveat:** different data, different objective, different training
+budget. This diagnoses *our* model; it is not a comparison claim.
+
+### J5. Run-to-run training variance — the third noise source, still unmeasured
+
+**Status: proposal. This one is uncomfortable and it is load-bearing.**
+
+**Ten training runs exist and every one is `seed: 42`.** No same-config replicate
+has ever been trained. Two noise sources are measured — trial sampling (~3 points
+paired, `decisions-m3.md` 2026-09-12) and judge SEM (~0.5) — and **the third,
+training itself, is a blank.**
+
+Consequence: the state arm's −1.72 and D17's −0.23 are both compared against an
+error bar nobody has drawn. Both were correctly written up as "did not improve"
+rather than "lost", but **M6 cannot claim two systems differ without this.**
+
+**The measurement.** Re-train `bsrnn_baseline.yaml` at two further seeds, score
+all three on the same 103 trials. Cost: 2 training runs plus 2 judge passes
+(14 min each, measured). **Do E8 first** — it roughly halves the training half.
+
+**Register before running:** if the seed spread exceeds ~3 points, no
+single-seed intervention in this project is separable from noise, and the M6
+write-up becomes a spread-versus-spread comparison rather than a point one.
+
+### Already-open items, re-costed against the above
+
+| id | one line | cost | verdict today |
+|---|---|---|---|
+| **E8 + E7** | fp32 batch probe writes batch 3 into an fp16 run that fits 6; then the second T4 is idle | ~half a day, ~2x throughput | **Do this first if anything in J5 or D13 runs.** It is the multiplier on every remaining training hour. |
+| **D13** | the per-band mix-back gate — **M5's actual scoped deliverable, and it is not built** | one build + one run | Oracle ceiling 2.2 points against a ~3-point paired floor. **Declare the effect size and k before running**, or the null is uninterpretable. M6 already says this. |
+| **D4a** | `bsrnn_tfmap_inject.yaml` — built 2026-09-11, **never run** | one training run | A finished arm sitting unused. Cheapest untested modelling change on the page. |
+| **D2** | attention temperature, one line of code | an afternoon | D7 records it as run but never logged as an arm. Either log it or re-run it as one. |
+| **D14** | state teacher | done | Measured and written up. No further arm without a reason. |
+| **D1** | phoneme-template cue | M5-scale | **Do not start.** Gated on D2, and M5 is cuttable with ~4 weeks left. |
+
+### The sequencing this implies
+
+1. **O1** (1.2 h) — finishes D17 against its own test.
+2. **D19** + **D18 Test 1** — both free of training, both redirect M5.
+3. **O2**, then **E8/E7**.
+4. Then **one** of D13 or J5, chosen by what 2 and 3 say. **Not both — there is
+   not room before 14 October**, and M6 must still run.
+
+**The honest reading of the last three arms.** The state teacher moved its own
+term and lost the metric; D17 moved its own diagnostic the wrong way and drew;
+the data hypothesis was refuted outright. Three interventions, no gain. **D19 is
+on this list because it is the only item that asks whether the diagnosis itself
+is right**, and it costs no training.
