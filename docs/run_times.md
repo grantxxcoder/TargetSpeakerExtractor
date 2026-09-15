@@ -21,6 +21,13 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
 <!-- rows appended below by src/run_log.py -->
+| 2026-09-15 | `scripts/make_estimates.py` | 0 trials, sir0ext **(failed)** | 34 min | cpu, whole-clip |
+| 2026-09-15 | `scripts/evaluate.py` | --split sir0_privval --condition both --est /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-15-est-struct-e8 --metrics content --out /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-15-eval-struct-e8-asr | 1.2 h |  |
+| 2026-09-15 | `scripts/make_estimates.py` | 1421 trials, sir0ext | 2.9 h | cpu, whole-clip |
+| 2026-09-15 | `scripts/evaluate.py` | --split sir0_privval --condition both --est /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-14-est-struct-e12 --metrics content --out /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-14-eval-struct-e12-asr | 1.2 h |  |
+| 2026-09-15 | `scripts/make_estimates.py` | 1421 trials, sir0ext | 3.4 h | cpu, whole-clip |
+| 2026-09-14 | `scripts/measure_mask_flatness.py` | 4 checkpoints x 50 trials | 51 min | cpu, whole-clip |
+| 2026-09-14 | `scripts/make_estimates.py` | 1421 trials, sir0ext | 3.6 h | cpu, whole-clip |
 | 2026-09-13 | `scripts/evaluate.py` | --split sir0_privval --condition both --systems floor,ceiling --metrics content --out experiments/results/2026-09-13-eval-privval-anchors | 1.4 h |  |
 | 2026-09-13 | `scripts/derive_w_struct.py` | 50 crops, sir0 | 10 min | cpu, two backward passes per batch |
 | 2026-09-13 | `scripts/derive_w_struct.py` | 2 crops, sir0 | 2 min | cpu, two backward passes per batch |
