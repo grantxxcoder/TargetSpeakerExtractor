@@ -112,4 +112,4 @@ real conversational TSE.
   so in the same breath as reporting it.
 
 ## Current phase
-Phase 2: data preparation
+Milestone 5: teacher-trainer

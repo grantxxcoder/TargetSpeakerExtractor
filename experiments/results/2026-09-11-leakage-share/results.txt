@@ -1,0 +1,60 @@
+Leakage share of the transcription error -- D14 step 0
+=======================================================
+date          2026-09-11
+command       ../tse_venv/bin/python scripts/analyse_leakage_share.py
+split         sir0_val, condition both, n=103
+transcripts   experiments/results/transcripts.csv, cached, allow_new=False
+              (no ASR pass ran; identical transcripts to the published numbers)
+
+QUESTION.  D14 gates the whole speaker-state family on one thing: is the other
+speaker's voice leaking into our output the dominant cause of transcription
+error?  If not, head B has no motivation.
+
+ANSWER.  Yes, it is the largest single cause -- 58.5 % of our wrong content
+words are words the interferer actually said -- but it is not all of it, and
+41.5 % is words nobody said.
+
+PUBLISHED AGGREGATE, read back from 2026-09-04 (it already existed)
+  system                WER    sub    del    ins   ICR@2   leaked
+  floor (mixture)      65.2   32.9    9.3   23.1   67.0 %   51.3 %
+  ours  (baseline)     59.5   28.2   11.8   19.5   50.5 %   34.6 %
+  WeSep                34.6   18.5    8.9    7.2   15.5 %    9.0 %
+  ceiling (clean)       5.8    3.4    0.7    1.7    0.0 %    0.0 %
+
+ERROR-MASS ATTRIBUTION (new)
+  content words reported that the target did not say, split by who said them
+  system            wrong   interferer's   nobody's   leakage share
+  floor               904            635        269         70.2 %
+  ours                742            434        308         58.5 %
+  WeSep               406             94        312         23.2 %
+  ceiling              91              0         91          0.0 %
+
+PER-TRIAL CORRELATION, leaked fraction vs WER, within one system (new)
+  ours   rho = +0.622   n=103
+  WeSep  rho = +0.468   n=103
+  floor  rho = +0.628   n=103
+
+LEAKAGE QUARTILES, ours
+  least-leaky quarter    WER  24.9 %
+  most-leaky quarter     WER 101.5 %      spread +76.6 points
+
+CONFOUND CONTROL -- does it survive when difficulty is held fixed?  ours
+  stratum               n    rho     mean WER   mean leaked
+  overlap low          65  +0.602      64.4 %      37.4 %
+  overlap mid          33  +0.740      66.6 %      31.2 %
+  target louder        42  +0.687      42.1 %      14.5 %
+  interferer louder    55  +0.300      89.0 %      53.8 %
+  Survives everywhere measurable.  The weak cell is a ceiling effect: at 89 %
+  WER there is no room left for more leakage to show.
+
+TWO CAUTIONS, both measured here
+  1. WeSep has MORE invented words than us in absolute terms (312 vs 308)
+     despite solving leakage.  Removing leakage does not remove that residue.
+     The addressable prize is ~434 words, not 742.
+  2. Our model DELETES more target content than handing over the mixture does
+     (11.8 vs 9.3 points; ceiling 0.7).  Head B's pressure is one-sided -- it
+     rewards making no non-target voice audible and says nothing about keeping
+     the target audible.  Watch deletion rate and enrolment sensitivity on the
+     M5 arm, not L_state alone.
+
+VERDICT.  Step 0 passes.  Head B proceeds.

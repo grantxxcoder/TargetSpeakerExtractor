@@ -152,11 +152,12 @@ class TrialDataset(torch.utils.data.Dataset):
             snr_used = snr_used if snr_new is None else snr_new
 
         out = [self._example(idx, row, trial_directory, "target",
-                             mixture_audio, target_audio, sir_used, snr_used)]
+                             mixture_audio, target_audio, sir_used, snr_used,
+                             start_offset)]
         if self.both_directions:
             out.append(self._example(idx, row, trial_directory, "interferer",
                                      mixture_audio, interferer_audio,
-                                     sir_used, snr_used))
+                                     sir_used, snr_used, start_offset))
         return out
 
     def _remix(self, idx, row, mixture, target, interferer):
@@ -246,7 +247,7 @@ class TrialDataset(torch.utils.data.Dataset):
                 group.loc[group["target_absent"] == 0, "snr_db"].to_numpy(float))
 
     def _example(self, idx, row, trial_directory, which, mixture_audio,
-                 target_audio, sir_used, snr_used):
+                 target_audio, sir_used, snr_used, crop_start=0):
         """One training example. `which` selects the direction:
 
             "target"      target.wav                + enrollment.wav
@@ -274,6 +275,15 @@ class TrialDataset(torch.utils.data.Dataset):
             "trial_id": str(row["trial_id"]),
             "direction": which,
             "meta": {
+                # WHERE THIS CROP STARTS, in samples. Reported because any script
+                # that wants to line a STEM up with this example has to read the
+                # stem at the same offset, and `random_crop=False` does NOT mean
+                # offset 0 -- it means a deterministic offset drawn from
+                # (seed, 0, idx). derive_w_state.py assumed 0 and its synthetic
+                # partial-suppression anchors were a time-shifted second copy of
+                # the interferer as a result, which read as MORE voices the more
+                # the interferer was attenuated. decisions-m2.md 2026-09-12.
+                "crop_start":       int(crop_start),
                 "condition":        str(row["condition"]),
                 "clip_absent":      bool(row["target_absent"]),
                 # REALISED, not as rendered: these differ from the manifest

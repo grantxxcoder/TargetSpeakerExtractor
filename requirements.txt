@@ -67,3 +67,18 @@ librosa==1.0.0
 # The three ONNX models are snapshotted into
 # src/live_model_metric/dnsmos_onnx/ with their SHA-256 recorded, because
 # DNSMOS is a learned model and drifts between releases.
+
+# --- speaker embeddings for the state detector (decisions-pending.md D14) --
+# ECAPA-TDNN (Desplanques et al., Interspeech 2020), SpeechBrain's VoxCeleb
+# checkpoint, snapshotted to ../ecapa_pretrained/ with hashes pinned. Used
+# FROZEN as the state detector's backbone -- never trained, and never the
+# judge.
+# 1.1.1 specifically: 1.0.3 and earlier call torchaudio.list_audio_backends(),
+# which torchaudio 2.11 removed.
+speechbrain==1.1.1
+
+# --- hyperparameter search for the state detector (decisions-pending.md D14) --
+# Akiba et al., KDD 2019, "Optuna: A Next-generation Hyperparameter
+# Optimization Framework". Used for the teacher's head only -- the extractor's
+# hyperparameters are set by the derivations in decisions-m2.md, not searched.
+optuna==5.0.0

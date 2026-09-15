@@ -92,6 +92,17 @@ BATCH_FLOOR = 2       # give up below this
 NUM_WORKERS = 4       # 0 starves the GPU: 3 windowed wav reads per crop
 RESUME_FROM = None    # e.g. "/kaggle/input/prev-run/models/model_sir0.pt"
 
+# THE CONFIG THAT TRAINS, and the arm the run is. bsrnn_baseline.yaml is the
+# w_struct=0 control; bsrnn_struct.yaml is the structure-loss arm (w_struct
+# 46.2981, derived 2026-09-13 by scripts/derive_w_struct.py).
+#
+# Declared ONCE and threaded through the staging check, the batch probe, the
+# training call and the archived copy. It was hardcoded to bsrnn_baseline.yaml
+# in six separate places; editing only some of them probes one arm, trains
+# another, and archives a third, and every one of those runs still prints
+# "OK" -- a silently wrong arm, not a crash. decisions-pending.md E8.
+CONFIG      = "experiments/configs/bsrnn_baseline.yaml"
+
 # The two Kaggle dataset mount points. Change only if you rename the datasets.
 DATA_DIR     = "/kaggle/input/tse-audio-s0-v3"   # the dataset holding the audio
 DATA_DIR_NEW = None    # SECOND audio dataset, or None. Set this only when the
@@ -150,7 +161,7 @@ print(f"data: {DATA}" + (f"\ndata (new half): {DATA_NEW}" if DATA_NEW else "")
 # something obscure. If a path is wrong, the Kaggle right-hand Input panel shows
 # the real one -- copy it into the knobs cell above.
 for base, rel in [(CODE, "scripts/train.py"),
-                  (CODE, "experiments/configs/bsrnn_baseline.yaml"),
+                  (CODE, CONFIG),
                   (CODE, "src/models/bsrnn.py")]:
     if not (base / rel).exists():
         raise SystemExit(f"missing: {base / rel}\n"
@@ -274,7 +285,7 @@ if chk.returncode:
     raise SystemExit(f"staged code at {REPO} does not import:\n{chk.stderr}")
 print("  staged code imports OK")
 
-cfg_path = Path(REPO) / "experiments/configs/bsrnn_baseline.yaml"
+cfg_path = Path(REPO) / CONFIG
 cfg = yaml.safe_load(cfg_path.read_text())
 cfg["data"]["batch_size"]  = BATCH_SIZE
 cfg["data"]["num_workers"] = NUM_WORKERS
@@ -321,9 +332,12 @@ import sys, yaml, torch
 from pathlib import Path
 sys.path.insert(0, ".")
 from scripts.train import (get_data_loaders, build_model, build_loss_fn, unpack,
-                           amp_ctx)
-B, data, split = int(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
-cfg = yaml.safe_load(open("experiments/configs/bsrnn_baseline.yaml"))
+                           amp_ctx, oracle_mask_and_mag)
+# argv, NOT a notebook global: this runs in its OWN subprocess (see the comment
+# in the driver below), so a bare CONFIG here is a NameError at import time.
+B, data, split, config = (int(sys.argv[1]), Path(sys.argv[2]), sys.argv[3],
+                          sys.argv[4])
+cfg = yaml.safe_load(open(config))
 cfg["data"]["batch_size"] = B
 torch.manual_seed(int(cfg["seed"]))
 dev = torch.device("cuda")
@@ -331,6 +345,21 @@ dev = torch.device("cuda")
 # train, val and the diagnostic cannot drift into different precisions, and this
 # probe is subject to exactly that requirement.
 use_amp = bool(cfg["training"].get("amp", False))
+# D17 (2026-09-13). train.py retains the (B, F, T) mask in the graph and
+# allocates the oracle and the mixture magnitude whenever w_struct > 0 OR
+# log_struct is on -- and log_struct ships TRUE in BOTH configs, so this is on
+# for the baseline too, not just the structure arm. A probe that omits them
+# measures a run that never happens and blesses a batch that OOMs in epoch 1.
+# Exactly the class of bug E8 records for fp32-vs-AMP; the D17 change never
+# reached this probe.
+want_mask = (float(cfg["loss"].get("w_struct", 0.0)) > 0.0
+             or bool(cfg["loss"].get("log_struct", True)))
+
+# GradScaler starts at 65536 and HALVES on every skipped step, so 25 skips puts
+# the scale under 0.002. Anything still overflowing there is not calibration.
+# The old budget of 5 stopped at scale 2048, well inside the range a healthy
+# run calibrates through, and reported a real batch size as inconclusive.
+CALIB_STEPS = 25
 scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 tr, _ = get_data_loaders(split, data / "manifests", data, cfg)
 m = build_model(cfg).to(dev); m.train()
@@ -352,8 +381,21 @@ for i, b in enumerate(tr):
     # before the loss (LossBSRNN's 1e-12 epsilons underflow in fp16), then
     # scale / unscale / clip / step / update.
     with amp_ctx(use_amp):
-        out = m(x, e)
-    loss, _ = L(s, out.float(), x, a)
+        if want_mask:
+            out, mask = m(x, e, return_mask=True)
+        else:
+            out, mask = m(x, e), None
+    oracle, mix_mag = (oracle_mask_and_mag(m, s, x) if want_mask
+                       else (None, None))
+    loss, _ = L(s, out.float(), x, a,
+                mask=None if mask is None else mask.float(),
+                oracle_mask=oracle, mixture_mag=mix_mag)
+    # A non-finite loss makes the scaler skip FOREVER, which is indistinguishable
+    # from a too-small calibration budget unless it is checked for directly.
+    if not torch.isfinite(loss):
+        raise SystemExit(f"PROBE-NONFINITE {B}: loss is {loss.item()} on batch "
+                         f"{i}; the scaler would skip every step regardless of "
+                         f"budget. Numerical bug, NOT a batch-size result.")
     scaler.scale(loss).backward()
     scaler.unscale_(opt)
     torch.nn.utils.clip_grad_norm_(m.parameters(), grad_clip)
@@ -362,20 +404,28 @@ for i, b in enumerate(tr):
     if opt.state:
         applied = True
         break
-    if i >= 4:
+    # stderr, NOT stdout: stdout carries the single machine-read result line
+    # and the driver parses it. A diagnostic printed there is not a log message,
+    # it is corrupt output.
+    print(f"   step {i}: skipped, scale now {scaler.get_scale():g}",
+          file=sys.stderr, flush=True)
+    if i >= CALIB_STEPS - 1:
         break
 torch.cuda.synchronize()
 if not applied:
-    raise SystemExit(f"PROBE-INCONCLUSIVE {B}: GradScaler skipped every step, "
-                     f"so AdamW state was never allocated and the peak is an "
-                     f"underestimate. Do not trust this batch size.")
+    raise SystemExit(f"PROBE-INCONCLUSIVE {B}: GradScaler skipped all "
+                     f"{CALIB_STEPS} steps (scale down to "
+                     f"{scaler.get_scale():g}), so AdamW state was never "
+                     f"allocated and the peak is an underestimate. The loss was "
+                     f"finite throughout, so this is not a NaN. Do not trust "
+                     f"this batch size.")
 print(f"OK {B} {torch.cuda.max_memory_allocated() / 2**30:.2f} "
       f"{torch.cuda.max_memory_reserved() / 2**30:.2f} "
       f"{'amp' if use_amp else 'fp32'}")
 """)
 
 import yaml
-cfg_path = Path(REPO) / "experiments/configs/bsrnn_baseline.yaml"
+cfg_path = Path(REPO) / CONFIG
 cfg = yaml.safe_load(cfg_path.read_text())
 
 if RESUME_FROM:
@@ -393,14 +443,17 @@ else:
     cands = sorted(set(cands), reverse=True)
     chosen = None
     for B in cands:
-        r = subprocess.run([sys.executable, "_probe_batch.py", str(B), str(DATA_ROOT), SPLIT],
+        r = subprocess.run([sys.executable, "_probe_batch.py", str(B), str(DATA_ROOT),
+                            SPLIT, CONFIG],
                            cwd=REPO, capture_output=True, text=True)
-        if r.returncode == 0 and r.stdout.startswith("OK"):
+        ok_line = next((ln for ln in r.stdout.splitlines()
+                        if ln.startswith("OK ")), None)
+        if r.returncode == 0 and ok_line:
             # 5 fields since 2026-09-04: the last one is the precision probed,
             # and it MUST read `amp` whenever training.amp is on. A probe in the
             # wrong precision measures a run that never happens -- that is how
             # every Kaggle run got capped at the fp32 ceiling. E8.
-            _, b_ok, peak, res, prec = r.stdout.split()
+            _, b_ok, peak, res, prec = ok_line.split()
             print(f"  batch {B:2d}: FITS   peak allocated {peak} GiB, "
                   f"reserved {res} GiB, probed in {prec}")
             if prec != ("amp" if cfg["training"].get("amp") else "fp32"):
@@ -409,14 +462,26 @@ else:
                                  f"found is for the wrong precision")
             chosen = B
             break
+        if "PROBE-NONFINITE" in r.stderr:
+            print(r.stderr[-500:])
+            raise SystemExit(f"probe hit a non-finite loss at batch {B}: this is "
+                             f"a numerical bug in the objective, not a memory "
+                             f"limit. Fix it before sizing anything.")
         if "PROBE-INCONCLUSIVE" in r.stderr:
             print(r.stderr[-500:])
             raise SystemExit(f"probe inconclusive at batch {B}: see above")
         if "OutOfMemoryError" in r.stderr or "out of memory" in r.stderr.lower():
             print(f"  batch {B:2d}: OOM")
             continue
-        print(r.stderr[-1500:])
-        raise SystemExit(f"probe failed at batch {B} for a reason other than OOM")
+        # The SystemExit below is NOT the error -- it is the handler. The real
+        # traceback is the block printed here, so label it loudly enough that it
+        # gets read (and pasted) instead of the one-line exit message.
+        print(f"\n{'='*70}\n  THE ACTUAL ERROR FROM _probe_batch.py (batch {B}) "
+              f"-- read/paste THIS:\n{'='*70}")
+        print(r.stderr[-3000:] or "(probe wrote nothing to stderr)")
+        print("=" * 70, flush=True)
+        raise SystemExit(f"probe failed at batch {B} for a reason other than OOM "
+                         f"-- the real traceback is in the block above, not here")
     if chosen is None:
         raise SystemExit(f"nothing fits down to BATCH_FLOOR={BATCH_FLOOR}. "
                          "Reduce data.chunk_s or the model width.")
@@ -455,7 +520,7 @@ cells.append(code(r'''
 cmd = [sys.executable, "-u", "scripts/train.py",
        "--split", SPLIT,
        "--epochs", str(EPOCHS),
-       "--config", "experiments/configs/bsrnn_baseline.yaml",
+       "--config", CONFIG,
        "--data-root", str(DATA_ROOT),
        "--manifest-dir", str(MANIFEST_DIR),
        "--outdir", OUT,
@@ -508,9 +573,9 @@ with zipfile.ZipFile(bundle, "w", zipfile.ZIP_DEFLATED) as z:
     for f in sorted(Path(RES).rglob("*")):
         if f.is_file():
             z.write(f, f"results/{f.name}")
-    cfgp = Path(REPO) / "experiments/configs/bsrnn_baseline.yaml"
+    cfgp = Path(REPO) / CONFIG
     if cfgp.exists():
-        z.write(cfgp, "bsrnn_baseline.yaml")      # the config that actually ran
+        z.write(cfgp, Path(CONFIG).name)          # the config that actually ran
     rt = Path(REPO) / "docs/run_times.md"
     if rt.exists():
         z.write(rt, "run_times.md")

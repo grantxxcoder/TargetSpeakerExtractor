@@ -21,6 +21,59 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
 <!-- rows appended below by src/run_log.py -->
+| 2026-09-15 | `scripts/evaluate.py` | --split sir0_val --condition both --est /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-15-est-struct-e12-sir0val --metrics content --out /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-15-eval-struct-e12-sir0val-asr | 7 min |  |
+| 2026-09-15 | `scripts/make_estimates.py` | 103 trials, sir0 | 16 min | cpu, whole-clip |
+| 2026-09-15 | `scripts/make_estimates.py` | 0 trials, sir0ext **(failed)** | 34 min | cpu, whole-clip |
+| 2026-09-15 | `scripts/evaluate.py` | --split sir0_privval --condition both --est /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-15-est-struct-e8 --metrics content --out /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-15-eval-struct-e8-asr | 1.2 h |  |
+| 2026-09-15 | `scripts/make_estimates.py` | 1421 trials, sir0ext | 2.9 h | cpu, whole-clip |
+| 2026-09-15 | `scripts/evaluate.py` | --split sir0_privval --condition both --est /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-14-est-struct-e12 --metrics content --out /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-14-eval-struct-e12-asr | 1.2 h |  |
+| 2026-09-15 | `scripts/make_estimates.py` | 1421 trials, sir0ext | 3.4 h | cpu, whole-clip |
+| 2026-09-14 | `scripts/measure_mask_flatness.py` | 4 checkpoints x 50 trials | 51 min | cpu, whole-clip |
+| 2026-09-14 | `scripts/make_estimates.py` | 1421 trials, sir0ext | 3.6 h | cpu, whole-clip |
+| 2026-09-13 | `scripts/evaluate.py` | --split sir0_privval --condition both --systems floor,ceiling --metrics content --out experiments/results/2026-09-13-eval-privval-anchors | 1.4 h |  |
+| 2026-09-13 | `scripts/derive_w_struct.py` | 50 crops, sir0 | 10 min | cpu, two backward passes per batch |
+| 2026-09-13 | `scripts/derive_w_struct.py` | 2 crops, sir0 | 2 min | cpu, two backward passes per batch |
+| 2026-09-13 | `scripts/evaluate.py` | --split sir0_privval --condition both --systems floor,ceiling --metrics content --out experiments/results/2026-09-13-eval-privval-anchors **(failed)** | 4.6 h |  |
+| 2026-09-13 | `scripts/measure_mask_flatness.py` | 5 checkpoints x 50 trials | 1.6 h | cpu, whole-clip |
+| 2026-09-13 | `scripts/make_estimates.py` | 0 trials, sir0ext **(failed)** | 2.2 h | cpu, whole-clip |
+| 2026-09-13 | `scripts/make_estimates.py` | 0 trials, sir0ext **(failed)** | 36 min | cpu, whole-clip |
+| 2026-09-13 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-13-est-noresidual --metrics content --out experiments/results/2026-09-13-eval-noresidual | 22 min |  |
+| 2026-09-13 | `scripts/make_estimates.py` | 103 trials, sir0 | 47 min | cpu, whole-clip |
+| 2026-09-13 | `scripts/diagnose_mask_structure.py` | 12 trials, sir0_val | 16 min | cpu, whole-clip, contended with two other jobs (load avg 16) |
+| 2026-09-13 | `scripts/make_estimates.py` | 0 trials, sir0ext **(failed)** | 8 min | cpu, whole-clip |
+| 2026-09-13 | `scripts/evaluate.py` | --split sir0_privval --condition both --systems floor,ceiling --metrics content --limit 2 --out /home/grant/.claude/jobs/c82a808a/tmp/anchor-smoke | 2 min |  |
+| 2026-09-13 | `scripts/diagnose_residual.py` | 103 trials, sir0 | 20 min | cpu, whole-clip |
+| 2026-09-13 | `scripts/render_trials.py --split sir0_privval` | 2,800 trials rendered | 30 min | 8 workers, 16 kHz PCM_16 |
+| 2026-09-13 | `pytest tests/ -q` | 492 tests | 23 min | added by hand; the suite crossed the 1-minute threshold long ago and was never logged again after 08-15 |
+| 2026-09-12 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-12-est-hystfix-mild --metrics content --out experiments/results/2026-09-12-eval-hystfix-mild | 5 min |  |
+| 2026-09-12 | `scripts/make_estimates.py` | 103 trials, sir0 | 12 min | cpu, whole-clip |
+| 2026-09-12 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-12-est-hystfix-sharp --metrics content --out experiments/results/2026-09-12-eval-hystfix-sharp | 5 min |  |
+| 2026-09-12 | `scripts/make_estimates.py` | 103 trials, sir0 | 12 min | cpu, whole-clip |
+| 2026-09-12 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-12-est-hystint-mild --metrics content --out experiments/results/2026-09-12-eval-hystint-mild | 5 min |  |
+| 2026-09-12 | `scripts/make_estimates.py` | 103 trials, sir0 | 13 min | cpu, whole-clip |
+| 2026-09-12 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-12-est-hystint-sharp --metrics content --out experiments/results/2026-09-12-eval-hystint-sharp | 3 min |  |
+| 2026-09-12 | `scripts/make_estimates.py` | 103 trials, sir0 | 12 min | cpu, whole-clip |
+| 2026-09-12 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-12-est-follow-020 --metrics content --out experiments/results/2026-09-12-eval-follow-020 | 5 min |  |
+| 2026-09-12 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-12-est-follow-010 --metrics content --out experiments/results/2026-09-12-eval-follow-010 | 5 min |  |
+| 2026-09-12 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-12-est-hyst-hard --metrics content --out experiments/results/2026-09-12-eval-hyst-hard | 5 min |  |
+| 2026-09-12 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-12-est-hyst-mid --metrics content --out experiments/results/2026-09-12-eval-hyst-mid | 5 min |  |
+| 2026-09-12 | `pytest -q` | full suite, 474 tests, after the Estimator band-gather refactor | 5 min | run alongside the mask sweeps |
+| 2026-09-12 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-12-est-hyst-control --metrics content --out experiments/results/2026-09-12-eval-hyst-control | 6 min |  |
+| 2026-09-12 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-12-est-floor0.20 --metrics content --out experiments/results/2026-09-12-eval-floor0.20 | 5 min |  |
+| 2026-09-12 | `scripts/make_estimates.py` | 103 trials, sir0 | 12 min | cpu, whole-clip |
+| 2026-09-12 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-12-est-floor0.10 --metrics content --out experiments/results/2026-09-12-eval-floor0.10 | 8 min |  |
+| 2026-09-12 | `scripts/make_estimates.py` | 103 trials, sir0 | 14 min | cpu, whole-clip |
+| 2026-09-12 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-12-est-floor0.05 --metrics content --out experiments/results/2026-09-12-eval-floor0.05 | 9 min |  |
+| 2026-09-12 | `scripts/make_estimates.py` | 103 trials, sir0 | 14 min | cpu, whole-clip |
+| 2026-09-12 | `scripts/evaluate.py` | --split sir0_val --condition both --est /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-12-est-state-e6 --metrics content --out /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-12-eval-state-e6-asr | 6 min |  |
+| 2026-09-12 | `scripts/make_estimates.py` | 103 trials, sir0 | 13 min | cpu, whole-clip |
+| 2026-09-12 | `pytest -q` | full suite, 474 tests, after the crop-alignment fix | 9 min |  |
+| 2026-09-12 | `pytest tests/test_crop_alignment.py` | 7 tests, ramp fixtures | 2 min |  |
+| 2026-09-12 | `scripts/diagnose_state_teacher.py` | state teacher suppression ladder, sir0_val | 8 min |  |
+| 2026-09-11 | `pytest -q` | full suite, 467 tests (D4a added 20) | 3 min |  |
+| 2026-09-11 | `pytest -q` | full suite, 447 tests (head A added 25) | 5 min |  |
+| 2026-09-11 | `scripts/derive_w_state.py` | sir0, 6 batches | 18 min |  |
+| 2026-09-11 | `scripts/derive_w_state.py` | sir0, 6 batches | 17 min |  |
 | 2026-09-06 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-04-train-sir0-10000/ --metrics content --listener judge --judge-rpm 10 --out experiments/results/2026-09-06-evaluate-10000-judge | 12 min |  |
 | 2026-09-06 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-04-train-sir0-10000/ --metrics content --listener judge --judge-rpm 10 --out experiments/results/2026-09-06-evaluate-10000-judge **(failed)** | 85 s |  |
 | 2026-09-06 | `scripts/measure_rtf.py` | --checkpoint models/model_sir0_10000-e6.pt --chunk-ms 80 --threads 4 --device cpu --out experiments/results/2026-09-06-rtf-10000-cpu | 2 min |  |

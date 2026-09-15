@@ -366,6 +366,50 @@ splits:
         source_distance_m: [0.1, 2.0]
         target_activity_ratio: [0.45, 0.78]
 
+  # Expanded development split, added 2026-09-13. decisions-m3.md.
+  #
+  # WHY IT EXISTS. The paired bootstrap on 2026-09-12 measured sir0_val's
+  # resolution at +-8 LCF-WER points over its 103 `both` trials, so any arm
+  # moving the metric less than ~5 points is unreadable. Resolving a 2-point
+  # effect needs ~15x the trials. This split supplies them.
+  #
+  # SPEAKERS COME FROM eval_private, which was RELEASED from holdout duty on
+  # 2026-09-13 (Grant's decision). eval_public remains the untouched final
+  # holdout. The 20 speakers are disjoint from train, from val and from
+  # eval_public -- verified, not assumed.
+  #
+  # WHY NOT JUST REUSE THE eval_private RENDERS. They predate interferer.wav,
+  # which evaluate.py requires for EVERY leakage metric (ICR@2, mean_leak,
+  # wrong_from_interferer). Re-rendering is mandatory, so the distribution
+  # became a free choice rather than an inherited one.
+  #
+  # SIR IS WIDER THAN sir0_val, NOT EASIER: [-10, +15] is a SUPERSET of
+  # sir0_val's [-10, +10]. Measured 2026-09-12, the two ends are different
+  # problems -- at SIR < -5 dB leakage is 0.65 of our wrong content words and we
+  # beat the raw mixture by 1.3 WER; at SIR >= +5 leakage is 0.08 and we still
+  # sit 25 points above the clean-target ceiling. The easy end therefore
+  # isolates FABRICATION, which is 41.5 % of the error mass and has no other
+  # measurement in this project. Results on this split are reported PER SIR
+  # BAND, never as a single blended mean -- blending re-hides exactly the
+  # structure the widening was for.
+  #
+  # NOISE IS cv, NOT eval_private's tt. tt is the pool eval_public draws from,
+  # and developing against those clips would leak noise into the final holdout.
+  #
+  # Regimes copy sir0_val's block verbatim so the two splits differ in ONE axis.
+  sir0_privval:
+    n_trials: 2800
+    noise_split: cv
+    speakers_from: eval_private
+    sir_db: [-10.0, 15.0]
+    regimes:
+      weights: {base: 0.6, hard: 0.4}
+      base:
+        snr_db: [8.0, 20.0]
+        t60_s: [0.25, 0.5]
+        source_distance_m: [0.1, 2.0]
+        target_activity_ratio: [0.45, 0.78]
+
 # Mid-size prototyping split. NOT generated: these are deterministic,
 # condition-stratified SUBSETS of the manifests above, written by
 # scripts/make_subset_manifest.py and reading the already-rendered audio in

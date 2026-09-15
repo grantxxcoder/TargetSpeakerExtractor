@@ -143,12 +143,120 @@ class BandSequenceModel(nn.Module):
         super().__init__()
         self.blocks = nn.ModuleList(
             [BSNet(feature_dim, hidden_dim, causal) for _ in range(num_repeat)]
-        )   
-        
-    def forward(self, x):
-        for blk in self.blocks:
+        )
+
+    def forward(self, x, cue=None, gates=None):
+        """(B, K, N, T) -> (B, K, N, T).
+
+        `cue` and `gates` are D4a's per-block speaker-cue re-injection
+        (decisions-pending.md D4; built by conditioning.TFMapInjector). Both
+        default to None, which is the architecture frozen on 2026-08-28 --
+        arithmetically, not approximately, since the injection is an addition
+        that is skipped rather than an addition of zero.
+
+            cue    (B, K, N, T)   the TF-Map projected into feature space, one
+                                  tensor shared by every block
+            gates  (num_repeat, K)  how much of it block i takes in band k
+
+        THE CUE IS ADDED BEFORE EVERY BLOCK, THE FIRST ONE INCLUDED. The first
+        injection is not redundant with the input channel: SubbandNorm projects
+        the TF-Map jointly with the mixture's real and imaginary parts through
+        one shared conv, so the cue there is entangled with the mixture and not
+        separately addressable. This is a separate projection of the cue alone.
+        """
+        if (cue is None) != (gates is None):
+            raise ValueError("pass cue and gates together or neither")
+        for i, blk in enumerate(self.blocks):
+            if cue is not None:
+                # gates[i] is per BAND, so it broadcasts over (B, ., N, T).
+                x = x + gates[i].view(1, -1, 1, 1) * cue
             x = blk(x)
         return x
+
+
+def apply_hysteresis(mr, mi, hi_rel, lo_rel, down):
+    """Region-grow the mask across frequency, then hold each frame's level.
+
+    mr, mi: (B, F, T) real and imaginary parts of the complex mask.
+    Returns the same, with the magnitude redistributed across frequency.
+
+    WHY. MEASURED 2026-09-12 on 12 sir0_val trials: 84.0 % of the mask's
+    variance is one number per frame, and it varies 6.5x less across frequency
+    than the ideal mask does. The model has learned a broadband volume knob.
+    Two voices overlapping in time occupy the same frequencies, so a broadband
+    gain cannot separate them at all -- it can only be loud when someone speaks.
+    This adds the frequency structure the mask is missing, WITHOUT retraining,
+    so the hypothesis can be tested before a session is spent on it.
+
+    HOW. Hysteresis, as in Canny's edge linking (Canny, IEEE PAMI 1986): a bin
+    survives if it is strongly target-like, or weakly target-like AND adjacent in
+    frequency to a surviving bin. Grouping weak evidence onto strong by
+    continuity is also the core rule of computational auditory scene analysis
+    (Bregman 1990; Wang & Brown 2006). BORROWED WITH A DIFFERENCE: there the
+    grown regions ARE the system and are built from harmonicity and onset cues;
+    here they sharpen a learned mask, and the acceptance test is downstream
+    content fidelity rather than ideal-binary-mask overlap.
+
+    CAUSAL. Growth runs across FREQUENCY within a frame, never across time. All
+    frequencies of a frame arrive together, which is the same argument that lets
+    the band-wise LSTM be bidirectional inside a causal model. No latency is
+    spent.
+
+    THE LEVEL IS HELD FIXED, deliberately. Each frame is rescaled to the mean
+    magnitude it had before, so this changes only the SHAPE across frequency.
+    Without it the experiment would confound sharpening with turning the output
+    down, and turning the output down has already been measured to move these
+    metrics on its own (2026-09-12, the mask floor).
+
+    Vectorised, no Python loop over frames: the frequency scan is a cumulative
+    maximum run in each direction, which propagates a seed through an unbroken
+    stretch of candidates exactly as a flood fill would.
+    """
+    magnitude = (mr.pow(2) + mi.pow(2) + 1e-12).sqrt()       # (B, F, T)
+    frame_mean = magnitude.mean(dim=1, keepdim=True).clamp_min(1e-8)
+    candidate = magnitude >= lo_rel * frame_mean
+    seed = (magnitude >= hi_rel * frame_mean) & candidate
+
+    # Propagate a seed along frequency through unbroken candidate runs. Running
+    # a cummax of seed*candidate up and then down the frequency axis reaches
+    # every bin connected to a seed, and a non-candidate bin resets the run
+    # because it multiplies the carry by zero.
+    grown = seed.clone()
+    for flip in (False, True):
+        carry = seed.flip(1) if flip else seed
+        cand = candidate.flip(1) if flip else candidate
+        out = torch.zeros_like(carry)
+        running = torch.zeros_like(carry[:, :1])
+        chunks = []
+        for f in range(carry.shape[1]):
+            running = (running | carry[:, f:f+1]) & cand[:, f:f+1]
+            chunks.append(running)
+        out = torch.cat(chunks, dim=1)
+        grown = grown | (out.flip(1) if flip else out)
+
+    scale = torch.where(grown, torch.ones_like(magnitude),
+                        torch.full_like(magnitude, down))
+    sharpened = magnitude * scale
+
+    # RESTORE THE FRAME'S ENERGY, NOT ITS MEAN MAGNITUDE. This was mean-based
+    # until 2026-09-12 and it blew the output up: concentrating the same MEAN
+    # magnitude into fewer bins multiplies the RMS, and the audio level follows
+    # the RMS. On the real (nearly flat) mask that produced an output +7.38 dB
+    # ABOVE the mixture -- 12 dB louder than the baseline -- and the evaluation
+    # of it measured distortion rather than the idea: 65 % of clips returned no
+    # transcript at all. The rough output-domain ratio hid the bug, because
+    # killing its small values barely moves its mean.
+    rms = lambda a: a.pow(2).mean(dim=1, keepdim=True).clamp_min(1e-12).sqrt()  # noqa: E731
+    keep_level = rms(magnitude) / rms(sharpened)
+
+    # A frame where NOTHING survived has no energy to redistribute, and scaling
+    # it back up would divide by ~0. Leave such frames exactly as they were:
+    # the sharpening has nothing to say about them.
+    survived = grown.any(dim=1, keepdim=True)
+    gain = torch.where(survived,
+                       (sharpened * keep_level) / magnitude.clamp_min(1e-8),
+                       torch.ones_like(magnitude))
+    return mr * gain, mi * gain
 
 
 class Estimator(nn.Module):
@@ -158,10 +266,73 @@ class Estimator(nn.Module):
 
     The wesep reference omits the residual branch -- including it is deliberate.
     """
-    def __init__(self, band_widths, feature_dim, mlp_hidden=384, n_hidden=2, causal=True, residual_branch=True):
+    def __init__(self, band_widths, feature_dim, mlp_hidden=384, n_hidden=2, causal=True, residual_branch=True,
+                 mask_floor=0.0):
         super().__init__()
         self.band_widths = list(band_widths)
         self.residual_branch = residual_branch
+        # MASK FLOOR -- the smallest magnitude the mask is allowed to take.
+        # 0.0 is off, which is every model trained before 2026-09-12.
+        #
+        # WHY IT EXISTS. MEASURED 2026-09-12 on 12 sir0_val trials: the baseline
+        # drives 32.8 % of time-frequency bins below 0.1 (a cut deeper than
+        # 20 dB) and the state-teacher model drives 44.0 % below it. A bin at
+        # zero is a HOLE -- no content at all -- and the target's own energy in
+        # that bin goes with it. A floored bin instead carries a quiet copy of
+        # the real mixture, which invents nothing because it IS the recorded
+        # audio, only attenuated.
+        #
+        # Borrowed: the gain floor in Wiener-filter speech enhancement, which
+        # exists for exactly this reason (Berouti, Schwartz & Makhoul, ICASSP
+        # 1979, spectral subtraction with a spectral floor). BORROWED WITH A
+        # DIFFERENCE: there the floor is tuned to suppress musical noise for a
+        # human listener; here the acceptance test is content fidelity for a
+        # downstream model, and we have measured that our mask is SMOOTHER than
+        # the ideal one rather than rougher, so musical noise is not the
+        # mechanism being treated -- over-removal is.
+        #
+        # SETTABLE AT INFERENCE on an already-trained model, which is the whole
+        # point: it makes the hypothesis testable in minutes instead of a
+        # 10-hour training run.
+        self.mask_floor = float(mask_floor)
+        # MASK HYSTERESIS, inference-time, decisions-pending.md D16. None = off.
+        # A (hi, lo, down) triple; see apply_hysteresis.
+        self.mask_hysteresis = None
+
+        # RESIDUAL SCALE, inference-time. 1.0 = the trained model unchanged,
+        # 0.0 = the residual branch deleted (S = M (x) X alone).
+        #
+        # WHY IT EXISTS. The mask is MULTIPLIED by the mixture, so it can only
+        # scale and rotate energy the recording already contains -- in a bin
+        # where |X| = 0 no mask value produces output. R is ADDED, comes from a
+        # raw Conv1d with no GLU and no bound, and is therefore free to place
+        # energy in bins the microphone never recorded. That operation is what
+        # "invented word" means physically, and invented words are 41.5 % of our
+        # wrong content words (decisions-pending.md, 2026-09-11) with no
+        # mechanism yet assigned to them. D6 flagged R as unbounded and
+        # unconditioned; nothing has ever measured what it carries.
+        #
+        # SETTABLE AT INFERENCE, like mask_floor, so the hypothesis costs an
+        # afternoon of CPU rather than a training run.
+        #
+        # WHAT IT CANNOT SETTLE. This ablates R from a model TRAINED WITH R, so
+        # the mask has learned to rely on it. A loss here is not evidence that R
+        # is harmful -- only a trained-without-R arm answers that. Read this
+        # measurement as "is R implicated in fabrication", never as "R is bad".
+        self.residual_scale = 1.0
+
+        # Stash the two output paths separately for analysis. Off by default:
+        # it retains tensors and is for diagnostics, never for training.
+        self.capture_parts = False
+        self.last_parts = None
+
+        # KEEP THE MASK IN THE AUTOGRAD GRAPH, for the D17 structure term.
+        # Separate from capture_parts on purpose: capture_parts DETACHES, which
+        # is right for diagnostics and silently wrong for a loss -- a detached
+        # mask trains nothing and the run would look fine while teaching the
+        # model nothing at all.
+        self.keep_mask_grad = False
+        self.last_mask_grad = None
         self.trunks, self.mask_heads = nn.ModuleList(), nn.ModuleList()
         self.res_heads = nn.ModuleList() if residual_branch else None # we need the additional prediction head to predict the residual spectrogram 
         
@@ -180,16 +351,89 @@ class Estimator(nn.Module):
 
     # use this method to actually move the features through the model and get the output complex spectrogram
     def forward(self, feats, mix_bands):
-        """feats: (B, K, N, T);  mix_bands: list of K x (B, BW, T) complex-> (B, F, T) complex"""
+        """feats: (B, K, N, T);  mix_bands: list of K x (B, BW, T) complex-> (B, F, T) complex
+
+        THE BANDS ARE GATHERED BEFORE THE MASK IS APPLIED, changed 2026-09-12.
+        It used to multiply and accumulate band by band. Arithmetically the same
+        -- verified bit-identical -- but any post-processing of the mask that
+        cares about NEIGHBOURING FREQUENCIES cannot be written inside a per-band
+        loop, because the band edges break the adjacency it needs. The gather is
+        what lets `mask_hysteresis` exist at all.
+        """
+        masks, residuals = [], []
+        for i, bw in enumerate(self.band_widths):
+            h = self.trunks[i](feats[:, i])                  # (B, H, T)
+            B, _, T = h.shape
+
+            # need to do the GLU activation here to BOUND an unstable mask
+            raw  = self.mask_heads[i](h)                        # (B, 4*bw, T)
+            masks.append(F.glu(raw, dim=1).reshape(B, 2, bw, T))
+            if self.residual_branch:
+                residuals.append(self.res_heads[i](h).reshape(B, 2, bw, T))
+
+        mask = torch.cat(masks, dim=2)                          # (B, 2, F, T)
+        mix  = torch.cat(mix_bands, dim=-2)                     # (B, F, T) complex
+        mr, mi = mask[:, 0], mask[:, 1]
+
+        if self.mask_hysteresis is not None:
+            mr, mi = apply_hysteresis(mr, mi, *self.mask_hysteresis)
+
+        if self.mask_floor > 0.0:
+            magnitude = (mr.pow(2) + mi.pow(2) + 1e-12).sqrt()
+            mr = mr + (self.mask_floor - magnitude).clamp_min(0.0)
+
+        if self.keep_mask_grad:
+            # AFTER floor and hysteresis, so the loss sees the mask that is
+            # actually applied. Both are off during training, so at present this
+            # is the raw predicted magnitude -- but if either is ever turned on
+            # in training, supervising the pre-modification mask would be a bug
+            # that nothing else would catch.
+            self.last_mask_grad = (mr.pow(2) + mi.pow(2) + 1e-12).sqrt()
+
+        xr, xi = mix.real, mix.imag
+        er = xr * mr - xi * mi
+        ei = xr * mi + xi * mr
+        masked_r, masked_i = er, ei          # S = M (x) X, before R is added
+        rr = ri = None
+        if self.residual_branch:
+            r = torch.cat(residuals, dim=2)
+            # residual_scale is 1.0 for every model trained before 2026-09-13,
+            # so this is arithmetically the old path at the default.
+            rr = r[:, 0] * self.residual_scale
+            ri = r[:, 1] * self.residual_scale
+            er, ei = er + rr, ei + ri
+        if self.capture_parts:
+            self.last_parts = {
+                "masked": torch.complex(masked_r, masked_i).detach(),
+                "residual": (torch.complex(rr, ri).detach()
+                             if rr is not None else None),
+                "mixture": mix.detach(),
+                "mask_mag": (mr.pow(2) + mi.pow(2) + 1e-12).sqrt().detach(),
+            }
+        return torch.complex(er, ei)
+
+    def _legacy_forward(self, feats, mix_bands):
+        """The pre-2026-09-12 band-by-band form, kept so the equivalence of the
+        gathered version can be asserted rather than assumed."""
         outs = []
         for i, bw in enumerate(self.band_widths):
             h = self.trunks[i](feats[:, i])                  # (B, H, T)
             B, _, T = h.shape
-            
-            # need to do the GLU activation here to BOUND an unstable mask
+
             raw  = self.mask_heads[i](h)                        # (B, 4*bw, T)
             mask = F.glu(raw, dim=1).reshape(B, 2, bw, T)       # (B, 2, bw, T)
             mr, mi = mask[:, 0], mask[:, 1]
+
+            if self.mask_floor > 0.0:
+                # Top the mask up towards PASS-THROUGH, not up along its own
+                # direction. In a bin the model wants to kill, the complex mask
+                # is near the origin and its phase is whatever noise happened to
+                # land there -- scaling that up would inject an arbitrary phase
+                # rotation. Adding a real, positive component instead leaves the
+                # mixture's own phase in place, which is what "a quiet copy of
+                # the recorded audio" has to mean.
+                magnitude = (mr.pow(2) + mi.pow(2) + 1e-12).sqrt()
+                mr = mr + (self.mask_floor - magnitude).clamp_min(0.0)
 
             
             xr, xi = mix_bands[i].real, mix_bands[i].imag

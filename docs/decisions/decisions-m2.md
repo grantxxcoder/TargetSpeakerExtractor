@@ -1999,3 +1999,169 @@ conversion has been poor at every point on this curve. A 12 % gain in separation
 should not be assumed to move LCF-WER, ICR or FR at all. Estimates and
 `evaluate.py` on this checkpoint are the next step, and the result is a finding
 either way.
+
+---
+
+## 2026-09-12 — the state-teacher arm, read. It moved its own term by 1.4 % and cost 30 % of the selection score
+
+**Run** `experiments/results/2026-09-11-train-sir0-state/`, `bsrnn_state.yaml`,
+seed 42, `sir0` (9,955 trials), 10 epochs, 10.25 h on a T4, `early_stopped:
+false`. 7,189,644 parameters — identical to the control, so no capacity
+confound. **Control** `models/model_sir0_10000-e6.pt`. Checkpoints installed as
+`models/model_sir0_state-e{4,5,6,9}.pt`.
+
+**In plain words.** The model was given one extra instruction: a frozen teacher
+listens to the output and says whether a second voice is still audible, and the
+model is pushed towards "no". It did that, slightly. It also got worse at
+reconstructing the target and no better at separating it.
+
+### At epoch 6, which both runs selected
+
+| | control | arm |
+|---|---|---|
+| selection score (present branch) | **4.599** | **5.977** (+30 %) |
+| `L_pres` | −2.900 | −2.847 |
+| `L_MR` | 0.1815 | 0.3072 (+69 %) |
+| `L_abs` | −11.30 | −11.95 |
+| selectivity gap | 9.005 | 9.832 |
+| enrolment sensitivity | −3.660 | −3.874 |
+
+**88 % of the 1.379 gap is `L_MR` alone** (9.62 × 0.1257 = 1.209).
+
+`L_state` on validation went 1.986 → 1.796 (e6) → 1.679 (e9). Against the
+2026-09-11 anchors — clean target 0.121, mixture 2.106, control 1.820 — that is
+**1.4 % of the control's remaining leakage reading removed at the selected
+epoch**, 8.3 % by epoch 9.
+
+### Why this is NOT yet a verdict
+
+`L_MR` and the present-branch score are signal-fidelity measures and this
+project does not optimise signal fidelity (CLAUDE.md). A model that suppresses
+harder, reconstructs less prettily and leaks less can still win on live-model
+content fidelity. **Nothing in this run measures the project's metric.** The
+eval suite decides it; `scripts/run_eval_suite.py` now runs the whole battery in
+one command.
+
+### "It was still going down" — checked against the control, and no
+
+The arm stopped at the 10-epoch ceiling, not at convergence, and `train_total`
+was still falling (−5.072). So was the control's, to −8.608 at epoch 15. **The
+control's SELECTION score got worse every epoch after 6**: 4.599 (e6) → 6.314
+(e10) → 8.019 (e15), `L_pres` −2.900 → −1.282, while `L_abs` fell to −13.8, the
+gap grew to 13.5 and enrolment sensitivity improved to −0.99. Quieter, more
+selective, progressively worse at reconstruction, training loss falling
+throughout — the 2026-08-25 pattern, slower. The arm is already on it: `L_pres`
+−2.847 (e6) → −2.417 (e9), gap 9.8 → 12.7.
+
+**Open, and cheap.** The control's late epochs have never been scored on the
+project metric. `models/model_sir0_10000-last.pt` is epoch 15. If
+over-suppression helps the judge, "the back half is worse" is a claim about the
+wrong metric, and the selection criterion itself is the thing to revisit.
+
+### The teacher is sound — the anchor table was not
+
+`scripts/diagnose_state_teacher.py`, 8 `sir0_val` trials, whole clips, interferer
+attenuated with the noise bed held fixed:
+
+| interferer | 0 dB | −6 | −12 | −20 | −30 | none | target only | noise only |
+|---|---|---|---|---|---|---|---|---|
+| `L_state` | 3.092 | 2.640 | 2.144 | 1.117 | 0.296 | 0.079 | 0.052 | 0.029 |
+
+Monotonic throughout; 0.029 on noise alone, so it is not firing on the noise bed.
+
+**The non-monotonic table in `2026-09-11-wstate-anchor-sir0/meta.yaml` (2.106 →
+2.589 → 2.714 → 2.744 as the interferer was attenuated 0 → 20 dB) was a bug in
+`derive_w_state.py`.** `read_interferer` took `audio[:n_samples]` on the stated
+grounds that `random_crop=False` crops at 0. It does not: `_crop_offset_start`
+draws from `(seed, 0, idx)` in both modes, so the offset is reproducible and
+almost never zero. A misaligned stem leaves the real interferer inside the
+recovered `noise` and subtracts a shifted copy, so `target + beta*interferer +
+noise` carries a SECOND voice at amplitude (1 − beta) — exactly zero at beta = 1,
+which is why the passthrough anchor looked right and nothing was caught.
+
+Fixed: the loader now reports `meta["crop_start"]` and the script reads each stem
+there. `tests/test_crop_alignment.py` pins it with ramp-valued stems — the
+existing fixture uses constants, which are offset-invariant and could never have
+caught this.
+
+**`w_state = 0.002692` STANDS and does not need re-deriving.** It comes from the
+measured gradient share at the model anchor (`share / measured_share`, verified
+by direct re-measurement at 15.000 %), and the partial anchors never entered it.
+Only the dynamic-range display was wrong.
+
+### MEASURED 2026-09-12 — the arm's content verdict. The teacher WORKED, and it still lost
+
+`experiments/results/2026-09-12-eval-state-e6-asr/`, `sir0_val` `both`, n=103,
+same trials as the control. **Listener is faster-whisper `small.en`, a STAND-IN
+for the judge — not a live-model result.** Estimates in
+`2026-09-12-est-state-e6` (13 min), evaluation 6 min.
+
+**In plain words: it removed some of the other speaker's words, added some
+invented ones, and the listener transcribed more junk overall.**
+
+| | control e6 | state arm e6 | |
+|---|---|---|---|
+| **LCF-WER** | **59.52** | **61.23** | **+1.72 worse** |
+| substitutions | 28.20 | 28.35 | +0.15 |
+| deletions | 11.79 | 11.15 | −0.64 better |
+| **insertions** | **19.53** | **21.74** | **+2.21 worse** |
+| ICR@2 (leakage) | 50.49 | 46.60 | **−3.88 better** |
+| mean leaked | 34.58 | 33.19 | **−1.38 better** |
+| FR@2 (trials with >=2 invented) | 68.00 | 64.65 | −3.35 better |
+| invented per trial | 3.08 | 3.18 | +0.10 worse |
+| no response | 2.91 | 3.88 | +0.97 worse |
+
+### The error attribution, which is what makes this interpretable
+
+`scripts/analyse_leakage_share.py`, the arm added to `SYSTEMS`:
+
+| | control | arm | |
+|---|---|---|---|
+| wrong content words reported | 742 | 732 | −10 |
+| of those, the interferer's | **434** | **417** | **−17** |
+| of those, nobody's (invented) | **308** | **315** | **+7** |
+| leakage share of the error | 58.49 % | 56.97 % | −1.52 |
+
+**It traded 17 leaked words for 7 invented ones.** On content words that is a
+net gain of 10. On the defined metric it is a 1.72-point loss, because the
+insertions it added are largely NOT content words — the content-word count strips
+stopwords and LCF-WER does not. A rougher output makes the listener emit more
+filler.
+
+### The mechanism signature, and it is unambiguous
+
+| | control | arm |
+|---|---|---|
+| WER of the LEAST-leaky quartile | 24.95 | **26.26 (worse)** |
+| WER of the MOST-leaky quartile | 101.53 | **99.57 (better)** |
+
+**The arm helps where leakage is the problem and hurts where it is not.** That is
+exactly what a term trading artefact for suppression should look like, and it is
+the strongest evidence yet that the two error families are separate and that
+attacking one alone cannot close the gap.
+
+### What this authorises
+
+- **The teacher is vindicated as a mechanism.** `L_state` moved only 1.4 % and
+  leakage still fell 3.9 points on an independent measure. The term does what it
+  claims; the claim is just not sufficient.
+- **D14's own caveat is now measured, not argued.** "Removing leakage removes the
+  error" was explicitly NOT authorised by step 0, and this is the demonstration:
+  leakage down, total error up.
+- **D15 (mask roughness) gains real support.** It predicted that suppression
+  bought with a rougher mask would raise invention and insertions. Measured:
+  leakage −17 words, invention +7, insertions +2.21 points, `L_MR` +69 %.
+  D15 step 0 is free and is now the best-motivated open measurement.
+
+### What it does NOT authorise
+
+**NO SIGNIFICANCE CLAIM.** n=103, one run, one seed. No same-config replicate
+exists anywhere in `experiments/results/`, so run-to-run scatter has never been
+measured on this codebase (decisions-pending.md, 2026-09-11). **+1.72 LCF-WER is
+not separable from noise** and must not be written up as a defeat, only as "did
+not improve". The same applies to the −3.88 ICR@2 in the arm's favour.
+
+**And this is the ASR stand-in, not the judge.** Whisper prices artefacts as
+insertions. A live conversational model may weigh them differently — in either
+direction. The arm passed the leakage gate, so the judge run is now the
+interesting question rather than a formality.

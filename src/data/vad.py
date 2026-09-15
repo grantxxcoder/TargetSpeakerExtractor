@@ -162,6 +162,26 @@ def spans_of(segment_lists, onsets):
     return out
 
 
+def merge(segs):
+    """Union of possibly-overlapping segments, sorted and disjoint.
+
+    Silero's own output is already disjoint, so nothing in B2 needed this. It is
+    needed once segments are WIDENED -- extending each one by a reverberation
+    tail (see scripts/build_state_labels.py) makes neighbouring segments run into
+    each other, and `total_speech` would then double-count the overlap.
+    """
+    if not segs:
+        return []
+    out = [list(seg) for seg in sorted(segs)]
+    merged = [out[0]]
+    for a, b in out[1:]:
+        if a <= merged[-1][1]:              # touching counts as contiguous
+            merged[-1][1] = max(merged[-1][1], b)
+        else:
+            merged.append([a, b])
+    return [(a, b) for a, b in merged]
+
+
 def total_speech(segs):
     """Seconds of speech. Assumes segments are disjoint, which Silero guarantees."""
     return sum(b - a for a, b in segs)

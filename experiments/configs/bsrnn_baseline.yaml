@@ -157,6 +157,28 @@ loss:
                                  # the masked means need per-example values
   ablate_w_m:   [0.0, 2.89, 9.62]   # the 0 arm is required
 
+  # ---- D17: the mask-structure term. decisions-pending.md 2026-09-13 ----
+  # MEASURED: 84.2 % of the mask's variance is one number per frame, and it
+  # varies 6.5x less across frequency than the ideal mask -- a broadband volume
+  # knob, which cannot separate two voices overlapping in time and frequency.
+  # Measured 2026-09-13 across ~2k / ~5k / ~10k training trials: MORE DATA MAKES
+  # IT WORSE (freq/time -0.162 [-0.205, -0.118] at matched epoch), so this is the
+  # objective's own optimum and not a data shortage.
+  #
+  # SHIPPED AT 0.0. The term is COMPUTED and LOGGED at zero weight (log_struct)
+  # but contributes no gradient, exactly as L_gain was shipped off while
+  # derive_w_g.py read it. Set this from scripts/derive_w_struct.py against a
+  # measured anchor -- never by hand, and never before that script has run.
+  w_struct: 0.0
+  struct_floor_db: -40.0   # a mixture bin this far under the clip's peak is
+                           # treated as silent and excluded. |target|/|mixture|
+                           # is meaningless where the denominator is noise.
+  log_struct: true         # compute and log L_struct even at w_struct 0. One
+                           # extra STFT pair per batch; measure the step-time
+                           # cost before quoting it.
+  ablate_w_struct: [0.0]   # filled in once the weight is derived. The 0 arm is
+                           # the baseline and is required.
+
 training:
   amp: true             # Automatic Mixed Precision: fp16 for the model forward,
                         # fp32 for the master weights and for the whole loss.

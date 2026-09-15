@@ -11,7 +11,8 @@ class LossBSRNN:
     target for the present term and the mixture for the absent one.
     """
     def __init__(self, wm, w, p=0.3, tau_pres=0.001, tau_abs=0.01, windows=(8, 16, 32, 64),
-                 sample_rate=16000, wg=0.0, gain_delta_db=3.0):
+                 sample_rate=16000, wg=0.0, gain_delta_db=3.0,
+                 w_struct=0.0, struct_floor_db=-40.0):
         self.tau_pres = tau_pres
         self.tau_abs = tau_abs
         self.wm = wm            # weight on L_MR, inside the present branch
@@ -20,6 +21,14 @@ class LossBSRNN:
                                 # DEFAULTS TO 0.0 = term disabled, so an existing
                                 # config reproduces its old numbers byte for byte.
         self.gain_delta_db = gain_delta_db   # L_gain deadzone half-width, in dB
+        # D17, the mask-structure term. DEFAULTS TO 0.0 = disabled, so every
+        # config written before 2026-09-13 reproduces its old numbers exactly.
+        self.w_struct = w_struct
+        # A mixture bin this far below the clip's peak is treated as silent and
+        # excluded: the ideal mask is |target| / |mixture| and that ratio is
+        # meaningless where the denominator is noise. Without this the term
+        # trains the model to copy the quietest, least reliable cells.
+        self.struct_floor_db = struct_floor_db
         self.p = p
         self.sample_rate = sample_rate
         # windows are MILLISECONDS. A tuple, not a list: a mutable default is
@@ -144,7 +153,83 @@ class LossBSRNN:
 
         return summation / len(windows)         # the 1/I in eq (3)
 
-    def __call__(self, s_target, s_output, x_input, crop_absent):
+    def _loss_mask_shape(self, mask, oracle, mixture_mag):
+        """L_struct: match the mask's FREQUENCY SHAPE to the ideal mask's.
+
+        mask, oracle, mixture_mag: (B, F, T). Returns (B,).
+
+        WHY THIS TERM EXISTS. MEASURED 2026-09-12/13: 84.2 % of our mask's
+        variance is explained by a single number per frame, and it varies 6.5x
+        less across frequency than the ideal mask. The model applies a broadband
+        gain -- loud when the target speaks, quiet when it does not -- which is
+        voice activity detection, not extraction. Two voices overlapping in time
+        occupy the same frequencies, so only a per-cell decision can separate
+        them and a broadband gain cannot do it even in principle.
+
+        Nothing in the M2 objective opposes this. L_pres is scale-invariant SI-SDR
+        over the waveform; L_gain and L_abs are broadband; L_MR has frequency
+        resolution but sums over bins, so matching the loud low-frequency bins
+        captures most of it. None of the four ever asks which BIN the gain went
+        into. The flat mask is not a failure to reach the objective -- it IS the
+        objective's cheapest optimum.
+
+        AND IT IS NOT A DATA PROBLEM. Measured 2026-09-13 across checkpoints at
+        ~1,989 / ~4,976 / ~9,955 training trials: doubling the data at a matched
+        epoch left the volume-knob share unchanged (-0.003, inside noise) and
+        made the frequency/time ratio significantly WORSE (-0.162
+        [-0.205, -0.118]). More epochs do the same. Both axes converge the model
+        ONTO the knob. Scaling the training set is refuted as a fix.
+
+        THE PER-FRAME MEAN IS REMOVED FROM BOTH SIDES, and that is the whole
+        design. The model's per-frame gain is roughly right already, and three
+        existing terms (L_pres, L_gain, L_abs) argue about level. Supervising the
+        raw mask would spend most of the gradient re-teaching what is not broken
+        and add a fourth voice to an argument about loudness, making any result
+        unattributable. What is left after the subtraction is pure shape across
+        frequency -- which bins get more than their frame's average and which get
+        less. This mirrors postprocess_mask.py, which holds each frame's level
+        fixed for exactly the same reason.
+
+        BORROWED WITH A DIFFERENCE. Supervising a mask against the ideal ratio
+        mask is standard (Wang, Narayanan & Wang, IEEE/ACM TASLP 2014, "On
+        training targets for supervised speech separation"). There the ideal
+        ratio mask is the WHOLE training target and the acceptance test is signal
+        quality. Here it is an auxiliary shape-only constraint at a small derived
+        weight, the primary objective stays signal-domain, and the acceptance
+        test is downstream content fidelity (LCF-WER per SIR band). The
+        difference matters: mask approximation weights an error in an inaudible
+        bin the same as one in a loud bin, which is why it is NOT allowed to
+        become the objective.
+
+        ENERGY WEIGHTED, and bins below struct_floor_db excluded. The ideal mask
+        is |target| / |mixture| and that explodes where the mixture is near
+        silent. Unweighted, this term's largest gradients would come from the
+        least trustworthy cells in the spectrogram.
+        """
+        # Bins where the mixture carries real energy. Per clip, not per batch:
+        # a loud clip would otherwise set the threshold for a quiet one.
+        peak = mixture_mag.amax(dim=(1, 2), keepdim=True).clamp_min(1e-8)
+        floor = peak * (10.0 ** (self.struct_floor_db / 20.0))
+        weight = (mixture_mag >= floor).to(mask.dtype)
+
+        # Per-frame mean over the SELECTED bins only -- including excluded bins
+        # in the mean would let silence drag the shape of a loud frame.
+        counts = weight.sum(dim=1, keepdim=True).clamp_min(1.0)
+        mask_mean = (mask * weight).sum(dim=1, keepdim=True) / counts
+        oracle_mean = (oracle * weight).sum(dim=1, keepdim=True) / counts
+
+        shape_ours = (mask - mask_mean) * weight
+        shape_ideal = (oracle - oracle_mean) * weight
+
+        # Energy weighting on top of selection: a loud bin's shape matters more
+        # than a barely-audible one's. Normalised per clip so the term does not
+        # scale with input level.
+        energy = mixture_mag * weight
+        energy = energy / energy.sum(dim=(1, 2), keepdim=True).clamp_min(1e-8)
+        return ((shape_ours - shape_ideal).abs() * energy).sum(dim=(1, 2))
+
+    def __call__(self, s_target, s_output, x_input, crop_absent,
+                 mask=None, oracle_mask=None, mixture_mag=None):
         """The full M2 objective. decisions-m2.md 2026-08-20.
 
             L = (1 - w) * mean_present[ L_pres + wm * L_MR + wg * L_gain ] + w * mean_absent[ L_abs ]
@@ -170,6 +255,7 @@ class LossBSRNN:
         # Constant key set: a missing half is a gap in the curve, not a
         # missing column.
         parts = {"L_pres": nan, "L_MR": nan, "L_gain": nan, "L_abs": nan,
+                 "L_struct": nan,
                  "n_present": n_present, "n_absent": n_absent}
 
         if n_present:
@@ -190,6 +276,22 @@ class LossBSRNN:
             parts["L_pres"] = float(loss_present.detach())
             parts["L_MR"] = float(loss_mr.detach())
             parts["L_gain"] = float(loss_gain.detach())
+
+            # D17. PRESENT BRANCH ONLY: on a target-absent crop the ideal mask is
+            # |silence| / |mixture|, which is noise divided by signal, and
+            # supervising against it would teach the model to reproduce a random
+            # pattern. The absent case is already handled by L_abs.
+            #
+            # Computed whenever the tensors are supplied, even at w_struct = 0,
+            # so it is LOGGED before it is weighted -- that is what a derivation
+            # script reads to set the weight, exactly as L_gain is computed at
+            # wg = 0 for derive_w_g.py.
+            if mask is not None and oracle_mask is not None:
+                loss_struct = self._loss_mask_shape(
+                    mask[present], oracle_mask[present], mixture_mag[present]).mean()
+                parts["L_struct"] = float(loss_struct.detach())
+                if self.w_struct:
+                    total = total + (1 - self.w) * self.w_struct * loss_struct
 
         if n_absent:
             loss_absent = self._loss_target_absent(x_input[crop_absent],

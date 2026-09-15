@@ -283,6 +283,51 @@ speaker cue can be regularised; a model that ignores the cue cannot be
 regularised into using it. The current failure is the second kind, so the risk
 is worth taking — behind D4a, which carries none of it.
 
+### BUILT 2026-09-11 — D4a exists as code and as a runnable config. It REVERSES a recorded drop
+
+`conditioning.TFMapInjector`, `BandSequenceModel.forward(x, cue, gates)`, the
+`tfmap_inject` flag on `BSRNN_TFMAP` and in `build_model`,
+`experiments/configs/bsrnn_tfmap_inject.yaml`, `tests/test_tfmap_inject.py`
+(20 tests, all passing; suite 467).
+
+**Stated plainly: D4a was DROPPED on 2026-08-30 and this un-drops it.** The drop
+was correct on its own terms — `diagnose_cue.py` measured the cue surviving the
+stack (swap a stranger's enrolment, the cue moves 28.6 % and the output moves
+48.2 %), so the *dilution* premise is not supported. What survives that
+measurement is the headroom: 62 % of the output is still enrolment-independent.
+**This arm must therefore be written up as testing the remaining headroom, never
+as testing dilution**, and the honest prior is that it does little.
+
+**One shared per-band projection, not six.** 37,698 parameters, +0.524 % on
+7,189,644 — verified by building both configs, not by arithmetic in a document.
+Six separate projections would be 222 k (+3.1 %) and would add expressiveness
+that could explain a gain by itself. Shared re-presents the identical cue at
+every depth, which is the honest form of the claim.
+
+**NOT parameter-matched to its control**, unlike D14's head A. +0.52 % is small
+but not zero, and a gain of that order is not attributable.
+
+**Gates start at zero, so the arm begins as exactly the baseline function** — a
+test asserts the two models agree to 1e-6 when built at the same seed. Cite
+ReZero (Bachlechner et al., UAI 2021). The ordering this implies is real and
+tested: at gate 0 the projection receives no gradient and the gates, sitting one
+multiply from the loss, move first.
+
+**THE GATES ARE THE MEASUREMENT, and this is the reason to run it even expecting
+nothing.** 6 x 32 scalars saying how much cue each block wants in each band. If
+they stay near zero, D3a's conclusion is confirmed by a second, completely
+different method, and D4b/D5 can be closed rather than left hanging. That is a
+publishable negative result for the cost of one run. Log them every epoch.
+
+**Cost: +2.7 % forward on CPU** (1.210 -> 1.243 s per 4.008 s chunk, 4 threads,
+forward only, 3 reps). Not a training-step measurement and must not be quoted as
+one. Latency is unchanged in kind: the TF-Map is already causal per frame and
+every added op is a 1x1 convolution over time, asserted by a causality test.
+
+**RNG forked at construction**, as with head A, so the arm and its control draw
+the same trials in the same order. Narrow fix, not the general one that was
+declined.
+
 ### D5. A speaker encoder with an auxiliary speaker-ID loss
 
 **Status: proposal, not scheduled. Larger than D4 and subsumes part of D1.**
@@ -1439,7 +1484,7 @@ absent rate suggests, because tails fill the gaps.
 
 | | what changes | inference cost |
 |---|---|---|
-| **A. auxiliary state head** | ~10 k params, training pressure only; deleted at inference | zero |
+| **A. auxiliary state head** | **516 params** (corrected 2026-09-11; the "~10 k" first written here was never derived -- `Conv1d(128, 4, 1)` is 4x128 weights + 4 biases), training pressure only; deleted at inference | zero |
 | **B. frozen state detector as a loss** | the objective only. **No architecture change** | **zero** |
 | **C. state posterior into D13's gate controller** | one term in a line D13 already specifies | ~1 k params |
 
@@ -1563,6 +1608,704 @@ cannot be the state set or the HMM framing; at most it is the composition, plus
 tuning its operating point against a live-model content metric rather than SI-SDR
 or diarization error.
 
+### MEASURED 2026-09-10 — WavLM cannot do this job. Backbone switched to ECAPA-TDNN
+
+**A frozen general-purpose SSL encoder does not carry frame-level speaker
+identity at 0 dB interference. WavLM Base+ is therefore not usable as the
+teacher's backbone, and this is a reportable negative result, not just a
+setback.**
+
+### What was built and what it scored
+
+Frozen WavLM Base+ (torchaudio, sha256 `1697ecbb...`), layer 8, plus a 594 k
+`StateHead` reading `[frames, enrolment, frames * enrolment]`. Cache: 500
+`sir0_train` trials x 6 gain variants, 600 k labelled frames, ~1 h. Trained 12
+epochs on CPU in ~3 min.
+
+| | recall |
+|---|---|
+| `none` (silence) | **0.934**, stable every epoch |
+| `target` | 0.26-0.74, unstable |
+| `interferer` | 0.17-0.52, unstable |
+| `both` | 0.35-0.61 |
+
+**Activity detection works; identity does not.** `target` and `interferer`
+recall move inversely with a near-constant sum (~0.8), which is the signature of
+a model that detects "one voice" and then guesses which. Balanced recall was
+flat across the run: 0.557 -> 0.578 -> 0.573.
+
+**Balanced identity accuracy on single-speaker frames: 0.570 against 0.500
+chance.** Do NOT quote the raw 0.584 -- the split is 2.4:1 target-to-interferer,
+so always answering "target" scores 0.722, and the raw figure is worse than a
+constant predictor.
+
+### Three parameter-free tests, and they rule out every cheap fix
+
+Run on cached features, no training. AUC over 14,406 single-speaker frames from
+130 trials; 0.500 is a coin flip.
+
+| scoring | AUC |
+|---|---|
+| pooled enrolment (what was trained) | 0.521 |
+| attention over 249 enrolment frames, best temperature | 0.535 |
+| contrastive: attention minus a 500-speaker background, best | **0.547** |
+
+1. **The layer is not the problem.** All 12 layers score 0.700-0.800 on a
+   per-trial variant of the test (n=40, SE +-0.068 -- the whole spread is noise).
+   Layer 5 is nominally best by 3 trials. No re-cache is justified.
+2. **Mean pooling destroys identity, but removing it does not save it.**
+   Pooled enrolment vectors from 40 DIFFERENT speakers are 64-90 % similar at
+   every layer. Attention (the K>1 generalisation of pooling, and D2's TF-Map
+   mechanism applied to SSL features) buys 1.4 AUC points.
+3. **The contrastive term works in the right direction and is far too weak.**
+   +1.2 points at low temperature, and it goes BELOW chance (0.494) as the
+   temperature sharpens -- sharper matching matches phonetic content harder,
+   confirming D1's confound is real and that the contrast cannot cancel it here.
+
+**Correction to a number quoted earlier in this entry's working:** a per-trial
+test gave 0.725 and was misleading -- it averaged hundreds of frames per side.
+Per frame, which is what the teacher must do, the ceiling is AUC 0.55.
+
+### Why, and what it implies
+
+WavLM's pretraining objective is masked prediction, which rewards phonetic
+content. Layer 8 is mid-stack and ASR-oriented. Speaker identity is present but
+not linearly separable per frame under 0 dB interference. The head reached
+roughly what AUC 0.547 permits, so **the bottleneck was the representation, not
+the classifier.**
+
+**Reportable finding, independent of whether the teacher is ever built:** a
+general-purpose speech representation does not supply frame-level speaker
+identity in two-speaker mixtures at 0 dB, which is a measured argument for why
+TSE needs purpose-built speaker models rather than SSL features. It also
+retrospectively supports `decisions-m1.md` 2026-08-19's choice of the spectral
+TF-Map over an SSL embedding path.
+
+### Decision
+
+**Switch the backbone to ECAPA-TDNN** (Desplanques et al., Interspeech 2020),
+SpeechBrain's VoxCeleb-trained `spkrec-ecapa-voxceleb`, snapshotted to
+`../ecapa_pretrained/` with hashes pinned. Verification training rewards exactly
+the discrimination masked prediction does not.
+
+**Rejected, both on independence grounds:** WeSep's checkpoint carries 512 ECAPA
+tensors but they were jointly trained with its separator, and WeSep is this
+project's comparison baseline -- a teacher derived from it would couple the
+system under test to the system it is measured against. `wespeaker` (installed
+in `../wesep_venv`) is the same toolkit family.
+
+**Consequence to carry: resolution drops from 20 ms to ~0.5-1 s.** ECAPA emits
+one embedding per window, not one vector per frame. Acceptable for gating,
+and it must be stated wherever the teacher is described as "per-frame".
+
+**HARD GATE before any rewrite.** Re-run the same AUC test on ECAPA embeddings
+at 0.5 / 1 / 2 s windows. **Continue only above ~0.75.** If ECAPA also lands in
+the 0.50s, frame-level identity is not recoverable from off-the-shelf models at
+this difficulty, and the teacher is dropped in favour of `BETA` (M5's artefact
+weight) or D10 -- one number each, neither depending on identity being
+recoverable.
+
+### Artefacts deleted 2026-09-10
+
+`../wavlm_pretrained/` (361 MB), `../state_detector_cache/` (1.1 GB),
+`scripts/upload_kaggle_wavlm.py`, `models/state_detector_notebook.pt`. All
+regenerable; the numbers above are the deliverable. The label pipeline
+(`src/data/state_labels.py`, `scripts/build_state_labels.py`,
+`data/index/state_*.csv`) is backbone-independent and is KEPT.
+
+### MEASURED 2026-09-10 — the teacher WORKS on ECAPA. Two runs, and the output shape moved identity but not overlap detection
+
+**Frozen ECAPA-TDNN + a 150 k head tells the two speakers apart 94.0 % of the
+time. WavLM managed 57.0 %. The teacher is viable.** What it does NOT do
+reliably is detect a second voice: 76.2 %, flat across both output
+parameterisations.
+
+### The gate that authorised the switch
+
+Before any head was built, plain cosine similarity between a window embedding
+and the enrolment embedding, no training at all, `sir0_train`, 120 trials:
+
+| window | windows | AUC | cos own speaker | cos other | margin |
+|---|---|---|---|---|---|
+| 0.5 s | 1,113 | 0.866 | +0.203 | +0.029 | +0.174 |
+| **1.0 s** | 666 | **0.957** | +0.324 | +0.045 | +0.279 |
+| 2.0 s | 241 | 0.992 | +0.443 | +0.057 | +0.387 |
+
+**1.0 s adopted.** Longer is more accurate and coarser; this is the knee.
+**Consequence to carry into every description: the teacher's resolution is ~1
+SECOND, not per-frame.** It can say "the target is speaking around here"; it
+cannot mark a word boundary.
+
+**A1's dry-enrolment/reverberant-mixture gap is NOT a problem here.** Similarity
+to the *other* speaker sits at +0.03 to +0.06 while own-speaker rises to +0.44.
+A channel mismatch would depress both together. Retires a suspect.
+
+### Run 1 — four-way softmax. 500 trials cached, 425 trained, epoch 3 of 20
+
+| | all windows | pure only |
+|---|---|---|
+| identity (which speaker) | **0.911** | 0.920 |
+| is the target audible | 0.857 | 0.882 |
+| is a non-target audible | 0.767 | 0.785 |
+| `both` as a 4-way label | 0.369 | 0.391 |
+
+Identity is symmetric (target 0.904, interferer 0.918) and always answering
+"target" would score 0.644, so the figure is real. **Transitions cost only ~2
+points** (0.911 vs 0.920), which settles the window length: 1 s was right, and
+shrinking to 0.5 s for purity would have cost more identity than it gained.
+
+**Measured purity distribution** (150 trials, 11,700 windows): mean 0.937,
+median 1.000, **74.0 % perfectly pure**, 85.7 % at or above the 0.8 training
+threshold, ambiguous (tied majority) 0.02 %. Ties are real but negligible;
+handled by exclusion rather than argued away.
+
+### The finding that motivated run 2
+
+**`both` scored 0.369 as a 4-way class while THE SAME PREDICTIONS gave 0.857 and
+0.767 on the two questions `both` is the conjunction of.** The four states were
+always a pair of bits (`sl.states_from_masks`: target = bit 0, interferer = bit
+1), so a four-way softmax forced a commitment to one category and hid what the
+head knew.
+
+### Run 2 — two independent binary outputs. Same cache, epoch 2 of 20
+
+| | 4-way | binary | change |
+|---|---|---|---|
+| identity | 0.911 | **0.940** | **+2.9** |
+| target audible | 0.857 | 0.860 | flat |
+| **non-target audible** | 0.767 | **0.762** | **flat** |
+| `both` recall (reporting only) | 0.369 | 0.416 | +4.7 |
+
+**The reframe bought identity, not overlap detection.** The prediction was
+"modest gain, watch the non-target question"; that question did not move.
+**So `both` was hiding information about IDENTITY, not about second-voice
+detection**, and the non-target limit is data or information rather than output
+shape.
+
+**Identity 0.940 now exceeds the untrained cosine reference** (AUC 0.951,
+roughly 0.88-0.90 balanced at its best threshold), so the head adds to identity
+rather than passing it through. Bases differ — indicative, not an exact
+comparison.
+
+**Do NOT read the non-target recall gain as progress.** Recall rose 0.729 →
+0.756 while specificity fell 0.806 → 0.767: the operating point sliding, with
+balanced accuracy unchanged.
+
+### What 0.762 costs the loss, stated plainly
+
+Misses 24 % of genuine leakage; false-alarms on 23 % of already-clean windows.
+**A noisy teacher, directionally right — never to be described as a detector.**
+The gradient is useful because it averages over many windows and many steps.
+
+### Two corrections made in the course of this work
+
+1. **I claimed ECAPA had a structural ceiling on second-voice detection**, from
+   plain cosine scoring 0.405 (below chance, because one scalar cannot separate
+   "target" from "target plus someone else"). Wrong: the head reaches 0.762-0.767
+   from the full 192-d embedding. The information is there; cosine discards it.
+   **That question is where the head earns its keep** — everything else it
+   roughly inherits from cosine.
+2. **The diagnostics were reporting the LAST epoch, not the selected one.** Cell
+   25 evaluated whatever was in memory after the loop. On run 1 that was epoch 20
+   against a selected epoch 3, understating identity 0.854 vs 0.911 and `both`
+   0.246 vs 0.369. Now reloads the checkpoint and asserts it reproduces the
+   recorded score.
+
+### Both runs are badly data-limited
+
+Best epoch **3 of 20** then **2 of 20**, on 425 training trials — memorising
+almost immediately, with 150 k parameters against ~33,000 windows. Train loss
+fell 12x while held-out loss rose 65 %.
+
+**Actions taken 2026-09-10:** cache extended 500 → 2,000 trials (70/30
+rich-to-random held fixed so the class balance does not move with the data
+volume; ~4.8 h at a measured 11.4 s/trial, ~65 MB). And a threshold sweep, since
+every number above is at 0.5 for both questions and AUC will say whether that is
+simply the wrong place to stand.
+
+**The two questions must NOT share an operating point, and neither should be
+tuned for balanced accuracy.** Target-audible drives "do not mute my speaker" —
+a miss deletes speech the judge never hears, so favour recall. Non-target-audible
+drives "remove the interferer" — a false alarm penalises output that was already
+clean and fights the signal-domain terms directly, so favour specificity.
+Thresholds are reporting and inference choices; the loss uses raw probabilities,
+so tuning them needs no retraining.
+
+### Costs, for the record
+
+| | |
+|---|---|
+| trial selection | quota, not a sort: 5,025 of 9,955 trials have NO overlapping frames, so random sampling starves `both`; sorting by overlap overshoots to 69.6 % `both` |
+| cache, 500 trials | 95 min, 16 MB (WavLM's was 881 MB for the same trials) |
+| head training | ~3 min on CPU, 4 threads |
+| variant recipe | 3 fixed + 3 partial; an earlier 4-fixed recipe drove `both` from 17.0 % of frames to 7.5 % |
+
+`mixture == target + interferer + noise` verified exact 2026-09-10, so any
+suppression level is synthesisable from the stems.
+
+### 2026-09-10 — 1,000 trials, and the enrolment bank turned on for the teacher
+
+**Doubling the data bought ~2 points on the hard question and nothing on the
+easy one. The head still peaks at epoch 2 of 20, so the limit is memorisation,
+not sample size — and the fix already exists in this repo.**
+
+### The data-scaling point
+
+| | 500 trials (428 fit) | 1,000 trials (850 fit) |
+|---|---|---|
+| target audible, AUC | 0.944 | 0.938 - 0.947 |
+| **non-target audible, AUC** | **0.795** | **0.812 - 0.820** |
+
+Two measurements of the 1,000-trial model on different splits, so the range is
+the honest form. **Identity was already saturated**; second-voice detection
+improved ~2 points, consistent with roughly +2 per doubling, which would predict
+~0.835 at 2,000 trials for a further 3.3 h of caching. Not yet spent.
+
+Class balance at 1,000 trials, 78,000 windows: target audible 54.8 %
+(`pos_weight` 0.82), non-target audible 33.3 % (`pos_weight` 2.01). Window
+purity mean 0.965 / 0.977, with 92 % / 95 % at or above the 0.8 training
+threshold.
+
+### The threshold question, and a correction
+
+**Reported thresholds returned to 0.50 / 0.50.** They had been set to
+0.50 / 0.65 on the argument that the non-target question should favour
+specificity, because a false alarm penalises output that was already clean.
+
+**That argument was wrong for this term.** The loss uses raw probabilities --
+BCE against a constant 0 for the non-target column -- so it never thresholds.
+The threshold affects REPORTING and any hard inference-time decision, and
+nothing else. Reporting at 0.65 merely made the number look worse: 0.724
+against 0.733.
+
+**The sweep also shows 0.5 is essentially optimal anyway.** Best balanced
+accuracy is 0.866 at threshold 0.60 for the target question (0.862 at 0.50) and
+0.734 at 0.55 for the non-target (0.733 at 0.50). **Gains of +0.004 and +0.002:
+the operating point is not what is limiting this.**
+
+**Also corrected: an invalid diagnostic of my own.** A "headroom" column
+computed as AUC minus balanced-accuracy-at-0.5 is meaningless -- the two are
+different scales. Replaced with the best balanced accuracy found by sweeping,
+minus what 0.5 gives, which is the only honest form. AUC remains the number to
+quote as a question's ceiling because it is threshold-free.
+
+### DECIDED: rotate the enrolment per epoch (bank K=3)
+
+**The head peaks at epoch 2 of 20 at 425, 428 AND 850 training trials.**
+Training loss falls 0.473 -> 0.057 while held-out rises 0.464 -> 0.769. Data
+volume does not move the peak, so the head is memorising something that more
+trials do not dilute.
+
+**The enrolment is the route.** One fixed 192-d vector per trial, seen 78 times
+per epoch (6 variants x 13 windows). At 850 trials that is 850 vectors to
+memorise, and 149 k parameters against ~10,000 semi-independent windows is
+about 15 parameters per effective sample.
+
+**This project has already had and fixed this exact failure.** The extractor's
+identity cue "stayed a fixed waveform across all 24 epochs and was memorisable"
+(`decisions-m2.md` 2026-08-30), and `scripts/render_enrollment_bank.py` is the
+fix built for it. K=3 is **already rendered on disk** for `sir0_train` as
+`enrollment_v00/01/02.wav` -- different sentences, offsets and EQ per variant.
+
+**Cost is ~2 extra ECAPA forwards per trial**, because `v00` is byte-identical
+to `enrollment.wav` (verified 2026-09-10) so the cached embedding IS variant 0.
+Roughly 15 min to patch 1,000 existing cache files, and no re-render.
+
+**Rotation is TRAINING-only.** The holdout keeps one fixed enrolment so its
+curve stays comparable epoch to epoch and run to run -- the same rule
+`dataset_loader.py` enforces by forcing `enrollment_variants` to 1 when
+`random_crop` is off. A short bank falls back DOWN to v00 rather than failing,
+matching `_enrollment_path`.
+
+`ROTATE_ENROLMENT` is an ablation flag: `False` reproduces every run before
+2026-09-10 exactly. **The arm to report is 1,000 trials with one enrolment
+versus three, everything else held.** If the best epoch moves from 2 to 6-8,
+the memorisation diagnosis is confirmed and the head has real headroom.
+
+### Sequencing: the hyperparameter search was STOPPED and deferred
+
+Optuna (`optuna==5.0.0`, pinned) is set up over head width and depth, dropout,
+learning rate, weight decay, batch size and `min_purity`, on a THREE-way split
+(700 fit / 150 search / 150 report) with a threshold-free mean-AUC objective and
+median pruning. `AUDIBLE_DB` is deliberately excluded from the search: it defines
+what counts as a second voice, so tuning it would optimise the question rather
+than the answer.
+
+**It was killed after one trial.** Reason: if the bank removes the
+memorisation, the settings the search is currently finding -- heavier dropout,
+heavier weight decay, early stopping -- are tuned to compensate for a failure
+about to be removed, and none would be the right values afterwards. The search
+runs AFTER the bank arm, on the final data setup.
+
+The threshold being wrong was NOT a reason to stop it: the objective is mean
+AUC, which is threshold-free by construction.
+
+### Not yet done
+
+- **`sir0_val` is still uncached.** All splits above come from `sir0_train` and
+  share speakers. The teacher is not validated until it is measured on a
+  speaker-disjoint set.
+- **GPU cost of the term is unmeasured**, and it gates the whole integration.
+  13 windows x 6 examples = 78 ECAPA forwards AND backwards per step against a
+  current 0.674 s/step. The 78 ms/window figure is CPU; training is a T4.
+  `scripts/profile_step.py` is where that number comes from, and no more
+  integration code should be written before it exists.
+- Rows for `docs/run_times.md`: the 1,000-trial cache (~68 min for 350 new
+  trials) and the rate difference that made it, 12.1 s/trial clean against
+  44.9 s/trial while a browser and an IDE competed for the same 8 cores.
+
+### 2026-09-11 — the teacher is FINISHED at AUC 0.87, and the integration is built
+
+**A sequence model over the windows was worth ten times everything else tried.
+The teacher is frozen at that point and no further work on it is planned.** The
+loss term, its subclass, its tests, its weight-derivation script and its config
+are written; the one thing that can still stop the arm is unmeasured.
+
+### The architecture change, which is the result
+
+Same features, same split, same threshold-free objective. Only the head differs:
+
+| head | params | mean AUC | target | **non-target** |
+|---|---|---|---|---|
+| per-window MLP | 149 k | 0.8836 | 0.9473 | **0.8199** |
+| **BiLSTM** | **339 k** | **0.9216** | **0.9721** | **0.8710** |
+| self-attention | 473 k | 0.9170 | 0.9669 | 0.8672 |
+
+Against every other intervention on the same question:
+
+| | gain |
+|---|---|
+| 500 -> 1,000 trials | +1.7 |
+| enrolment bank, K=3 | +0.8 |
+| 42-trial hyperparameter search | +0.7 |
+| **sequence model over the 13 windows** | **+5.1** |
+
+**Why it works.** A single window at cosine +0.23 to the enrolment is genuinely
+ambiguous between "the target alone, quieter" and "the target plus someone
+else": `both` sits at +0.233 between `target` at +0.321 and `interferer` at
++0.044, because a verification embedding describes whichever voice dominates.
+The neighbouring windows resolve much of that.
+
+**BiLSTM over attention:** better (0.9216 vs 0.9170), 30 % fewer parameters,
+converged at epoch 1 rather than 7.
+
+**CAVEAT TO CARRY INTO THE WRITE-UP.** Part of the gain is comparison across
+windows and part is temporal SMOOTHING, since speaker states come in runs of
+hundreds of milliseconds. The prior is legitimate, but it means **an isolated
+window of leakage may be smoothed away and go unpenalised** -- the teacher is
+better at sustained leakage than at brief leakage.
+
+### Final teacher, and the numbers the loss depends on
+
+1,000 `sir0_train` trials (850 fit / 150 holdout), BiLSTM hidden 128 / 1 layer,
+enrolment bank K=3 rotated per epoch, epoch 3, seed 42, audibility -20 dB.
+sha256 `16f6d8a43d5ecacf24e1...`.
+
+| | balanced | recall | specificity | precision |
+|---|---|---|---|---|
+| is the target audible | 0.906 | 0.908 | 0.903 | 0.914 |
+| **is a non-target audible** | **0.802** | **0.795** | **0.808** | **0.679** |
+
+identity on single-speaker windows **0.942** (WavLM managed 0.570).
+
+**The arm uses the NON-TARGET column only**, which is the worse one. Not a
+choice: its required answer is a constant zero, so it needs no labels. The
+target column's required answer depends on whether the target was speaking in
+that window, which needs per-window labels in the loader -- the second
+increment.
+
+### Three interventions that did NOT work, recorded so they are not retried
+
+1. **Enrolment bank (K=3, rotated per epoch).** PREDICTED the best epoch would
+   move from 2 to 6-8 if the enrolment was the memorisation route. **It stayed
+   at exactly 2.** +0.008 AUC. The prediction was wrong and the diagnosis with
+   it.
+2. **Doubling the data, 500 -> 1,000 trials.** +0.017 on the hard question,
+   nothing on the easy one. Best epoch still 2.
+3. **42 Optuna trials over the MLP head.** 0.8836 -> 0.8907, and the whole run
+   was wasted anyway: it tuned an architecture the BiLSTM had already replaced,
+   0.7 points of search against 3.8 points of architecture. `SearchableHead`
+   now carries a comment recording that so it is not repeated.
+
+**The pattern underneath all three:** the head converges in ONE epoch and then
+degrades. It is not overfitting so much as exhausting what the features contain,
+which is why data, regularisation and hyperparameters all bought under a point
+each and the architecture bought five.
+
+**A false negative I produced along the way, worth recording as a method
+lesson.** I tested "does temporal context help" with hand-made scalar summaries
+of neighbours' cosine -- own-minus-local-max scored 0.509, i.e. nothing -- and
+reported the question settled. A learned model over the full 192-d sequence then
+gained 5.1 points. **A cheap proxy test can only rule something out when the
+proxy is as expressive as the thing it stands in for.**
+
+### The integration, and what it deliberately does not touch
+
+| file | |
+|---|---|
+| `src/models/state_teacher.py` | new. Frozen ECAPA + BiLSTM readout, hash-checked, shape inferred from the state dict because the checkpoint does not record it |
+| `src/models/losses_state.py` | new. `LossBSRNNState(LossBSRNN)` -- a SUBCLASS in its own file, so `losses.py` is untouched |
+| `scripts/derive_w_state.py` | new. Anchor measurement and weight derivation |
+| `tests/test_losses_state.py` | new. 8 tests |
+| `experiments/configs/bsrnn_state.yaml` | new. Four keys differ from the baseline, verified |
+| `scripts/train.py` | five changes |
+
+**`build_loss_fn` BRANCHES on `w_state` rather than multiplying by zero.** A
+config without the key gets the plain `LossBSRNN` object, so every run before
+today reproduces by construction and no old config can reach the new code path
+at all. Verified: the baseline config still builds `LossBSRNN`.
+
+**`total` deliberately EXCLUDES `L_state`.** It is what `ReduceLROnPlateau` and
+the loss curve read, and the four terms are what it has always meant; a fifth
+would make every run before 2026-09-11 incomparable with every run after.
+`L_state` gets its own column, NaN when the term is off -- a missing term is a
+gap in the curve, not a zero.
+
+**`selection_score` includes it in no mode, and that is the point.** A frozen
+learned scorer can be improved by finding its blind spots rather than by
+removing the interferer, and the teacher has never heard masked audio -- only
+real mixtures and synthetic suppressions. Selecting on it would make that
+invisible, because the quantity being gamed would also be the quantity choosing
+the checkpoint. **The signature to watch is `L_state` falling while `L_pres`
+stalls**, and both now print side by side in the epoch breakdown.
+
+### The test that matters, and the one I mislabelled
+
+`test_the_state_term_is_what_carries_the_gradient` is the test with teeth.
+Proven by deliberately introducing the bug: with the teacher's forward wrapped
+in `no_grad`, `|grad(w_state=1) - grad(w_state=0)|` goes from **182.17 to
+exactly 0.000000**.
+
+**`test_gradient_reaches_the_waveform`, which I had called "THE test", still
+PASSES under that bug** -- the four base terms deliver gradient regardless, so
+the waveform's gradient only moves 26874.5 -> 26836.6, a 0.14 % change. "Gradient
+is non-zero" is not a test of this term.
+
+**And `L_state` logs 0.1048 either way.** The number in the training curve is
+identical whether the term works or not. That is the failure mode, confirmed
+rather than argued -- the same dead-gradient shape D9 already records for the
+original "add WER to the loss" idea.
+
+### w_state must be DERIVED, and the first attempt found two bugs
+
+**MEASURED: at `w_state = 1.0` the term contributed 0.68 % of the gradient on
+synthetic audio and 5571 % on real audio.** Two orders of magnitude in one
+direction and three in the other, so ANY guessed value would be wrong. L_state
+is a cross-entropy in nats; the others are dB. There is no meaningful
+conversion -- BCE is a log-probability, dB is a power ratio -- and `L_MR` is the
+standing precedent that a term need not be in dB provided its weight reconciles
+the units.
+
+**Anchors, 6 batches of `sir0_val`:**
+
+| anchor | L_state |
+|---|---|
+| oracle (clean target) | **0.1212** |
+| model (`model_sir0_10000-e6.pt`) | 1.8200 |
+| passthrough (the mixture) | **2.1064** |
+
+**Headroom 1.99 nats**, and the wiring check passes: the clean target contains
+no second voice and reads near zero. **The checkpoint has removed only ~15 % of
+the teacher's leakage reading**, so there is room for the term to push into.
+
+**Two bugs the first run exposed, both fixed:**
+
+1. **`remix_gains: true` invalidated every synthetic anchor.** The loader
+   rebuilds the mixture at a fresh SIR each epoch, so what it returns is NOT
+   `target + interferer + noise` from disk -- the residual measured 0.2x to 1.7x
+   the mixture's own level. The `partial_6/12/20db` anchors read as WORSE than
+   the raw mixture on `L_pres`, `L_gain` and `L_abs`, which is what gave it
+   away. The script now forces `remix_gains=False`.
+2. **The suggested weight printed as `0.0`** because `%.1f` was applied to
+   0.0027. It now prints `%.4g` and, more importantly, RE-MEASURES the share at
+   the suggested value instead of trusting a linear extrapolation from a 5571 %
+   measurement -- which is nowhere near the small-perturbation regime that
+   extrapolation assumes.
+
+### The one thing that can still stop this, and it is unmeasured
+
+**GPU cost per step.** 13 windows x 6 examples is 78 ECAPA forwards AND
+backwards every step, against a current 0.674 s/step. Every timing in this
+entry is CPU; training is a T4. `scripts/profile_step.py` is where that number
+comes from, and **no further integration code should be written before it
+exists** -- if it says 5 s/step the term must score a random subset of windows
+instead of all 13, which changes the shape of `losses_state.py`.
+
+**Levers, and the first one is less available than it looks.**
+
+**Subsampling windows is the SGD argument, and it is sound in principle.** The
+term is a mean over 13 windows, so scoring a random subset is an unbiased
+estimate of it -- the same reason a mini-batch estimate of the full-dataset
+gradient works, and the reason even a single sample converges given enough
+steps. Variance costs steps, not correctness.
+
+**But the BiLSTM couples the windows, so random subsampling saves almost
+nothing.** The head runs bidirectionally over the whole 13-window sequence, so:
+
+- computing the loss on 4 windows still needs all 13 ECAPA embeddings to feed
+  the recurrence, so the expensive forward is unchanged;
+- and the backward flows through the recurrence to all 13 hidden states anyway,
+  so the backward is unchanged too.
+
+**What DOES save time is scoring a shorter CONTIGUOUS segment** -- 2.5 s of the
+4.008 s chunk is 7 windows instead of 13, and the recurrence runs over 7. The
+cost is that the head then sees a shorter context than the 13 windows it was
+fitted on, which is a mild distribution shift and must be measured rather than
+assumed.
+
+So the levers, in order: **score a shorter contiguous segment**; put the teacher
+on the second T4; precompute enrolment embeddings (worth ~5 s of the ~18 s of
+audio per example, so a real saving but not the main one -- an earlier claim
+that it was the larger half was true only for a single-window design).
+
+**AND THE NUMBER 4 WAS INVENTED.** An earlier note in this conversation
+suggested "score 4 of 13 random windows" as though it were derived. It was not.
+The only non-arbitrary anchor available is that a 1 s window at 0.25 s hop means
+about **4 NON-OVERLAPPING windows span the 4 s chunk**, so 13 windows carry
+nowhere near 13 windows of independent information -- but that is an argument
+about redundancy, not a derivation of a subsample size. The segment length
+should come from the profile: the longest one that fits the session cap.
+
+### Still not done
+
+- **`sir0_val` is uncached**, so the teacher has never been measured on
+  speaker-disjoint data. All 1,000 trials come from `sir0_train`.
+- The target column, which needs per-window labels in `dataset_loader.py`.
+- Head A, which is a separate idea and shares those labels.
+
+### MEASURED 2026-09-11 on a T4 — the arm is affordable, and the lever is EPOCHS not the teacher
+
+**The full-fidelity teacher costs +53 % per step. Shortening the scored segment
+does NOT buy the same measurement more cheaply -- `L_state` moves 4.1x across
+segment lengths -- so the epoch count gives way instead. 13 windows at 10 epochs
+lands at 10.0 h against a 12 h cap.**
+
+`experiments/results/2026-09-11-state-teacher-cost/`, Tesla T4, batch 3 trials =
+6 examples, AMP on, synthetic audio.
+
+| windows | s/step | overhead | 16-ep hours | peak GB | L_state |
+|---|---|---|---|---|---|
+| 0 (baseline) | 0.669 | — | 10.5 | 6.59 | — |
+| 1 | 0.743 | +11 % | 11.7 | 6.67 | 0.2542 |
+| 3 | 0.780 | +17 % | 12.2 | 6.67 | 0.1385 |
+| 5 | 0.822 | +23 % | 12.9 | 6.73 | 0.1038 |
+| 7 | 0.870 | +30 % | 13.7 | 7.14 | 0.0892 |
+| 9 | 0.926 | +38 % | 14.5 | 7.55 | 0.0742 |
+| **13 (full)** | **1.022** | **+53 %** | **16.0** | **8.37** | **0.0623** |
+
+**The profile is trustworthy because the baseline reproduces.** 0.669 s/step
+against the recorded 0.674 (`decisions-m2.md` 2026-08-28).
+
+### The finding: subsampling is not a saving
+
+**`L_state` runs 0.2542 at one window to 0.0623 at thirteen -- a factor of
+4.1.** A shorter segment gives the BiLSTM readout less context than the 13
+windows it was fitted on, so it is a DIFFERENT measurement, not a cheaper one.
+`w_state` would need re-deriving at every length, and the numbers would not be
+comparable across arms.
+
+That retires the lever I had been planning on. **The mini-batch argument for
+subsampling was sound in principle and inapplicable in practice**: the term is a
+mean over windows, so a random subset would be unbiased -- but the head is a
+BiLSTM over the sequence, so a loss on 4 windows still needs all 13 embeddings
+to feed the recurrence and the backward flows through it to all 13 regardless.
+Only a shorter CONTIGUOUS segment shortens both, and that is what drifts.
+
+**Caveat on the 4.1x.** The sweep ran on synthetic noise, which contains no
+interferer, so `L_state` there measures how confidently the teacher says "no
+second voice" -- and more context makes it more confident, which is the right
+direction. The EXISTENCE of drift is the finding; the magnitude is specific to
+this input and should not be quoted as a general property.
+
+### DECIDED: 13 windows, 10 epochs
+
+**Full-fidelity teacher, no drift, no re-derivation.** 10.0 h with two hours
+spare.
+
+**10 epochs costs nothing that was being used.** The 2026-09-04 run selected
+epoch 6 of 16; the run before it selected epoch 2 of 20. The back half has never
+produced a checkpoint. Early stopping still applies, so it is a ceiling and not
+a target.
+
+**Memory does not bind: 8.37 GB of 14.6.** So the teacher goes on the same card
+and `state_device: cuda`. The second T4 buys nothing here and is better spent on
+E7's data parallelism if that lands.
+
+### w_state = 0.002692, derived and verified
+
+`scripts/derive_w_state.py`, `experiments/results/2026-09-11-wstate-anchor-sir0`.
+**Verified, not extrapolated:** at that value the term contributes **15.00 %** of
+the gradient reaching the waveform, measured with two backward passes at the
+suggested weight rather than scaled from a measurement elsewhere.
+
+**At w_state = 1.0 it contributes 5571 % on real audio -- 370x too strong.** Any
+guessed value would have been wrong by orders of magnitude, and a run at 1.0
+would have looked like the idea failing when it was the arithmetic.
+
+**15 % is a judgement, not a derivation**, and is recorded as one: four existing
+terms share the update, so an equal share is ~25 %, and a new unvalidated proxy
+should get less than an equal say. The script tabulates 5 % to 30 %. If the arm
+shows nothing at 15 %, the next question is 30 %, not whether the idea failed.
+
+### Three bugs the profiling found, all fixed
+
+1. **The profiler ran fp32 while training runs AMP.** Baseline came back at
+   4.765 s/step and 12.23 GB against the recorded 0.674 -- 7x slow. Every
+   overhead percentage would have been divided by a baseline seven times too
+   large, making the teacher look seven times cheaper than it is. It now mirrors
+   `train.py`: `autocast` on the model forward only, `GradScaler`, loss in fp32,
+   and it PRINTS the recorded 0.674 beside the measured baseline so a
+   misconfigured profile is visible before the sweep rather than after.
+2. **`cudnn RNN backward can only be called in training mode`.** The teacher's
+   BiLSTM was in `eval()`, and cuDNN refuses RNN backward there -- but gradients
+   must flow through the recurrence to reach the audio. The head now runs in
+   `train()` mode, which is numerically free ONLY because dropout is forced to
+   0.0 at construction: `Dropout(0.0)` is the identity in both modes and
+   LayerNorm is mode-independent. An assertion now fails loudly if a head with
+   nonzero dropout is ever loaded, since a stochastic teacher would make the
+   extractor chase a moving target.
+3. **Two Kaggle runs produced the same traceback from an already-fixed file.**
+   The notebook's copy cell skipped files that already existed, and
+   `/kaggle/working` persists across runs in a session -- so it kept the
+   previous run's code after the dataset was updated. The line numbers in the
+   traceback were the only evidence. It now overwrites, and asserts the presence
+   of two fixed lines before running anything.
+
+### And one that was not a bug in the code
+
+**`../ecapa_pretrained/` is 24 KB of SYMLINKS into the HuggingFace cache**, not
+files -- SpeechBrain's `from_hparams` links rather than copies. Zipped as links,
+the upload succeeds, the dataset lists five files, and the teacher fails to load
+on Kaggle with an error about a missing path. `make_kaggle_bundle.py` now
+dereferences (85 MB resolved) and re-hashes against the hashes stored inside the
+teacher checkpoint, so what is uploaded is provably what the head was fitted
+against -- the same discipline as `--prefix-manifest`.
+
+### Figures, report-ready
+
+`scripts/plot_state_teacher_cost.py` renders three single-panel PDFs from
+`results.json`, half-textwidth each so any two sit side by side:
+
+| | |
+|---|---|
+| `state_teacher_cost.pdf` | run length against windows, 16 vs 10 epochs, with the cap |
+| `state_teacher_drift.pdf` | **the finding** -- L_state against windows |
+| `state_teacher_memory.pdf` | peak memory, which does not bind |
+
+Separate rather than multi-panel because they argue different things: the cost
+figure supports a scheduling decision, the drift figure is a result about the
+teacher.
+
+### The arm is now fully specified
+
+`experiments/configs/bsrnn_state.yaml` differs from the baseline in exactly five
+keys: `w_state` 0.002692, `state_teacher`, `ecapa_dir`, `state_device` cuda, and
+`epochs` 10. Nothing else -- same architecture, same parameter count, same
+latency, same data, same seed, same schedule. **No capacity confound: the
+teacher is training-only and deleted at inference.**
+
+Control is `models/model_sir0_10000-e6.pt`, not a fresh baseline run.
+
 ### Two controls, without which head A means nothing
 
 1. **Ablate the enrollment and re-measure state accuracy.** If accuracy holds up
@@ -1588,10 +2331,13 @@ not tuned.
 ### Sequence, and what fits before 14 October
 
 0. **MEASURE ICR FIRST — D10's free measurement, which gates this whole family.**
-   `interferer_text` is in every `meta.json`, so one transcription pass yields
-   target WER and interferer content overlap together. If leakage is not the
-   dominant error, both D10 and head B lose their motivation. Nothing here starts
-   before that number exists.
+   **ANSWERED 2026-09-11, and it passes. See the measured section at the end of
+   D14.** Leakage is 58.5 % of our content-word error mass, and the per-trial
+   rank correlation between how much leaked and how bad the WER was is +0.622
+   over 103 trials, surviving inside difficulty strata. Head B and D10 keep their
+   motivation. **No transcription pass was needed** — the ICR aggregate had been
+   computed on 2026-09-04 and never read back, and every transcript was already
+   in `experiments/results/transcripts.csv`.
 1. **Label script.** Hours. Shared dependency of everything below, and of the
    sweep.
 2. **State-conditioned oracle sweep. No training, no GPU.** Extend `sweep_alpha`
@@ -1626,3 +2372,841 @@ detector architecture, a detector training run, then the arm. `BETA` is one numb
 with `BETA = 1` recovering `L_pres` exactly, and D10 is one term on a stem already
 loaded. **Neither is beaten by this on cost-to-evidence.** What D14 contributes
 inside the freeze is steps 1-3, not B.
+
+
+### MEASURED 2026-09-11 — step 0 passes. Leakage is the dominant single error, but it is not the only one
+
+`../tse_venv/bin/python scripts/analyse_leakage_share.py`, 1.2 s measured, no GPU, no ASR
+pass. Results in `experiments/results/2026-09-11-leakage-share/`. `sir0_val`
+`both`, n=103, the same trials and the same cached transcripts that produced the
+published numbers, so this is not a different measurement of a different set.
+
+**The aggregate already existed and had never been read.** `results.json` in
+`experiments/results/2026-09-04-train-sir0-10000/` carries `icr_at_2` and
+`mean_leak` for floor, our baseline and ceiling, written 2026-09-04. D14 was
+written as though the number did not exist. It did. Cost of the actual
+measurement: reading a file.
+
+Also found: **`scripts/eval_asr_wer.py` is a zero-byte file**, committed empty in
+`38bf48f` on 31 August. D14's step 0 named it as the tool to run. It has never
+contained anything.
+
+#### The published aggregate, read back
+
+| system | WER | sub | del | ins | ICR@2 | mean leaked |
+|---|---|---|---|---|---|---|
+| floor, raw mixture | 65.2 | 32.9 | 9.3 | 23.1 | 67.0 % | 51.3 % |
+| ours, baseline | 59.5 | 28.2 | 11.8 | 19.5 | 50.5 % | 34.6 % |
+| WeSep | 34.6 | 18.5 | 8.9 | 7.2 | 15.5 % | 9.0 % |
+| ceiling, clean target | 5.8 | 3.4 | 0.7 | 1.7 | 0.0 % | 0.0 % |
+
+#### Why the aggregate alone does not answer the question
+
+ICR@2 = 50.5 % says the interferer leaks *often*. It does not say leakage causes
+most of the *damage*. Three measures were added underneath it.
+
+**1. Error-mass attribution.** Of the content words the listener reported that
+the target did not say, how many did the interferer actually say? Same
+normaliser and stopword list as `icr.py`, so this is consistent with the
+published ICR rather than a parallel definition.
+
+| system | wrong content words | the interferer's | neither speaker's | leakage share |
+|---|---|---|---|---|
+| floor | 904 | 635 | 269 | **70.2 %** |
+| ours | 742 | 434 | 308 | **58.5 %** |
+| WeSep | 406 | 94 | 312 | **23.2 %** |
+| ceiling | 91 | 0 | 91 | 0 % |
+
+**2. Per-trial rank correlation, leaked fraction against WER, within one
+system.** The cross-system comparison is n=2 and confounded — WeSep is better at
+everything at once. Within our baseline, across 103 trials, rho = **+0.622**.
+WeSep +0.468, floor +0.628.
+
+**3. Leakage quartiles, our baseline.** Least-leaky quarter of trials: WER
+24.9 %. Most-leaky quarter: **101.5 %**. A 76.6-point spread inside a single
+frozen model.
+
+#### The confound control, which is what makes this defensible
+
+A positive correlation could be nothing but difficulty: a heavily overlapped
+trial leaks more *and* is harder for every other reason. Repeating measure 2
+inside strata holds difficulty roughly fixed. Our baseline:
+
+| stratum | n | rho | mean WER | mean leaked |
+|---|---|---|---|---|
+| overlap low | 65 | +0.602 | 64.4 % | 37.4 % |
+| overlap mid | 33 | +0.740 | 66.6 % | 31.2 % |
+| target louder | 42 | +0.687 | 42.1 % | 14.5 % |
+| interferer louder | 55 | +0.300 | 89.0 % | 53.8 % |
+
+It survives everywhere it can be measured. The one weak cell, interferer louder
+at +0.300, is a ceiling effect and not a counterexample: mean WER there is
+89.0 %, so there is almost no room left for more leakage to make things worse.
+Overlap `none` (n=0) and `high` (n=5) are below the n>=8 floor and are not ranked.
+
+#### What this authorises, and what it does not
+
+**Authorises head B.** The thing head B applies pressure against is the single
+largest identified component of our error, it is over half of it, and it tracks
+WER trial by trial rather than only in a two-point average.
+
+**Does NOT authorise the assumption that removing leakage removes the error.**
+Two limits, both measured here:
+
+1. **41.5 % of our wrong content words were said by nobody.** WeSep, having
+   largely solved leakage (23.2 % share), has *more* invented words in absolute
+   terms than we do — 312 against our 308. Driving leakage to zero leaves that
+   residue untouched, and `fabrication.py` already recorded the same effect
+   independently: both extractors raise fabrication ~48 % above doing nothing.
+   The realistic prize is roughly the 434 leaked words, not the 742.
+
+2. **Our model already deletes more target content than doing nothing.**
+   Deletions: mixture 9.3, ours 11.8, ceiling 0.7. Extraction is *adding* 2.5
+   points of deletion while removing 3.5 points of insertion and 4.7 of
+   substitution — net WER gain of only 5.7 points for a 16.7-point cut in
+   leakage. **Head B's pressure is one-sided: it rewards making no non-target
+   voice audible and says nothing about keeping the target audible.** Nothing in
+   `L_state` opposes deleting the target; only `L_pres` and `L_gain` do. Deletion
+   rate and enrolment sensitivity are therefore the two numbers to watch on the
+   M5 arm, not `L_state` alone.
+
+Recorded so it is not re-derived: the M5 arm's epoch 1 read enrolment
+sensitivity -13.54 dB against the baseline's -12.08 dB at the same epoch — less
+responsive to the enrolment, which is the direction this failure mode predicts.
+One epoch, one seed, and the baseline climbed to -9.17 by epoch 2, so it is a
+thing to check at epoch 3, not a finding.
+
+### MEASURED 2026-09-11 — the arm and its control do NOT see the same training order. Building the teacher reshuffles the dataset
+
+`bsrnn_state.yaml`'s header claims "same data, same seed, same schedule -- one
+term added". **The first two words are wrong and this is why.**
+
+The arm's epoch 1 logged 12,624 present / 7,284 absent crops against the
+baseline's 12,625 / 7,283. One crop in 19,908, which looked like rounding.
+It is not.
+
+**The chain, each link verified:**
+
+1. The train loader is `shuffle=True, drop_last=True, batch_size=3`
+   (`train.py` ~899). `sir0_train` holds **9,955** trials. 9,955 / 3 leaves one
+   over, so `drop_last` discards **whichever trial lands last in the shuffle**.
+   9,954 x 2 directions = 19,908, matching both runs exactly.
+2. Counted locally through the real `TrialDataset` at seed 42, epoch 0, without
+   `drop_last`: **12,626 / 7,284, total 19,910**. Both logged runs are that
+   minus one trial's two crops — confirming the data on disk is the same and
+   the difference is entirely *which* trial was dropped.
+3. `build_loss_fn` (`train.py` 555) runs before the first batch is drawn. For
+   the arm it constructs `StateHead` — two `LayerNorm`, two `Linear`, one
+   bidirectional `LSTM` — and **every one of those draws from the global RNG at
+   construction time**.
+4. Direct test, seed 42, the same stand-in for `build_model`'s consumption:
+
+   | | permutation starts | trial dropped |
+   |---|---|---|
+   | no teacher built | 6707, 1302, 4478, 4939 | 8201 |
+   | teacher built | 7502, 7622, 5487, 2436 | 1658 |
+
+**So the arm and the control see the same crops in a completely different
+order.** The crops themselves are stable — `_crop_offset_start` keys on
+`(seed, epoch, idx)`, so a given trial always yields the same window — but the
+SGD trajectory is not.
+
+**Consequence for reading the arm.** The epoch-1 result (val `L_pres` -2.4230
+against the baseline's -1.6081 at the same epoch) carries an ordering
+perturbation of unknown size on top of the teacher's effect. There is no
+same-config replicate anywhere in `experiments/results/`, so ordering noise has
+never been measured on this codebase and cannot be subtracted. The gain is
+~1.9x the epoch-0 spread across all eight prior runs, which is the best
+available evidence it is real, but those runs differ by more than ordering.
+**Epoch 3-4 remains the check**: ordering noise washes out, a teacher effect
+does not.
+
+**Two things this was NOT, both claimed in conversation and both wrong:**
+
+- `num_workers`. The arm's source config says 0 and the baseline's *recorded*
+  config says 4, but that is a post-patch artefact: both Kaggle notebooks set
+  `NUM_WORKERS = 4` and write it back before `train.py` reads it, and both
+  *source* configs say 0. The loader is worker-count independent by design
+  anyway — every draw keys on `(seed, epoch, idx)` explicitly to sidestep
+  per-worker RNG copies.
+- "No LR scheduler." There is one: `ReduceLROnPlateau` (`train.py` ~1132). It
+  is plateau-driven rather than horizon-driven, so `epochs: 100 -> 10` still
+  does not change the training path, but the reason given was wrong.
+
+**DECLINED 2026-09-11.** A fix exists -- give the train loader its own
+`torch.Generator`, reseeded per epoch from `(seed, epoch)` to stay correct on
+resume -- and it was not taken. The reasoning, which stands:
+
+Ordering is seed noise. Every single-run A/B comparison in this project has
+carried it, including the 2026-09-04 baseline that everything is measured
+against, which is itself one run. Pinning one future arm's ordering does not
+give the project a noise floor and does not change how any existing number
+reads. It removes one source of run-to-run variation while leaving the rest --
+cuDNN's nondeterministic RNN backward, and the fact that two arms have
+different gradients from step 1 by construction.
+
+**What the real gap is, and it is not this.** No same-config replicate exists
+anywhere in `experiments/results/`, so ordering noise -- and run-to-run noise
+generally -- has never been measured on this codebase. Until it is, no
+single-run delta is separable from scatter, with or without the generator fix.
+That is the same problem `report-todo.md` #9 records one layer up for the
+judge: "a system difference smaller than it cannot honestly be claimed."
+
+Re-open only if a Group D arm lands a delta small enough that ordering could
+plausibly account for it, and only alongside an actual noise measurement.
+
+**The general lesson, worth more than this instance.** Any arm that adds a
+module — D13's gate, D12's experts, D5's speaker encoder — will consume RNG at
+construction and silently reshuffle its own training set relative to its
+control. Every future "one term added" comparison in Group D has this bug
+unless the generator fix lands first.
+
+### BUILT 2026-09-11 — head A as code. Runnable except for one thing: the loader owes it labels
+
+`src/models/state_head.py` (the head, the class weights, the cross-entropy, the
+per-class recall, the checkpoint stripper), `src/models/losses_state_head.py`
+(`LossBSRNNStateHead`), the `state_head` flag on `BSRNN_TFMAP` and in
+`build_model`, and `tests/test_state_head.py` (25 tests, all passing).
+
+**516 parameters, verified by a test rather than by arithmetic in a document.**
+`AuxStateHead(feature_dim=128).n_parameters == 516`.
+
+**Where it taps: the separator's output, BEFORE `lookahead_shift`.** The shift
+moves frame `t`'s features to position `t-k` so the MASK for `t` is built from a
+state that has seen `t+k`; the state LABEL for `t` is still about `t`. Reading
+the head off the shifted tensor would pair frame `t`'s label with frame `t+k`'s
+features — invisible at today's `lookahead_frames: 0` and a silent k-frame
+misalignment the moment that key is raised.
+
+**It is trained on the HONEST label, not `REQUIRED_OUTPUT_STATE`.** That mapping
+(`both -> target only`) belongs to head B, which scores output audio. Head A
+reads internal features, and a model that has correctly noticed "both speakers
+are here, and I am about to suppress one" should be rewarded for noticing.
+Training it on the required-output mapping would ask the features to forget the
+interferer they need in order to remove it.
+
+**Class weights are inverse frequency normalised to mean 1.** Normalising is
+what makes the term's magnitude independent of which split's histogram was used,
+so a weight derived against it keeps meaning what it meant — and it fixes chance
+at ln(4) = 1.386 nats, so the term is readable without a baseline run.
+
+**The head forks the RNG at construction, which settles the 2026-09-11 shuffle
+problem for this arm without the global generator fix that was DECLINED.**
+Adding any module advances the global RNG, changes the dataloader's shuffle and
+changes which trial `drop_last` discards. `torch.random.fork_rng` makes head A's
+init deterministic and invisible to everything built after it; a test asserts
+that `torch.randn(3)` after building the model is bit-identical with the head on
+and off. **This is the narrow fix, not the general one** — D13's gate and D12's
+experts still have the bug, because their parameters must sit in the main RNG
+stream to stay comparable with anything else.
+
+**Off by default; `forward`'s return type is unchanged.** `return_state=True`
+opts in, and asking for state from a headless model RAISES rather than returning
+`None` — a silently skipped term would train a baseline and be reported as head
+A having had no effect. `drop_state_head()` strips the weights so a head-A
+checkpoint loads `strict=True` into the baseline architecture at eval, instead
+of eval being loosened to `strict=False` and swallowing a genuinely missing
+separator weight too.
+
+**A diagnostic arm came free: `state_head_detach`.** The head still learns to
+read the features but no gradient reaches the separator, so it measures how
+decodable state already is, online, with no pressure applied. That is the
+control for "did the auxiliary loss change the features, or were they always
+like this?" — the training-time counterpart of `scripts/probe_state_features.py`.
+
+**NOT DONE, and the arm cannot run until it is:** `dataset_loader.py` does not
+yet emit per-frame state labels for a crop, so `loss_fn.state_labels` has
+nothing to be set from. One loader change, shared with head B's target column.
+No config exists yet either, deliberately — an untested YAML for an arm that
+cannot start is a liability, and the weight has to be derived against a real
+`L_head` reading the way `w_g` and `w_state` were.
+
+**A and B do not compose.** `LossBSRNNStateHead` and `LossBSRNNState` are
+siblings, both subclassing `LossBSRNN`. That is the intended constraint, not an
+oversight: D14 says A alone, then B alone. Running both gives one number
+attributable to neither, which is the 2026-08-25 mistake.
+
+### MEASURED 2026-09-11 — probing head A's features BEFORE building the arm. Capacity settled, and a gender shortcut found
+
+`scripts/probe_state_features.py --limit 100 --max-seconds 8.0`, 13 min on CPU.
+`experiments/results/2026-09-11-state-probe/`. 100 `sir0_val` trials, both
+directions, `model_sir0_10000-e6.pt` frozen, `z` captured off `model.separator`
+with a forward hook, probes fit on a TRIAL-DISJOINT 70/30 split (frames within a
+trial are far too correlated for a frame-level split to mean anything).
+
+**Why before the arm.** Head A is a ~10 h training run whose premise is that the
+separator's features can be pushed to encode speaker state. Whether they ALREADY
+do is free to check, and it decides the head's design.
+
+#### Capacity: 516 parameters is right, and my band-resolved argument was wrong
+
+| probe | params | balanced accuracy |
+|---|---|---|
+| linear, mean-pooled — **D14's specified head** | 516 | **61.0 %** |
+| MLP, mean-pooled, hidden 128 | 17,028 | 62.0 % |
+| linear, band-resolved (no mean-pool) | 16,388 | **59.0 %** |
+| chance | | 25.0 % |
+
+33x the parameters buys 1.0 point. **The band-resolved probe is WORSE**, which
+kills the argument made in conversation that mean-pooling discards which
+frequencies the second voice occupies and that capacity should go on the band
+axis. It discards nothing the probe can use. Head A stays at 516.
+
+#### The features do not already encode state usably
+
+| state | recall |
+|---|---|
+| none | 93.1 % |
+| target only | 72.0 % |
+| interferer only | 39.6 % |
+| **both** | **39.4 %** |
+
+Nearly all of the 61 % is detecting silence. **The two states a gate needs --
+`both` and `interferer only` -- sit at ~39 %.** Two consequences, opposite in
+sign: head A has real work to do, so its auxiliary loss is not redundant; and
+piece C driven by today's features would fail D14's own stopping rule ("a gate
+driven by a bad state estimate is worse than no gate").
+
+#### The gender shortcut, which D14 predicted
+
+| | balanced accuracy | frames |
+|---|---|---|
+| same gender | **53.4 %** | 18,054 |
+| different gender | **66.5 %** | 42,126 |
+
+A 13-point gap. D14's control 2 called it: "a frame classifier is an easier place
+to hide it; pooled accuracy would conceal it." On the case that matters -- two
+speakers of the same gender -- the features are close to useless beyond silence
+detection, and a substantial part of the headline is gender. **Head A trained on
+this would be trained to lean on the shortcut harder, and any gate built on it
+would inherit it.** Report the split, never the pooled number.
+
+#### Control 1 was built wrong and is inconclusive
+
+The "wrong enrolment" arm substituted the OTHER SPEAKER IN THE SAME TRIAL, which
+is not an ablation -- it is a different valid instruction. It scored 61.3 %
+against 61.0 %, which naively reads as "the cue is ignored". The per-class
+recalls say otherwise:
+
+    real enrolment     target 72.0   interferer 39.6
+    wrong enrolment    target 39.9   interferer 72.2
+
+**They swap cleanly**, which is the signature of features that track WHICH
+speaker was requested, with the roles trading when the cue trades. Encouraging,
+but it is not the control D14 asked for. The correct ablation is a stranger from
+a DIFFERENT trial, where there is no role to swap into. Rerun before acting on
+control 1 either way.
+
+### D15. Penalise mask ROUGHNESS over time — attack fabrication, not leakage
+
+**Status: PROPOSAL, raised 2026-09-12 (Grant). Step 0 is free and answers most
+of it. Nothing here is built.**
+
+**The gap it addresses, and it is the half nobody is working on.** Measured
+2026-09-11: **41.5 % of our wrong content words were said by nobody** — 308
+invented words against 434 leaked ones. Every open proposal in Group D attacks
+leakage (D10, D14 B, D13's gate). Nothing attacks invention, and `fabrication.py`
+recorded independently that both extractors raise fabrication ~48 % above doing
+nothing — **extraction is CAUSING part of this, not failing to remove it.**
+
+**The mechanism, and it is textbook.** A time-frequency mask that changes
+abruptly between neighbouring frames produces isolated, flickering spectral
+peaks — **musical noise**, the classic artefact of spectral-subtraction and
+masking systems. It is perceived as chirping, and for our purposes the important
+property is not how it sounds: a spurious spectral transient looks to an ASR
+front end like an onset, and onsets are what word hypotheses are built from.
+**Invented words are exactly the error that a flickering mask would produce.**
+
+**Nothing in the current model or objective opposes it.** `Estimator` predicts a
+complex mask per band per frame through a 1x1 conv on the feature stream, and GLU
+bounds its MAGNITUDE. No term and no architectural constraint says anything about
+how much it may change from frame t to frame t+1. `L_MR` prices detail at four
+resolutions but is minimised by matching the reference, not by being smooth, and
+was measured to reward muting (decisions-m2.md 2026-08-28).
+
+**Borrowed, and the difference matters.** Temporal smoothing of a spectral gain
+is standard in speech enhancement: the decision-directed a-priori SNR estimator
+(Ephraim & Malah, IEEE TASSP 1984) is essentially a recursive smoother and is
+the canonical musical-noise fix; cepstral-domain smoothing (Breithaupt, Gerkmann
+& Martin, ICASSP 2008) is its modern form. In images the same idea is total
+variation regularisation (Rudin, Osher & Fatemi, Physica D 1992). **BORROWED
+WITH A DIFFERENCE:** those smooth a gain to improve PERCEIVED quality, and are
+tuned on PESQ-style measures. Here the justification is content fidelity for a
+downstream listener, and the arm would be judged on invented-word count and
+LCF-WER, never on DNSMOS. That is a different claim with a different acceptance
+test, and our metric can actually distinguish them.
+
+### The trap, stated before the arm rather than after
+
+**Speech has real transients.** Plosive releases, stop bursts and word onsets
+are genuine fast changes, and a mask that cannot move quickly smears them. We
+are ALREADY deleting more than doing nothing does — deletions 11.8 against the
+raw mixture's 9.3 — so blunt smoothing attacks the error we have too much of by
+making worse the other error we have too much of. **"Smoother is better" is
+false and must not be the form of the hypothesis.**
+
+**The fix for that is to derive the target from the ORACLE mask, which is free.**
+We own `target.wav` and `mixture.wav` for every trial, so the ideal mask is
+computable exactly, and with it the frame-to-frame variation a CORRECT mask
+exhibits. The hypothesis then becomes falsifiable and self-limiting: penalise
+roughness **beyond what the oracle mask itself shows**, per band, the same
+deadzone shape as `L_gain`'s +-3 dB. If our mask is already no rougher than the
+oracle's, there is nothing here and the proposal dies at step 0 for the cost of
+an afternoon.
+
+### Sequence
+
+0. **MEASURE THE ROUGHNESS GAP. No training, no GPU, hours.** For `sir0_val`,
+   compute per band the mean absolute first difference along time of (a) the
+   oracle mask |S_target| / |X_mixture| and (b) our checkpoint's predicted mask.
+   Three outcomes and all are useful:
+   - ours is much rougher -> the premise holds, go to 1
+   - ours is comparable -> **the proposal is dead**, recorded, no run spent
+   - ours is SMOOTHER -> we are over-smoothing already, which would explain the
+     deletions and points the opposite way
+   Correlate the per-trial gap against that trial's invented-word count from
+   `transcripts.csv`, the same way D14 step 0 correlated leakage against WER.
+   A gap that does not track invention is not the mechanism.
+1. **A loss term.** L1 of the mask's first difference along time, per band,
+   deadzoned at the oracle's own roughness. One term, one weight, derived
+   against a measured anchor exactly as `w_g` = 1.69 and `w_state` = 0.002692
+   were — never picked.
+2. **Or an architectural constraint instead**, if the term is hard to weight: a
+   causal one-pole smoother on the mask with a per-band learned coefficient.
+   Zero added latency (causal IIR, one multiply-add per bin), ~32 parameters,
+   and a hard constraint rather than a soft penalty. Init at no smoothing so the
+   arm starts as the baseline, the same discipline as D4a's zero-init gates.
+
+**Cost-to-evidence: the best in Group D right now.** Step 0 needs no GPU, no
+training and no API budget; it either kills the idea or hands the arm a derived
+weight. Compare D14 B, which cost a label script, a detector architecture, a
+detector training run and a 10.25 h arm to move its own term 1.4 %
+(decisions-m2.md 2026-09-12).
+
+**It also composes with everything.** It constrains the mask's behaviour over
+time and says nothing about who the target is, so it is orthogonal to D4a, D13
+and D14, and can be added to whichever of those survives.
+
+### MEASURED 2026-09-12 — D15's premise is WRONG, and what replaced it is worse news
+
+D15 proposed penalising mask ROUGHNESS on the theory that a flickering mask was
+producing musical noise and inventing words. **Step 0 was run and it refutes
+that.** `scripts/plot_mask_grid.py` and a 12-trial measurement on
+`model_sir0_10000-e6.pt`, against the ideal mask `|target| / |mixture|`:
+
+| | varies along TIME | varies along FREQUENCY | freq / time |
+|---|---|---|---|
+| our mask | 0.0445 | 0.0238 | **0.53** |
+| ideal mask | 0.1540 | 0.1551 | **1.01** |
+| shortfall | **3.5x** | **6.5x** | |
+
+**Our mask is not too rough. It is 3.5x too SMOOTH along time and 6.5x too
+smooth along frequency.** The third outcome D15 listed for step 0 — "ours is
+SMOOTHER, which points the opposite way" — is the one that happened. Smoothing
+is retired as an intervention. The step 0 measurement cost an afternoon and
+saved a training run, which is exactly what it was for.
+
+### The replacement finding, and it is structural
+
+**84.2 % of our mask's variance is explained by a single number per frame.**
+
+**The model has not learned a time-frequency mask. It has learned a broadband
+volume knob.** It raises the output when the target speaks and lowers it when
+they do not, applying nearly the same gain to every frequency in a frame. The
+ideal mask varies equally in both axes; ours varies half as much across
+frequency as across time.
+
+This is not a tuning problem and no loss weight fixes it. Two overlapping voices
+occupy the same frequencies at the same instant, and the only way to separate
+them is to decide per time-frequency cell which voice owns it. **A broadband gain
+cannot do that even in principle.** It can only be loud when the target talks,
+which is voice activity detection wearing an extractor's architecture.
+
+It explains, at one stroke:
+- why leakage survives — a volume knob passes both voices when both speak;
+- why 62 % of the output is enrolment-independent (2026-08-30) — a volume knob
+  needs to know WHEN someone speaks, not WHO;
+- why the state probe reads "somebody is speaking" at 93 % and "which of the
+  two" at 39 % (2026-09-11);
+- why the frozen state teacher moved leakage a little and cost fidelity — the
+  only lever the model has is to turn the knob down harder.
+
+### CONFIRMED 2026-09-12 — the holes really do delete target speech
+
+`experiments/results/2026-09-12-eval-floor0.05`, an inference-time mask floor of
+0.05 on the baseline checkpoint, n=103, ASR stand-in:
+
+| | floor 0.00 | floor 0.05 |
+|---|---|---|
+| deletions | 11.79 | **8.64** (−3.14, −27 %) |
+| ICR@2 | 50.49 | 58.25 (+7.77) |
+| no response | 2.91 | 0.97 |
+| LCF-WER | 59.52 | 63.33 |
+
+**The deletion drop is the largest single metric movement this project has
+produced.** It confirms that the zeroed bins were carrying target speech.
+
+**And it shows the floor is the wrong cure.** Filling a hole with the raw mixture
+fills it with BOTH speakers, so leakage rises more than deletions fall. What is
+wanted is a fill that is target-selective — which is the argument for
+redistributing the existing gain across frequency rather than adding the mixture
+back, i.e. `scripts/postprocess_mask.py`.
+
+**A floor is still worth keeping as a knob**, because deletions and leakage now
+have a measured exchange rate and nothing else in the project trades between
+them explicitly.
+
+### MEASURED 2026-09-12 — frequency structure is the lever. A free post-hoc version beats a 10-hour training arm on leakage
+
+All paired bootstraps, 10,000 draws, n=103, `sir0_val` `both`, ASR stand-in.
+The metric's irrelevance floor is 1.57 points (decisions-m3.md), so anything
+under that is not a claim.
+
+| intervention | cost | leakage change | LCF-WER | verdict on leakage |
+|---|---|---|---|---|
+| frozen state teacher (D14 B) | **10.25 GPU-h** | -1.93 | +1.72 | inside noise |
+| post-hoc frequency sharpening | **free** | **-6.99** | +10.01 | **REAL**, [-10.41, -3.85], 0.0 % opposite sign |
+| mask floor 0.05 | free | +5.39 (worse) | +3.81 | REAL, wrong way |
+
+**Sharpening the mask across frequency -- crudely, after the fact, with no
+learning -- removed 3.6x more leakage than the entire teacher arm did, and unlike
+the teacher the effect is unambiguous.** It took leakage from 34.58 to 27.42
+against WeSep's 9.0, closing roughly a quarter of that gap with a post-processor.
+
+It cost +10.01 LCF-WER, which is also real. That is the expected price of
+imposing structure on a model never trained to produce it: the sharpening is
+applied to the output ratio, which carries the additive residual and an analysis
+mismatch, and nothing optimises the result.
+
+### The two knobs point opposite ways and both lose, which is itself the finding
+
+| | deletions | mean leaked | LCF-WER |
+|---|---|---|---|
+| baseline | 11.79 | 34.58 | **59.52** |
+| fill the holes (floor 0.05) | **8.64** | 40.87 | 63.33 |
+| sharpen across frequency | 15.13 | **27.42** | 69.53 |
+
+**The baseline already sits near a local optimum on the deletion-versus-leakage
+trade-off.** Moving it after the fact costs more than it gains in either
+direction. So the remaining gain is not in re-weighting that trade-off -- it is in
+giving the model the ability to make fine time-frequency decisions in the first
+place, which is what the 84 %-volume-knob measurement says it cannot currently do.
+
+**This is now the best-evidenced direction in Group D**, and it was established
+for the cost of an afternoon of CPU rather than a training session.
+
+### CORRECTION and the headline, 2026-09-12 — HARD sharpening: real leakage removal at no measurable WER cost
+
+The `mid` setting (1.3/0.7, unsupported bins scaled to 0.3) cost +10.01 LCF-WER
+and +7.19 insertions, and was written up above as "sharpening adds artefacts".
+**That was the setting, not the idea.** The `hard` setting (1.5/0.5, unsupported
+bins removed outright) behaves completely differently:
+
+| | measured | 95 % interval | verdict |
+|---|---|---|---|
+| mean leaked % | **-6.38** | [-10.56, -2.45] | **REAL improvement** |
+| LCF-WER | -0.90 | [-5.18, +3.12] | inside noise AND below the 1.57 floor |
+| insertions | -3.81 | [-9.03, +0.63] | inside noise |
+| deletions | +3.29 | [-1.78, +8.54] | inside noise |
+
+**A free post-processor removed leakage for real and cost nothing measurable on
+the headline metric.** The 10.25-hour teacher arm achieved neither.
+
+**PARTIAL SUPPRESSION IS WORSE THAN COMPLETE SUPPRESSION.** down=0.3 leaves a
+scaled copy of every unsupported bin and insertions rose 7.19; down=0.0 removes
+them and insertions fell 3.81. That is the classic musical-noise result -- a
+half-removed component is an artefact, a removed one is silence -- and it should
+govern any future mask post-processing or gating rule this project writes.
+
+**Two caveats that travel with it.**
+1. **-0.90 LCF-WER is NOT an improvement.** It is inside the interval and below
+   the irrelevance floor. The claim is "unchanged", never "better".
+2. **It is not a uniform win**: better on 29 trials, worse on 46, tied on 28. The
+   flat corpus number comes from helping a lot on a few trials and hurting
+   slightly on many. Any write-up must say so.
+
+### MEASURED 2026-09-12 — the corrected internal-mask run. Region growing needs something structured to grow FROM
+
+Re-run on the fixed `apply_hysteresis` (RMS level restoration). Output level
+-4.11 dB against the baseline's -5.65 dB, so the level explosion is gone and this
+run measures the intervention.
+
+| variant | leakage | LCF-WER |
+|---|---|---|
+| frozen state teacher, 10.25 GPU-h | -1.93 (noise) | +1.72 (at the 1.57 floor) |
+| sharpen output ratio, partial removal | **-6.99 REAL** | +10.01 REAL worse |
+| **sharpen output ratio, full removal** | **-6.38 REAL** | -0.90 unchanged |
+| sharpen internal mask, full removal | **-10.37 REAL** | **+16.91 REAL worse** |
+
+Internal-mask bootstrap: leakage -10.37 [-15.29, -5.54], 0.0 % opposite sign;
+LCF-WER +16.91 [+5.28, +30.98], 0.1 % opposite sign. Both real.
+
+**EVERY sharpening variant removes leakage substantially and unambiguously.** Four
+independent settings, all outside the interval, against a training arm that could
+not manage it once. **Frequency structure is the lever. That is settled.**
+
+### The internal-mask failure is the informative result
+
+It removed the MOST leakage (-10.37, best of the day, 34.58 -> 25.01 against
+WeSep's 9.0) and did the MOST damage (+16.91 LCF-WER, insertions +11.32).
+
+**Why: the mask it grows from is flat.** At 84 % of variance explained by one
+number per frame, the bins that clear a relative threshold are chosen by tiny
+fluctuations -- effectively noise. So the structure imposed is arbitrary. It
+deletes the interferer, and it deletes everything else with equal indifference.
+The output ratio works better precisely because it is NOT flat: it carries real
+spectral content, so thresholding it selects meaningful bins.
+
+**REGION GROWING NEEDS A MEANINGFUL CONFIDENCE MAP TO GROW FROM, AND THIS MODEL
+DOES NOT PRODUCE ONE.** No post-processor can manufacture that. The model has to
+learn to emit a mask that HAS structure worth growing -- which is the
+architectural form of the idea, and it now rests on measurement rather than
+intuition.
+
+**Consequence for the plan.** The cheap post-hoc route is exhausted: its best
+outcome is -6.38 leakage at no WER cost, already achieved, and the ceiling above
+it is blocked by the mask's flatness rather than by the growing rule. The next
+move is to make the mask structured during training, not to keep tuning
+thresholds on a flat one.
+
+### MEASURED 2026-09-13 — the volume knob, DECOMPOSED. What frequency shape exists is a FIXED EQ curve, and it carries no speaker information
+
+`scripts/diagnose_mask_structure.py`, 12 `sir0_val` `both` trials, whole clips,
+`model_sir0_10000-e6.pt`, seed 42, 16 min CPU.
+`experiments/results/2026-09-13-mask-structure/`.
+
+**Why, when 84.2 % was already measured.** "One number per frame explains the
+mask" has two readings and the mask-grid picture cannot tell them apart, because
+both draw as vertical stripes: the model applies a genuinely FLAT gain, or it
+applies a FIXED spectral shape — the persistent dark band below 500 Hz is
+visible in `mask_grid_sir0_val-42-000004_floor0.png` — scaled up and down by one
+number per frame. Neither can separate two overlapping voices, but only the
+second means the model learned anything about frequency at all.
+
+**The decomposition.** Two-way additive, ours, standard ANOVA form on the mask
+magnitude: `M(f,t) = mu + eq(f) + gain(t) + interaction(f,t)`. The three terms
+are orthogonal by construction, so the variance shares are exact rather than
+fitted. `interaction` is THE ONLY TERM THAT CAN SEPARATE TWO VOICES: it is the
+only one that says "this frequency, at this instant, belongs to the target", a
+statement whose answer must change from frame to frame.
+
+| frames | mask | gain(t) | eq(f) | interaction |
+|---|---|---|---|---|
+| all | **ours** | **83.5 %** | 7.1 % | **9.4 %** |
+| all | ideal | 53.0 % | 2.5 % | 44.5 % |
+| speech (93 %) | ours | 82.6 % | 7.7 % | 9.7 % |
+| speech | ideal | 52.0 % | 2.6 % | 45.4 % |
+| **overlap (26 %)** | **ours** | **46.4 %** | **35.2 %** | **18.3 %** |
+| **overlap** | ideal | 16.1 % | 8.0 % | **75.9 %** |
+
+**Replicates 84.2 % by a different method** (83.5 % over all frames). The
+earlier figure came from `postprocess_mask.py`'s frame-mean ratio; this is a
+variance decomposition. Two methods, one answer.
+
+**Overlap frames are the honest test and are reported separately.** Ducking
+silence is free and is not a skill; pooling it inflates `gain(t)`. Overlap =
+frames where the target AND the interferer are both active, the only regime where
+separation is a question.
+
+### The two findings, and the second is the one that was not already known
+
+**1. During overlap, 81.7 % of our mask is "one fixed shape x one number".** A
+quantity that cannot separate two voices under any setting of that number. The
+genuine per-cell decision is 18.3 % against the correct answer's 75.9 %.
+
+**2. The frequency shape our mask has is STATIC, so it carries no speaker
+information.** 35.2 % during overlap is not a small number — it is the second
+largest term — but it is the same curve held across the clip. A contour that does
+not change when the speakers change cannot encode which of them owns a bin. What
+looked like partial frequency selectivity is a baked-in EQ.
+
+**And the ideal mask says the model is applying its one tool to the wrong
+problem.** For the correct answer, `gain(t)` is worth only 16.1 % during overlap
+— obviously, since you cannot turn one voice down without the other. Ours spends
+46.4 % of its behaviour there.
+
+### Three caveats that travel with these numbers
+
+1. **Shares are relative to each mask's OWN variance.** Ours varies far less in
+   absolute terms (0.0238 across frequency against the ideal's 0.1551,
+   2026-09-12), so the absolute shortfall is LARGER than the share gap suggests.
+   "18.3 % against 75.9 %" must never be read as "we do a quarter of the job".
+2. **"Fixed EQ" is measured WITHIN a clip.** Whether it is the same curve across
+   clips — i.e. baked into the weights rather than adapted per mixture — is NOT
+   measured. The script stores shares, not the curves.
+3. **n=12 trials, one checkpoint, no interval.** A structural share this large is
+   not a candidate for sampling noise, but no significance is claimed.
+
+### What it authorises
+
+- **The next training arm prices the INTERACTION term, not the mask as a whole.**
+  A plain mask-MSE against the ideal ratio mask would be largely satisfied by
+  `gain(t)`, which the model already produces. The term has to target what is
+  left after `gain(t)` and `eq(f)` are removed, or it buys nothing.
+- **The interaction share is a per-epoch readout that does not need the ASR.**
+  It reads out in one epoch, against a metric whose noise floor is +-8 LCF-WER
+  points on `sir0_val`. That makes a 1-2 epoch smoke run a real gate before
+  committing a 10 h session.
+- **It does NOT authorise building anything yet.** The free step 0 is the oracle
+  volume knob: take the IDEAL mask, flatten it to `gain(t) x eq(f)`, synthesise,
+  and score it. If a PERFECT volume knob still transcribes badly, flatness is
+  proven to be the cost and the arm is justified. If it scores near the 5.85
+  ceiling, flatness is a red herring and our fault is that the GAIN is wrong — a
+  far cheaper fix. One ASR pass, no GPU, decisive either way. **Run this first.**
+
+### MEASURED 2026-09-13 — D6's residual-branch ablation. R is INERT, and the fabrication hypothesis it was built to test is DEAD
+
+D6 flagged `Estimator`'s additive residual `R` as "unbounded and unconditioned"
+and asked for an ablation arm. This runs it, at inference, for CPU hours.
+
+**The hypothesis, stated before the run so it cannot be rewritten after.** The
+output is `S = M (x) X + R`. The mask is MULTIPLIED, so in a bin where |X| = 0 it
+contributes exactly 0 — verified, `masked_energy_in_silent_bins` measured
+0.0000. `R` is ADDED from a raw Conv1d with no GLU and no bound, so it is the
+ONLY path that can place energy in a cell the microphone never recorded.
+Emitting sound nobody made is physically what an invented word is, and invented
+words are 41.5 % of our wrong content words with no mechanism assigned. **The
+proposal was that R is that mechanism.**
+
+### Step 0, the correlation. It refused the hypothesis before the ablation ran
+
+`scripts/diagnose_residual.py`, n=103, `sir0_val` `both`,
+`model_sir0_10000-e6.pt`. Per-trial R contribution against per-trial invented
+words, the same shape as D14 step 0 and D15 step 0:
+
+| measure | mean | r vs invented words | significant at n=103? |
+|---|---|---|---|
+| R's share of output energy | 8.6 % | **-0.161** | no (crit 0.194) |
+| R's share after cancellation | 6.9 % | **-0.178** | no |
+| output energy in silent bins | **0.72 %** | **-0.149** | no |
+
+**All three negative, none significant.** Trials where R contributes more do not
+invent more.
+
+**The sharpest number against the mechanism: R is not aimed at the silence.**
+Silent bins are 10 % of all bins and hold **8.0 %** of R's energy (p10 7.1 %,
+p90 9.0 %) — slightly LESS than proportional, and almost constant across trials.
+A fabrication mechanism would concentrate there. R is spread uniformly.
+
+### The ablation. Deleting R changes nothing measurable
+
+`--residual-scale 0.0`, same checkpoint, same 103 trials, ASR stand-in.
+Paired bootstrap, 10,000 draws.
+
+| | baseline | R deleted | difference | 95 % interval | verdict |
+|---|---|---|---|---|---|
+| LCF-WER | 59.52 | 59.72 | **+0.20** | [-3.02, +3.30] | INSIDE NOISE, and below the 1.57 floor |
+| mean leaked % | 34.58 | 37.21 | +2.13 | [-1.39, +5.88] | INSIDE NOISE |
+| insertions | 19.53 | 18.63 | -0.90 | | below the floor |
+| deletions | 11.79 | 10.77 | -1.02 | | below the floor |
+| substitutions | 28.20 | 30.33 | +2.13 | | |
+| **invented content words** | **308** | **306** | **-2** | | **0.6 % of 308** |
+
+Per trial: better on 24, worse on 33, tied on 46.
+
+**Deleting 8.6 % of the output energy moved the headline metric 0.20 points and
+the invented-word count by two words.** None of the three outcomes registered in
+advance occurred. R is not fabricating, and it is not earning its keep either.
+
+### What this closes, and what it does not
+
+- **The fabrication mechanism is NOT R.** Recorded as refuted. The 41.5 % of
+  error mass that is invented words remains unexplained, and the next candidate
+  has to come from somewhere else. This was my hypothesis and the data killed
+  it; the cost was one afternoon of CPU, which is what step 0 is for.
+- **D6's residual ablation is ANSWERED at inference.** `residual_branch: true`
+  contributes nothing measurable to content fidelity on this checkpoint.
+- **It does NOT authorise removing R.** This ablates R from a model TRAINED WITH
+  R; "no measurable difference at +-3 points" is not "useless". A
+  trained-without-R arm is the only thing that settles it, and at 197,890
+  parameters (2.75 % of the model) the prize is small. **Not scheduled.**
+- **The 84 % volume-knob finding is NOT qualified by this.** The worry was that
+  it described only the multiplicative path while R did the real work. R carries
+  8.6 % of the energy and removing it changes nothing, so the mask really is
+  the model. **The structural finding stands, and is now stronger.**
+
+### The reusable part
+
+`Estimator.residual_scale` and `Estimator.capture_parts`, `--residual-scale` on
+`make_estimates.py`, `scripts/diagnose_residual.py`,
+`tests/test_residual_ablation.py` (6 tests). One of those tests feeds the model a
+SILENT mixture and asserts the output is non-zero: the capability to fabricate is
+real and is now pinned by a test, even though the measurement says it is not
+being used.
+
+### MEASURED 2026-09-13 — objective or data? It is the OBJECTIVE. More data makes the mask WORSE, not better
+
+`scripts/measure_mask_flatness.py`, 50 `sir0_val` `both` trials, the SAME trials
+for every checkpoint, 1.6 h CPU. Five checkpoints that already existed.
+
+| checkpoint | trials | epoch | share(loud) | f/t ours |
+|---|---|---|---|---|
+| `model_sir0.pt` | ~1,989 | 9 | 0.6415 | 0.9561 |
+| `model_sir0_5000-e7.pt` | ~4,976 | 7 | 0.7766 | 0.7646 |
+| `model_sir0_10000-e6.pt` | ~9,955 | 6 | 0.7958 | 0.6158 |
+| `model_sir0_10000-e7.pt` | ~9,955 | 7 | 0.7738 | 0.6026 |
+| `model_sir0_10000-last.pt` | ~9,955 | 15 | 0.7739 | **0.4826** |
+| **ideal mask** | | | | **1.0136** |
+
+`share` = fraction of mask variance explained by one number per frame; 1.0 is a
+pure volume knob. `f/t` = variation across frequency relative to across time;
+**ours must RISE toward 1.0136, and falling is worse.**
+
+### Paired bootstrap, 50 trials, 10,000 draws
+
+| comparison | share(loud) | f/t (loud) |
+|---|---|---|
+| **DATA 5k -> 10k, epoch MATCHED at 7** | -0.0029 [-0.027, +0.022] **inside noise** | **-0.1620 [-0.205, -0.118] REAL** |
+| DATA 2k -> 10k | +0.1322 [+0.105, +0.160] REAL | -0.3535 [-0.392, -0.315] REAL |
+| **EPOCH 6 -> 15, data FIXED** | -0.0219 [-0.047, +0.001] inside noise | **-0.1332 [-0.187, -0.074] REAL** |
+
+**The epoch-matched data comparison is the one that answers D15's successor.**
+Doubling the training set from ~5k to ~10k trials, at the same epoch, left the
+volume-knob share statistically UNCHANGED and made the frequency/time ratio
+significantly WORSE.
+
+**More training does the same thing.** At fixed data, epoch 6 -> 15 moved f/t
+-0.133, also real, also the wrong way.
+
+**Both axes push the model TOWARD the volume knob.** That is exactly what is
+expected if the objective's optimum IS a volume knob — better optimisation, by
+either route, converges on it harder.
+
+### The trap in this table, stated because it inverts the obvious reading
+
+**The ~2k model has the best-looking numbers and is the worst model.** Lowest
+share (0.64) and an f/t of 0.956, nearly the ideal's 1.014. It is not more
+structured: **an unstructured, noisy mask ALSO has f/t ~ 1, because noise varies
+equally in both axes.** That checkpoint memorised its training set
+(decisions-m2.md 2026-08-29) and is beaten by pass-through. Training then sheds
+that noise and converges onto the knob.
+
+**Nobody may read this table as "less data is better".** It says the opposite:
+what training buys, on this objective, is a cleaner volume knob.
+
+### Verdict, against the rule registered BEFORE the run
+
+Three outcomes were registered: flatness constant (objective), flatness falling
+with data (data), epoch swamping data (inconclusive). **The result is the first
+on `share` and something stronger on `f/t` — not merely "data does not help" but
+"data actively makes it worse".** Recording the mismatch rather than pretending
+the rule anticipated it.
+
+**Epoch does NOT swamp data.** On `share`, data moves 0.132 (2k->10k) against
+epoch's 0.022. On `f/t` the two are comparable (-0.162 vs -0.133) but point the
+SAME way, so the confound cannot explain the result away — it reinforces it.
+
+### What this authorises, and what it does not
+
+- **MORE DATA WILL NOT FIX THE FLAT MASK. The data hypothesis is REFUTED**, not
+  merely unsupported. Scaling the training set is no longer a candidate answer to
+  the 84 % finding.
+- **The structure loss is justified by evidence rather than by elimination.**
+  Supervise the mean-removed across-frequency deviation against the free oracle
+  mask, with the residual branch handled — R is inert (2026-09-13) so it will not
+  absorb the term, which this measurement also settles.
+- **It does NOT predict the intervention works.** Flatness is a property of the
+  mask, not of what a listener transcribes. This selects the arm; only LCF-WER on
+  `sir0_privval`, per SIR band, scores it.
+- **Single seed, n=50, one architecture.** Run-to-run training variance is still
+  unmeasured and sits on top of every interval here.

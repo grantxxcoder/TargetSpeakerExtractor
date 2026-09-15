@@ -776,3 +776,542 @@ timed. Label which one you are quoting.
 
 Not comparable to any published REAL-TSE latency figure — different hardware,
 chunking and latency convention.
+
+---
+
+## 2026-09-12 — the evaluation battery is one command, and it runs in two stages
+
+`scripts/run_eval_suite.py`. Seven steps in a fixed order — estimates, signal,
+asr, judge, rtf, cue, leakage — against one checkpoint and one `--tag` that
+names every output directory.
+
+**Why it exists.** Every evaluation until now was assembled by hand from
+`docs/run_times.md`, which is how `2026-09-06-eval-10000-signal-perceptual` came
+to sit on a different flag set from `2026-09-04-train-sir0-10000`. Three steps
+consume the first step's output directory and all of them need the same
+`--split` and `--condition` or the numbers are not comparable. This makes the
+battery one recorded definition instead of a habit.
+
+**It orchestrates and measures nothing.** Every number still comes from the
+script that owns it, in that script's own results directory with its own meta.
+No new metric, no changed default.
+
+### Run it in two stages. The gate is `asr`
+
+**Stage 1, `--steps estimates,asr`, ~33 min, no API budget.** ICR@2 and
+`mean_leak` are the direct measures of interferer leakage, which is 58.5 % of
+our content-word error mass and correlates +0.622 with per-trial WER
+(decisions-pending.md D14, 2026-09-11). An arm aimed at leakage either moves
+them or it has failed on its own logic.
+
+The numbers to beat, `model_sir0_10000-e6.pt`, `sir0_val` `both`, n=103:
+
+| system | LCF-WER | ICR@2 | mean leaked |
+|---|---|---|---|
+| floor, raw mixture | 65.22 | 66.99 % | 51.30 % |
+| control, epoch 6 | **59.52** | **50.49 %** | **34.58 %** |
+| ceiling, clean target | 5.85 | 0.00 % | 0.00 % |
+
+**Stage 2, `--steps judge,rtf,cue`, ~31 min + API.** Only if stage 1 moved.
+
+**`signal` is optional and least informative.** SI-SDR and DNSMOS score the one
+axis this project does not optimise, and a leakage-targeted arm is expected to
+lose on it. Run it for the write-up, not for a decision.
+
+**Wall times printed by `--dry-run` are measured rows from `run_times.md`, not
+estimates.** `diagnose_cue.py` has no recorded row and prints as unmeasured
+rather than guessed.
+
+`--limit N` is for smoke tests only and puts the limit in the output directory
+name, so a two-trial run cannot be mistaken later for a published one.
+
+---
+
+## 2026-09-12 — MEASURED: what `sir0_val` at n=103 can and cannot resolve. It cannot resolve 2 points
+
+Paired bootstrap over trials, 10,000 resamples, seed 42, on the per-trial rows
+in `experiments/results/2026-09-12-leakage-share/per_trial.json`. Both systems
+resampled on the SAME trial indices each draw, so this is the paired difference,
+not two independent intervals.
+
+| quantity | point | 95 % interval | resamples with the opposite sign |
+|---|---|---|---|
+| LCF-WER, state arm minus control | **+1.74** | **[−4.77, +10.85]** | **36.8 %** |
+| mean leaked %, arm minus control | −1.93 | [−5.28, +1.30] | 12.0 % |
+
+Per trial, the two systems are a coin flip: **WER better on 33, worse on 36,
+tied on 34.** Leakage: better on 19, worse on 16, tied on 68.
+
+**NEITHER the harm nor the benefit of the state-teacher arm is established.**
+The +1.72 LCF-WER is deep inside trial-sampling noise, and so is the −3.88
+ICR@2 that looked like the arm's success. Both readings from 2026-09-12 stand as
+directions, not as effects.
+
+### The number to plan with
+
+**The 95 % interval on a system difference is about ±8 LCF-WER points at n=103.**
+Halving that needs 4x the trials; resolving a 2-point effect needs roughly
+(7.8/2)² ≈ **15x, about 1,570 trials**.
+
+**Consequence, and it governs the rest of M5: an arm expected to move LCF-WER by
+less than ~5 points is not measurable on this evaluation as constructed.** The
+differences we CAN resolve are the big ones — our 59.5 against WeSep's 34.6
+(25 points) and against the ceiling's 5.8 (54 points).
+
+### This is a different noise source from the judge SEM, and they compose
+
+`project-state.md` records **judge SEM ≈ 0.5 over 103** — how much the aggregate
+moves if you re-ask the SAME judge about the SAME trials. That is listener
+repeatability. What is measured here is TRIAL SAMPLING: how much a system
+difference moves if you had drawn a different 103 trials from the same
+distribution. They answer different questions and both are real.
+
+**Which one applies depends on the claim being made, and the thesis needs both
+stated.**
+
+- *"System A beats system B on this benchmark"* — a fixed test set, leaderboard
+  style. Listener repeatability (~0.5) is the relevant floor, and +1.72 clears it.
+- *"This method reduces LCF-WER"* — a claim about the method, which is what a
+  thesis argues. The trial-sampling interval applies and **nothing is
+  established.**
+
+Report the generalisation reading as the headline. A benchmark-local win on 103
+trials that vanishes under resampling is not a method result.
+
+### What is still NOT measured
+
+Run-to-run training variance — two identical configs at different seeds. It sits
+ON TOP of everything above and no same-config replicate exists anywhere in
+`experiments/results/`. The intervals here are therefore a LOWER BOUND on the
+scatter.
+
+### Cost of this measurement
+
+Seconds, on data already on disk. It should have been run before the first arm.
+
+---
+
+## 2026-09-12 — CORRECTION: the benchmark's resolution depends on how PAIRED the comparison is. Same-model interventions resolve ~3 points
+
+Earlier today this file recorded "an arm expected to move LCF-WER by less than
+~5 points is not measurable on this evaluation as constructed." **That is true
+only for comparing two INDEPENDENTLY TRAINED models. It is wrong as a general
+statement and the difference is large enough to change how M5 should be run.**
+
+| comparison | n tied trials | measured | 95 % interval | verdict |
+|---|---|---|---|---|
+| state extension vs baseline (two trained models) | 34 / 103 | +1.72 | [−4.77, +10.85] | inside noise |
+| mask floor 0.05 vs baseline (one model, one knob) | **53 / 103** | +3.81 | **[+1.09, +6.78]** | **REAL** |
+
+**The interval halved because half the trials produce an IDENTICAL transcript.**
+Two separately trained models differ on every trial, so trial-sampling noise
+enters twice. One model with an inference-time setting changed differs only where
+the setting bites, and the paired bootstrap sees that.
+
+**Consequence for planning, and it is the useful half of today:** an idea that can
+be tested as an inference-time intervention on a fixed checkpoint is measurable
+at roughly 3 points. The same idea tested by retraining is not measurable below
+~8. **Test at inference first, always, wherever the idea admits it.** That is
+cheaper AND more sensitive, which is a rare combination.
+
+### The mask floor is a MEASURED failure, with a measured mechanism
+
+Floor 0.05 on `model_sir0_10000-e6.pt`, paired bootstrap, 10,000 draws, n=103:
+
+| | measured | 95 % interval | |
+|---|---|---|---|
+| deletions | **−3.14** | [−6.93, −0.21] | **REAL, better** |
+| substitutions | **+4.10** | [+1.56, +7.33] | **REAL, worse** |
+| mean leaked % | **+5.39** | [+1.60, +9.67] | **REAL, worse** |
+| insertions | +2.85 | [−0.33, +6.33] | inside noise |
+| LCF-WER | **+3.81** | [+1.09, +6.78] | **REAL, worse** |
+
+**Read in plain words: filling the mask's holes genuinely recovers target words
+the model was deleting, and genuinely costs more misheard words and more of the
+other speaker, and the second effect is bigger.**
+
+**Both halves are real, and that is the point.** The holes were destroying target
+speech — that is now measured, not inferred. And filling them with the raw
+mixture is the wrong cure, because the mixture contains both speakers. What is
+wanted is a target-selective fill.
+
+### The full sweep, three settings
+
+| floor | deletions | mean leaked % | LCF-WER |
+|---|---|---|---|
+| none | 11.79 | 34.58 | **59.52** |
+| 0.05 | 8.64 | 40.87 | 63.33 |
+| 0.10 | 9.98 | 41.32 | 61.87 |
+| 0.20 | **8.09** | **44.56** | 62.34 |
+
+**Leakage rises monotonically with the floor, with no exceptions** -- that is the
+trend to trust. Deletions fall, best at 0.20 (-3.70). LCF-WER is worse at every
+setting and is not monotonic among the three, which is what noise at this n looks
+like: only the 0.05 deletion result and the substitution results clear the
+interval.
+
+The verdict is consistent across all three settings and rests on none of them
+alone.
+
+**Keep the floor as a knob, not as a setting.** It is the only mechanism in the
+project that trades deletions against leakage at a measured exchange rate.
+
+---
+
+## 2026-09-12 — THE METRIC'S IRRELEVANCE FLOOR, measured by accident: 1.57 points for doing nothing
+
+`report-todo.md` #9 has asked since M4 for a noise floor on the content metric:
+"a system difference smaller than it cannot honestly be claimed." Here is one,
+and it cost nothing because it fell out of a control arm.
+
+**The null intervention.** `scripts/postprocess_mask.py` at `--down 1.0` is
+arithmetically the identity: it takes the STFT of a finished estimate, multiplies
+by exactly 1.0, and inverts. The only change is the analysis/synthesis round
+trip. Measured over the 103 scored clips, the output differs from its source by a
+**median of -61.7 dB** relative energy (worst -27.8, best -71.4). That is roughly
+one part in a thousand of the amplitude: inaudible, and orders of magnitude below
+any artefact the model itself produces.
+
+**What it did to the metric.**
+
+| | baseline | null intervention |
+|---|---|---|
+| LCF-WER | 59.52 | **57.95** |
+| transcripts changed | — | **39 of 103** (22 better, 17 worse, 64 tied) |
+
+**Doing nothing to the audio moved the headline number 1.57 points in the
+model's favour and rewrote 38 % of the transcripts.**
+
+### Consequences, and they are not small
+
+1. **1.57 points is the irrelevance floor.** Any claimed improvement at or below
+   it can be produced by a change that is definitionally meaningless. This is a
+   SEPARATE and tighter bar than trial-sampling noise, and it applies even when
+   the test set is held fixed.
+2. **It calibrates the ASR stand-in, not the judge.** `small.en` is deterministic
+   given its input; the instability is the input crossing decision boundaries,
+   not sampling. The judge has its own floor (SEM ~ 0.5, `project-state.md`), and
+   they do not substitute for each other.
+3. **Report it beside every content number from now on.** Two of today's results
+   sit near it: the state extension's +1.72 and this. One sits clearly above it:
+   the mask floor's +3.81.
+
+### It also validates the paired bootstrap, which is why this was worth the hour
+
+The bootstrap was given a change known to mean nothing and correctly refused it:
+
+| comparison | measured | 95 % interval | verdict |
+|---|---|---|---|
+| null intervention vs baseline | -1.57 | [-4.94, +1.75] | **inside the noise** |
+| mask floor 0.05 vs baseline | +3.81 | [+1.09, +6.78] | **outside** |
+
+A method that certified the null as real would have been worse than no method.
+It did not. **`scripts/bootstrap_difference.py` is now a validated instrument and
+should gate every content claim this project makes.**
+
+### And it revises this morning's rule
+
+The earlier entry today said same-model interventions resolve about 3 points
+because half the clips tie. That stands, with the floor attached: **the usable
+range for a same-model intervention is above ~1.6 points, not above zero.** Below
+that, pairing buys precision around a number that is not measuring the
+intervention.
+
+---
+
+## 2026-09-12 — the gain-following floor is UNTESTED, not refuted. The normaliser was wrong
+
+The idea: the flat mask floor cuts deletions but fills holes with the raw
+mixture, which carries both speakers, so leakage rises. Fill only where the
+target is believed present -- and the model's own per-frame mean gain is 84 % of
+its mask's information and is effectively its speech detector, so follow that.
+
+**The implementation scaled the floor by `frame_gain / max_frame_gain`. The
+maximum is an outlier**, so over 20 clips the median frame's multiplier is 0.151.
+A nominal floor of 0.10 became about **0.015 in a typical frame** -- roughly a
+seventh of nominal, and well under the **0.05** flat floor that produced the one
+real deletion effect measured today.
+
+Measured, and every delta is below the 1.57-point irrelevance floor:
+
+| | baseline | flat 0.10 | gain-following 0.10 |
+|---|---|---|---|
+| LCF-WER | 59.52 | 61.87 | 59.58 |
+| deletions | 11.79 | 9.98 | 11.20 |
+| mean leaked % | 34.58 | 41.32 | 36.11 |
+
+It avoided the flat floor's leakage penalty and lost the deletion benefit with
+it, which is what applying almost no floor looks like.
+
+**Recorded as UNTESTED.** Writing this up as "the targeted floor does not work"
+would be false: it tested about a third of the dose that works flat. A fair test
+needs a nominal value near 0.3-0.6, or a 90th-percentile normaliser rather than
+the max (the 90th-percentile frame sits at 0.222 of the max, so the spread is
+wide either way).
+
+**The general lesson, worth more than the instance:** a variant that rescales an
+intervention by a data-dependent quantity must have its EFFECTIVE strength
+measured before its result is interpreted. The number that matters is what
+reached the audio, not what was typed on the command line.
+
+### The second setting made it worse, and suggests the variant is not just weak but wrong
+
+| | baseline | gain-following 0.10 | gain-following 0.20 |
+|---|---|---|---|
+| LCF-WER | 59.52 | 59.58 | 61.93 |
+| deletions | 11.79 | 11.20 | **12.02** |
+| mean leaked % | 34.58 | 36.11 | 35.21 |
+
+**Deletions are WORSE at the higher setting than at the lower one, and worse than
+the baseline.** A floor cannot do that by filling holes, so the variant is doing
+something else as well.
+
+**The likely mechanism, and it should have been anticipated: a floor that varies
+frame to frame adds a TIME-VARYING component to the audio.** A flat floor adds a
+steady quiet copy of the mixture; this one adds a fluctuating one, and
+fluctuation is the musical-noise mechanism. The variant may be manufacturing the
+artefact the floor exists to avoid.
+
+Not bootstrapped: the variant is both under-powered and confounded, so a
+significance test on it would price a number that does not mean what it says.
+**Redesign before retesting** -- a percentile normaliser AND a floor that is
+smooth in time, or the two effects cannot be separated.
+
+---
+
+## 2026-09-12 — VOID: the internal-mask hysteresis runs measured a level explosion, not the idea
+
+`2026-09-12-eval-hystint-sharp` returned LCF-WER **115.31**, deletions 80.21,
+**65 % of clips with no transcript at all**, and leakage 2.53 %. The leakage
+number looks like a triumph and means nothing: there was barely any usable audio
+to leak into.
+
+**Cause, and it is a bug in `apply_hysteresis`, not a property of the model.**
+The function restored each frame's MEAN mask magnitude after sharpening.
+Concentrating the same mean into fewer surviving bins multiplies the RMS, and the
+output level follows the RMS. Measured output level of that run: **+7.38 dB above
+the mixture**, against the baseline's -5.00 dB -- twelve decibels too loud. The
+evaluation scored distortion.
+
+**Why it did not show up in the output-domain runs.** Those sharpen the ratio
+`|estimate| / |mixture|`, which is rough, so removing its small values barely
+moves its mean and the restoration factor stays near 1. Our internal mask is
+nearly flat (84 % of its variance is one number per frame), so removing bins
+moves the mean a great deal. **The flatness that is this project's central
+finding is exactly what detonated the experiment built to exploit it.**
+
+**Fixed:** the invariant is now per-frame RMS, verified to hold level to x1.000
+across flat, realistic and rough masks, plus a guard leaving a frame untouched
+when nothing survives rather than dividing by ~0. Both settings are being re-run.
+
+**Void, and to be deleted rather than reported:** `2026-09-12-est-hystint-*` and
+`2026-09-12-eval-hystint-*`. The fixed runs are `*-hystfix-*`.
+
+### The lesson, which is the reusable part
+
+`tests/test_mask_postprocess.py` HAD a level-preservation test. It asserted the
+MEAN, which is what the buggy code preserved, so it passed throughout. **A test
+that asserts the wrong invariant is how a bug reaches a results table** -- it
+supplies confidence without supplying a check. The test now asserts RMS and a
+second test covers the empty-frame case.
+
+The same question should be asked of any future post-processor here: *what
+quantity does the audio's loudness actually follow, and is that the one being
+held fixed?*
+
+---
+
+## 2026-09-13 — the expanded dev split `sir0_privval`, and eval_private released from holdout
+
+**Decision (Grant): eval_private stops being a holdout. `eval_public` alone is the
+final holdout.** Taken to buy evaluation resolution, with the cost accepted in
+advance.
+
+**Why it was needed.** 2026-09-12 measured `sir0_val`'s resolution at **+-8
+LCF-WER points** over its 103 `both` trials. An arm moving the metric less than
+~5 points is unreadable, and most realistic arms move it by 2. Resolving a
+2-point effect needs ~15x the trials.
+
+### What was NOT done, and why
+
+**eval_private's 500 rendered trials were NOT concatenated onto `sir0_val`.**
+Two blocking reasons, both measured rather than argued:
+
+1. **Its renders predate `interferer.wav`.** Each eval_private trial directory
+   holds only `enrollment/mixture/target/meta`. `evaluate.py:115` requires
+   `interferer.wav` for EVERY leakage metric — ICR@2, `mean_leak`,
+   `wrong_from_interferer`. Those 249 extra `both` trials could not have
+   produced the project's primary diagnostic, which is 58.5 % of the error mass.
+2. **It is a different distribution.** SIR spans [-5, +15] against `sir0_val`'s
+   [-10, +10]; `regimes: null` (it predates the regime system by ten days);
+   SNR mean 10.47 against 12.89; noise pool `tt` against `cv`; different
+   `config_md5`. Merging would have silently made the benchmark ~5 dB easier and
+   invalidated the 59.52 baseline, the 65.22 floor, the 5.85 ceiling and the
+   1.57 irrelevance floor in one step.
+
+Re-rendering was therefore mandatory, which made the distribution a free choice
+rather than an inherited accident.
+
+### What was done
+
+**A new split, `sir0_privval`, from eval_private's 20 released speakers.**
+`sir0_val` is untouched and byte-identical, so every prior result stays
+reproducible.
+
+| | sir0_val | sir0_privval |
+|---|---|---|
+| trials | 200 (103 `both`) | **2,800 (1,421 `both`)** |
+| SIR | [-10, +10] | **[-10, +15]** |
+| speakers | 40 (val) | 20 (eval_private) |
+| noise | `cv` | `cv` |
+| regimes | 0.6 base / 0.4 hard | identical |
+
+**SIR IS WIDER, NOT EASIER.** [-10, +15] is a SUPERSET of [-10, +10]. Results on
+this split are reported **per SIR band, never as one blended mean** — blending
+re-hides the structure the widening was for.
+
+**Noise is `cv`, not eval_private's `tt`.** `tt` is the pool `eval_public` draws
+from; developing against those clips would leak noise into the final holdout.
+
+**Verified, not assumed:** schema byte-compatible with `sir0_val`; 0 speaker
+overlap with `sir0_train`; 0 speaker overlap with `eval_public`; 0 noise-clip
+overlap with `eval_public`; all 2,800 rendered directories carry all six files.
+
+### Why the easy end is worth having — measured, not assumed
+
+Per-trial WER by SIR band on `sir0_val`, baseline `model_sir0_10000-e6.pt`
+(n per band 23-33, so directional):
+
+| SIR band | n | raw mixture | ours | WeSep | ceiling | our leaked fraction |
+|---|---|---|---|---|---|---|
+| < -5 | 33 | 89.5 | 88.2 | 49.4 | 3.3 | 0.651 |
+| -5..0 | 23 | 95.6 | 87.5 | 38.9 | 7.5 | 0.351 |
+| 0..+5 | 24 | 63.2 | 51.3 | 40.7 | 10.8 | 0.234 |
+| >= +5 | 23 | 39.5 | 30.8 | 23.8 | 5.6 | **0.080** |
+
+**The two ends are different problems.** At SIR < -5 we beat doing nothing by
+1.3 WER (89.5 -> 88.2) while WeSep reaches 49.4 — we are effectively not working,
+and leakage is 65 % of our wrong content words. At SIR >= +5 leakage is 8 % and
+we still sit **25 points above the clean-target ceiling** (30.8 against 5.6), so
+that error is our OWN damage — deletion and fabrication, not leakage.
+
+**The easy band is therefore the only clean instrument for fabrication**, which
+is 41.5 % of the error mass and has no other measurement in this project.
+
+### Registered as `sir0ext` in `train.py`
+
+`SPLIT_MANIFESTS["sir0ext"]` pairs `sir0_train` with `sir0_privval`, so a
+checkpoint trained under `sir0` is scored on the wider set **without
+retraining** and the two splits differ in exactly one axis.
+
+### Carry this into every write-up
+
+Anchors measured on `sir0_val` do NOT transfer to `sir0_privval`. The floor,
+ceiling and irrelevance floor must be re-measured on the new split before any
+number from it is compared to anything. Re-measurement was started 2026-09-13.
+
+`>= +5` now spans +5..+15, wider than the other bands. Split it into +5..+10 and
++10..+15 when reporting, or the top band averages two different difficulties.
+
+## 2026-09-13/14 — the anchors on `sir0_privval`, and they are NOT the sir0_val anchors
+
+`experiments/results/2026-09-13-eval-privval-anchors`, `both` condition,
+faster-whisper `small.en` STAND-IN, not a live-model result.
+
+| | sir0_val (103 trials) | **sir0_privval** |
+|---|---|---|
+| floor, raw mixture | 65.22 | **53.49** |
+| ceiling, clean target | 5.85 | **3.90** |
+| floor ICR@2 | 66.99 | 60.49 |
+| floor mean_leak | 51.30 | 43.92 |
+
+**The new set's floor is 11.7 LCF-WER points easier, exactly as designed and
+exactly as warned.** SIR runs to +15 dB here against +10 on `sir0_val`, so the
+raw mixture is more often already intelligible. **Nothing measured on
+`sir0_privval` may be compared to a `sir0_val` number**, and the per-SIR-band
+reporting is what makes results from this split mean anything.
+
+The usable range narrows too: floor-to-ceiling is 49.6 points here against 59.4
+on `sir0_val`. More trials bought resolution; the wider SIR range spent some of
+the dynamic range. Both are real and both must be stated.
+
+---
+
+## 2026-09-13 — w_struct DERIVED. The mask is 99.6 % of the way to a pure volume knob
+
+`scripts/derive_w_struct.py`, `experiments/results/2026-09-13-wstruct-anchor-sir0`,
+50 present crops, `model_sir0_10000-e6.pt`, 10 min CPU.
+
+| anchor | mean L_struct |
+|---|---|
+| flat mask (pure volume knob) | 0.165366 |
+| **our model's mask** | **0.164718** |
+| oracle (ideal mask itself) | **0.000000** |
+
+**Our mask sits 99.6 % of the way from the ideal mask to a flat one.**
+
+The oracle reading exactly 0.000000 is the wiring check: the loss and its target
+are on the same STFT grid. If that were nonzero the term would be supervising
+against a misaligned object and nothing else would catch it.
+
+**This is an INDEPENDENT confirmation of the 84.2 % finding**, measured a
+different way and in the units the loss actually uses -- not "how much variance
+is one number per frame" but "how far is this mask's frequency shape from flat".
+Two methods, same conclusion.
+
+**w_struct = 46.2981** at a 15 % gradient share on the PARAMETERS, re-measured at
+0.1500. Large only because L_struct is numerically tiny beside the other terms.
+
+### Two caveats that travel with the number
+
+**Derived at chunk_s 1.0, training uses 4.008.** Memory forced it: one LSTM layer
+in this stack allocates ~381 MB of activations at batch 1, twelve are retained
+for backward, and the first version of the script took a 15 GB machine down. The
+share is a ratio measured on the same crops so it should be stable, but **this
+has not been checked**. Re-derive at 4.008 on a T4 before the number is quoted in
+the write-up.
+
+**Small-sample instability is real:** 17.4 at 2 crops, 124.6 at 4, 46.3 at 50.
+Do not use a derivation under ~50 crops for anything.
+
+---
+
+## 2026-09-15 — Estimate rendering resumes; a resumed directory is provenance-locked
+
+**Decision: `write_estimates` skips a trial whose `estimate.wav` is already on
+disk and complete, and REFUSES to resume a directory whose recorded provenance
+differs from the current run. `--force` re-renders and skips the guard.**
+
+**Why resume.** A pass over `sir0_privval` is 3.4 h measured (`run_times.md`
+2026-09-14). Before this, an interrupted pass restarted from zero, so the cost
+of stopping a render was the whole render — which on 2026-09-15 threw away a
+part-finished baseline render that was competing for CPU with a job needed
+sooner. Inference runs under `no_grad` and is deterministic, so a kept file is
+the file the pass would have written.
+
+**Why refuse rather than warn on a provenance mismatch.** Pointing a second
+checkpoint at an existing directory would blend two systems' audio into one set
+of estimates labelled as one system. Nothing downstream can detect that:
+`evaluate.py` reads wav files and believes `meta.yaml`. A warning in a terminal
+scrollback is not a control, so the mismatch is fatal.
+
+**Two files, two questions.** `meta.yaml` keeps its existing meaning untouched —
+written last, so its presence still means the pass completed. The new
+`run.provenance.yaml` is written first and deleted on success, so its presence
+means a pass started here and did not finish. A resume checks the ledger if
+present, else `meta.yaml`, so it is guarded against both an interrupted and a
+completed prior run.
+
+**A half-written wav is not reused.** Ctrl-C lands mid-write, and a truncated
+wav opens without error while being silently short. A file is only kept if its
+length matches its mixture within `LENGTH_WARN_S`. This is a completeness check,
+not a checksum — it catches the interrupted write, and the provenance ledger,
+not this, is what stops a different model's audio being trusted.
+
+**`n_trials` is unchanged** — still trials in the directory — so every
+`meta.yaml` written before this reads the same way. `n_written` and `n_reused`
+are recorded alongside it, and the `run_times.md` row now names trials actually
+rendered, so a resumed pass cannot log a per-trial rate for trials it skipped.
+
+**Changes no number.** A full render with no prior output behaves exactly as
+before, bit for bit.

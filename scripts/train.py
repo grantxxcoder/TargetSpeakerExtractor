@@ -40,6 +40,14 @@ def build_loss_fn(config):
     # .get(), so a pre-2026-08-27 config still loads and trains its own objective.
     wg = float(config["loss"].get("w_g", 0.0))
     gain_delta_db = float(config["loss"].get("gain_delta_db", 3.0))
+    # D17. Absent key = 0.0 = term disabled, so every pre-2026-09-13 config
+    # reproduces its own objective exactly.
+    w_struct = float(config["loss"].get("w_struct", 0.0))
+    struct_floor_db = float(config["loss"].get("struct_floor_db", -40.0))
+    assert w_struct >= 0.0, f"loss.w_struct must be >= 0, got {w_struct}"
+    assert struct_floor_db <= 0.0, (
+        f"loss.struct_floor_db is dB BELOW the clip peak and must be <= 0, "
+        f"got {struct_floor_db}")
 
     # Convex weight: a typo of 4.58 for 0.458 makes (1 - w) negative, training
     # the model to destroy the target while the curve still looks like it falls.
@@ -49,8 +57,40 @@ def build_loss_fn(config):
     # A negative deadzone punishes a PERFECT match -- reads as a dead term.
     assert gain_delta_db >= 0.0, f"loss.gain_delta_db must be >= 0, got {gain_delta_db}"
 
-    return LossBSRNN(wm=wm, w=w, tau_pres=tau_pres, tau_abs=tau_abs, p=p, windows=windows,
-                     sample_rate=sample_rate, wg=wg, gain_delta_db=gain_delta_db)
+    # THE STATE TERM (decisions-pending.md D14) IS OPT-IN, AND THE BRANCH IS THE
+    # OPT-IN. A config without `w_state` gets the plain LossBSRNN object, so a
+    # pre-2026-09-11 run reproduces by construction rather than by a weight
+    # multiplied by zero -- and no old config can reach the new code path even
+    # by accident.
+    w_state = float(config["loss"].get("w_state", 0.0))
+    assert w_state >= 0.0, f"loss.w_state must be >= 0, got {w_state}"
+
+    # this is the option to disable the effect of the head B for the trainer teacher setup
+    if w_state <= 0.0:
+        return LossBSRNN(wm=wm, w=w, tau_pres=tau_pres, tau_abs=tau_abs, p=p,
+                         windows=windows, sample_rate=sample_rate, wg=wg,
+                         gain_delta_db=gain_delta_db,
+                         w_struct=w_struct, struct_floor_db=struct_floor_db)
+
+    # Imported here, not at module scope: the teacher pulls in speechbrain and
+    # a 21 M-parameter checkpoint, and a baseline run should not pay for either.
+    from src.models.losses_state import LossBSRNNState              
+    from src.models.state_teacher import StateTeacher               
+
+    teacher_path = config["loss"].get("state_teacher")
+    assert teacher_path, (
+        "loss.w_state > 0 needs loss.state_teacher, the frozen detector "
+        "checkpoint. It defines part of the objective, so it is named in the "
+        "config and hash-pinned, never defaulted.")
+    teacher = StateTeacher(teacher_path,
+                           config["loss"].get("ecapa_dir", "../ecapa_pretrained"),
+                           device=config["loss"].get("state_device", "cpu"))
+
+    return LossBSRNNState(wm=wm, w=w, tau_pres=tau_pres, tau_abs=tau_abs, p=p,
+                          windows=windows, sample_rate=sample_rate, wg=wg,
+                          gain_delta_db=gain_delta_db,
+                          w_struct=w_struct, struct_floor_db=struct_floor_db,
+                          teacher=teacher, w_state=w_state)
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +220,8 @@ def w_at_epoch(config, epoch):
 
 # One definition, used by both the stdout line and history.csv -- so a log
 # pasted out of a killed run is a valid history.csv with no editing.
-HISTORY_FIELDS = ["total", "L_pres", "L_MR", "L_gain", "L_abs", "n_present", "n_absent"]
+HISTORY_FIELDS = ["total", "L_pres", "L_MR", "L_gain", "L_abs", "L_state", "L_struct",
+                  "n_present", "n_absent"]
 
 # VAL-ONLY leading indicators; the loss terms are lagging ones.
 #   enrol_sens_db    output movement on an enrolment swap. Near 0 dB = strongly
@@ -228,6 +269,24 @@ def format_epoch_breakdown(epoch, num_epochs, tr, va, epoch_seconds, w_trained):
     (decisions-m2.md 2026-08-29). L_pres is negated SI-SDR, so a train L_pres of
     -5.51 against a val +0.17 is the 5.68 dB gap that run ended with.
 
+    `L_state` is printed only when the state term is in use, because otherwise
+    it is a row of NaNs. THE PATTERN TO WATCH THERE IS NOT THE GAP: it is
+    `L_state` falling while `L_pres` stalls or worsens. The teacher is a frozen
+    learned scorer, so the model can improve on it by finding its blind spots
+    instead of by removing the interferer -- and it has never heard masked
+    audio, only real mixtures and synthetic suppressions. That divergence is
+    the signature of reward-model overoptimisation, and it is why `L_state`
+    appears in no selection mode. decisions-pending.md D14.
+
+    `L_struct` (D17) prints on the same terms. It is the mask's frequency SHAPE
+    error against the ideal mask with each frame's mean removed, so it is the
+    only column that says whether the model is still applying a broadband gain
+    rather than choosing bins. LOWER IS BETTER and 0.0 is the oracle's score.
+    It is deliberately NOT in `total` (see epoch_report), so this column is the
+    only place it can be read -- before 2026-09-14 it was computed every batch
+    and then dropped here and from HISTORY_FIELDS, which made the D17 arm
+    unreadable while still paying its cost.
+
     Goes to stderr on purpose: stdout carries one CSV row per epoch and must
     stay a valid history.csv so a killed Kaggle session can be recovered by
     pasting it into a file. See scripts/make_kaggle_notebook.py.
@@ -237,8 +296,13 @@ def format_epoch_breakdown(epoch, num_epochs, tr, va, epoch_seconds, w_trained):
         f"lr {va['lr']:.2e}  w_trained {w_trained:.3f}",
         f"  {'term':<7} {'train':>10} {'val':>10} {'gap(val-train)':>15}",
     ]
-    for term in ("total", "L_pres", "L_MR", "L_gain", "L_abs"):
-        train_value, val_value = tr[term], va[term]
+    for term in ("total", "L_pres", "L_MR", "L_gain", "L_abs", "L_state", "L_struct"):
+        # L_state and L_struct are NaN when their term is not in use -- skip the
+        # row rather than print a line of NaNs. The other four always apply.
+        train_value, val_value = tr.get(term, float("nan")), va.get(term, float("nan"))
+        if term in ("L_state", "L_struct") and not np.isfinite(train_value) \
+                and not np.isfinite(val_value):
+            continue
         lines.append(f"  {term:<7} {train_value:>10.4f} {val_value:>10.4f} "
                      f"{val_value - train_value:>15.4f}")
     lines.append(f"  crops   train {tr['n_present']} present / {tr['n_absent']} absent"
@@ -329,6 +393,20 @@ def build_model(config):
         # measuring a model that never existed. Loud, because silently reviving
         # the flat softmax on a NEW run is the bug this whole file is about.
         tfmap_scale=_tfmap_scale(config),
+        # Head A, decisions-pending.md D14 piece A. Absent key => False, which
+        # is the architecture every run up to 2026-09-11 trained, so no old
+        # config or checkpoint changes meaning. Training-only: the head is
+        # stripped before inference (state_head.drop_state_head), so a model
+        # trained with it deploys at the same 7.19 M parameters and the same
+        # latency as the baseline.
+        state_head=bool(config["model"].get("state_head", False)),
+        state_head_detach=bool(config["model"].get("state_head_detach", False)),
+        # D4a, decisions-pending.md D4. Absent key => False, the 2026-08-28
+        # frozen architecture. Unlike the state head this one adds parameters to
+        # the audio path (+37,698, +0.52 %), so the arm is NOT parameter-matched
+        # to its control and the write-up has to say so.
+        tfmap_inject=bool(config["model"].get("tfmap_inject", False)),
+        tfmap_gate_init=float(config["model"].get("tfmap_gate_init", 0.0)),
     )
 
 
@@ -382,10 +460,47 @@ def add_parts(sums, counts, parts):
         sums["L_pres"] += parts["L_pres"] * parts["n_present"]
         sums["L_MR"] += parts["L_MR"] * parts["n_present"]
         sums["L_gain"] += parts["L_gain"] * parts["n_present"]
+        # D17, present branch only -- see LossBSRNN._loss_mask_shape on why the
+        # ideal mask is meaningless on a target-absent crop. NaN when the term
+        # is not in use, and NaN * n would poison the sum, so it is gated.
+        if not math.isnan(parts.get("L_struct", float("nan"))):
+            sums["L_struct"] += parts["L_struct"] * parts["n_present"]
         counts["present"] += parts["n_present"]
     if parts["n_absent"]:
         sums["L_abs"] += parts["L_abs"] * parts["n_absent"]
         counts["absent"] += parts["n_absent"]
+    # L_state applies to EVERY crop, present and absent alike: there is no
+    # situation in which a second voice belongs in the output, so it has its own
+    # count rather than sharing either branch's. Absent unless the state loss is
+    # in use, so `.get` rather than a key.
+    if parts.get("L_state") is not None:
+        n_all = parts["n_present"] + parts["n_absent"]
+        sums["L_state"] += parts["L_state"] * n_all
+        counts["all"] += n_all
+
+
+def oracle_mask_and_mag(model, target, mixture, clip=2.0):
+    """The ideal mask |target| / |mixture| on the MODEL'S OWN STFT grid, and the
+    mixture magnitude the structure term weights by.
+
+    Computed here rather than inside the loss because the grid belongs to the
+    model -- n_fft, hop and window are the model's, and a loss that built its own
+    would supervise the mask on a different grid from the one it was predicted
+    on, which is a misalignment nothing else would catch.
+
+    CLIPPED to [0, clip]. The ratio is unbounded: it exceeds 1 whenever the
+    interferer is out of phase with the target, and explodes wherever the mixture
+    is near silent. Same clip as scripts/plot_mask_grid.py so the training target
+    and the diagnostic picture are the same object.
+
+    NO GRADIENT. The oracle is data, not a prediction.
+    """
+    with torch.no_grad():
+        S = model.stft(target).abs()
+        X = model.stft(mixture).abs()
+        frames = min(S.shape[-1], X.shape[-1])
+        S, X = S[..., :frames], X[..., :frames]
+        return (S / X.clamp_min(1e-8)).clamp(0.0, clip), X
 
 
 def epoch_report(sums, counts, w, wm, wg):
@@ -402,13 +517,36 @@ def epoch_report(sums, counts, w, wm, wg):
     L_MR = sums["L_MR"] / n_present if n_present else float("nan")
     L_gain = sums["L_gain"] / n_present if n_present else float("nan")
     L_abs = sums["L_abs"] / n_absent if n_absent else float("nan")
+    # NaN, not 0.0, when the term is off: a missing term is a GAP in the curve,
+    # not a zero. Plotting it as zero would suggest a perfectly satisfied
+    # objective rather than an absent one.
+    n_all = counts.get("all", 0)
+    L_state = sums["L_state"] / n_all if n_all else float("nan")
+    # NaN, not 0.0, when the term never ran, and here that matters MORE than it
+    # does for the four above: 0.0 is the ORACLE's score on this term (a perfect
+    # shape match, see derive_w_struct.py), so a disabled term logged as 0.0
+    # reads as a solved one. The key exists only where add_parts accumulated it,
+    # which it does only for a non-NaN L_struct.
+    L_struct = (sums["L_struct"] / n_present
+                if n_present and "L_struct" in sums else float("nan"))
 
+    # `total` deliberately EXCLUDES the state term. It is the number
+    # ReduceLROnPlateau and the curve read, and the four terms above are what it
+    # has always meant -- adding a fifth would make every run before 2026-09-11
+    # incomparable to every run after. w_state's contribution is visible in its
+    # own column, and derive_w_state.py reports its gradient share.
     return {
         "total": (1 - w) * (L_pres + wm * L_MR + wg * L_gain) + w * L_abs,
         "L_pres": L_pres,
         "L_MR": L_MR,
         "L_gain": L_gain,
         "L_abs": L_abs,
+        "L_state": L_state,
+        # EXCLUDED from `total` for the same reason L_state is: `total` is what
+        # ReduceLROnPlateau and the curve read, and adding a term would make
+        # every run before 2026-09-13 incomparable to every run after. D17's
+        # contribution is visible in its own column.
+        "L_struct": L_struct,
         "n_present": n_present,
         "n_absent": n_absent,
     }
@@ -434,6 +572,22 @@ def selection_score(val_loss, config):
     handled by an eligibility bar (see `selection_eligible`) rather than by a
     second arbitrary exchange rate between two quantities that are not
     commensurable. decisions-m2.md 2026-08-30.
+
+    NO MODE INCLUDES `L_state`, AND THAT IS DELIBERATE. It is a frozen learned
+    scorer, and a model can improve on it by finding its blind spots rather than
+    by removing the interferer -- reward-model overoptimisation. Selecting on it
+    would make that failure invisible, because the thing being gamed would also
+    be the thing choosing the checkpoint.
+
+    This project has watched a headline number improve for a bad reason twice
+    already: 2026-08-25, total loss falling the whole way into a mute; and
+    2026-09-04, `enrol_sens` and `pres_abs_gap` reaching their best values of the
+    run on the epoch where held-out separation dropped below pass-through. The
+    state term is a more gameable quantity than either.
+
+    So `L_state` is LOGGED and never SELECTED ON. If it falls while
+    `present_branch` stalls, that is the signature, and it should be reported in
+    the same breath as any result. decisions-pending.md D14.
     """
     mode = str(config["training"].get("select_on", "present_branch"))
     if mode == "total":
@@ -475,6 +629,13 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
         raise ValueError("Config must be provided to build the loss function.")
 
     loss_fn = build_loss_fn(config)
+    # D17. `log_struct` computes and LOGS L_struct while leaving it out of the
+    # gradient, which is what a derivation script reads to set w_struct -- the
+    # same arrangement that let derive_w_g.py set w_g while L_gain was shipped
+    # off. Defaults ON when the key is absent so the column exists for every
+    # future run; the cost is one extra STFT pair per batch and a retained mask.
+    log_struct = bool(config["loss"].get("log_struct", True))
+    want_mask_val = getattr(loss_fn, "w_struct", 0.0) > 0.0 or log_struct
     grad_clip = float(config["training"]["grad_clip"])
     patience = int(config["training"]["patience"])
     keep_top_k = int(config["training"].get("keep_top_k", 3))
@@ -548,13 +709,28 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
 
             mixture, target, enrollment, crop_absent = unpack(batch, device)
 
+            # I can only use the teacher loss if I have the enrollment to supply the teacher with.
+            if hasattr(loss_fn, "enrolment_embedding"):
+                loss_fn.enrolment_embedding = loss_fn.teacher.embed_enrolment(enrollment)
+
             optimizer.zero_grad()
+            # D17: only ask for the mask when the term is configured. The flag
+            # retains a (B, F, T) tensor in the graph, so a run that does not use
+            # it should not pay for it.
+            want_mask = getattr(loss_fn, "w_struct", 0.0) > 0.0 or log_struct
             with amp_ctx(use_amp):
-                s_output = model(mixture, enrollment)
+                if want_mask:
+                    s_output, mask = model(mixture, enrollment, return_mask=True)
+                else:
+                    s_output, mask = model(mixture, enrollment), None
+            oracle, mix_mag = (oracle_mask_and_mag(model, target, mixture)
+                               if want_mask else (None, None))
             # arg order is (reference, output, mixture, mask) -- reference
             # FIRST, the reverse of the usual (pred, target). See LossBSRNN.
             # .float() is not cosmetic: see amp_ctx on why the loss stays fp32.
-            loss, parts = loss_fn(target, s_output.float(), mixture, crop_absent)
+            loss, parts = loss_fn(target, s_output.float(), mixture, crop_absent,
+                                  mask=None if mask is None else mask.float(),
+                                  oracle_mask=oracle, mixture_mag=mix_mag)
             scaler.scale(loss).backward()
             # UNSCALE BEFORE CLIPPING. scale() multiplied the loss by ~65536 so
             # small gradients survive fp16, so the gradients sitting here are
@@ -593,13 +769,24 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
             for batch in val_loader:
                 mixture, target, enrollment, crop_absent = unpack(batch, device)
 
+                # Same setter as the training loop for the teacher loss
+                if hasattr(loss_fn, "enrolment_embedding"):
+                    loss_fn.enrolment_embedding = loss_fn.teacher.embed_enrolment(enrollment)
+
                 # Val runs in the same precision as training on purpose: a
                 # metric measured in a precision the model was not trained in
                 # describes a model that does not exist. The loss is still fp32.
                 with amp_ctx(use_amp):
-                    s_output = model(mixture, enrollment)
+                    if want_mask_val:
+                        s_output, mask = model(mixture, enrollment, return_mask=True)
+                    else:
+                        s_output, mask = model(mixture, enrollment), None
                 s_output = s_output.float()
-                _, parts = loss_fn(target, s_output, mixture, crop_absent)
+                oracle, mix_mag = (oracle_mask_and_mag(model, target, mixture)
+                                   if want_mask_val else (None, None))
+                _, parts = loss_fn(target, s_output, mixture, crop_absent,
+                                   mask=None if mask is None else mask.float(),
+                                   oracle_mask=oracle, mixture_mag=mix_mag)
                 add_parts(val_sums, val_counts, parts)
                 diagnostic_accumulate(diag, model, mixture, enrollment,
                                       s_output, crop_absent, amp=use_amp)
@@ -745,6 +932,19 @@ SPLIT_MANIFESTS = {
     # target/interferer loudness -- the arm that tests whether the model only
     # ignores the enrollment because "keep the loud voice" already works.
     "sir0":  (("sir0_train",  "sir0_train"),  ("sir0_val",  "sir0_val")),
+    # sir0ext: sir0's TRAINING data, evaluated on the expanded 2,800-trial dev
+    # split built 2026-09-13 from eval_private's released speakers. EVAL ONLY in
+    # practice -- the train half is deliberately identical to `sir0` so a
+    # checkpoint trained under `sir0` is scored on the wider set WITHOUT
+    # retraining, and the two splits differ in exactly one axis.
+    #
+    # WHY IT EXISTS. The paired bootstrap on 2026-09-12 put sir0_val's
+    # resolution at +-8 LCF-WER over its 103 `both` trials, so an arm moving the
+    # metric less than ~5 points is unreadable. sir0_privval carries 1,421
+    # `both` trials, and SIR spans [-10, +15] against sir0_val's [-10, +10] --
+    # a SUPERSET, reported per SIR band, never as one blended mean.
+    # decisions-m3.md 2026-09-13.
+    "sir0ext": (("sir0_train", "sir0_train"), ("sir0_privval", "sir0_privval")),
     "full":  (("train",       "train"),       ("val",       "val")),
 }
 
