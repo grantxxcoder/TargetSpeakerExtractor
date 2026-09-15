@@ -3517,3 +3517,134 @@ well can a local model predict a live model's listening, and does regressing on
 it help?" is publishable as a negative. **The argument against:** it puts the
 thesis's stated primary contribution (a gaming-resistant metric) and its
 replacement (the surrogate) on the same four weeks.
+
+### G1c concretised — exact inputs, outputs, and where the term goes
+
+**Raised 2026-09-15 (Grant): "backbone + a head fine-tuned by Gemini — but what
+are the input and output, and how does it reach the extractor?"**
+
+#### The surrogate has two lives, and the input/output differ between them
+
+**Life 1 — TRAINING THE SURROGATE. Fixed audio; the label is what Gemini said.**
+
+| | |
+|---|---|
+| input | any 4.008 s audio crop, `(B, 64128)` at 16 kHz |
+| label | **Gemini's transcript of that same crop** — its errors, its leakage, its inventions |
+| trained | the head only; backbone frozen |
+| learns | *how this listener mishears* |
+
+**Life 2 — TRAINING THE EXTRACTOR. The surrogate is frozen; the audio moves.**
+
+| | |
+|---|---|
+| input | `s_output`, the extractor's waveform, `(B, 64128)` — WITH gradient |
+| target | the clean stem `s_target`, already in the loss call |
+| trained | the extractor; surrogate weights frozen |
+| asks | *now do not mishear* — and pushes that back into the audio |
+
+**This is the whole idea in one line: learn to mishear like Gemini, then ask the
+extractor to make audio that defeats the mishearing.** The labels are Gemini
+transcripts; the extractor's target is never a Gemini transcript.
+
+#### The backbone: `torchaudio.pipelines.WAV2VEC2_ASR_BASE_960H`
+
+**No new dependency — torchaudio 2.11.0 is already installed and ships it.**
+16 kHz native, matching `sample_rate`, and it already carries a trained CTC head
+over a **29-symbol character vocabulary** (`'-', '|', A-Z, '`). So the starting
+point is a working ASR whose head is fine-tuned onto Gemini behaviour, which is
+exactly the proposed shape and not a from-scratch build.
+
+**Do NOT use Whisper for the in-loop term.** Its encoder takes a fixed 30 s
+window, so every 4.008 s crop would cost a 30 s forward pass — ~7.5x wasted
+compute on every training step. `faster-whisper` is worse than unsuitable: it is
+CTranslate2, an inference engine with no autograd at all. Whisper stays where it
+is, as the offline stand-in listener.
+
+Shapes, for the 4.008 s crop (conv stack strides 5,2,2,2,2,2,2 = 320, i.e. 50 Hz):
+
+    waveform      (B, 64128)        B = 6 at batch_size 3 x both_directions
+    features      (B, 200, 768)
+    CTC logits    (B, 200, 29)
+
+#### Two heads on the one frozen backbone
+
+| head | output | trained against | used for |
+|---|---|---|---|
+| **T** transcription | `(B, 200, 29)` CTC logits | CTC vs **Gemini's transcript** | **the gradient path** |
+| **S** score | one scalar | Huber vs measured per-trial LCF-WER | reading only, NEVER in the gradient |
+
+**Head S is the instrument, not the trainer.** It answers "is the surrogate
+actually predicting the judge" (against the r^2 0.680 / MAE 21.7 floor already
+measured) and it gives free checkpoint selection. It must never be
+backpropagated: a scalar is one number per clip against ~100 reference words, and
+it is the textbook reward-hacking target.
+
+#### The extractor's loss term, and why it needs no text alignment
+
+**Option 1, SHIP THIS FIRST — "transcribe like the clean stem does".**
+
+    L_gem = D( HeadT(G(s_output)) , HeadT(G(s_target)) )
+
+`D` = KL over the frame-wise character posteriors, or L1 on the logits.
+**No ground-truth text is needed anywhere**, because the reference is the clean
+stem, which `losses.py` already receives. That matters: the loader yields 4 s
+crops with no text, so anything text-based needs per-crop alignment work first.
+
+**Option 2, LATER — "get the words right".**
+
+    L_gem = CTC( HeadT(G(s_output)) , words spoken inside this crop )
+
+More tolerant — any audio that transcribes correctly scores well, however it
+sounds — but it needs the crop's text. That is buildable: the loader already
+returns `crop_start` and `trial_id`, and the manifest carries `target_utts` and
+`target_onsets_s`. A middle route avoids the alignment entirely: greedily decode
+`HeadT(G(s_target))` and use THAT as the crop's pseudo-label.
+
+#### Where it goes: one term beside `L_MR`, taking the same two tensors
+
+`scripts/train.py:723-731` already computes exactly what is needed:
+
+    s_output, mask = model(mixture, enrollment, return_mask=True)
+    loss, parts = loss_fn(target, s_output.float(), mixture, crop_absent, ...)
+
+So `L_gem` enters `LossBSRNN.__call__` in the **present branch**, next to `L_MR`,
+reading the same `s_target` / `s_output` pair and gated the same way — on an
+absent crop there is no clean stem to listen to, and `L_abs` already owns that
+case.
+
+**The defensible framing, and it is the reason to build it this way.** `L_MR`
+already compares output to target in a feature space; it just happens to be four
+STFT magnitudes. **`L_gem` is `L_MR` with a learned, Gemini-aligned feature space
+instead of a hand-chosen one.** One term, one weight, `w_gem = 0` reproduces
+today's objective exactly, and the weight is DERIVED by the same procedure as
+`w_g` and `w_struct` (`derive_w_g.py`), never chosen by hand.
+
+#### The extractor does not change, and that protects the latency result
+
+**The surrogate is training-time only.** At inference the shipped model is the
+same 7.19 M parameters at RTF 0.528 and 162 ms. Nothing in the streaming or
+latency story moves. This is the strongest practical argument for the whole
+approach over changing the architecture.
+
+#### Registered before building — the things that will actually bite
+
+1. **Step-time and memory cost are UNMEASURED.** A base backbone runs forward AND
+   backward on every step (frozen weights still pass gradient to the input),
+   against a current 0.674 s/step at batch 3. **Measure with
+   `scripts/profile_step.py` before committing** — and do not quote a projection
+   as a measurement. Gradient checkpointing on the backbone is the mitigation if
+   the T4's memory will not take it; E5 already records activations as the
+   binding constraint.
+2. **The front end must be torch ops end to end**, or the gradient stops. This is
+   satisfied by the torchaudio bundle and is exactly what `faster-whisper` fails.
+3. **Per-clip waveform normalisation inside the backbone destroys level
+   information.** Wanted, not a bug — it means `L_gem` cannot be gamed by getting
+   louder — but `L_gain` must stay in the objective to cover level.
+4. **Train the surrogate on 4 s crops**, the same length it will see in the loop.
+   A surrogate trained on 19.6 s clips is out of distribution on every step.
+5. **Cache backbone features when training the head.** The audio is fixed in
+   Life 1, so features are computed once and head training becomes minutes. In
+   Life 2 the audio changes every step and nothing can be cached.
+6. **Validate Head S on a held-out SYSTEM, not a held-out trial.** In use it
+   scores checkpoints it has never seen.
