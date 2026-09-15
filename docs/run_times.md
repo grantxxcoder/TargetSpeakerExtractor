@@ -21,6 +21,8 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
 <!-- rows appended below by src/run_log.py -->
+| 2026-09-15 | `scripts/evaluate.py` | --split sir0_val --condition both --est /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-15-est-struct-e12-sir0val --metrics content --out /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-15-eval-struct-e12-sir0val-asr | 7 min |  |
+| 2026-09-15 | `scripts/make_estimates.py` | 103 trials, sir0 | 16 min | cpu, whole-clip |
 | 2026-09-15 | `scripts/make_estimates.py` | 0 trials, sir0ext **(failed)** | 34 min | cpu, whole-clip |
 | 2026-09-15 | `scripts/evaluate.py` | --split sir0_privval --condition both --est /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-15-est-struct-e8 --metrics content --out /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-15-eval-struct-e8-asr | 1.2 h |  |
 | 2026-09-15 | `scripts/make_estimates.py` | 1421 trials, sir0ext | 2.9 h | cpu, whole-clip |
