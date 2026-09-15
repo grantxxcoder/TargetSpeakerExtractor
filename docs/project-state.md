@@ -54,9 +54,20 @@ absent from both scripts may be misheard rather than invented; only the excess
 over the ceiling belongs to a system.
 
 **Content through the offline ASR** (`faster-whisper small.en`, int8 CPU greedy).
-A STAND-IN for the judge, not a live-model result. Floor and ceiling are
-byte-identical across all five runs below — the transcripts are cached, so the
-anchors are one measurement, not five.
+A STAND-IN for the judge, not a live-model result.
+
+**Every row saw the same 103 trials, and that is checkable, not asserted.** The
+floor (untouched mixture) and ceiling (clean target) are recomputed from the
+audio on every run, and all twenty of their metrics are identical across the
+five runs below — sha256[:16] `ee2a778d39657a4e`, on runs dated 2026-09-04,
+-06, -06, -12 and -15. A differing trial set, or a re-render of
+`data/rendered/sir0_val`, would move them. What varies between rows is the
+system; the eval set does not.
+
+**The privval numbers are deliberately not here.** `struct-e12` also scores
+47.37 % LCF-WER on `sir0_privval` (n=1421, floor 53.49 %). Beside a 65.22 % floor
+that would read as a 17-point gain that does not exist. Different trials,
+different speakers, different n — different table.
 
 | system | LCF-WER | ICR@2 | mean leak | invented/trial | FR@2 |
 |---|---|---|---|---|---|
