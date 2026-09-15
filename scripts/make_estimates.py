@@ -125,7 +125,7 @@ def main():
                          "1.5,0.5,0.0 raises the mask's frequency variation "
                          "0.0238 -> 0.0596 against the ideal mask's 0.1725, and "
                          "drops the share explained by one number per frame from "
-                         "82.5 % to 2.0 %. Milder settings barely move either "
+                         "82.5 %% to 2.0 %%. Milder settings barely move either "
                          "and cannot test the hypothesis.")
     ap.add_argument("--residual-scale", type=float, default=1.0,
                     help="scale on the additive residual branch R, applied at "
@@ -136,6 +136,14 @@ def main():
                          "never recorded, which is what an invented word IS. "
                          "See Estimator.residual_scale for what this cannot "
                          "settle.")
+    ap.add_argument("--force", action="store_true",
+                    help="re-render every trial even if estimate.wav is already "
+                         "there. OFF by default: a pass resumes, keeping the "
+                         "estimates a previous interrupted run completed. Use "
+                         "this when the files on disk are known bad -- a "
+                         "directory written by a DIFFERENT run is refused "
+                         "outright rather than resumed, so --force is not "
+                         "needed for that.")
     args = ap.parse_args()
     if args.mask_hysteresis:
         args.mask_hysteresis = [float(v) for v in args.mask_hysteresis.split(",")]
@@ -166,10 +174,16 @@ def main():
     )
     out_root = Path(args.out or
                     f"experiments/results/{date.today().isoformat()}-est-{args.split}")
-    written = 0
+    written, reused = 0, 0
 
+    # The run_times.md row must name what this pass actually COMPUTED. A resumed
+    # pass that rendered 200 of 1,421 trials in 20 minutes would otherwise log a
+    # 1,421-trial rate that is off by a factor of seven, and that row is what the
+    # next session plans against.
     with timed("scripts/make_estimates.py",
-               scope=lambda: f"{written} trials, {args.split}",
+               scope=lambda: (f"{written} trials rendered"
+                              + (f" (+{reused} reused)" if reused else "")
+                              + f", {args.split}"),
                rate=lambda: f"{device.type}, whole-clip"):
         meta = write_estimates(
             extract=extract,
@@ -195,8 +209,9 @@ def main():
                 "model_config_drift": {k: list(v) for k, v in drift.items()} or None,
                 "device": device.type,
             },
+            force=args.force,
         )
-        written = meta["n_trials"]
+        written, reused = meta["n_written"], meta["n_reused"]
 
 
 if __name__ == "__main__":

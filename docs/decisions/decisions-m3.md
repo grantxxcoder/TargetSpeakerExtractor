@@ -1273,3 +1273,45 @@ the write-up.
 
 **Small-sample instability is real:** 17.4 at 2 crops, 124.6 at 4, 46.3 at 50.
 Do not use a derivation under ~50 crops for anything.
+
+---
+
+## 2026-09-15 — Estimate rendering resumes; a resumed directory is provenance-locked
+
+**Decision: `write_estimates` skips a trial whose `estimate.wav` is already on
+disk and complete, and REFUSES to resume a directory whose recorded provenance
+differs from the current run. `--force` re-renders and skips the guard.**
+
+**Why resume.** A pass over `sir0_privval` is 3.4 h measured (`run_times.md`
+2026-09-14). Before this, an interrupted pass restarted from zero, so the cost
+of stopping a render was the whole render — which on 2026-09-15 threw away a
+part-finished baseline render that was competing for CPU with a job needed
+sooner. Inference runs under `no_grad` and is deterministic, so a kept file is
+the file the pass would have written.
+
+**Why refuse rather than warn on a provenance mismatch.** Pointing a second
+checkpoint at an existing directory would blend two systems' audio into one set
+of estimates labelled as one system. Nothing downstream can detect that:
+`evaluate.py` reads wav files and believes `meta.yaml`. A warning in a terminal
+scrollback is not a control, so the mismatch is fatal.
+
+**Two files, two questions.** `meta.yaml` keeps its existing meaning untouched —
+written last, so its presence still means the pass completed. The new
+`run.provenance.yaml` is written first and deleted on success, so its presence
+means a pass started here and did not finish. A resume checks the ledger if
+present, else `meta.yaml`, so it is guarded against both an interrupted and a
+completed prior run.
+
+**A half-written wav is not reused.** Ctrl-C lands mid-write, and a truncated
+wav opens without error while being silently short. A file is only kept if its
+length matches its mixture within `LENGTH_WARN_S`. This is a completeness check,
+not a checksum — it catches the interrupted write, and the provenance ledger,
+not this, is what stops a different model's audio being trusted.
+
+**`n_trials` is unchanged** — still trials in the directory — so every
+`meta.yaml` written before this reads the same way. `n_written` and `n_reused`
+are recorded alongside it, and the `run_times.md` row now names trials actually
+rendered, so a resumed pass cannot log a per-trial rate for trials it skipped.
+
+**Changes no number.** A full render with no prior output behaves exactly as
+before, bit for bit.

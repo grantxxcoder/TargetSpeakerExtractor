@@ -236,3 +236,124 @@ def test_wesep_split_table_matches_train():
     from train import SPLIT_MANIFESTS
 
     assert VAL_SPLITS == {split: pairs[1] for split, pairs in SPLIT_MANIFESTS.items()}
+
+
+# --- resume --------------------------------------------------------------
+#
+# A full pass over sir0_privval is 3.4 h measured (docs/run_times.md 2026-09-14).
+# Before the resume guard an interrupted pass started from zero, so the price of
+# stopping a render was the whole render. These pin the two halves of the deal:
+# a reused file must be one this pass would have written, and a directory
+# written by a DIFFERENT system must never be resumed into.
+
+def _counting(calls):
+    def extract(mixture, enrollment, sample_rate):      # noqa: ARG001
+        calls.append(1)
+        return mixture
+    return extract
+
+
+def test_resume_keeps_finished_estimates_and_does_not_rerun_them(split, tmp_path):
+    manifest, audio_root, _ = split
+    trials = read_trials(manifest, audio_root, condition="both")
+    out = tmp_path / "out"
+    provenance = {"system": "test", "checkpoint": {"path": "x"}}
+
+    write_estimates(_passthrough, trials[:2], out, SAMPLE_RATE, provenance)
+
+    calls = []
+    meta = write_estimates(_counting(calls), trials, out, SAMPLE_RATE, provenance)
+
+    assert len(calls) == 2, "an already-finished estimate was re-rendered"
+    assert meta["n_reused"] == 2
+    assert meta["n_written"] == 2
+    # n_trials keeps its old meaning -- trials in this directory, not trials
+    # rendered on this pass -- so every meta.yaml written before resuming
+    # existed still reads the same way.
+    assert meta["n_trials"] == 4
+
+
+def test_resume_rerenders_a_half_written_estimate(split, tmp_path):
+    """Ctrl-C lands mid-write often enough to matter, and a truncated wav opens
+    fine while being silently short. Length against the mixture is the check."""
+    manifest, audio_root, _ = split
+    trials = read_trials(manifest, audio_root, condition="both", limit=2)
+    out = tmp_path / "out"
+    provenance = {"system": "test"}
+    write_estimates(_passthrough, trials, out, SAMPLE_RATE, provenance)
+
+    truncated = out / trials[0].trial_id / "estimate.wav"
+    audio, _ = sf.read(str(truncated), dtype="float32")
+    sf.write(str(truncated), audio[: len(audio) // 2], SAMPLE_RATE, subtype="FLOAT")
+
+    calls = []
+    meta = write_estimates(_counting(calls), trials, out, SAMPLE_RATE, provenance)
+    assert len(calls) == 1, "the truncated estimate was trusted"
+    assert meta["n_written"] == 1 and meta["n_reused"] == 1
+
+
+def test_force_rerenders_everything(split, tmp_path):
+    manifest, audio_root, _ = split
+    trials = read_trials(manifest, audio_root, condition="both")
+    out = tmp_path / "out"
+    provenance = {"system": "test"}
+    write_estimates(_passthrough, trials, out, SAMPLE_RATE, provenance)
+
+    calls = []
+    meta = write_estimates(_counting(calls), trials, out, SAMPLE_RATE, provenance,
+                           force=True)
+    assert len(calls) == len(trials)
+    assert meta["n_reused"] == 0
+
+
+def test_resume_refuses_a_directory_another_run_wrote(split, tmp_path):
+    """The one that matters. Reusing checkpoint A's audio under checkpoint B's
+    meta.yaml makes a directory that is a blend of two systems and says it is
+    one -- and nothing downstream can detect it, because evaluate.py reads wav
+    files and believes the meta."""
+    manifest, audio_root, _ = split
+    trials = read_trials(manifest, audio_root, condition="both")
+    out = tmp_path / "out"
+    write_estimates(_passthrough, trials[:2], out, SAMPLE_RATE,
+                    {"system": "test", "checkpoint": {"path": "model_a.pt"}})
+
+    with pytest.raises(SystemExit, match="different run"):
+        write_estimates(_passthrough, trials, out, SAMPLE_RATE,
+                        {"system": "test", "checkpoint": {"path": "model_b.pt"}})
+
+
+def test_resume_refuses_a_completed_directory_from_another_run(split, tmp_path):
+    """Same guard, but against meta.yaml rather than the ledger: the first pass
+    finished, so its ledger is gone and meta.yaml is the only record."""
+    manifest, audio_root, _ = split
+    trials = read_trials(manifest, audio_root, condition="both")
+    out = tmp_path / "out"
+    write_estimates(_passthrough, trials, out, SAMPLE_RATE,
+                    {"system": "test", "checkpoint": {"path": "model_a.pt"}})
+
+    with pytest.raises(SystemExit, match="different run"):
+        write_estimates(_passthrough, trials, out, SAMPLE_RATE,
+                        {"system": "test", "checkpoint": {"path": "model_b.pt"}})
+
+
+def test_force_overrides_the_provenance_guard(split, tmp_path):
+    manifest, audio_root, _ = split
+    trials = read_trials(manifest, audio_root, condition="both", limit=2)
+    out = tmp_path / "out"
+    write_estimates(_passthrough, trials, out, SAMPLE_RATE, {"checkpoint": "a"})
+    meta = write_estimates(_passthrough, trials, out, SAMPLE_RATE,
+                           {"checkpoint": "b"}, force=True)
+    assert meta["checkpoint"] == "b" and meta["n_reused"] == 0
+
+
+def test_the_ledger_is_removed_once_the_pass_completes(split, tmp_path):
+    """Its presence means "a pass started here and did not finish", so it must
+    not outlive meta.yaml, which means the opposite."""
+    from src.estimates.runner import RESUME_LEDGER
+
+    manifest, audio_root, _ = split
+    trials = read_trials(manifest, audio_root, condition="both")
+    out = tmp_path / "out"
+    write_estimates(_passthrough, trials, out, SAMPLE_RATE, {"system": "test"})
+    assert not (out / RESUME_LEDGER).exists()
+    assert (out / "meta.yaml").exists()

@@ -190,6 +190,14 @@ def main():
     ap.add_argument("--output-norm", action="store_true",
                     help="let WeSep rescale its output to 0.9 peak. OFF by default; "
                          "see build_extractor for why, and log it if you turn it on")
+    ap.add_argument("--force", action="store_true",
+                    help="re-render every trial even if estimate.wav is already "
+                         "there. OFF by default: a pass resumes, keeping the "
+                         "estimates a previous interrupted run completed. Use "
+                         "this when the files on disk are known bad -- a "
+                         "directory written by a DIFFERENT run is refused "
+                         "outright rather than resumed, so --force is not "
+                         "needed for that.")
     args = ap.parse_args()
 
     checkpoint = describe_checkpoint(args.pretrain)
@@ -220,10 +228,14 @@ def main():
     )
     out_root = Path(args.out or f"experiments/results/{date.today().isoformat()}"
                                 f"-est-wesep-{checkpoint['name']}")
-    written = 0
+    written, reused = 0, 0
 
+    # Same reason as the sibling script: a resumed pass must not log a rate for
+    # trials it did not render.
     with timed("scripts/make_estimates_wesep.py",
-               scope=lambda: f"{written} trials, {args.split}, {checkpoint['name']}",
+               scope=lambda: (f"{written} trials rendered"
+                              + (f" (+{reused} reused)" if reused else "")
+                              + f", {args.split}, {checkpoint['name']}"),
                rate=lambda: f"{args.device}, whole-clip"):
         meta = write_estimates(
             extract=extract,
@@ -254,8 +266,9 @@ def main():
                 # yaml.safe_dump refuses to represent a str subclass.
                 "torch": str(torch.__version__),
             },
+            force=args.force,
         )
-        written = meta["n_trials"]
+        written, reused = meta["n_written"], meta["n_reused"]
 
 
 if __name__ == "__main__":
