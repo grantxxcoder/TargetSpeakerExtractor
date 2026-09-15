@@ -1,0 +1,87 @@
+# Can a local listener predict the Gemini judge, per trial?
+# Sizes the "Gemini tuner" proposal (decisions-pending.md 2026-09-15) BEFORE
+# anything is built. No API calls, no model inference, no GPU: every transcript
+# was already on disk.
+date: 2026-09-15
+command: >-
+  python scripts/measure_judge_predictability.py
+  --out experiments/results/2026-09-15-judge-predictability
+git_commit: caa694c20b2488163761dd6616553b4ed74218a6
+git_dirty: true      # CLAUDE.md, decisions-m2/m4 and run_times.md uncommitted
+seed: null           # deterministic: cache lookups plus a jiwer alignment
+wall_time: under 1 minute   # no run_times.md row required
+
+instrument:
+  judge:
+    model_id: gemini-3.7-flash
+    backend: aistudio
+    prompt_sha256_12: d118b7d3bf30
+    modality: audio in / text out
+    run_dates: [2026-09-02, 2026-09-03, 2026-09-06, 2026-09-15]
+    source: experiments/results/judge_responses.csv (cache, no new calls)
+  local_listener:
+    model: faster-whisper small.en, int8 CPU, greedy
+    source: experiments/results/transcripts.csv (cache, no new inference)
+  scoring:
+    metric: LCF-WER, metric-definitions.md 3.1
+    normaliser: whisper-normalizer==0.1.15 EnglishTextNormalizer
+    exclusions: target-silent trials dropped (B4, rate is 0/0 not 0)
+
+data:
+  split: sir0_val
+  condition: both
+  trials_per_system: 103
+  systems: 4
+  paired_observations: 412
+
+metrics:
+  pooled:
+    n: 412
+    judge_mean_lcf_wer: 54.87
+    asr_mean_lcf_wer: 58.66
+    pearson_r: 0.825
+    r_squared: 0.680
+    spearman: 0.781
+    mean_absolute_error_points: 21.73
+  per_system:
+    baseline-5000-e7:  {r: 0.850, r2: 0.722, spearman: 0.811, mae: 20.85, judge_mean: 62.28, asr_mean: 66.22}
+    wesep:             {r: 0.673, r2: 0.453, spearman: 0.738, mae: 19.78, judge_mean: 31.92, asr_mean: 39.29}
+    baseline-10000-e6: {r: 0.836, r2: 0.699, spearman: 0.745, mae: 24.06, judge_mean: 61.75, asr_mean: 66.65}
+    struct-e12:        {r: 0.847, r2: 0.717, spearman: 0.791, mae: 22.24, judge_mean: 63.52, asr_mean: 62.46}
+
+findings:
+  - >-
+    A free, untrained local listener already explains 68 % of the variance in
+    the judge's per-trial word error. The surrogate proposal does not start
+    from zero; it starts from r^2 0.68, and that is the bar it must beat.
+  - >-
+    It is wrong about the LEVEL by 21.7 points on average. Direction is
+    cheap, calibration is not -- which is the half a trained surrogate is for.
+  - >-
+    Agreement is WORST on the best system. WeSep, the cleanest audio and the
+    lowest word error, drops to r^2 0.453 while the three ~62 % systems sit at
+    0.70-0.72. The free proxy degrades exactly in the regime an improving
+    extractor moves into.
+  - >-
+    The offset is not a constant, so it cannot be calibrated away with one
+    number. The ASR reads 3.9-4.9 points HIGHER than the judge on both
+    baselines and 7.4 higher on WeSep, but 1.1 points LOWER on struct-e12.
+  - >-
+    UNMEASURED and binding: the judge's own test-retest spread. Only 3 clips
+    in the cache carry repeats (5 calls each), one of which moved 16.0 points.
+    Until that noise floor is measured at n>=100, nobody knows how much of the
+    remaining 32 % of variance is learnable at all.
+
+caveats:
+  - >-
+    small.en is not an untrained surrogate -- it is an independently trained
+    ASR. This agreement mixes "the judge is predictable" with "two English
+    transcribers tend to agree". It bounds the problem; it does not decompose it.
+  - >-
+    Four systems, one split, 103 trials each. Three of the four are our own
+    checkpoints and sit within 2 points of each other, so the between-system
+    spread is carried almost entirely by WeSep.
+  - >-
+    Judge transcripts come from four different run dates. Cross-date
+    comparison is treated as valid within this project (decisions-m4.md
+    2026-09-07), but it is an assumption, not a measurement.
