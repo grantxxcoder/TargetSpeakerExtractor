@@ -31,6 +31,7 @@ prompt sha256[:12] `d118b7d3bf30`, run 2026-09-02 (baseline) and 2026-09-03
 | 1. Floor — do nothing | 63.27 % | 75.73 % | 63.33 % | 1.24 | 32.0 % |
 | 2. Baseline — `model_sir0_5000-e7.pt` | 56.72 % | 62.14 % | 50.15 % | **1.83** | 41.7 % |
 | 3. Extension — per-band gate (D13) | — | — | — | — | — |
+| 3b. Extension — mask structure (D17) `struct-e12` | not yet scored | not yet scored | not yet scored | not yet scored | not yet scored |
 | 5. WeSep — `tfmap_context_causal_100`, borrowed | **26.40 %** | **25.24 %** | **12.92 %** | **1.80** | 38.8 % |
 | 4. Ceiling — clean target | 1.05 % | 0.00 % | 0.00 % | 0.20 | 1.0 % |
 
@@ -52,24 +53,44 @@ by-product of extraction quality.** The ceiling is 0.20, not 0, because a word
 absent from both scripts may be misheard rather than invented; only the excess
 over the ceiling belongs to a system.
 
-**Content through the offline ASR** (`faster-whisper small.en`).
+**Content through the offline ASR** (`faster-whisper small.en`, int8 CPU greedy).
+A STAND-IN for the judge, not a live-model result. Floor and ceiling are
+byte-identical across all five runs below — the transcripts are cached, so the
+anchors are one measurement, not five.
 
-| system | LCF-WER | ICR@2 | mean leak | invented/trial |
-|---|---|---|---|---|
-| 1. Floor | 65.22 % | 66.99 % | 51.30 % | not yet scored |
-| 2. Baseline | 59.05 % | 54.37 % | 39.13 % | not yet scored |
-| 5. WeSep | **34.60 %** | **15.53 %** | **9.02 %** | not yet scored |
-| 4. Ceiling | 5.85 % | 0.00 % | 0.00 % | not yet scored |
+| system | LCF-WER | ICR@2 | mean leak | invented/trial | FR@2 |
+|---|---|---|---|---|---|
+| 1. Floor — do nothing | 65.22 % | 66.99 % | 51.30 % | 2.61 | 57.3 % |
+| 2. Baseline — `model_sir0_5000-e7.pt` | 59.05 % | 54.37 % | 39.13 % | **2.73** | **60.6 %** |
+| 2b. Baseline — `model_sir0_10000-e6.pt` | 59.52 % | 50.49 % | 34.58 % | 3.08 | 68.0 % |
+| 3. Extension — speaker state (D10) `state-e6` | 61.23 % | 46.60 % | 33.19 % | 3.18 | 64.7 % |
+| 3b. Extension — mask structure (D17) `struct-e12` | 56.58 % | 49.51 % | **31.63 %** | 3.45 | 70.6 % |
+| 5. WeSep — `tfmap_context_causal_100`, borrowed | **34.60 %** | **15.53 %** | **9.02 %** | 3.03 | 73.8 % |
+| 4. Ceiling — clean target | 5.85 % | 0.00 % | 0.00 % | 0.88 | 19.4 % |
 
-FR exists for both listeners but has only been computed on the judge so far; the
-ASR column fills on the next `evaluate.py --metrics content` run. The `NRR`
-column that stood here is removed — it read 0.0 % everywhere except the baseline's
-single 1.0 %.
+**No row here is separated from another by more than the test's own noise, except
+WeSep.** The 95 % interval on an LCF-WER difference at n=103 is about ±8 points
+(decisions-m3.md 2026-09-12). Our four systems span 56.58–61.23, i.e. 4.7 points
+end to end — one interval. Read the ordering as a direction, never as a ranking.
+`bootstrap_difference.py` before quoting any of it.
 
-> **The WeSep offline-ASR row has no results file.** `run_times.md` records that
-> `evaluate.py` pass as failed; there is no `2026-09-03-evaluate-wesep-asr/`.
-> Re-run before quoting those four numbers:
-> `python scripts/evaluate.py --split sir0_val --condition both --est experiments/results/2026-09-03-est-wesep-tfmap-causal --metrics content --out experiments/results/2026-09-03-evaluate-wesep-asr`
+**Fabrication is its own axis on this listener too, and more sharply.** WeSep
+halves everyone's leakage and wins LCF-WER by 22 points, yet fabricates the MOST
+of any system: FR@2 73.8 % against the floor's 57.3 %. Every extractor makes
+fabrication worse than doing nothing (57.3 % → 60.6–73.8 %), and the ordering on
+FR@2 is close to uncorrelated with the ordering on LCF-WER. This is the same
+conclusion the judge column reached (baseline 1.83 vs WeSep 1.80 at a 25-point
+LCF-WER gap), reached independently by a different transcriber.
+
+**The listeners disagree, and not by a constant.** Judge floor 63.27 % vs ASR
+floor 65.22 % is close, but the judge hears MORE leakage (ICR@2 75.7 % vs 66.9 %,
+leaked mass 63.3 % vs 51.3 %) and LESS fabrication (FR@2 32.0 % vs 57.3 %), and
+its ceiling is 1.05 % against 5.85 %. So the stand-in *understates the leakage
+problem every extension here targets* and *overstates fabrication*. Never move a
+row between the two tables.
+
+The `NRR` column that stood here is removed — it read 0.0 % everywhere except the
+baseline's single 1.0 %.
 
 **Headroom captured** — fraction of the floor-to-ceiling gap each system closes.
 Higher is better.
@@ -78,11 +99,16 @@ Higher is better.
 |---|---|---|---|---|
 | 2. Baseline | judge | 10.5 % | 17.9 % | 20.8 % |
 | 5. WeSep | judge | **59.3 %** | **66.7 %** | **79.6 %** |
-| 2. Baseline | ASR | 10.4 % | 18.8 % | 23.7 % |
+| 2. Baseline `5000-e7` | ASR | 10.4 % | 18.8 % | 23.7 % |
+| 2b. Baseline `10000-e6` | ASR | 9.6 % | 24.6 % | 32.6 % |
+| 3. Speaker state `state-e6` | ASR | 6.7 % | 30.4 % | 35.3 % |
+| 3b. Mask structure `struct-e12` | ASR | 14.6 % | 26.1 % | 38.3 % |
 | 5. WeSep | ASR | **51.6 %** | **76.8 %** | **82.4 %** |
 
 WeSep captures about six times the content headroom our baseline does, on both
-listeners.
+listeners. Nothing we have built closes more than 15 % of the word-error gap;
+the best of our four, `struct-e12`, closes 38 % of the leakage gap and still
+sits 37 points of headroom behind WeSep on LCF-WER.
 
 **Error split** — S/D/I rates.
 
@@ -90,6 +116,8 @@ listeners.
 |---|---|---|---|---|---|---|
 | floor | 29.22 | 5.97 | 28.08 | — | 9.28 | 23.05 |
 | 2. baseline | 27.07 | 3.43 | 26.22 | 28.13 | 12.60 | 18.39 |
+| 2b. baseline `10000-e6` | — | — | — | 28.20 | 11.79 | 19.53 |
+| 3b. `struct-e12` | — | — | — | 27.27 | 8.76 | 20.55 |
 | 5. WeSep | 10.62 | 6.78 | 8.99 | 18.51 | 8.91 | 7.19 |
 | ceiling | 0.87 | 0.15 | 0.03 | — | — | — |
 
