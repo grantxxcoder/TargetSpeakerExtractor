@@ -3648,3 +3648,99 @@ approach over changing the architecture.
    Life 2 the audio changes every step and nothing can be cached.
 6. **Validate Head S on a held-out SYSTEM, not a held-out trial.** In use it
    scores checkpoints it has never seen.
+
+### G1 REFRAMED — 2026-09-16. A surrogate answers scarcity, and scarcity may not bind
+
+**Raised by Grant: "how do I tune to a transcription tool that has its own biases
+and flaws, and how do I do it with Gemini if tokens are not scarce?"**
+
+**The correction to G1 as proposed.** A differentiable surrogate exists for ONE
+reason: you cannot backpropagate through an API. That is a constraint on
+*gradients*, not on *tuning*. **There are four routes by which a black-box
+listener's signal can reach a system, and only the last needs a surrogate.**
+
+| level | what moves | needs the judge differentiable? | hacking risk |
+|---|---|---|---|
+| **1 selection** | which artefact you keep (epoch, config, trials) | no | none — no pressure on the audio |
+| **2 parameter search** | non-learned knobs, scored directly by the judge | no | low — few parameters |
+| **3 imitation of winners** | **the weights** — best-of-N, then retrain toward the winners | **no** | moderate |
+| **4 differentiable surrogate** | the weights, through backprop | yes | high |
+
+**Level 3 is the one that was missed.** Generate N candidates per trial, let
+Gemini rank them, fine-tune the extractor against the WINNING audio using the
+loss that already exists. The judge's preferences reach the weights and Gemini is
+never differentiated. This is expert iteration / rejection-sampling fine-tuning.
+**G1's surrogate drops from "necessary" to "last resort".**
+
+#### Tuning to a biased listener — the two things that make it defensible
+
+1. **Keep an unoptimised second listener as the control.** `small.en` is still
+   untouched by training. If tuning to Gemini also moves Whisper, intelligibility
+   improved; if it does not, we fitted Gemini's quirks. **Both are reportable, and
+   this partially recovers what the 2026-09-15 withdrawal cost** — the holdout
+   moved from the model to the data, and it can also move to the LISTENER.
+   Measured baseline for that check already exists: r^2 0.680, MAE 21.7
+   (`2026-09-15-judge-predictability`).
+2. **Separate systematic bias from stochastic noise.** Bias is tunable; noise
+   never is. One clip moved **16.0 points across five identical calls**, so a
+   label built from k=1 is part noise. **With a free budget the right purchase is
+   REPEATS, not more trials** — aggregates already have SEM ~0.5 over 103, but
+   every method above consumes PER-TRIAL labels, and those are the noisy ones.
+
+#### What "no shortage of tokens" does and does not unlock
+
+- **Does:** mass labelling, k>=3 on everything, best-of-N at large N.
+- **Does NOT:** Gemini inside the gradient loop. ~8 s per call against a 0.674
+  s training step. That is latency, not cost, and no budget removes it.
+- **UNVERIFIED AND IT SETS THE WHOLE PLAN.** `judge_gate.yaml` records
+  `tier: "free"`, 10 rpm / 1500 rpd, both annotated *"VERIFY in AI Studio --
+  third-party figure"*, while `project-state.md` says AI Studio **prepay**. These
+  disagree. At 10 rpm, 100k labels is 167 h; at 1000 rpm it is 100 minutes.
+  **Check the console, and check whether batch mode is available for this model
+  — it is built for exactly this and usually runs far above the interactive
+  limit.** Minutes of work, and it decides everything below.
+
+#### The experiment to run first: the alpha-oracle
+
+**It attacks the project's biggest measured failure using Gemini as the teacher,
+needs no retraining for the diagnostic, and no surrogate.**
+
+The #1 finding against our model is that **it applies one transform to
+everything** — SIR/SAR flat from easy to hard while the outcome swings −4.2 to
++23.1 points (decisions-m3.md 2026-09-01). D11's mix-back is the knob:
+`s_alpha = alpha * s_hat + (1 - alpha) * x`, **zero added latency, no retraining,
+every alpha from one forward pass.** Not yet built — `postprocess_mask.py` does
+hysteresis sharpening, not mix-back — but it is a multiply-add.
+
+1. Sweep `alpha` over ~5 values on N trials (one forward pass, trivial DSP).
+2. Score every `(trial, alpha)` through the judge at **k>=3**.
+3. Take `alpha*(trial)`, the per-trial best.
+
+**Read it:**
+
+- **`alpha*` roughly constant** ⇒ nothing trial-dependent to learn. Ship the
+  global knob; "tuned to Gemini" is one honest number, cheaply obtained.
+- **`alpha*` varies with the trial** ⇒ **Gemini has just handed us a supervised
+  target for a per-frame gate.** That is D11 strategy 1 (learned,
+  input-conditioned alpha), it directly attacks "the model cannot tell the cases
+  apart", and the labels came from the judge.
+
+**This is NOT the patch D11's objection rejected.** That objection stands against
+a global constant presented as a fix — it trades hard-trial gains for easy-trial
+harm and gives the model no new capability. Here the sweep is (a) a probe for what
+the judge actually wants and (b) a way to MANUFACTURE TRAINING TARGETS for the
+principled per-frame version. Report it that way or the objection applies again.
+
+#### Revised order
+
+1. **Verify the rate limit and batch availability.** Minutes. Gates everything.
+2. **Judge test-retest noise, k=5 on ~100 clips.** Still the gate: if the judge
+   disagrees with itself by ~20 points there is nothing to tune to.
+3. **The alpha-oracle sweep.** Either outcome is a result.
+4. **Learned per-frame alpha head**, if step 3 says alpha is trial-dependent.
+5. **Expert iteration** (best-of-N over alpha x hysteresis x checkpoints, retrain
+   on winners), if time remains.
+6. **G1c's surrogate LAST**, and only if a signal is needed inside the gradient.
+
+**Carry to every claim either way: *optimised for Gemini*, never *generalises to
+live models*. The Whisper control is what says which of the two we achieved.**
