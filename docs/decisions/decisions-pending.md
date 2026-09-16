@@ -3892,3 +3892,53 @@ never runs.**
 
 **Carry regardless: *optimised for Gemini*, never *generalises to live models*,
 and `small.en` stays untouched as the control listener that tells the two apart.**
+
+### AMENDMENT 2026-09-16 — the four routes are not four ways to do the SAME thing
+
+**Correcting an implication in the G1 reframe above.** That section said the
+surrogate "drops from necessary to last resort". That is right about SEQUENCE and
+misleading about SUFFICIENCY, and the difference matters.
+
+**The four routes differ in HOW MUCH OF THE SYSTEM the judge shapes.**
+
+| route | what Gemini decides | parameters Gemini shapes | are the extractor's weights tuned? |
+|---|---|---|---|
+| selection | which artefact is kept | 0 — a choice among N | **no** |
+| alpha sweep, global | one scalar | **1** | **no** |
+| alpha sweep -> learned per-frame head | the head's training target | ~thousands | partially |
+| **expert iteration** | which of N candidate outputs is best | **all 7.19 M** | **yes — within the span of the candidate set** |
+| **differentiable surrogate** | the gradient itself, every step | **all 7.19 M** | **yes — including directions no candidate set contains** |
+
+**So the alpha sweep is barely "tuning to Gemini" at all** — it is one knob whose
+value Gemini picks. It was recommended because it is cheap, attacks the top
+measured failure, and hands M6 its near-tie family. **Those are reasons of
+project risk, not of fidelity to the stated goal.** Say so when presenting it.
+
+**Expert iteration's ceiling, stated plainly.** Candidates built from mix-back and
+mask post-processing are all variants of ONE separation, so retraining on the
+winners can only teach the model to internalise post-processing it could already
+have applied. **It cannot discover a separation that was never in the candidate
+set.** Widening that set — stochastic masks, several checkpoints, several
+architectures — raises the ceiling; it does not remove it.
+
+**Which is exactly why the surrogate exists, and why the supervisor proposed it.**
+A gradient explores continuously, so it can push toward outputs no candidate set
+contains. **If the goal is genuinely "tune the extractor to Gemini", the surrogate
+is the only route that fully does it. There is no cheap substitute for that
+property.**
+
+#### The middle path not previously named: surrogate as RANKER, never as gradient
+
+Train G1c's **Head S only** (scalar LCF-WER, the cheap half), then use it to rank
+thousands of candidates locally at zero API cost, keep the winners, retrain on
+them, and **verify the winners with real judge calls**.
+
+- Gemini labels train the ranker; the ranker supplies candidate throughput the
+  rate limit could never buy.
+- **A wrong ranker is far safer here than in a gradient loop**: it only re-orders
+  a fixed candidate set, and every winner is checkable against the real judge.
+- It needs no differentiable front end, no backward pass through a backbone, and
+  no step-time cost in training.
+
+**This is the best fidelity-per-risk point on the page** and it was missing from
+the sequence above.
