@@ -3822,3 +3822,73 @@ pipelines.** Uncomfortable, cheap (scoring, no training), and honest.
 2. **Pin temperature and seed; re-score anchors; report mean shift AND variance.**
 3. **k-sample consensus as a declared second instrument.**
 4. Do NOT tune the prompt, do NOT send the enrolment, do NOT fine-tune Gemini.
+
+### 2026-09-16 — THE RECOMMENDED SEQUENCE. A recommendation, not a decision
+
+**Four weeks to the 2026-10-14 freeze.** Ties together G1, G1c, the G1 reframe
+and J6 above. **Dropping D13 is a real decision and is NOT taken here.**
+
+**The convergence worth noticing: `project-state.md` "Next" item 1 already names
+the mix-back sweep as the cheap route to M6's missing near-tie.** Free tokens do
+not introduce a new idea — they promote that sweep from a *measuring instrument*
+to a *teacher*, because every `(trial, alpha)` cell can now be scored densely
+enough to read `alpha*` per trial.
+
+#### Everything in this conversation bottlenecks on ONE number
+
+Per-trial judge noise blocks all of it: per-trial claims (project-state
+"Cannot"), a surrogate (noise cannot be fitted), `alpha*(trial)` (a per-trial
+quantity), best-of-N (per-trial ranking), and every delta's error bar. **It is
+unmeasured at n>=3 clips, and it may be a config line** — J6 found the instrument
+running on server-default temperature. **Quieten the instrument first and
+everything downstream gets cheaper at once.**
+
+#### Tier 1 — this week. Cheap, unblocking, none of it optional
+
+| | what | cost |
+|---|---|---|
+| 1 | verify the real rate limit + batch availability (J6, G1 reframe) | minutes |
+| 2 | fix the judge cache key backward-compatibly (J6 defect) | small |
+| 3 | pin temperature/seed; re-score anchors; report **mean shift AND variance** | ~600 calls |
+| 4 | judge test-retest, k=5 on ~100 clips — the noise floor | ~$0.65 |
+| 5 | **O1** (struct control on `sir0_privval`) and **O2** (write D17 up) | 1.2 h + 1 h |
+
+#### Tier 2 — the one new experiment: the alpha-oracle sweep
+
+**It does three jobs at once**, which is why it beats every other candidate:
+
+1. attacks the top measured failure — one transform applied to everything;
+2. **produces M6's missing near-tie family**, from one checkpoint, no retraining;
+3. if `alpha*` is trial-dependent, Gemini has handed us a supervised target for
+   the per-frame gate (D11 strategy 1).
+
+**The methodological prize, and it is large: every member of the alpha family
+shares one set of weights.** So within-family comparisons carry NO training
+noise, and **J5's unmeasured seed variance cannot confound them** — the blank
+underneath every delta reported so far simply does not apply here. No retraining
+arm can say that.
+
+#### Tier 3 — conditional. Learned per-frame alpha head, one training run
+
+Only if Tier 2 says `alpha*` varies by trial. This becomes M5's deliverable in
+place of D13, and is better motivated than D13 because the target came from the
+judge rather than from an oracle mask.
+
+#### Tier 4 — in parallel, and it is the part that cannot be cut
+
+M6's stratified tables (**O3**) and the five findings that already exist and are
+unwritten. **The thesis risk is not that the extractor is weak — that is itself
+an honest, evidenced result. The risk is that M6, the stated central finding,
+never runs.**
+
+#### Recommended DROP, each with its reason
+
+| item | why |
+|---|---|
+| **G1c surrogate** | answers scarcity; scarcity may not bind. Last resort, not first |
+| **D13 per-band gate** | Tier 2 delivers M6's near-tie family more cheaply and with no training noise |
+| **D18 / D19** | diagnostics of the mask-shape line, which Tier 2 routes around |
+| **J5 seed variance** | deferrable *only because* Tier 2 is retraining-free. Required again the moment Tier 3 runs |
+
+**Carry regardless: *optimised for Gemini*, never *generalises to live models*,
+and `small.en` stays untouched as the control listener that tells the two apart.**
