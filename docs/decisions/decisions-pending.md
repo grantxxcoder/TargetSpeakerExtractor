@@ -3744,3 +3744,81 @@ principled per-frame version. Report it that way or the objection applies again.
 
 **Carry to every claim either way: *optimised for Gemini*, never *generalises to
 live models*. The Whisper control is what says which of the two we achieved.**
+
+### J6 — 2026-09-16. Tuning the LISTENER: a second instrument, never a parameter
+
+**Raised by Grant: "can the Gemini side be tuned to best account for my system?"**
+
+**The trap, stated first.** LCF-WER is *what the live model reports*, so the live
+model IS the transcriber. There is no separate frozen scorer that could grade a
+tuned receiver. **Tuning the listener until it is kinder to our audio, then
+reporting one number, games the benchmark more completely than anything the
+2026-09-15 withdrawal allowed** — that withdrawal kept the DATA held out; this
+would remove the last fixed reference point in the project.
+
+**The resolution, and it costs nothing.** A listener configuration is an
+**instrument, not a parameter**. Changing it does not tune anything: it creates a
+SECOND instrument, on which **every system is re-scored, floor and ceiling
+included**. Two tables, and the comparison between them is itself a finding.
+`metric-definitions.md` already treats the prompt, the normaliser and the gate
+this way; decoding configuration simply joins that list.
+
+#### DEFECT, and it must be fixed before any of this is attempted
+
+**The cache key does not include the generation config.**
+
+    f"{model_id}@{backend}|{prompt_sha}|{trial}|{file}|{audio_sha}|r{repeat}"
+
+Model ID and prompt hash are in it, so changing the prompt correctly forces
+anchors to be re-bought. **Change the temperature and the cache silently serves
+answers produced at the old setting.** Fix it BACKWARD-COMPATIBLY — fold the
+config into the key only when it is non-default — or all 653 paid-for responses
+are invalidated at a stroke.
+
+#### The instrument is currently running on server defaults
+
+`Judge._call_once` sets **no temperature, no seed, no top_p, no thinking budget**.
+Everything is whatever the server picks.
+
+**This is the likeliest source of the 16.0-point spread** measured across five
+identical calls on one ambiguous clip (2.9 on another, 0.0 on the ceiling), and
+that spread is exactly what blocks per-trial claims — project-state.md "Cannot":
+*per-trial needs k>=3 and averaging*.
+
+| knob | now | expected effect | verdict |
+|---|---|---|---|
+| **temperature / seed** | **unset, server default** | likely large — the noise source | **a REPAIR, not tuning** |
+| **k-sample consensus** (vote over k transcripts) | k=1 on estimates | attacks per-trial noise directly | legitimate as a second instrument |
+| **thinking budget** | unset | unknown; plausibly large on degraded audio | legitimate as a second instrument |
+| prompt wording | frozen `d118b7d3bf30` | **MEASURED LOW** — cross-prompt range 18.0 against same-prompt noise 16.0 | answered; do not spend time here |
+| enrolment audio as context | no | probably large | **FORBIDDEN by J3** — hands the extractor's job to the judge |
+| fine-tuning Gemini on our outputs | no | large | **destroys the premise** — a tuned Gemini is no longer the off-the-shelf live model the project claims to serve |
+
+**Pinning temperature is a repair rather than tuning** because it is applied
+identically to every system and reduces variance rather than shifting the mean in
+our favour. **That must be VERIFIED, not assumed:** re-score floor and ceiling
+first and report the mean shift alongside the variance drop. If the mean moves
+materially, it is a new instrument and every number moves with it.
+
+#### The version that is a contribution rather than a problem
+
+The project is a **pipeline**: extractor -> live model. In deployment both ends
+get tuned, and **"where is the headroom, the front end or the receiver's
+configuration?" is a real question nobody in TSE asks.**
+
+Run it as systems x listener-configurations, every cell re-scoring its own floor
+and ceiling. The ceiling is 1.05 % on clean audio, so listener tuning can buy
+almost nothing there — **the whole question is whether a better-configured
+listener is more ROBUST TO EXTRACTOR ARTEFACTS**, which is
+`metric-definitions.md` 1's hypothesis approached from the other side.
+
+**If a listener configuration closes more of the floor-to-ceiling gap than our
+extractor does, that is a finding about where effort belongs in live-model
+pipelines.** Uncomfortable, cheap (scoring, no training), and honest.
+
+#### Order
+
+1. **Fix the cache key, backward-compatibly.** Nothing else is safe until then.
+2. **Pin temperature and seed; re-score anchors; report mean shift AND variance.**
+3. **k-sample consensus as a declared second instrument.**
+4. Do NOT tune the prompt, do NOT send the enrolment, do NOT fine-tune Gemini.
