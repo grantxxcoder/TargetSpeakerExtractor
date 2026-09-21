@@ -1,0 +1,118 @@
+# THE SENSITIVITY LADDER. decisions-m4.md 2026-09-21.
+#
+# WHAT IT ASKS. Not "is this clip good?" -- that needs a per-clip judgement and
+# the small contrasts are buried in noise. It asks "how much does THIS KIND of
+# damage cost THIS listener?", which is a per-CONDITION question, and conditions
+# average. 40 trials per cell takes the judge's sd from 17.8 to 2.8.
+#
+# WHY NOT SIR/SAR, WHICH ARE FREE. Measured 2026-09-21 on the 515 scored
+# mix-back cells: within-trial, SIR and SAR explain R^2 = 0.026 of Gemini's word
+# error and 0.004 of small.en's. small.en is DETERMINISTIC, so that is not
+# measurement noise -- two global ratios genuinely do not describe what a
+# listener hears. Sensitivity has to be measured per distortion TYPE.
+#
+# WHAT IT IS FOR, in order of value:
+#   1. an ERROR BUDGET -- attribute our LCF-WER to distortion types, turning a
+#      score into a ranked list of what to fix;
+#   2. LOSS WEIGHTS set by measured downstream cost instead of by feel. Gemini
+#      never enters the gradient; it sets the weights of differentiable terms;
+#   3. a linear, interpretable surrogate for free ranking of checkpoints;
+#   4. per-listener profiles = the mechanism behind "tune per listener".
+
+seed: 42
+
+source:
+  # CLEAN TARGETS, not model output. A controlled single-variable manipulation
+  # needs an undamaged starting point, and the clean target scores 1.05 % LCF-WER
+  # so the full range is available to degrade into.
+  split: "sir0_train"       # NOT sir0_privval, NOT eval_private (CLAUDE.md).
+  condition: "both"         # needs a real interferer on hand for the leakage rung
+  n_trials: 40              # judge sd 17.8 -> cell SE 17.8/sqrt(40) = 2.8 points
+  # THE SAME 40 TRIALS AT EVERY (type, level). Paired: trial difficulty cancels,
+  # which is what makes 40 enough.
+
+levels: [0.0, 0.25, 0.5, 0.75, 1.0]
+# Level 0 is the untouched clean target and is IDENTICAL across types, so it is
+# scored once and reused: 6*4*40 + 40 = 1,000 calls per listener, not 1,200.
+#
+# CALIBRATION, and it is the part most likely to be got wrong. Each type's
+# level 1.0 is set so that level 0.5 lands at the amount OUR MODEL ACTUALLY
+# PRODUCES, measured on 2026-09-15-est-struct-e12-sir0val. A sensitivity curve
+# measured in a regime the extractor never occupies is not usable for an error
+# budget.
+
+distortions:
+  # Every rung is one artefact the extractor is MEASURED to produce. A rung the
+  # model cannot create is a wasted 160 calls.
+  - name: interferer_leakage
+    why: "the dominant error. D14/ICR: leakage is the largest single component"
+    apply: "add the trial's own interferer back at a controlled SIR"
+    measure: "scripts/analyse_leakage_share.py"
+  - name: spectral_holes
+    why: "MEASURED 2026-09-12: the holes really do delete target speech"
+    apply: "zero a fraction of T-F cells, drawn in contiguous blocks"
+    measure: "hole rate from the mask"
+  - name: musical_noise
+    why: "SAR runs -17 to -21 dB; isolated T-F spikes are what that sounds like"
+    apply: "add sparse isolated T-F spikes at controlled density"
+    measure: "spike density"
+  - name: flat_mask_eq
+    why: "MEASURED 2026-09-13: 84.2 % of mask variance is one number per frame,
+           and what frequency shape exists is a FIXED EQ curve"
+    apply: "apply that measured EQ curve at increasing strength"
+    measure: "scripts/measure_effective_mask_flatness.py"
+  - name: broadband_gain
+    why: "the volume knob, separated from the EQ so the two do not confound"
+    apply: "scale the whole clip"
+    measure: "gain in dB"
+  - name: band_limit
+    why: "CONTROL rung. If a listener shrugs at it, that is capacity and latency
+           to reclaim -- a useful negative"
+    apply: "low-pass at a descending cutoff"
+    measure: "cutoff in Hz"
+
+listeners:
+  # small.en costs nothing and is DETERMINISTIC, so it runs on every rung always
+  # and its profile carries no measurement noise at all.
+  - {id: "small.en", surface: "local", cost: "free"}
+  - {id: "gemini-3.7-flash", surface: "generateContent", structured_output: "auto"}
+  - {id: "gemini-3.5-transcribe", surface: "generateContent", structured_output: "auto"}
+  - {id: "gemini-3.8-live", surface: "live-socket", note: "needs the Live client, unbuilt"}
+
+statistic:
+  # Slope of WER against level, per (distortion, listener), fitted WITHIN trial
+  # so trial difficulty cancels. Paired bootstrap over trials for the CI.
+  fit: "within-trial OLS of WER on level"
+  bootstrap_draws: 10000
+  multiple_comparisons: "holm"      # 6 distortions per listener
+
+registered_before_running:
+  # CLAUDE.md: declare the effect size BEFORE the run, or a null is
+  # uninterpretable.
+  detectable_slope_points: 10.0
+  # Arithmetic: cell SE 2.8, five levels spaced 0..1 give sum (x-xbar)^2 = 0.625,
+  # so slope SE ~ 2.8/0.79 = 3.5 points per unit. A 10-point slope is t=2.9 and
+  # detectable; a 5-point slope is t=1.4 and IS NOT. Detecting 5 would need 160
+  # trials per cell, i.e. 4,000 calls per listener, which is not being bought.
+  null_reading: "A slope under 10 points is reported as NOT RESOLVED, never as
+                 'this distortion does not matter'."
+  success: "at least 3 of 6 slopes distinguishable from zero after Holm, for at
+            least one Gemini listener"
+  listener_claim: "a per-listener difference is claimed only when the DiD between
+                   two listeners' slopes excludes zero AND the interval excludes
+                   +/- 5 points, the same equivalence rule as the alpha sweep"
+
+validation:
+  # The error budget assumes distortions add. That is an assumption, not a fact,
+  # and it is checkable for free against work already paid for.
+  additivity_check: "predict the 515 already-scored mix-back cells from their
+                     measured components and compare against the real judge
+                     scores. If additivity fails the budget degrades to a
+                     RANKING rather than an accounting -- still useful, less
+                     precise."
+
+cost:
+  calls_per_listener: 1000
+  wall_clock_per_listener: "~80 min at 4.8 s/call"
+  gemini_listeners_now: 2          # 3.8-live waits on the Live client
+  total_now: "~2,000 calls, ~2.7 h"

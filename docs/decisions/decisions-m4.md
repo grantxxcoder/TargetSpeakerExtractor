@@ -151,6 +151,79 @@ Still not licensed: any claim about what is inside any model, and any claim of
 generalisation beyond the five listeners actually measured. The CLAUDE.md
 carry stands — *optimised for Gemini*, never *generalises to live models*.
 
+### SPEC 2026-09-21 — the SENSITIVITY LADDER. What kind of damage costs this listener what?
+
+**Config: `experiments/configs/sensitivity_ladder.yaml`. Not yet built or run.**
+
+**The question it can afford to ask.** Not "is this clip good?" — that is a
+per-clip contrast between near-tied options and it is buried under sd 17.8.
+It asks "how much does THIS KIND of damage cost THIS listener?", a per-CONDITION
+question, and conditions average: 40 trials takes the cell SE to 2.8 points.
+
+**Why not just use SIR and SAR, which are free.** MEASURED 2026-09-21 on the 515
+scored mix-back cells, within-trial:
+
+| listener | WER pts per dB SIR | per dB SAR | R² |
+|---|---|---|---|
+| `gemini-3.7-flash` | −0.875 | +0.118 | **0.026** |
+| `small.en` | −2.944 | −0.710 | **0.004** |
+
+Two readings. First, **`small.en` is 3.4x more interference-sensitive than the
+judge** — the alpha=0.5 divergence again, now as a coefficient, from a third
+angle. Second and more important, **R² is ~0**: these two ratios do not describe
+what a listener hears. That is NOT judge noise, because `small.en` is
+deterministic and its R² is the lower of the two. Sensitivity must be measured
+per distortion TYPE, which is what the ladder is for. It is also independent
+support for the divergence hypothesis of `metric-definitions.md` 6.
+
+**Design.** Clean targets from `sir0_train` (never `sir0_privval` or
+`eval_private`), 40 trials, THE SAME 40 at every cell so the design is paired.
+Six distortions x five levels, level 0 shared and scored once: **1,000 calls per
+listener, ~80 min.** Every rung is an artefact the extractor is MEASURED to
+produce — leakage (D14), spectral holes (2026-09-12), musical noise (SAR −17 to
+−21 dB), the fixed EQ curve and broadband gain (2026-09-13's flat-mask
+decomposition), plus band-limiting as a control rung whose negative would be
+useful. A rung the model cannot create is 160 wasted calls.
+
+**Calibration is the part most likely to be got wrong.** Each type's level 1.0 is
+set so that level 0.5 lands at the amount our model actually produces. A
+sensitivity curve measured in a regime the extractor never occupies cannot
+support an error budget.
+
+**Registered before running, per CLAUDE.md.** Cell SE 2.8, five levels spaced
+0..1, so slope SE ≈ 3.5 points per unit. **A 10-point slope is detectable
+(t=2.9); a 5-point slope is not (t=1.4).** Detecting 5 would need 160 trials per
+cell and 4,000 calls per listener, which is not being bought. **A slope under 10
+points is reported as NOT RESOLVED, never as "this distortion does not matter."**
+Success: at least 3 of 6 slopes distinguishable from zero after Holm, for at
+least one Gemini listener. A per-listener claim uses the same equivalence rule as
+the alpha sweep — the DiD interval must exclude zero AND exclude ±5 points.
+
+**`small.en` runs every rung for free and carries no measurement noise**, so the
+listener comparison costs nothing on that side.
+
+**What it is for**, and only the first is a measurement — the rest are what the
+measurement buys:
+1. an **ERROR BUDGET**: attribute our LCF-WER to distortion types, turning
+   "56.72 %" into "18 points of leakage, 9 of holes". Nothing in the project
+   currently answers *where the points go*.
+2. **loss weights set by measured downstream cost** rather than by feel.
+   `w_struct` becomes defensible instead of tuned. Gemini never enters the
+   gradient — it sets the weights of differentiable terms, which is the standing
+   constraint exactly. **That consequence belongs in `decisions-m2.md` when it is
+   taken, not here.**
+3. a **linear, interpretable surrogate** for free checkpoint and candidate
+   ranking — no neural reward model, so no distribution-shift failure mode.
+4. **per-listener profiles**: the mechanism behind "tune per listener", not just
+   the observation.
+
+**The assumption that must be checked, and it is free.** The budget assumes
+distortions ADD. Predict the 515 already-scored mix-back cells from their
+measured components and compare against the real judge scores. **If additivity
+fails the budget degrades from an accounting to a ranking** — still useful,
+less precise. Run that check before quoting any budget.
+
+
 ### MEASURED 2026-09-21 — CORRECTION. Per-trial DIFFICULTY is reliable; only small within-trial contrasts are not
 
 **Grant's objection, and the earlier wording in this file was wrong.** "Per-trial
