@@ -663,6 +663,79 @@ aggregate SEM is ~0.5 points. A realistic gate may not clear the metric's own no
 floor, in which case a null is uninterpretable rather than informative. Decide the
 acceptable effect size and the repeat count k BEFORE running it.
 
+### REFRAMED 2026-09-21 — M6's question changes, and it now has a positive answer
+
+**The old question was the wrong one, and it was always going to answer "no".**
+"Does the live-model metric rank SYSTEMS differently from SI-SDR, DNSMOS and
+offline WER?" On a pair separated by 25 points no instrument disagrees, and on a
+pair separated by less than the noise floor nothing is callable. The question was
+unanswerable by construction: it needed two systems close enough to disagree
+about and far enough apart to resolve, and that window is narrower than the
+metric's own precision.
+
+**THE NEW QUESTION: does the metric reveal something the conventional
+instruments CANNOT?** It is answered, twice, and both answers are measured.
+
+#### Answer 1 — a rank inversion against the floor, p = 0.0048
+
+`hystfix-sharp` (hysteresis sharpening, unkept bins zeroed) against doing
+nothing:
+
+| instrument | floor | hystfix-sharp | verdict |
+|---|---|---|---|
+| `small.en` | 65.22 | **76.43** | 11.2 points WORSE — reject it |
+| judge (`gemini-3.7-flash`) | 63.27 | **53.23** | 10.0 points BETTER — ship it |
+
+**An ASR-based evaluation would discard a setting that measurably helps the live
+model.** Difference-in-differences −16.77, 95 % CI [−31.25, −4.66], p = 0.0048,
+paired bootstrap on the shared 103 trials. `small.en` is deterministic, so one
+side of that interval carries sampling noise only.
+
+This is a STRONGER form of inversion than the one M6 originally sought. A
+system-versus-system inversion says two models rank differently. A
+system-versus-FLOOR inversion says one instrument would reject an intervention
+the other rewards — the practical decision, not the ordering.
+
+#### Answer 2 — the instruments disagree about the ERROR STRUCTURE, not just the score
+
+At the same operating point the two listeners fail in different ways
+(decisions-m4.md, error budget, 2026-09-21):
+
+| share of all errors | judge | `small.en` |
+|---|---|---|
+| leakage | **35.6 %** | 23.8 % |
+| deletion | 6.4 % | **20.8 %** |
+
+**SI-SDR, DNSMOS and offline WER cannot distinguish a deleted word from an
+invented one.** The LCF family can, and it shows the target listener is hurt
+overwhelmingly by the interferer surviving while the stand-in is hurt as much by
+words going missing. That is a difference no conventional instrument can express,
+let alone measure.
+
+#### What the thesis claims on this basis
+
+**A listener-specific design rule, registered before the run and confirmed:**
+*when the downstream listener is a live model, the interferer can be cut far
+harder than any conventional metric would permit.* Derived arithmetically from
+the measured error budget, tested on a six-arm family sharing ONE checkpoint —
+so no training-seed variance enters the comparison at all.
+
+**What it does NOT claim.** That it generalises past the two listeners measured.
+That our extractor is competitive — it is not, WeSep is 25 points ahead. Neither
+is required: **the contribution is the instrument and what it reveals, which is
+what `specification.md` note 1 asked for** ("the actual score values from my
+defined metric do not matter — the metric itself matters more").
+
+#### Consequence for the M5 per-band gate
+
+**It is no longer the experiment that matters, and it should be cut.** The
+reasoning above put M6's weight on that gate because a near-tie family was
+needed. The alpha sweep and this holes family both supply near-tie families from
+single checkpoints, free of training noise, and the holes family additionally
+produced a significant inversion. The gate's oracle ceiling was 2.2 points
+against a paired noise floor of ~4.7 — it could not have cleared it.
+
+
 **Superseded (2026-09-02): "blocked on a second system."** Kept because it was the
 reasoning that prioritised the WeSep row, and that prioritisation was correct.
 
