@@ -1,0 +1,54 @@
+# Gate 1 of the listener panel. decisions-m4.md 2026-09-21.
+#
+# WHAT THIS ASKS. Does the judge already KNOW the LibriSpeech passages, so that
+# it can produce the reference text without listening to anything? LibriSpeech
+# is people reading public-domain Project Gutenberg books, and those books are
+# on the open web, so a frontier model has plausibly memorised them.
+#
+# WHY IT IS A GATE AND NOT A CURIOSITY. Recital and accurate transcription are
+# INDISTINGUISHABLE to every score in this project: both produce text matching
+# the reference, so LCF-WER counts both as correct and FR counts neither as
+# invented. If the judge is reciting, the ceiling (1.05 % LCF-WER against the
+# offline ASR's 5.85 % on identical audio) is not a measure of listening, and
+# nor is any row above it.
+
+seed: 42                  # seeds the SHUFFLED control pairing only. No sampling
+                          # here is seedable server-side.
+
+probe:
+  split: "sir0_val"
+  condition: "both"
+  prefix_words: 5         # how much of the passage the model is given as TEXT.
+                          # Short on purpose: long enough to identify a passage
+                          # to something that memorised it, far too short to
+                          # reconstruct from by reasoning.
+  min_total_words: 20     # skip trials with too little text left to score
+  modality: "text"        # NO AUDIO IS SENT. That is the whole design: it
+                          # removes the only legitimate route to the answer.
+
+control:
+  # The number that makes "above chance" a measurement rather than an
+  # impression. The model's continuation for trial i is ALSO scored against a
+  # DIFFERENT trial's true remainder. Generic plausible English scores about the
+  # same against both; a memorised passage scores far better against its own.
+  # Free -- it is a re-score of text already bought, not a second call.
+  shuffled_pairing: true
+
+model:
+  # Overridden per listener on the command line. Every call records model ID and
+  # date exactly as a judge call does (CLAUDE.md).
+  model_id: "gemini-3.7-flash"
+  backend: "aistudio"
+  requests_per_minute: 10
+
+verdict:
+  # Registered BEFORE running, so the reading is not chosen after seeing it.
+  # Fires if EITHER holds:
+  #   1. matched WER is at least this many points below shuffled WER
+  #   2. the mean longest exact word run exceeds this length
+  wer_gap_points: 20.0
+  longest_run_words: 8
+
+output:
+  cache: "experiments/results/contamination_continuations.csv"
+  results_dir: "experiments/results"
