@@ -364,12 +364,26 @@ def total_loss_floor(config):
     return ((1 - w) * 10 * np.log10(tau_pres) + w * 10 * np.log10(tau_abs))
 
 
+def unwrap(model):
+    """The real module behind a possible `nn.DataParallel` wrapper.
+
+    `DataParallel` forwards `__call__` but NOT attribute access, and it prefixes
+    every `state_dict()` key with `module.`. So anything that touches the model
+    as an object rather than as a function -- `model.stft`, `model.band_widths`,
+    saving and loading weights -- must go through here. A checkpoint written
+    from the wrapper would not load into an unwrapped model, which would break
+    `--resume`, `make_estimates.py` and every checkpoint already on disk.
+    decisions-pending.md E7.
+    """
+    return model.module if isinstance(model, nn.DataParallel) else model
+
+
 def build_model(config):
     """Config -> BSRNN_TFMAP. Every ctor argument comes from the yaml.
 
     Separate from main() so measure_train_cost.py measures the model that
-    actually trains. Two keys deliberately not passed: separator.norm (implied
-    by causal=True) and n_hidden (ctor default 1). Both belong in the yaml.
+    actually trains. One key deliberately not passed: separator.norm (implied
+    by causal=True). It belongs in the yaml.
     """
     return BSRNN_TFMAP(
         sample_rate=config["data"]["sample_rate"],
@@ -381,6 +395,14 @@ def build_model(config):
         num_repeat=config["model"]["separator"]["num_repeat"],
         causal=config["model"]["separator"]["causal"],
         mlp_hidden=config["model"]["mask"]["mlp_hidden"],
+        # Estimator DEPTH. Absent key => 1, the architecture every run up to
+        # 2026-09-21 trained -- so no existing config or checkpoint changes
+        # meaning. It was hardcoded at the ctor default until now, which made
+        # `n_hidden` one of the two sizing knobs the yaml could not reach
+        # (decisions-m1.md 2026-08-19 records 1 as a deliberate deviation from
+        # the wesep reference's 2, chosen because the paper specifies the
+        # estimator's WIDTH but not its depth).
+        n_hidden=int(config["model"]["mask"].get("n_hidden", 1)),
         residual_branch=config["model"]["mask"]["residual_branch"],
         lookahead_frames=config["model"]["lookahead_frames"],
         # Without this the config key is dead: BSRNN_TFMAP's own default (16.0)
@@ -622,6 +644,9 @@ def selection_eligible(val_loss, config):
 
 def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_debug=False, save_path=None, config=None, scheduler=None, start_epoch=0, best_val=float("inf"), best_row=None, start_step=0):
     model.to(device)
+    # Weights are saved and the STFT grid is read from the REAL module, never
+    # from a DataParallel wrapper. See unwrap().
+    core = unwrap(model)
     val_loss_history = []
     train_loss_history = []
 
@@ -723,7 +748,7 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
                     s_output, mask = model(mixture, enrollment, return_mask=True)
                 else:
                     s_output, mask = model(mixture, enrollment), None
-            oracle, mix_mag = (oracle_mask_and_mag(model, target, mixture)
+            oracle, mix_mag = (oracle_mask_and_mag(core, target, mixture)
                                if want_mask else (None, None))
             # arg order is (reference, output, mixture, mask) -- reference
             # FIRST, the reverse of the usual (pred, target). See LossBSRNN.
@@ -782,7 +807,7 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
                     else:
                         s_output, mask = model(mixture, enrollment), None
                 s_output = s_output.float()
-                oracle, mix_mag = (oracle_mask_and_mag(model, target, mixture)
+                oracle, mix_mag = (oracle_mask_and_mag(core, target, mixture)
                                    if want_mask_val else (None, None))
                 _, parts = loss_fn(target, s_output, mixture, crop_absent,
                                    mask=None if mask is None else mask.float(),
@@ -832,7 +857,7 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
         if save_path:
             last_path = Path(save_path).with_name(Path(save_path).stem + "_last.pt")
             torch.save({
-                "model": model.state_dict(),
+                "model": core.state_dict(),
                 "optimizer": optimizer.state_dict(),
                 "scheduler": scheduler.state_dict() if scheduler else None,
                 "epoch": epoch,
@@ -863,7 +888,7 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
             kept.sort()
             rank_path = Path(save_path).with_name(
                 f"{Path(save_path).stem}_e{epoch:03d}.pt")
-            torch.save({"model": model.state_dict(), "epoch": epoch,
+            torch.save({"model": core.state_dict(), "epoch": epoch,
                         "score": score, "eligible": eligible, "row": val_loss,
                         "config": config, "seed": config["seed"]}, rank_path)
             for _, dropped in kept[keep_top_k:]:
@@ -878,7 +903,7 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
             epochs_since_best = 0
             if save_path:
                 torch.save({
-                    "model": model.state_dict(),
+                    "model": core.state_dict(),
                     "optimizer": optimizer.state_dict(),
                     "scheduler": scheduler.state_dict() if scheduler else None,
                     "epoch": epoch,
@@ -1101,10 +1126,13 @@ def log_results(out_dir, config, config_path, args, model, device, manifest_csv,
             "manifest_config_md5": manifest_meta.get("config_md5"),
             "device": str(device),
             "resumed": bool(args.resume),
+            # unwrap(): with DataParallel on, `type(model).__name__` would
+            # record "DataParallel" and the meta.yaml would no longer say which
+            # architecture ran. band_widths is not forwarded at all.
             "model": {
-                "class": type(model).__name__,
-                "n_parameters": sum(p.numel() for p in model.parameters()),
-                "n_bands": len(model.band_widths),
+                "class": type(unwrap(model)).__name__,
+                "n_parameters": sum(p.numel() for p in unwrap(model).parameters()),
+                "n_bands": len(unwrap(model).band_widths),
             },
             "epochs_requested": num_epochs,
             "epochs_run": epochs_run,
@@ -1237,8 +1265,39 @@ def main():
     model = build_model(config)
     model.to(device)
 
+    # BOTH T4s. decisions-pending.md E7: Kaggle's "GPU T4 x2" gives two cards and
+    # every run before 2026-09-21 used one, because `torch.device("cuda")` is
+    # cuda:0 and nothing here asked for more.
+    #
+    # DataParallel scatters the BATCH across the cards, runs the forward on
+    # each, and gathers the outputs back to cuda:0. So `LossBSRNN` still sees
+    # the whole batch on one device, which matters: the loss means over SUBSETS
+    # (n_present, n_absent) and a per-device reduction would silently reweight
+    # them. It does not break the direction pairing either -- `collate_pairs`
+    # puts both directions of a trial in one batch and splitting that batch does
+    # separate some pairs in the forward, but the model is per-example
+    # independent and the contrast lives in the loss, which sees the gathered
+    # batch.
+    #
+    # WHAT IT DOES NOT DO: it replicates the model on both cards, so it buys
+    # BATCH headroom, not room for a wider model. Per-card activation memory is
+    # unchanged, and the measured ceiling (0.12 GB fixed + 2.15 GB per trial
+    # against 14.56 GiB, E3b-E3f) still applies PER CARD.
+    #
+    # Default OFF so every existing run reproduces exactly.
+    n_gpu = torch.cuda.device_count()
+    use_dp = bool(config["training"].get("data_parallel", False)) and n_gpu > 1
+    if use_dp:
+        model = nn.DataParallel(model)
+        print(f"DataParallel across {n_gpu} GPUs, "
+              f"batch {config['data']['batch_size']} split {config['data']['batch_size'] // n_gpu} per card")
+    elif bool(config["training"].get("data_parallel", False)):
+        print(f"WARNING: data_parallel requested but device_count() == {n_gpu}; "
+              "running on one device", file=sys.stderr)
+    core = unwrap(model)
+
     # optimiser
-    optimizer = torch.optim.AdamW(model.parameters(),
+    optimizer = torch.optim.AdamW(core.parameters(),
                                   lr=float(config["training"]["lr"]),
                                   weight_decay=float(config["training"]["weight_decay"]))
 
@@ -1257,7 +1316,10 @@ def main():
         # weights_only=False: the checkpoint carries the config dict, not just
         # tensors. Safe because we wrote it; never point this at a file you did not.
         ckpt = torch.load(save_path, map_location=device, weights_only=False)
-        model.load_state_dict(ckpt["model"])
+        # `core`, not `model`: checkpoints are written unwrapped (see unwrap()),
+        # so a DataParallel run resumes from an ordinary checkpoint and the
+        # files stay interchangeable between the two modes.
+        core.load_state_dict(ckpt["model"])
         optimizer.load_state_dict(ckpt["optimizer"])
         if ckpt.get("scheduler"):
             scheduler.load_state_dict(ckpt["scheduler"])
@@ -1286,7 +1348,8 @@ def main():
     with timed(f"scripts/train.py --split {args.split}",
                scope=lambda: f"{len(train_loader.dataset):,} trials x "
                              f"{ran['epochs']} epochs, {args.split}",
-               rate=lambda: f"batch {config['data']['batch_size']}, {device}, "
+               rate=lambda: f"batch {config['data']['batch_size']}, {device}"
+                            f"{f' x{n_gpu} (DataParallel)' if use_dp else ''}, "
                             f"{(time.time() - t0) / max(ran['epochs'], 1):.0f} s/epoch"):
         train_loss_history, val_loss_history, best_row = train(
             model,

@@ -2267,3 +2267,173 @@ intervention (`decisions-pending.md` 2026-09-13).
 — the logging fix landed alongside the run — so whether the term descended during
 training is still unmeasured. The anchors are measured at the checkpoint, not
 along the trajectory.
+
+---
+
+## 2026-09-21 — Step up the sizing ladder to the wesep reference, and use the second T4
+
+Two changes, one config: `experiments/configs/bsrnn_wesep_ref.yaml`.
+`bsrnn_baseline.yaml` is untouched, so every existing run reproduces and every
+checkpoint on disk still resumes.
+
+### The sizing: 7.19 M -> 14.73 M, and it is not an arbitrary number
+
+`decisions-m1.md` 2026-08-19 recorded exactly two deviations from the wesep
+reference, both deliberately toward smaller, and closed with "If it underfits,
+step up this ladder and record which rung and why."
+
+**It underfits.** WeSep captures 51.6 % of the offline-ASR word-error headroom
+against our 10.4 % (`project-state.md`). This entry is that record.
+
+| | baseline | this config | source of the value |
+|---|---|---|---|
+| `lstm_hidden` | 192 | **256** | wesep reference, `feature_dim * 2` |
+| `n_hidden` | 1 | **2** | wesep reference; the paper gives width, not depth |
+| separator | 4.90 M | 7.71 M | |
+| estimator | 2.19 M | 6.92 M | |
+| **total** | **7.19 M** | **14.73 M** | 2.05x |
+
+Nothing else moves. `mlp_hidden` stays at 384 because that IS the paper's stated
+width (Yu et al., Interspeech 2023 §4.2) and is not a deviation.
+
+### Why the capacity is split, and not all put in the estimator
+
+Memory on the T4 is essentially all activations -- 7.19 M params is ~29 MB and
+AdamW state ~57 MB against ~13,000 MB measured (`decisions-pending.md` E8). So
+activation cost tracks LSTM width x depth, not parameter count, and the routes to
+~2x parameters cost very different amounts of memory:
+
+| route | params | activations | batch that fits |
+|---|---|---|---|
+| `mlp_hidden` 512 / `n_hidden` 2 | 16.3 M | ~1.00x | 3, unchanged |
+| **`lstm_hidden` 256 / `n_hidden` 2** | **14.7 M** | **~1.33x** | **3 per card** |
+| `feature_dim` 192 / `lstm_hidden` 320 | 18.0 M | ~2.50x | 1-2 |
+
+The all-estimator route is cheapest in memory and `decisions-m1.md` 2026-08-19
+says why it is also the least useful: "Capacity added there buys per-band readout
+richness, not temporal or cross-band modelling", and at 384x2 the estimator is
+already 58 % of the model, larger than the six-layer separator. The chosen rung
+spends on both paths and stays inside the ceiling.
+
+**The activation multipliers are PROJECTIONS, from the measured linear law
+(0.12 GB fixed + 2.15 GB per trial, E3b-E3f) scaled by LSTM width.** They are not
+measured. `scripts/profile_step.py --amp-only` measures them and E1's analytic
+model was already found 2.4-3x low, so profile before committing a session. Part
+of the memory -- `L_MR`'s eight retained STFTs -- does not scale with width at
+all, so the LSTM-width row is probably pessimistic.
+
+**`n_hidden` was unreachable from the yaml until today.** `build_model()` left it
+at the ctor default of 1, which `decisions-m1.md` 2026-08-19 flagged ("Both belong
+in the yaml") and nothing acted on. It is now passed, defaulting to 1 when the key
+is absent, so no existing config or checkpoint changes meaning.
+
+### The second T4 (E7), which has been idle on every run to date
+
+`nn.DataParallel`, gated on `training.data_parallel` and `device_count() > 1`,
+default off. Kaggle's "GPU T4 x2" gives two cards; `torch.device("cuda")` is
+`cuda:0` and nothing asked for the other.
+
+**It splits the batch, not the model.** Both cards hold a full replica, so this
+buys batch headroom and throughput, NOT room for a wider model -- the measured
+per-card ceiling still applies. E7's "two cards is also 2x the memory" is true of
+batch and must not be read as licence to widen.
+
+**The loss stays outside the model, and that is required.** `LossBSRNN` means over
+subsets (`n_present`, `n_absent`); a per-device reduction would silently reweight
+them. `DataParallel` gathers to `cuda:0` before the loss, so this is preserved.
+Direction pairing survives for the same reason: `collate_pairs` keeps both
+directions in one batch, splitting separates some pairs in the forward, but the
+model is per-example independent and the contrast lives in the gathered loss.
+
+**The trap, handled:** `DataParallel` prefixes every `state_dict()` key with
+`module.`. All three `torch.save` sites, the resume `load_state_dict`,
+`model.stft` in `oracle_mask_and_mag` and `model.band_widths` in `log_results`
+now go through `unwrap()`. Checkpoints are written unwrapped, so files stay
+interchangeable between one-card and two-card runs.
+
+### `batch_size` 3 -> 6, and what it is NOT for
+
+Six, split 3 per card, so per-card memory is exactly what every run to date used.
+
+**It does not make one card faster.** Per-trial throughput is flat across batch
+3/5/6 (0.990 / 0.994 / 1.005 s/trial, E3b-E3f) -- the T4 is saturated at batch 3,
+which is why gradient checkpointing was withdrawn. The 7.66x came from
+tensor-core alignment, not batch size. The gain here is the second card.
+
+**`bsrnn_baseline.yaml`'s comment promising batch 12 is wrong by 4x** and is not
+corrected in place, because that file must keep reproducing past runs. 6 is the
+fp16 ceiling on one T4 (13.02 GB of 14.56); 7 needs 15.17 GB; fp32 caps at 3.
+
+### The `w` schedule had to move with the batch, or the run is silently wrong
+
+The absent-branch warmup is indexed in optimiser STEPS, which makes it invariant
+to dataset size (2026-09-03) but **not** to batch size: at batch 6 each step
+consumes twice the audio. The warmup exists to stop the early mute and its length
+in EXAMPLES is what matters, so the invariant held is `warmup_steps x batch`:
+
+    warmup  6632 x 3 = 19,896  ->  3316 x 6 = 19,896
+    ramp    4974 x 3 = 14,922  ->  2487 x 6 = 14,922
+
+Left alone, the warmup would have covered twice the audio it was calibrated for.
+
+### The Kaggle probe had to change too, and one of its bugs was NOT the known one
+
+Two problems, both of which would have quietly wasted the second card or
+corrupted the schedule. `scripts/make_kaggle_notebook.py`.
+
+**1. The probe was not DataParallel-aware.** `_probe_batch.py` runs one process
+on `cuda:0`, so what it measures is what ONE card must hold -- but the config's
+`batch_size` is the GLOBAL batch, which DataParallel splits. Probing the global
+batch on one card caps the run at the single-card ceiling and leaves the second
+T4 half idle, which is the exact waste E7 exists to remove. The probe is now
+handed `B // n_gpu` and candidates are filtered to multiples of `n_gpu`.
+
+**2. A probe-chosen batch did not drag the `w` schedule with it, and nothing
+said so.** The probe steps the batch down until one fits and writes the winner
+into the config that trains. The absent-branch warmup is indexed in optimiser
+STEPS, so a batch the probe lowered from the configured value silently made the
+warmup cover MORE examples than it was calibrated for -- the same class of
+confound the step-indexing of 2026-09-03 was introduced to remove, arriving
+through a different door. The notebook now rescales `warmup_steps` and
+`ramp_steps` to hold `steps x batch` constant whenever `chosen != CFG_BATCH`,
+and prints the rescale. Rounded UP: a warmup one step short is harmless, one
+step long is not.
+
+**This second one is not in E8** and was found while wiring E7. E8 says only
+"do not let the probe pick a new batch size during the 9,955-trial run" and
+prescribes pinning the knob by hand -- a workaround that depends on remembering
+it. The rescale makes the coupling automatic.
+
+### How this must be read when it lands
+
+**Speed claim only for the DataParallel half.** Numerics are not bit-identical
+(different kernel split, different fp16 reduction order), so a 2-epoch A/B shows
+val terms agreeing within known between-run noise, never exactly, and a difference
+must never be reported as a quality change.
+
+**Two variables move at once** -- capacity and the device count. They are
+separable by their signatures (throughput vs. held-out separation) but the run is
+not a clean single-variable arm and the write-up says so.
+
+**Read it on `sir0_privval` word error, not on dB.** 2026-09-04 measured 2x the
+data buying +0.316 dB of separation while LCF-WER moved the WRONG way
+(59.05 -> 59.52 %) and headroom captured fell 10.4 -> 9.6 %. A capacity gain that
+shows up only in dB is not yet a result.
+
+**Expect overfitting to arrive earlier, not later.** The diagnosis at every data
+scale is data-limited (train falls monotonically, held-out peaks then collapses).
+Adding capacity to a data-limited model moves the peak earlier and deepens the
+collapse. If the peak lands before epoch 6 that is the predicted signature, not a
+bug. `select_on: present_branch` and the `select_abs_max` silence bar stay on.
+
+### Not done
+
+- **Not profiled.** `profile_step.py --amp-only` on this config, and its ALIGNED
+  verdict, before any session. `examples x T` must stay divisible by 8 or the
+  4.09x fallback kernel fires and the bigger model looks slow for the wrong reason.
+- **E8's "the notebook probe measures fp32" is STALE and is corrected here.**
+  It was fixed on 2026-09-04: `_probe_batch.py` wraps its forward in
+  `amp_ctx(use_amp)` and the notebook refuses a probe whose reported precision
+  disagrees with `training.amp`. The E8 bullet should be marked closed.
+- **`DistributedDataParallel` deferred**, as E7 records: better tool, needs
+  `spawn` inside a Kaggle notebook, not worth it for two cards on one host.

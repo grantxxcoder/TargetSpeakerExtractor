@@ -287,6 +287,10 @@ print("  staged code imports OK")
 
 cfg_path = Path(REPO) / CONFIG
 cfg = yaml.safe_load(cfg_path.read_text())
+# The batch the CONFIG asks for, kept before the ceiling overwrites it. The w
+# schedule was calibrated against this number and has to be rescaled if the
+# probe lands somewhere else. decisions-m2.md 2026-09-21.
+CFG_BATCH = int(cfg["data"]["batch_size"])
 cfg["data"]["batch_size"]  = BATCH_SIZE
 cfg["data"]["num_workers"] = NUM_WORKERS
 # Written back so meta.yaml records the config that actually trained, and so a
@@ -438,13 +442,26 @@ elif not torch.cuda.is_available():
     chosen = cfg["data"]["batch_size"]
     print(f"no CUDA: leaving batch_size at {chosen}, probe skipped")
 else:
+    # DATAPARALLEL-AWARE. `_probe_batch.py` runs one process on cuda:0, so what
+    # it measures is what ONE card must hold. Under DataParallel the config's
+    # batch_size is the GLOBAL batch and each card holds batch/n_gpu, so the
+    # probe must be handed the per-card share and the ceiling it finds is worth
+    # n_gpu times as much. Probing the global batch on one card would cap the
+    # run at the single-card ceiling and leave the second T4 half idle -- the
+    # exact waste E7 exists to fix. decisions-pending.md E7.
+    N_GPU = (torch.cuda.device_count()
+             if bool(cfg["training"].get("data_parallel", False)) else 1)
+    if N_GPU > 1:
+        print(f"DataParallel: {N_GPU} cards, probing the PER-CARD share "
+              f"(global batch = per-card x {N_GPU})")
     cands = [b for b in [BATCH_SIZE, 10, 8, 6, 5, 4, 3, 2]
-             if BATCH_FLOOR <= b <= BATCH_SIZE]
+             if BATCH_FLOOR <= b <= BATCH_SIZE and b % N_GPU == 0]
     cands = sorted(set(cands), reverse=True)
     chosen = None
     for B in cands:
-        r = subprocess.run([sys.executable, "_probe_batch.py", str(B), str(DATA_ROOT),
-                            SPLIT, CONFIG],
+        # B is the GLOBAL batch; B // N_GPU is what each card actually allocates.
+        r = subprocess.run([sys.executable, "_probe_batch.py", str(B // N_GPU),
+                            str(DATA_ROOT), SPLIT, CONFIG],
                            cwd=REPO, capture_output=True, text=True)
         ok_line = next((ln for ln in r.stdout.splitlines()
                         if ln.startswith("OK ")), None)
@@ -455,7 +472,8 @@ else:
             # every Kaggle run got capped at the fp32 ceiling. E8.
             _, b_ok, peak, res, prec = ok_line.split()
             print(f"  batch {B:2d}: FITS   peak allocated {peak} GiB, "
-                  f"reserved {res} GiB, probed in {prec}")
+                  f"reserved {res} GiB, probed in {prec}"
+                  + (f"  ({B // N_GPU}/card x {N_GPU})" if N_GPU > 1 else ""))
             if prec != ("amp" if cfg["training"].get("amp") else "fp32"):
                 raise SystemExit(f"probe ran in {prec} but training.amp="
                                  f"{cfg['training'].get('amp')}; the ceiling it "
@@ -471,7 +489,8 @@ else:
             print(r.stderr[-500:])
             raise SystemExit(f"probe inconclusive at batch {B}: see above")
         if "OutOfMemoryError" in r.stderr or "out of memory" in r.stderr.lower():
-            print(f"  batch {B:2d}: OOM")
+            print(f"  batch {B:2d}: OOM"
+                  + (f"  ({B // N_GPU}/card)" if N_GPU > 1 else ""))
             continue
         # The SystemExit below is NOT the error -- it is the handler. The real
         # traceback is the block printed here, so label it loudly enough that it
@@ -488,6 +507,31 @@ else:
 
 cfg["data"]["batch_size"]  = chosen
 cfg["data"]["num_workers"] = NUM_WORKERS
+
+# THE ABSENT-BRANCH WARMUP MOVES WITH THE BATCH, or the run is silently wrong.
+# It is indexed in optimiser STEPS, which makes it invariant to dataset size
+# (decisions-m2.md 2026-09-03) but NOT to batch size: at twice the batch each
+# step consumes twice the audio, so the same step count covers twice the
+# examples. The warmup exists to stop the early mute and its length in EXAMPLES
+# is what matters, so hold `steps x batch` constant.
+#
+# Before this, a probe that stepped the batch down from the configured value
+# silently doubled the warmup in examples and nothing said so.
+# decisions-m2.md 2026-09-21, decisions-pending.md E8.
+if chosen != CFG_BATCH:
+    sched = cfg.get("loss", {}).get("w_schedule")
+    if sched:
+        for key in ("warmup_steps", "ramp_steps"):
+            if key in sched:
+                before = int(sched[key])
+                # Round UP: a warmup one step short is harmless, one step long
+                # is not, and integer division would silently shorten it.
+                sched[key] = -(-before * CFG_BATCH // chosen)
+                print(f"  w_schedule.{key} {before} -> {sched[key]} "
+                      f"(holding steps x batch = {before * CFG_BATCH:,} examples)")
+    else:
+        print("  NOTE: no loss.w_schedule in this config, nothing to rescale")
+
 # Rewritten so meta.yaml records the batch size that ACTUALLY trained, not the
 # ceiling that was asked for.
 cfg_path.write_text(yaml.safe_dump(cfg, sort_keys=False))
