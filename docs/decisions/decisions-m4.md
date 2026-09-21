@@ -217,11 +217,48 @@ is real signal. The judge simply cannot reproduce that class of measurement.
 **So the division of labour is forced, and it should be stated as a method
 rather than a workaround:**
 
-- **deterministic listener (`small.en`)** — finds per-trial `alpha*`. Free, and
-  the data is already on disk.
-- **judge** — validates the AGGREGATE alpha curve, where n=103 averaging beats
-  the noise.
-- **never** ask the judge to rank alphas within a trial.
+- **deterministic listener (`small.en`)** — finds per-trial `alpha*` and
+  supplies the head's training targets. Free, and the data is already on disk.
+- **judge** — validates AGGREGATE claims, where averaging beats the noise. That
+  includes the finished head: it emits one output per clip, so "does the head
+  beat the best fixed alpha" is an ordinary averaged comparison and the judge
+  can rule on it.
+- **never** ask the judge to rank alphas within a trial, or to supply a
+  per-clip target.
+
+**Corrected 2026-09-21, same day, on Grant's objection.** An earlier plain-
+language summary of this entry said the head "cannot be checked against Gemini".
+That is wrong and the distinction matters: the judge cannot SUPERVISE the head
+(no stable per-clip reading) but it can certainly EVALUATE it (one output per
+clip, averaged over trials). The entry above always said "helps in aggregate";
+the summary overstated it.
+
+### The constraint that actually binds the head: POWER, not noise
+
+Averaging works, but how well depends on how many trials are averaged, and
+**`sir0_val` is too small for the effect the head is expected to produce.**
+
+| set | trials (`both`) | smallest detectable difference, k=1 |
+|---|---|---|
+| `sir0_val` | 103 | **+/- 4.73 points** |
+| `sir0_privval` | **1,421** | **+/- 1.27 points** |
+
+A realistic per-clip head gains perhaps 2–4 points over the best fixed alpha —
+the 7.6-point figure from the Whisper sweep is an ORACLE and a learned head will
+not reach it. **On `sir0_val` a 2–4 point gain is invisible**, and the run would
+report "no significant difference", which reads as the head failing when in fact
+the instrument was too coarse to see it. **Registering this before the run so a
+null on `sir0_val` is not mistaken for a result.**
+
+**So the head is evaluated on `sir0_privval`, not `sir0_val`.** 1,421 trials,
+estimates already rendered (`2026-09-14-est-privval-control`), ~2,842 calls for
+both conditions, ~4 h. This is a legitimate and indeed intended use of the
+holdout: CLAUDE.md forbids training, filtering or selecting on it, and a
+finished-system evaluation is what it is being held out FOR.
+
+**The global alpha curve stays on `sir0_val`**, where the differences are ~10
+points end to end and +/- 4.73 is ample. Only the head needs the larger set.
+
 
 **Consequence for Tier 3 as written in `decisions-pending.md`:** its trigger was
 "only if Tier 2 says `alpha*` varies by trial". Tier 2 through the judge cannot
