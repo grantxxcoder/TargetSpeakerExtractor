@@ -151,6 +151,59 @@ Still not licensed: any claim about what is inside any model, and any claim of
 generalisation beyond the five listeners actually measured. The CLAUDE.md
 carry stands — *optimised for Gemini*, never *generalises to live models*.
 
+### MEASURED 2026-09-21 — holes-vs-leakage, LISTENER 0 (`small.en`). Recorded BEFORE the judge arm runs
+
+**All six arms, `sir0_val` `both`, n=103, offline ASR, deterministic.**
+`experiments/results/2026-09-21-holes-asr-*`. **Written down before any judge
+call on this family, so the judge reading cannot be rationalised afterwards.**
+
+| arm | LCF-WER | ICR@2 | mean leak | subs | dels | ins | inv/trial |
+|---|---|---|---|---|---|---|---|
+| floor0.20 | 62.34 | 61.17 | 44.56 | 32.57 | 8.09 | 21.68 | 3.13 |
+| floor0.10 | 61.87 | 58.25 | 41.32 | 30.65 | 9.98 | 21.25 | 3.07 |
+| floor0.05 | 63.33 | 58.25 | 40.87 | 32.31 | 8.64 | 22.38 | 3.33 |
+| **hyst-control** | **57.95** | 50.49 | 34.51 | 27.79 | 11.15 | 19.00 | 2.92 |
+| hystfix-mild | 64.09 | 41.75 | 27.68 | 26.69 | 15.95 | 21.45 | 3.17 |
+| hystfix-sharp | **76.43** | 41.75 | 25.01 | 32.80 | 12.78 | **30.85** | **3.73** |
+
+**The knob is clean and monotone.** Leakage falls across every arm without
+exception, 44.56 -> 25.01, and ICR@2 with it, 61.17 -> 41.75. Whatever the word
+error does, the intervention itself is doing exactly what it was built to do.
+
+**`small.en`'s optimum is the CONTROL, 57.95.** Both directions cost it: filling
+holes ~4-5 points, sharpening 6.1 points at mild. The ASR wants no
+post-processing at all. **That is the baseline the registered prediction is
+measured against — the judge must land strictly more aggressive than this.**
+
+### A second damage regime, not predicted, and it belongs to the fabrication axis
+
+`hystfix-sharp` has the LEAST leakage of any arm (25.01) and the WORST word error
+by a distance (76.43, worse than the 65.22 floor). **It is not deletions that do
+it** — those are 12.78, *lower* than mild's 15.95. It is **insertions: 30.85
+against the control's 19.00**, with invented/trial rising to 3.73 and mean
+invented words to 26.54.
+
+So the damage curve has two regimes, not one:
+
+| regime | mechanism |
+|---|---|
+| moderate sharpening (control -> mild) | **deletions rise** — holes swallow words |
+| extreme sharpening (mild -> sharp, `--down 0.0`) | **fabrication explodes** — zeroed bins leave artefacts that drive invention |
+
+**This refines the error-budget story above, which attributed fabrication mainly
+to the judge's language prior.** `small.en` is deterministic and has no such
+prior, and it fabricates too once the artefacts are severe enough. **Hard masking
+makes listeners hallucinate, and that is not a live-model quirk.** The founding
+claim of `specification.md` — that TSE can make audio harder for a live model to
+understand — is therefore about DEGREE on this axis rather than about a failure
+mode unique to live models.
+
+**Consequence for the judge arm.** `hystfix-sharp` is unlikely to be anyone's
+optimum; the live test is whether the judge prefers `hystfix-mild` over the
+control, i.e. whether it will pay 4.8 points of deletion to remove 6.8 points of
+leakage where the ASR refuses.
+
+
 ### REGISTERED 2026-09-21, BEFORE THE RUN — the holes-versus-leakage family, scored per listener
 
 **The prediction is written down before a single call is made.** It is derived
