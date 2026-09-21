@@ -156,6 +156,12 @@ def main():
     parser.add_argument("--compare-listener", default=None,
                         help="second listener (a judge model id); runs the "
                              "interaction test")
+    parser.add_argument("--compare-asr", action="store_true",
+                        help="shorthand for --compare-sweep-json "
+                             "experiments/results/sweep_alpha_rows.json, the "
+                             "canonical 2026-09-01 offline-ASR sweep. Takes no "
+                             "value, so it survives a terminal that wraps long "
+                             "pasted lines.")
     parser.add_argument("--compare-sweep-json", default=None,
                         help="second listener taken from a sweep_alpha_rows.json "
                              "instead of the judge cache -- i.e. the offline ASR. "
@@ -169,6 +175,8 @@ def main():
     parser.add_argument("--draws", type=int, default=10000)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
+    if args.compare_asr and not args.compare_sweep_json:
+        args.compare_sweep_json = str(REFERENCES)
 
     references = {r["tid"]: r["target"]
                   for r in json.loads(Path(args.references).read_text())}
