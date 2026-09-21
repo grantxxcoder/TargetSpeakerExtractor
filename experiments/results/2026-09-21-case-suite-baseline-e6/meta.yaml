@@ -1,0 +1,12 @@
+date: '2026-09-21'
+script: scripts/eval_by_case.py
+seed: 42
+split: sir0_val
+cases:
+- target_only
+- both
+- interferer_only
+- noise_only
+listener: asr
+estimate_directory: experiments/results/2026-09-04-train-sir0-10000
+limit: null

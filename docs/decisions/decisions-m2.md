@@ -2524,3 +2524,40 @@ training-dynamics parameter whose silent change makes curves incomparable,
 (c) the batch-6 structure run held the same lr and peaked at -4.201 held-out
 against the batch-3 baseline's -2.941. If this run underfits, raising lr is the
 first follow-up **as its own arm**.
+
+---
+
+## 2026-09-21 — DECIDED: do NOT widen the training SIR range below -5 dB
+
+**Keep the training SIR distribution as it is. Do not add trials below -5 dB to
+chase the low-SIR collapse.**
+
+**Why.** The collapse below 0 dB SIR is real and it is where the entire gap to
+the reference model sits (ours 88.2 WER at SIR < -5 against WeSep's 49.4,
+`decisions-m3.md` 2026-09-12). Widening the training range was the obvious data
+answer and it is rejected on evidence:
+
+- **The reference model does not do it either.** `tfmap_context_causal_100`'s
+  own config (`../wesep_pretrained/tfmap_context_causal_100/config.yaml`) trains
+  on Libri2Mix `train-100` with `noise_prob: 0` -- clean, no noise, no reverb,
+  and no low-SIR curriculum. It still reaches 49.4 where we reach 88.2. **A
+  system that never saw our hard band beats us on our hard band**, so training
+  coverage cannot be what separates us.
+- **Nobody in the field trains below -5 dB.** The standard "hard" case ends
+  roughly where our collapse begins, so widening would put us off the edge of
+  the comparable literature for a mechanism nobody has shown to work.
+- **It would spend the one clean variable we have.** `remix_gains: true`
+  redraws SIR per epoch from the difficulty regime; changing that range changes
+  the difficulty distribution, the absent rate's calibration and the anchors
+  together. `decisions-m0.md` B1 already holds `overlap_ratio` to be narrowed
+  LAST for the same reason.
+
+**Consequence to carry.** The low-SIR collapse must therefore be fixed in the
+model, not in the data -- and on current evidence that means the speaker cue
+(see `decisions-pending.md` D5 and the 2026-09-21 obligation O4). If a
+conditioning arm lands and the collapse persists, this decision is the first
+thing to revisit, as its own arm and with the anchors re-measured.
+
+**Not decided here:** whether the training range should be NARROWED, and
+whether `sir0`'s symmetry is the right training distribution at all. Both stay
+open; this decision only refuses the widening.
