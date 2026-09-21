@@ -151,6 +151,55 @@ Still not licensed: any claim about what is inside any model, and any claim of
 generalisation beyond the five listeners actually measured. The CLAUDE.md
 carry stands — *optimised for Gemini*, never *generalises to live models*.
 
+### OPEN 2026-09-21 — training the head on Whisper CONTRADICTS the panel, unless alpha* is separable
+
+**Grant's objection, and it is a real hole in the plan above.** The panel exists
+to test whether `alpha*` depends on the listener. The entry above then proposes
+training the per-clip head on `small.en`. **If the panel's hypothesis is true,
+that head is optimised for the wrong listener.** Both cannot stand as written.
+
+**First correction, to this file.** "Per-trial `alpha*` is unmeasurable through
+the judge" was allowed to imply "so you cannot train on judge labels". Those are
+different problems:
+
+- **ranking two alphas for ONE clip** — impossible, needs ~67 repeats;
+- **fitting a function over MANY noisy clips** — routine. Zero-mean label noise
+  averages out across examples; it does not have to average out within a clip.
+
+So a judge-specific head is affordable-or-not, never impossible. The earlier
+wording was too strong.
+
+**Second, and it may dissolve the problem: `alpha*` may be SEPARABLE.**
+
+    alpha*(clip, listener) ~= shape(clip) + offset(listener)
+
+Every listener could agree on WHICH clips want more mix-back and differ only in
+overall level. Then `small.en` supplies `shape` for free and each listener's own
+global sweep supplies its `offset` — and the global sweep is already budgeted.
+**The sweep therefore answers this before any labelling is bought.** Do not spend
+on per-listener heads until it reports.
+
+**Cost if per-listener heads ARE needed.** Training pool is `sir0_train`, 4,930
+`both` trials; `sir0_privval` and `eval_private` are excluded by CLAUDE.md and
+that is not negotiable. 1,000 clips x 5 alpha = 5,000 calls, ~7 h **per
+listener** — viable for one or two, not four. `gemini-3.8-live` is the one to
+buy, being the deployment condition.
+
+**Decision sequence, registered before the sweep so the reading is not chosen
+after the fact:**
+
+| sweep says | what follows |
+|---|---|
+| `alpha*` same across listeners | no contradiction; train on `small.en` |
+| differs in LEVEL only | separable; `small.en` shape + per-listener offset |
+| listeners disagree per clip | per-listener heads, ~7 h labelling each, pick which listeners earn it |
+
+**Worth keeping even in the worst case.** "Does per-clip knowledge from a cheap
+deterministic listener transfer to an expensive noisy one?" is a thesis question
+in its own right, and evaluating the `small.en`-trained head THROUGH each
+listener answers it directly — no per-clip judge readings required.
+
+
 ### MEASURED 2026-09-21 — GATE 2. The judge's noise floor, and it sets k=1
 
 **`gemini-3.7-flash`, 30 mixtures x 5 identical calls, 150 calls, AI Studio
