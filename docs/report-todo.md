@@ -27,6 +27,20 @@ written after it.
 - **#12 Introduction** — stub. Settle the "metric is the contribution,
   extractor is the vehicle" framing here.
 - **#13 Conclusion** — stub.
+- **#16 O4 — WE ARE THE REAL-TSE BASELINE, and this reframes the negatives.**
+  Our model IS `BSRNN_TFMAP_CAUSAL`, the challenge's own causal baseline. So the
+  three negative M5 results (state teacher, mask structure, capacity) are not
+  project-specific failures — they **independently reproduce the REAL-TSE
+  organisers' published consensus** that gains came from data simulation, real-
+  data adaptation, pseudo-labels and loss design, NOT from architecture. Write
+  them as a reproduction, not as things that did not work.
+  Carry with it: (a) the organisers' mid-challenge DNSMOS-OVRL gaming incident,
+  which is first-hand evidence FOR this project's metric contribution — human-MOS
+  correlation for OVRL on Track 1 was LCC +0.003, and they swapped to P.808 post
+  hoc; (b) the four confounds in the WeSep comparison, which must travel with
+  every mention of it — different data, offline (its normaliser is global, RTF
+  2.854, cannot stream), 27.2 M against our 7.19 M, and out of domain by its own
+  config. Full statement: `decisions-pending.md` O4, 2026-09-21.
 - **#14 Abstract** — stub. Write last.
 
 ## Cleanup
