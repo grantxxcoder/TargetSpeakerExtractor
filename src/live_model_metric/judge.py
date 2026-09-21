@@ -80,6 +80,41 @@ class NewCallLimitReached(RuntimeError):
     error: everything already answered is on disk and a re-run resumes."""
 
 
+_DOTENV_LOADED = False
+
+def load_dotenv_once(env_path=None):
+    """Read REPO_ROOT/.env into os.environ, without overwriting anything set.
+
+    Added 2026-09-21. The key has always been documented as living in .env, but
+    nothing ever loaded it, so every script needed a manual `export` first and
+    failed with "GEMINI_API_KEY is not set" when you forgot. That is a papercut
+    per invocation, and the panel (decisions-m4.md 2026-09-21) is many
+    invocations across several listeners.
+
+    AN ALREADY-SET VARIABLE ALWAYS WINS, so `GEMINI_API_KEY=... python3 ...` and
+    a shell export both still override the file. No new dependency: the format
+    here is KEY=VALUE, one per line, # comments and blanks skipped. Quotes are
+    stripped because .env files conventionally allow them.
+    """
+    global _DOTENV_LOADED
+    if _DOTENV_LOADED and env_path is None:
+        return
+    path = Path(env_path) if env_path else REPO_ROOT / ".env"
+    if env_path is None:
+        _DOTENV_LOADED = True
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and value and key not in os.environ:
+            os.environ[key] = value
+
+
 def prompt_text(prompt_file=None):
     return Path(prompt_file or DEFAULT_PROMPT_FILE).read_text()
 
@@ -418,6 +453,7 @@ class Judge:
 
         # Credentials are checked BEFORE the SDK import, so a missing key
         # reports "set GEMINI_API_KEY" rather than "No module named google".
+        load_dotenv_once()
         project = None
         if self.backend == "vertex":
             project = self.project or os.environ.get("GOOGLE_CLOUD_PROJECT")
@@ -428,8 +464,10 @@ class Judge:
                     "Credentials -- run `gcloud auth application-default login`.")
         elif not os.environ.get("GEMINI_API_KEY"):
             raise RuntimeError(
-                "GEMINI_API_KEY is not set. Put it in .env (gitignored) and "
-                "export it, or run with GEMINI_API_KEY=... ")
+                f"GEMINI_API_KEY is not set, and none was found in "
+                f"{REPO_ROOT / '.env'} (exists: "
+                f"{(REPO_ROOT / '.env').exists()}). Put `GEMINI_API_KEY=...` on "
+                f"its own line in that file, or run with GEMINI_API_KEY=... ")
 
         try:
             from google import genai
