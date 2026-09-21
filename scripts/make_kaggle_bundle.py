@@ -94,6 +94,11 @@ CODE = [
     # environment that trains, which is the only way the number is reproducible.
     "experiments/configs/bsrnn_struct.yaml",
     "scripts/derive_w_struct.py",
+    # 2026-09-21. The 14.73 M capacity arm, and the only config that turns
+    # data_parallel on. CODE is an ALLOW-LIST: a config missing from it is
+    # simply absent from the bundle, so the Kaggle run cannot train that arm
+    # and fails at staging rather than obviously. decisions-m2.md 2026-09-21.
+    "experiments/configs/bsrnn_wesep_ref.yaml",
     "docs/run_times.md",   # src.run_log appends here; give it a real file
 ]
 

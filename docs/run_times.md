@@ -21,6 +21,7 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
 <!-- rows appended below by src/run_log.py -->
+| 2026-09-21 | `scripts/make_kaggle_bundle.py --split sir0 --code-only` | 22 code files staged + verified + zipped to 84 MB | 18 min | laptop HDD. Data untouched: `sir0_train` is unchanged at 9,955 trials and already a Kaggle dataset, so no 30 GB re-upload. Most of the wall time is the 85 MB dereferenced teacher backbone and the in-place verification batch, not the code. Added by hand: the script does not use `run_log.timed`. |
 | 2026-09-21 | `pytest tests/ -q` | 507 tests, whole suite | 11 min | laptop, 4 threads. Added by hand: pytest does not use `run_log.timed`. Was 74 tests / 5 s on 2026-08-15. |
 | 2026-09-15 | `scripts/evaluate.py` | --split sir0_privval --condition both --est experiments/results/2026-09-14-est-privval-control --metrics content --out experiments/results/2026-09-15-eval-privval-control-asr | 1.5 h |  |
 | 2026-09-15 | `scripts/measure_effective_mask_flatness.py` | 3 systems x 103 trials | 2 min | cpu, whole-clip, no model inference |
