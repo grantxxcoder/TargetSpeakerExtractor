@@ -151,6 +151,58 @@ Still not licensed: any claim about what is inside any model, and any claim of
 generalisation beyond the five listeners actually measured. The CLAUDE.md
 carry stands — *optimised for Gemini*, never *generalises to live models*.
 
+### MEASURED 2026-09-21 — THE ERROR BUDGET. Where the word errors actually come from
+
+**Free: 515 already-scored cells, no new calls.** Normaliser check passed — the
+`small.en` column reproduces `decisions-m3.md` 2026-09-01 exactly
+(65.2 / 63.5 / 69.6 / 67.4 / 59.1).
+
+**The signal-level additivity check specified above CANNOT be run on this data,
+and that is a property of the design, not a gap.** In the mix-back family every
+distortion is a function of one parameter, so SIR and SAR are collinear within a
+trial: **median r = −0.96** across the five alphas (n=103). Leakage and artefacts
+cannot be separated from a one-parameter sweep. Separating them is exactly what
+the ladder's one-distortion-at-a-time design is for.
+
+**So the budget was built at the TRANSCRIPT level instead, where it needs no
+additivity assumption at all** — each error is assigned to exactly one category
+by alignment, and the shares sum to 100 % by construction.
+
+Share of all word errors, alpha=1 (the deployed setting):
+
+| listener | WER | deletion | **leakage** | invented | misheard |
+|---|---|---|---|---|---|
+| `gemini-3.7-flash` | 58.5 % | **6.4 %** | **35.6 %** | 16.1 % | 41.9 % |
+| `small.en` | 59.1 % | **20.8 %** | 23.8 % | 22.3 % | 33.1 % |
+
+**1. Leakage is the judge's largest attributable error source: 35.6 % of all
+errors, ~21 of the 58.5 WER points.** That is where the headroom is, and it
+confirms D14's premise for the judge specifically rather than by assumption.
+
+**2. The listeners fail in different WAYS on identical audio.** `small.en`
+deletes at 3x the judge's rate (20.8 % vs 6.4 %); the judge leaks far more
+(35.6 % vs 23.8 %). The judge almost never simply drops a word — its language
+prior supplies something.
+
+**3. THE MECHANISM BEHIND EVERY DIVERGENCE FOUND TODAY.** Across alpha 0 -> 1,
+`small.en`'s deletion share climbs 13.7 % -> 20.8 % while the judge's stays flat
+at 5.5 % -> 6.4 %. **The extractor's spectral holes make the ASR drop words; the
+judge fills them in from its language model.** That single fact accounts for the
+alpha=0.5 DiD of −8.65 points, the 3.4x SIR-sensitivity gap, and the
+Pearson-falls-while-Spearman-holds pattern. Four observations, one cause.
+
+**Consequence for the ladder.** Its job narrows usefully: the pairing to test
+first is spectral holes -> deletion, and specifically **how much of the judge's
+apparent tolerance of holes is real robustness versus fabrication in disguise**.
+Note the judge's invented share RISES with alpha (11.7 % -> 16.1 %) exactly where
+its deletion share does not — consistent with substitution-instead-of-deletion.
+
+**Caveats.** The buckets are attribution by alignment, not causal decomposition:
+a word present in BOTH scripts cannot be assigned and lands in "misheard", which
+is why that bucket is the largest for both listeners. Leakage counts only
+interferer-EXCLUSIVE content words, so it is a lower bound.
+
+
 ### SPEC 2026-09-21 — the SENSITIVITY LADDER. What kind of damage costs this listener what?
 
 **Config: `experiments/configs/sensitivity_ladder.yaml`. Not yet built or run.**
