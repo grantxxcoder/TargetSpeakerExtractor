@@ -33,21 +33,28 @@ from src.live_model_metric.evaluate import load_trials              # noqa: E402
 from src.live_model_metric.judge import DEFAULT_MODEL_ID, Judge     # noqa: E402
 
 
-def _audio_capable(model):
-    """Best-effort read of whether a listed model accepts audio input.
+# Measured 2026-09-21: this SDK version reports no per-modality field, so every
+# one of the 52 listed models came back "unknown" and the flag was useless. These
+# patterns do the shortlisting instead. They are a NAME HEURISTIC, not a
+# capability query -- they exist to stop you spending probe calls on an image
+# model, never to rule a candidate out. Anything unmatched is a candidate.
+NOT_AUDIO_IN = ("-tts", "-image", "image-", "lyria", "nano-banana", "gemma",
+                "robotics", "computer-use", "deep-research", "antigravity",
+                "/aqa", "-translate")
 
-    The SDK does not expose a reliable per-modality flag across versions, so
-    this is a HINT for shortlisting, never a substitute for --probe. When the
-    field is missing the model is kept, not dropped: a false positive costs one
-    probe call, a false negative silently removes a valid candidate.
-    """
-    modalities = getattr(model, "supported_input_modalities", None)
-    if modalities:
-        return any("audio" in str(m).lower() for m in modalities)
-    actions = getattr(model, "supported_actions", None) or []
-    if actions and not any("generate" in str(a).lower() for a in actions):
-        return False
-    return None            # unknown -- keep it, probe to find out
+# Socket-only. Judge speaks generateContent, so probing these here FAILS BY
+# DESIGN and tells you nothing. They need the Live client (decisions-m4.md
+# 2026-09-21) before they can be scored at all.
+LIVE_ONLY = ("-live", "native-audio")
+
+
+def classify(name):
+    lowered = name.lower()
+    if any(token in lowered for token in LIVE_ONLY):
+        return "live-only"
+    if any(token in lowered for token in NOT_AUDIO_IN):
+        return "not-audio"
+    return "candidate"
 
 
 def main():
@@ -69,16 +76,30 @@ def main():
     client = Judge(backend=args.backend, project=args.project)._ensure_client()
 
     print(f"=== models reachable on backend={args.backend} ===\n")
-    rows = []
+    buckets = {"candidate": [], "live-only": [], "not-audio": []}
     for model in client.models.list():
         name = getattr(model, "name", "?")
-        capable = _audio_capable(model)
-        if args.audio_only and capable is False:
+        buckets[classify(name)].append(name)
+
+    order = ["candidate", "live-only"] if args.audio_only else \
+            ["candidate", "live-only", "not-audio"]
+    headings = {
+        "candidate": "WHOLE-CLIP CANDIDATES -- probe these",
+        "live-only": "LIVE / SOCKET-ONLY -- need the Live client, do NOT probe here",
+        "not-audio": "not audio-in (image, TTS, music, text-only)",
+    }
+    for bucket in order:
+        names = buckets[bucket]
+        if not names:
             continue
-        rows.append((name, capable))
-        flag = {True: "audio", False: "no-audio", None: "unknown"}[capable]
-        print(f"  {name:<55} {flag}")
-    print(f"\n{len(rows)} shown. 'unknown' means the SDK did not say -- probe it.")
+        print(f"  {headings[bucket]}  ({len(names)})")
+        for name in names:
+            print(f"    {name}")
+        print()
+
+    print("Pass BARE ids to --probe and to --judge-model: 'gemini-3.7-flash', not")
+    print("'models/gemini-3.7-flash'. The id goes into the judge cache key, so the")
+    print("prefixed form is a DIFFERENT listener and re-buys all 653 cached calls.")
 
     if not args.probe:
         print("\nNothing probed. Re-run with --probe id1,id2 before budgeting a "
