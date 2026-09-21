@@ -20,6 +20,9 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
+| 2026-09-21 | `scripts/judge_spread.py` | 30 mixtures x 5 repeats = 150 judge calls, gemini-3.7-flash, --rpm 10 | ~15 min | DERIVED from the 6 s throttle interval, not wall-clocked. Correct if you timed it. |
+| 2026-09-21 | `scripts/probe_contamination.py` | 94 text-only calls, gemini-3.7-flash, contamination gate | ~10 min | DERIVED from the 6 s throttle, not wall-clocked |
+| 2026-09-21 | `scripts/enumerate_models.py` | --probe, 1 real audio call per model | 4.6-5.0 s/call | MEASURED. gemini-3.7-flash 5.0, gemini-3.5-transcribe 4.6 (schema-free), gemini-2.5-flash 4.7 |
 <!-- rows appended below by src/run_log.py -->
 | 2026-09-15 | `scripts/evaluate.py` | --split sir0_privval --condition both --est experiments/results/2026-09-14-est-privval-control --metrics content --out experiments/results/2026-09-15-eval-privval-control-asr | 1.5 h |  |
 | 2026-09-15 | `scripts/measure_effective_mask_flatness.py` | 3 systems x 103 trials | 2 min | cpu, whole-clip, no model inference |

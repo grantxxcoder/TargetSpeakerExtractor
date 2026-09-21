@@ -130,7 +130,8 @@ the panel would otherwise attribute to the encoder. It must be settled first.
 
 Per listener: 103 trials x 5 alpha x k=3 = 1,545 calls for the sweep (alpha=0 IS
 the floor anchor, so the floor comes free), plus 103 x 3 = 309 for the ceiling.
-**~1,854 per listener, ~7,400 for the panel.** At ~432 audio tokens per 13.5 s
+**~1,854 per listener, ~7,400 for the panel.** **SUPERSEDED by the gate 2 entry
+above: k=1 is sufficient, so this is 618 per listener and ~2,500 for the panel.** At ~432 audio tokens per 13.5 s
 clip and $0.75/1M audio tokens, that is **under $5 in audio tokens — a
 PROJECTION from published pricing, not a measured bill.** Paid key, so the
 free-tier daily cap no longer binds.
@@ -149,6 +150,85 @@ extractor and the live system it feeds.
 Still not licensed: any claim about what is inside any model, and any claim of
 generalisation beyond the five listeners actually measured. The CLAUDE.md
 carry stands — *optimised for Gemini*, never *generalises to live models*.
+
+### MEASURED 2026-09-21 — GATE 2. The judge's noise floor, and it sets k=1
+
+**`gemini-3.7-flash`, 30 mixtures x 5 identical calls, 150 calls, AI Studio
+paid.** `scripts/judge_spread.py` then `scripts/analyse_judge_spread.py`.
+Mixtures, not ceilings: 2026-09-02 found ceilings reproducible and floors not.
+
+**Ask the judge the same question five times and you get five different
+answers.** Only **4 of 30** clips returned an identical score every time.
+
+| per-clip, across identical calls | WER points |
+|---|---|
+| range, mean | **27.3** |
+| range, median | 15.5 |
+| range, worst | **127.6** |
+| pooled sigma (RMS) | **17.3** |
+
+**M4's gate PASSES, by 2.2x and not more.** Mean range 27.3 against the
+floor-to-ceiling gap of 59.4. **The worst clip exceeds the gap**, so it passes on
+average, not universally. The distribution is badly skewed — median 15.5 against
+a mean of 27.3 — so the noise is concentrated in a minority of clips rather than
+spread evenly.
+
+**CORRECTION to `project-state.md`.** It claims run-to-run spread "passes M4's
+gate by an order of magnitude — ceiling 0.0". That was measured on CEILINGS,
+which are clean audio and genuinely reproducible. On mixtures the spread is 27.3,
+not 0. The claim was true of the easy case and was generalised to the instrument.
+
+### What it decides: k=1, and the panel gets three times cheaper
+
+**The sweep compares alpha cells averaged over every trial, not single clips,**
+and averaging shrinks noise by sqrt(n). Pooled as RMS of per-clip sigmas, because
+variances add and standard deviations do not, and these sigmas are strongly
+heterogeneous.
+
+| n | k | 95% CI on an alpha-vs-alpha difference | calls/listener |
+|---|---|---|---|
+| 103 | **1** | **+/- 4.73** | **515** |
+| 103 | 2 | +/- 3.34 | 1,030 |
+| 103 | 3 | +/- 2.73 | 1,545 |
+
+The 2026-09-01 curve spans 10.5 points end to end, so **k=1 resolves it and k=3
+is not worth three times the budget** (4.73 -> 2.73). **Decision: run the sweep
+at k=1, locate the minimum coarsely, and buy repeats only around the winner.**
+
+Adjacent-alpha steps of 2–3 points are **not callable at any k on this page**.
+Say "the curve falls between alpha 0 and 0.25", never "0.25 beats 0.5".
+
+**Revised budget: 515 (sweep, floor included at alpha=0) + 103 (ceiling) = 618
+calls per listener**, ~4.6–5.0 s each, so **~50 min per listener and ~3.4 h for
+the panel**. Down from the 1,854 / 2.6 h per listener this entry first recorded.
+
+### The finding that rewrites Tier 3: per-trial alpha* is unmeasurable HERE
+
+**Ranking two alphas WITHIN one trial carries SE 24.5 points at k=1.** Resolving
+a 3-point within-trial difference needs **~67 repeats per (trial, alpha) cell**.
+That is not affordable now or later.
+
+**This does not kill per-trial alpha*, it relocates it.** The ~7.6-point
+per-trial oracle gain that motivates the learned-alpha head was measured on the
+2026-09-01 **Whisper** sweep, and `small.en` with greedy decoding is
+DETERMINISTIC — same audio, same transcript, zero measurement noise. That number
+is real signal. The judge simply cannot reproduce that class of measurement.
+
+**So the division of labour is forced, and it should be stated as a method
+rather than a workaround:**
+
+- **deterministic listener (`small.en`)** — finds per-trial `alpha*`. Free, and
+  the data is already on disk.
+- **judge** — validates the AGGREGATE alpha curve, where n=103 averaging beats
+  the noise.
+- **never** ask the judge to rank alphas within a trial.
+
+**Consequence for Tier 3 as written in `decisions-pending.md`:** its trigger was
+"only if Tier 2 says `alpha*` varies by trial". Tier 2 through the judge cannot
+answer that question. The trigger must read: *only if the DETERMINISTIC listener
+says `alpha*` varies by trial, with the judge then checking that the resulting
+head helps in aggregate.*
+
 
 ### MEASURED 2026-09-21 — GATE 1 PASSED. The judge is not reciting LibriSpeech
 

@@ -309,9 +309,16 @@ What it buys over the offline ASR:
    instead of 59.4, and no 6-point cap on achievable performance.
 2. **Visible leakage** — ICR@2 runs ~9 points higher throughout because the judge
    reports interferer content the ASR discards.
-3. **Run-to-run spread passes M4's gate by an order of magnitude** — ceiling 0.0
-   points across five identical calls, a mixture 2.9 and an ambiguous one 16.0,
-   against a 62-point range.
+3. **Run-to-run spread passes M4's gate by 2.2x — NOT an order of magnitude.**
+   CORRECTED 2026-09-21 (decisions-m4.md, gate 2). The order-of-magnitude claim
+   came from three clips, and the reproducible one was a CEILING: clean audio is
+   genuinely stable, mixtures are not. Measured properly on **30 mixtures x 5
+   identical calls**: mean range **27.3** WER points, median 15.5, worst 127.6,
+   pooled sigma 17.3. Against the 59.4-point floor-to-ceiling gap that is a pass,
+   but the worst clip exceeds the gap.
+   **What it forbids is unchanged and now quantified: no per-trial claim.**
+   Ranking two systems within ONE trial carries SE 24.5 points. Aggregate claims
+   are fine — averaging 103 trials gives +/- 4.73 on a system difference.
 
 Three live-model behaviours an ASR cannot exhibit, all reportable findings:
 
