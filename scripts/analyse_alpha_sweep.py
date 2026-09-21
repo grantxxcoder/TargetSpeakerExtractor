@@ -103,6 +103,31 @@ def collect(sweep_root, cache_by_hash, references):
     return curves, missing
 
 
+def collect_from_sweep_json(path, references):
+    """Load a listener's curve from a sweep_alpha_rows.json instead of the cache.
+
+    The 2026-09-01 Whisper sweep stored (trial, alpha) -> transcript directly.
+    Joining on (trial_id, alpha) rather than on the audio's content hash is
+    valid here and only here: that sweep blended the SAME formula over the SAME
+    source checkpoint (2026-09-01-est-sir0-5000), so cell (t, a) is the same
+    audio even though the file on disk is long gone.
+
+    It gives the panel its first listener comparison for nothing, and the
+    comparison is the informative one -- small.en is DETERMINISTIC, so any shape
+    difference against the judge cannot be judge noise dressed up.
+    """
+    curves = {}
+    for row in json.loads(Path(path).read_text()):
+        reference = references.get(row["tid"])
+        if reference is None:
+            continue
+        counts = count_errors(reference, row["text"])
+        if counts.reference_word_count:
+            curves.setdefault(float(row["alpha"]), {})[row["tid"]] = (
+                counts.total_errors, counts.reference_word_count)
+    return curves, 0
+
+
 def corpus_wer(cells, trials):
     errors = sum(cells[t][0] for t in trials)
     words = sum(cells[t][1] for t in trials)
@@ -129,7 +154,13 @@ def main():
     parser.add_argument("--sweep", required=True, help="a make_mixback.py out-root")
     parser.add_argument("--listener", default=DEFAULT_MODEL_ID)
     parser.add_argument("--compare-listener", default=None,
-                        help="second listener; runs the interaction test")
+                        help="second listener (a judge model id); runs the "
+                             "interaction test")
+    parser.add_argument("--compare-sweep-json", default=None,
+                        help="second listener taken from a sweep_alpha_rows.json "
+                             "instead of the judge cache -- i.e. the offline ASR. "
+                             "Free, and small.en is DETERMINISTIC, so a shape "
+                             "difference cannot be judge noise.")
     parser.add_argument("--reference-alpha", type=float, default=1.0,
                         help="the alpha every other is tested against. 1.0 = the "
                              "current model untouched")
@@ -252,10 +283,15 @@ def main():
         print("      and at least one alpha survives Holm. This is the case that")
         print("      justifies a per-clip alpha head.")
 
-    if args.compare_listener:
-        other_curves, _ = collect(
-            args.sweep, load_cache_by_hash(args.cache, args.compare_listener),
-            references)
+    if args.compare_listener or args.compare_sweep_json:
+        if args.compare_sweep_json:
+            other_curves, _ = collect_from_sweep_json(args.compare_sweep_json,
+                                                      references)
+            args.compare_listener = f"sweep-json:{Path(args.compare_sweep_json).name}"
+        else:
+            other_curves, _ = collect(
+                args.sweep, load_cache_by_hash(args.cache, args.compare_listener),
+                references)
         common_alphas = sorted(set(alphas) & set(other_curves))
         common_trials = sorted(set(shared).intersection(
             *(set(other_curves[a]) for a in common_alphas)))
