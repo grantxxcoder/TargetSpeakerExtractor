@@ -27,6 +27,32 @@ written after it.
 - **#12 Introduction** — stub. Settle the "metric is the contribution,
   extractor is the vehicle" framing here.
 - **#13 Conclusion** — stub.
+- **#18 THE CHEAP LISTENER MISRANKS. This is the metric contribution's proof.**
+  Same audio, same 103 trials, three mask-hysteresis settings, two systems.
+  `faster-whisper small.en` and `gemini-3.7-flash` **disagree on which setting
+  is best, in BOTH systems** — Whisper picks `control`, the judge picks `mild`.
+
+  | cost of `sharp` | judge | Whisper | error |
+  |---|---|---|---|
+  | ours | +1.72 | +18.48 | **10.7x overstated** |
+  | WeSep | **-0.32** | +14.93 | **opposite sign** |
+
+  On WeSep the proxy calls sharpening a 15-point disaster while the live model
+  finds it marginally beneficial. Anyone tuning post-processing on a local ASR
+  ships the wrong configuration. **A free stand-in cannot substitute for the
+  live model** — asserted since M0, now demonstrated on two independent systems.
+
+  **The same table argues AGAINST tuning to the judge (G1).** Its spread across
+  all three arms is 2.44 points (ours) and 0.64 (WeSep) against a +-8 interval:
+  the judge cannot tell the settings apart. It is ROBUST to the artefacts that
+  wreck the ASR, and robustness means less exploitable structure, not more.
+  Measure with it; do not train against it on this axis.
+
+  Numbers: `TSE-listener-panel` worktree,
+  `experiments/results/2026-09-21-holes-{,wesep-}{asr,gemini-3.7-flash}-*`.
+  NOT BOOTSTRAPPED. The judge differences are smaller than its own filter noise
+  (1 permanent block + 4 transient refusals across these arms), which is J5's
+  unmeasured third noise source. Do not quote "mild wins" without it.
 - **#17 THE LEAK/FABRICATION TRADE IS THE STRONGEST METRIC RESULT WE HAVE.**
   One knob (mask hysteresis), three settings, same estimates, same 103 trials,
   same judge, same day. Word error is FLAT — 26.92 / 26.28 / 26.60, a 0.64-point
