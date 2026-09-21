@@ -209,6 +209,26 @@ training:
                         # adding it means editing the architecture frozen on
                         # 2026-08-28. project-state.md's claim that both are
                         # config-level is wrong.
+  # lr_schedule_on: present_branch
+  #   WHICH NUMBER ReduceLROnPlateau WATCHES. Absent => `total`, which is what
+  #   every run before 2026-09-21 used and what this file must keep so its
+  #   curves stay comparable.
+  #
+  #   `total` IS THE WRONG NUMBER and the project already knows it. It contains
+  #   L_abs, L_abs rewards silence, and selection_score's docstring spends two
+  #   paragraphs on why that cannot rank a model -- the total keeps falling as
+  #   the model goes quiet long after separation stopped improving. Selection
+  #   was fixed 2026-08-30; the schedule was not, so the two disagreed for three
+  #   weeks. MEASURED: the 14.73 M run halved its lr at epoch idx 13 on it.
+  #
+  #   NOT `separation` (L_pres alone) either, though it is available: measured
+  #   2026-08-30 and rejected because it is computed only on target-present
+  #   crops, so it leaves absent behaviour unconstrained. A schedule watching
+  #   only separation holds the lr up while the model learns to shout through
+  #   silence.
+  #
+  #   New arms should set `present_branch`, matching select_on so the schedule
+  #   and the selector cannot drift apart again. decisions-m2.md 2026-09-21.
   lr_factor: 0.5        # ReduceLROnPlateau on val total
   lr_patience: 3        # must stay < patience or training stops before the
                         # lr ever drops

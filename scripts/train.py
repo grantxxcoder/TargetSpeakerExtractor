@@ -574,6 +574,40 @@ def epoch_report(sums, counts, w, wm, wg):
     }
 
 
+def lr_schedule_metric(val_loss, config):
+    """The number `ReduceLROnPlateau` watches. Config key `lr_schedule_on`.
+
+    WHY THIS EXISTS. Until 2026-09-21 the scheduler stepped on
+    `val_loss["total"]` directly, which is the quantity `selection_score`'s own
+    docstring spends two paragraphs explaining is unfit for ranking models --
+    `total` contains `L_abs`, `L_abs` rewards silence, so it keeps falling as
+    the model goes quiet long after separation has stopped improving. Selection
+    was fixed on 2026-08-30; the schedule was not, so the two disagreed for
+    three weeks. MEASURED CONSEQUENCE: the 14.73 M run halved its lr at epoch
+    idx 13 (`2026-09-21-train-sir0-wesepref/history.csv`) on a number a model
+    can improve by muting itself.
+
+    DEFAULTS TO `total`, deliberately. Changing the schedule changes training
+    dynamics, so every config written before 2026-09-21 must keep the behaviour
+    it actually ran under or its curves stop being comparable. New arms opt in
+    with `lr_schedule_on: present_branch`.
+
+    NOT `separation` (L_pres alone), even though it is available and sounds like
+    the obvious choice. `selection_score` records it being measured on
+    2026-08-30 and rejected: computed only on target-present crops, it leaves
+    absent behaviour unconstrained and picks epochs that are loud on crops where
+    the target never speaks. The same objection applies here -- a schedule that
+    only sees separation would hold the lr up while the model learns to shout
+    through silence.
+
+    The modes and their arithmetic are `selection_score`'s, reused rather than
+    re-derived, so the schedule and the selector cannot drift apart again.
+    """
+    mode = str(config["training"].get("lr_schedule_on", "total"))
+    shim = {**config, "training": {**config["training"], "select_on": mode}}
+    return selection_score(val_loss, shim)
+
+
 def selection_score(val_loss, config):
     """The number that decides which epoch's weights we KEEP. Not a loss.
 
@@ -841,7 +875,10 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
               file=sys.stderr, flush=True)
 
         if scheduler is not None:
-            scheduler.step(val_loss["total"])
+            # NOT val_loss["total"] -- see lr_schedule_metric(). Defaults to
+            # `total`, so this is a no-op for every config written before
+            # 2026-09-21.
+            scheduler.step(lr_schedule_metric(val_loss, config))
 
         # A SECOND checkpoint, written every epoch regardless of improvement.
         #

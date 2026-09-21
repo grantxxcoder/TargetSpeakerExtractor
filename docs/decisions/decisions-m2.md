@@ -2698,3 +2698,57 @@ measured 2.534 GB/trial, 1.18x the baseline's 2.15.
 `models/model_sir0_wesepref-e10.pt` (selected) and `-last.pt`. The top-3
 insurance checkpoints e007/e012 were discarded — e010 is the selected epoch and
 is already kept, and the other two were epochs the selection rule rejected.
+
+---
+
+## 2026-09-21 — The LR scheduler was watching the number selection refuses to rank on
+
+**`scripts/train.py:844` stepped `ReduceLROnPlateau` on `val_loss["total"]`.**
+That is the quantity `selection_score`'s own docstring spends two paragraphs
+explaining cannot rank a model: `total` contains `L_abs`, `L_abs` rewards
+silence, so it keeps falling as the model goes quiet long after separation has
+stopped improving.
+
+**Selection was fixed on 2026-08-30. The schedule was not.** The two disagreed
+for three weeks and nothing noticed, because a learning rate that drops for the
+wrong reason produces a run that looks entirely normal.
+
+**MEASURED CONSEQUENCE.** The 14.73 M run halved its lr at epoch idx 13
+(`2026-09-21-train-sir0-wesepref/history.csv`, `lr` 5.00e-04 -> 2.50e-04) on a
+number a model can improve by muting itself. Idx 13's `L_abs` was -13.60, the
+second quietest of the run, while separation had fallen to -2.285.
+
+### The fix
+
+New key `training.lr_schedule_on`, dispatched through **`selection_score`'s own
+arithmetic** rather than re-derived, so the schedule and the selector cannot
+drift apart again. `lr_schedule_metric()` is a thin shim over it.
+
+**Defaults to `total`.** Changing the schedule changes training dynamics, so
+every config written before today keeps the behaviour it actually ran under and
+its curves stay comparable. New arms opt in with `present_branch`. Documented as
+a commented block in `bsrnn_baseline.yaml` — the key is deliberately ABSENT
+there, not set.
+
+### NOT `separation` (L_pres alone), and the reason is already in the repo
+
+It was the obvious candidate and `selection_score` records it measured on
+2026-08-30 and rejected: computed only on target-present crops, it leaves absent
+behaviour unconstrained and picks epochs that are loud on crops where the target
+never speaks. The same objection applies to a schedule — one watching only
+separation would hold the lr up while the model learns to shout through silence.
+Mode kept reachable, not recommended.
+
+### Not applied to the estimator probe, deliberately
+
+`bsrnn_estimator_probe.yaml` must differ from the 14.73 M arm in `n_hidden`
+alone. Adding a second change would break the single-variable comparison it
+exists to make.
+
+### Tests
+
+`tests/test_lr_schedule_metric.py`, 5 cases. The load-bearing one constructs two
+epochs identical on every present-crop term where the second is merely quieter
+on silent-target crops: `total` scores that as an improvement, `present_branch`
+is unmoved. A final test asserts all three modes agree with `selection_score`,
+so a future re-derivation here fails rather than silently reintroducing the bug.
