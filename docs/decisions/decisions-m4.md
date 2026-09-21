@@ -151,6 +151,58 @@ Still not licensed: any claim about what is inside any model, and any claim of
 generalisation beyond the five listeners actually measured. The CLAUDE.md
 carry stands — *optimised for Gemini*, never *generalises to live models*.
 
+### MEASURED 2026-09-21 — CORRECTION. Per-trial DIFFICULTY is reliable; only small within-trial contrasts are not
+
+**Grant's objection, and the earlier wording in this file was wrong.** "Per-trial
+`alpha*` is unmeasurable" was allowed to generalise into "per-trial judge
+readings are noise", which then blocked data curation. It should not have.
+
+**Variance decomposition, 28 trials x 5 repeats, mixtures:**
+
+| component | sd (WER points) |
+|---|---|
+| judge noise, within-trial | 17.8 |
+| **TRUE difficulty, between-trial** | **64.6** |
+
+| k | reliability (ICC) | corr(measured, true) |
+|---|---|---|
+| **1** | **0.93** | **0.96** |
+| 3 | 0.98 | 0.99 |
+
+**Trials differ enormously in difficulty, so a single reading ranks them
+almost perfectly.** What fails is only a contrast whose TRUE effect is small:
+two alphas on one trial differ by a few points against 17.8 of noise. The test
+is signal-to-noise for the contrast, never whether the claim is "per-trial".
+
+**Unblocked by this:** hard-example mining, curriculum, difficulty-stratified
+analysis, filtering trials the judge cannot do at all.
+**Still blocked:** per-trial `alpha*`, per-trial ranking of near-tied systems.
+
+### And difficulty TRANSFERS between listeners, which makes curation free
+
+Per-trial difficulty, `gemini-3.7-flash` vs `small.en`, same 103 trials, no new
+calls:
+
+| alpha | Pearson | Spearman |
+|---|---|---|
+| 0 | 0.883 | 0.812 |
+| 0.25 | 0.893 | 0.839 |
+| 0.5 | 0.624 | 0.746 |
+| 0.75 | 0.407 | 0.803 |
+| 1 | 0.779 | 0.690 |
+
+**The listeners agree on WHICH clips are hard while disagreeing on HOW MUCH a
+given distortion hurts.** Spearman stays 0.75–0.80 at alpha 0.5 and 0.75 where
+Pearson falls to 0.62 and 0.41: the ordering survives, the magnitudes diverge.
+That is the alpha=0.5 divergence (entry above) seen from a second angle, and the
+two readings agree.
+
+**Consequence: curation costs nothing.** Difficulty does not have to be bought
+from the judge — `small.en` supplies it deterministically across all 4,930
+`sir0_train` trials for free. Reserve judge calls for what only the judge can
+answer, which is how much each KIND of damage costs it.
+
+
 ### MEASURED 2026-09-21 — the alpha sweep through the judge. A NEGATIVE result, honestly
 
 **`gemini-3.7-flash`, `sir0_val` `both`, n=103, k=1, 515 calls, ~15 min.**

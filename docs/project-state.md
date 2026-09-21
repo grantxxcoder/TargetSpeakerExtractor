@@ -316,9 +316,18 @@ What it buys over the offline ASR:
    identical calls**: mean range **27.3** WER points, median 15.5, worst 127.6,
    pooled sigma 17.3. Against the 59.4-point floor-to-ceiling gap that is a pass,
    but the worst clip exceeds the gap.
-   **What it forbids is unchanged and now quantified: no per-trial claim.**
-   Ranking two systems within ONE trial carries SE 24.5 points. Aggregate claims
-   are fine — averaging 103 trials gives +/- 4.73 on a system difference.
+   **What it forbids, stated precisely — it is NOT "no per-trial claim".**
+   The test is signal-to-noise for the particular contrast, not whether the
+   claim is per-trial:
+   - *Which trials are hard?* True difficulty spread is **sd 64.6** WER points
+     against 17.8 of noise, so **ICC 0.93 at k=1** and a single reading ranks
+     trials at r=0.96 with the truth. **Reliable. Curation and hard-example
+     selection are available.**
+   - *Which of two similar systems is better ON one trial?* The true difference
+     is a few points against the same 17.8, SE 24.5. **Hopeless at any
+     affordable k.**
+   Aggregate claims are fine either way: averaging 103 trials gives +/- 4.73 on
+   a system difference.
 
 Three live-model behaviours an ASR cannot exhibit, all reportable findings:
 
