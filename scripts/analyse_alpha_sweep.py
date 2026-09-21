@@ -172,6 +172,12 @@ def main():
                              "current model untouched")
     parser.add_argument("--cache", default=str(DEFAULT_CACHE))
     parser.add_argument("--references", default=str(REFERENCES))
+    parser.add_argument("--material", type=float, default=5.0,
+                        help="WER points. A shape difference smaller than this "
+                             "is treated as practically irrelevant, so the "
+                             "interval must EXCLUDE it before separability is "
+                             "claimed. Default 5, against an alpha curve that "
+                             "spans about 6 points.")
     parser.add_argument("--draws", type=int, default=10000)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
@@ -327,17 +333,61 @@ def main():
               f"{common_alphas[base]:g}. Non-zero = the listeners")
         print(f"   disagree about what that alpha does, i.e. alpha* is "
               f"listener-specific.")
-        print(f"   {'alpha':>6} {'DiD':>8} {'95% CI':>18} {'p':>8}")
-        any_sig = False
+        # THREE VERDICTS, NOT TWO. "p > 0.05" alone does not mean the listeners
+        # agree -- it can equally mean the test could not tell. Separability is
+        # a claim that the difference is SMALL, so it needs the interval to
+        # exclude a material difference, not merely to include zero. Without
+        # this an 8-point divergence with a CI spanning [-21, +1] reads as
+        # "no shape difference", which is the wrong conclusion drawn confidently.
+        print(f"   material difference threshold: {args.material:g} points "
+              f"(--material to change)")
+        print(f"   {'alpha':>6} {'DiD':>8} {'95% CI':>18} {'p':>8}  verdict")
+        verdicts = []
         for j, a in enumerate(common_alphas):
             if j == base:
                 continue
             did = (ca[:, j] - ca[:, base]) - (cb[:, j] - cb[:, base])
             lo, hi = np.percentile(did, [2.5, 97.5])
             p = max(2 * min((did <= 0).mean(), (did >= 0).mean()), 1.0 / args.draws)
-            any_sig |= p < 0.05
-            print(f"   {a:6g} {did.mean():8.2f}   [{lo:6.2f}, {hi:6.2f}] {p:8.4f}")
-        print(f"\n   -> {'Listeners DIFFER in shape: alpha* is listener-specific.' if any_sig else 'No detectable shape difference: alpha* may be SEPARABLE (shared shape, per-listener level).'}")
+            if p < 0.05:
+                verdict, tag = "DIFFER", "differ"
+            elif max(abs(lo), abs(hi)) < args.material:
+                verdict, tag = "agree (equivalent)", "agree"
+            else:
+                verdict, tag = "UNDERPOWERED -- no conclusion", "unknown"
+            verdicts.append(tag)
+            print(f"   {a:6g} {did.mean():8.2f}   [{lo:6.2f}, {hi:6.2f}] "
+                  f"{p:8.4f}  {verdict}")
+
+        if "differ" in verdicts:
+            print("\n   -> Listeners DIFFER in shape: alpha* is listener-specific.")
+        elif "unknown" in verdicts:
+            n_now = len(common_trials)
+            print("\n   -> UNDERPOWERED. The interval still admits a material "
+                  "difference, so this is")
+            print("      NOT evidence that the listeners agree. Do not record "
+                  "separability on it.")
+            # n needed for the widest inconclusive cell to exclude zero
+            worst, need = 0.0, None
+            for j, a in enumerate(common_alphas):
+                if j == base:
+                    continue
+                did = (ca[:, j] - ca[:, base]) - (cb[:, j] - cb[:, base])
+                se = did.std(ddof=1)
+                effect = abs(did.mean())
+                if effect > worst and se > 0:
+                    worst = effect
+                    need = int(np.ceil(n_now * (1.96 * se / effect) ** 2))
+            if need:
+                print(f"      Largest divergence is {worst:.2f} points. Resolving "
+                      f"it at 95% needs ~{need} trials")
+                print(f"      scored by BOTH listeners; you have {n_now}.")
+        else:
+            print("\n   -> Listeners AGREE within the material threshold: alpha* "
+                  "looks SEPARABLE")
+            print("      (shared shape, per-listener level). This is a positive "
+                  "equivalence result,")
+            print("      not merely a failure to reject.")
         print("   Feeds the branch table in decisions-m4.md 2026-09-21.")
 
 
