@@ -116,6 +116,18 @@ def collect(arms, references, judge, asr, est_root, asr_model="small.en"):
     return out
 
 
+def holm(pvalues):
+    """Holm-Bonferroni over the five arm-vs-control comparisons per listener."""
+    order = np.argsort(pvalues)
+    m = len(pvalues)
+    adjusted = np.empty(m)
+    running = 0.0
+    for rank, idx in enumerate(order):
+        running = max(running, (m - rank) * pvalues[idx])
+        adjusted[idx] = min(running, 1.0)
+    return adjusted
+
+
 def boot_matrix(curves, arms, trials, draws):
     errs = {a: np.array([curves[a][t][0] for t in trials], float) for a in arms}
     wrds = {a: np.array([curves[a][t][1] for t in trials], float) for a in arms}
@@ -203,9 +215,28 @@ def main():
         print(f"     -> argmin {arms[best]}, {100*wins[best]:.1f} % vs null "
               f"{100*nulls[best]:.1f} %")
 
+    print(f"\n2b. WITHIN EACH LISTENER: each arm vs {CONTROL}")
+    print("    Holm-corrected over the five comparisons. Added 2026-09-21 after")
+    print("    Grant asked whether the small movements were significant at all --")
+    print("    the curve and the argmin do not answer that, and the answer")
+    print("    changed the claim.")
+    base = arms.index(CONTROL)
+    for listener, label in (("judge", args.judge), ("asr", "small.en")):
+        others = [j for j in range(len(arms)) if j != base]
+        diffs = [boot[listener][:, j] - boot[listener][:, base] for j in others]
+        pvals = np.array([max(2 * min((d <= 0).mean(), (d >= 0).mean()),
+                              1.0 / args.draws) for d in diffs])
+        adjusted = holm(pvals)
+        print(f"\n    {label}:")
+        print(f"      {'arm':<16} {'diff':>7} {'95% CI':>18} {'p(Holm)':>9}  verdict")
+        for slot, j in enumerate(others):
+            lo, hi = np.percentile(diffs[slot], [2.5, 97.5])
+            v = "SIGNIFICANT" if adjusted[slot] < 0.05 else "not distinguishable"
+            print(f"      {arms[j]:<16} {point[listener][j] - point[listener][base]:7.2f}"
+                  f"   [{lo:6.2f},{hi:6.2f}] {adjusted[slot]:9.4f}  {v}")
+
     print(f"\n3. DIFFERENCE-IN-DIFFERENCES vs {CONTROL}  (the registered test)")
     print("   negative = the judge likes this arm MORE than small.en does")
-    base = arms.index(CONTROL)
     print(f"   {'arm':<16} {'DiD':>8} {'95% CI':>18} {'p':>8}  verdict")
     verdicts = []
     for j, a in enumerate(arms):

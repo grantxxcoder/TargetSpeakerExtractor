@@ -185,19 +185,48 @@ model.** M6's first answer (2026-09-03) was that no instrument inverts the
 ranking of two SYSTEMS. This inverts the ranking of a system against the FLOOR,
 which is the stronger form, and it carries p = 0.0048.
 
-### What was NOT confirmed, and the registered wording required checking
+### CORRECTED — what was NOT confirmed, on Grant's challenge
 
-The prediction was that the judge's optimum would sit strictly more aggressive
-than the ASR's. **It does — `hystfix-mild` against `hyst-control` — but that
-particular gap is 0.72 points at p = 0.109 and is NOT callable at n=103**, exactly
-as the gate-2 entry warned. The judge's argmin distribution splits 57.1 % mild /
-34.9 % control (nulls 14.7 % / 16.4 %); `small.en`'s is 92.9 % control (null
-11.5 %).
+**Grant asked whether the movements were significant at all. They mostly are
+not, and the answer changed the claim.** The curve and the argmin distribution
+cannot answer it; the within-listener arm-vs-control tests can, and were added to
+`analyse_holes_panel.py` as section 2b afterwards.
 
-**So the honest claim is "the listeners disagree about what aggressive processing
-COSTS", not "the judge prefers mild sharpening".** The optimum difference is
-directionally right and statistically unresolved; the cost difference at hard
-settings is what carries the result.
+Each arm against `hyst-control`, paired bootstrap, Holm over five comparisons:
+
+| arm | judge diff | p(Holm) | `small.en` diff | p(Holm) |
+|---|---|---|---|---|
+| floor0.20 | **+8.10** | **0.010** | +4.02 | 0.188 |
+| floor0.10 | **+6.45** | **0.047** | +3.70 | 0.188 |
+| floor0.05 | +4.63 | 0.130 | **+5.22** | **0.003** |
+| hystfix-mild | −0.76 | 1.000 | +5.84 | 0.188 |
+| hystfix-sharp | +1.29 | 1.000 | **+17.72** | **0.0005** |
+
+**"The judge prefers mild sharpening" is NOT SUPPORTED.** Neither sharpening arm
+differs from the control for the judge — mild −0.76 and sharp +1.29, both
+p = 1.000 after correction. The 57.1 % argmin share for mild is a preference the
+data cannot resolve, exactly the trap the null calibration exists to expose.
+
+**What IS significant, and it is two things:**
+
+1. **Asymmetric damage.** Hard sharpening costs `small.en` **+17.72 points
+   (p = 0.0005)** and the judge **+1.29 (not distinguishable from zero)**. That
+   asymmetry is what the −16.77 DiD (p = 0.0048) measures.
+2. **Filling holes hurts the JUDGE specifically.** floor0.20 +8.10 (p = 0.010)
+   and floor0.10 +6.45 (p = 0.047), where `small.en` does not care about those
+   arms at all (p = 0.188). This was underplayed in the first write-up and is a
+   positive result, not a null.
+
+**THE CLAIM, RESTATED.** Not *"the judge prefers harder sharpening"* — a
+preference, unsupported. But: **"the interferer can be cut as hard as you like
+without measurably hurting the judge, while the same setting destroys a
+conventional ASR; and holes must NOT be filled with the mixture, which
+measurably hurts the judge and does nothing for the ASR."**
+
+That is a PERMISSION plus a PROHIBITION rather than an optimum, and it is what a
+system designer actually needs. It is also weaker than the first draft of this
+entry, which is why the correction is recorded rather than the wording quietly
+changed.
 
 ### Two caveats that must travel with the headline
 
