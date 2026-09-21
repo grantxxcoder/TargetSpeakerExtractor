@@ -27,6 +27,26 @@ written after it.
 - **#12 Introduction** — stub. Settle the "metric is the contribution,
   extractor is the vehicle" framing here.
 - **#13 Conclusion** — stub.
+- **#17 THE LEAK/FABRICATION TRADE IS THE STRONGEST METRIC RESULT WE HAVE.**
+  One knob (mask hysteresis), three settings, same estimates, same 103 trials,
+  same judge, same day. Word error is FLAT — 26.92 / 26.28 / 26.60, a 0.64-point
+  range against a +-8 interval — while leakage improves monotonically
+  (ICR@2 23.30 -> 18.45, mean leak 12.87 -> 9.43) and fabrication worsens
+  monotonically (FR@2 40.20 -> 44.66, invented/trial 1.80 -> 2.28).
+  **The composition of the error changes completely underneath a headline that
+  does not move:** insertions fall 8.73 -> 6.52 while substitutions rise
+  10.56 -> 13.45, and they very nearly cancel. Removing the interferer and
+  damaging the target's words in equal measure.
+  **A system chosen on LCF-WER alone would call these three interchangeable.**
+  That is the case for J4's metric system and for B13's "a headline aggregate
+  must never appear alone", demonstrated rather than asserted — and on WeSep,
+  so it does not depend on our own extractor being weak.
+  Replicates the same trade already logged on our baseline family
+  (decisions-m4.md, FR@2 34.31 -> 51.46). Two system families, one pattern.
+  Numbers: `TSE-listener-panel` worktree,
+  `experiments/results/2026-09-21-holes-wesep-gemini-3.7-flash-*`.
+  NOT YET BOOTSTRAPPED — monotonicity over three settings is not a
+  significance test. Run bootstrap_difference.py before quoting.
 - **#16 O4 — WE ARE THE REAL-TSE BASELINE, and this reframes the negatives.**
   Our model IS `BSRNN_TFMAP_CAUSAL`, the challenge's own causal baseline. So the
   three negative M5 results (state teacher, mask structure, capacity) are not
