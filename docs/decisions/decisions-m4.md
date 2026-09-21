@@ -150,6 +150,55 @@ Still not licensed: any claim about what is inside any model, and any claim of
 generalisation beyond the five listeners actually measured. The CLAUDE.md
 carry stands — *optimised for Gemini*, never *generalises to live models*.
 
+### MEASURED 2026-09-21 — GATE 1 PASSED. The judge is not reciting LibriSpeech
+
+**`gemini-3.7-flash`, text in / text out, no audio, 94 calls, seed 42, AI Studio
+paid.** `scripts/probe_contamination.py`,
+`experiments/results/2026-09-21-contamination-probe-gemini-3.7-flash/`.
+94 of 103 trials usable; 9 dropped under the 20-word floor.
+
+| | matched (own remainder) | shuffled (another trial's) |
+|---|---|---|
+| word error | 132.47 % | 132.38 % |
+| mean longest exact run | 1.24 words | 0.99 words |
+
+**Gap −0.09 points against a registered threshold of 20. Verdict: no
+contamination.** Given five words of its own passage as text, the model's
+continuation is no closer to that passage than to a randomly chosen different
+one. **The 1.05 % judge ceiling is a listening result, and the tables that rest
+on it stand.**
+
+**The decisive number is the run histogram, not the word error.** Longest exact
+run was 0–1 words on 69 of 94 trials, reached 5 words once, and never exceeded
+it. Recital of a memorised passage produces runs of tens of words. This reading
+needs no baseline and carries no WER noise.
+
+**The per-trial word-error gap is noise and must not be mined.** 18 trials show
+a gap above +20 points, which looks like memorisation until you count the other
+tail: 14 trials are below −20, i.e. the continuation matched a *stranger's*
+passage better than its own, which is impossible as a real effect. Two-sided,
+stdev 58.8 points. WER on ~30-word references with free-running continuations is
+simply this noisy. **Quote the aggregate and the run histogram; do not quote a
+per-trial gap.**
+
+**What this does NOT rule out, stated because it is the probe's real limit.**
+It tests recall from a five-word TEXT cue. It does not rule out recognition
+triggered by ~13 s of AUDIO, which is a far stronger retrieval key. A verbatim
+five-word opening of a distinctive literary sentence is a reasonable key and the
+null is meaningful, but it is not airtight. The normalised prefix
+(`harry gave his farewells with`) is also lower-cased and unpunctuated, slightly
+unlike the printed text.
+
+**Cheap hardening, not run:** repeat at `--prefix-words 15`. ~94 calls. If a
+fifteen-word verbatim cue also fails to retrieve the passage, audio-triggered
+recall becomes very hard to argue for. Worth doing before the thesis claims the
+ceiling is clean, since every headroom number depends on it.
+
+**Also open:** the same probe against a Pro tier, to test whether a larger model
+in the same family recites more. Lower priority now the flagship result is this
+flat.
+
+
 ### MEASURED 2026-09-21 — the panel is THREE request shapes, not one
 
 **Probed with one real audio call per model** (`scripts/enumerate_models.py
