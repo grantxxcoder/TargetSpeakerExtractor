@@ -94,7 +94,11 @@ RESUME_FROM = None    # e.g. "/kaggle/input/prev-run/models/model_sir0.pt"
 
 # THE CONFIG THAT TRAINS, and the arm the run is. bsrnn_baseline.yaml is the
 # w_struct=0 control; bsrnn_struct.yaml is the structure-loss arm (w_struct
-# 46.2981, derived 2026-09-13 by scripts/derive_w_struct.py).
+# 46.2981, derived 2026-09-13 by scripts/derive_w_struct.py);
+# bsrnn_wesep_ref.yaml is the 14.73 M capacity arm and the ONLY config that
+# turns data_parallel on -- leaving this line at bsrnn_baseline.yaml runs the
+# 7.19 M model on one card, which is a silently wrong arm rather than a crash.
+# decisions-m2.md 2026-09-21.
 #
 # Declared ONCE and threaded through the staging check, the batch probe, the
 # training call and the archived copy. It was hardcoded to bsrnn_baseline.yaml
