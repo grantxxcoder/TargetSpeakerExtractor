@@ -13,10 +13,40 @@ offline ASR that produces them are M3 (`decisions-m3.md`). Keeping them apart is
 what stops the divergence result of `metric-definitions.md` 6 from being an
 argument about one instrument measuring itself.
 
-**Standing constraint on everything in this file (CLAUDE.md).** The judge model
-never appears in the training loop, in any form, including as a proxy or a data
-filter. Every judge result records the exact model ID, the exact prompt, the
-input modality and the run date, because closed models change silently.
+**Standing constraint on everything in this file (CLAUDE.md), amended
+2026-09-15.** The judge is NO LONGER held out from training — see the
+2026-09-15 entry below. What survives: `sir0_privval` and `eval_private` are
+never touched by training, and every judge result records the exact model ID,
+the exact prompt, the input modality and the run date, because closed models
+change silently.
+
+---
+
+## 2026-09-15 — The judge is no longer held out. Family separation withdrawn
+
+**Decision: Gemini may be used inside the training loop** — as teacher, reward
+signal, data filter or checkpoint-selection criterion. Supervisor approved
+over-optimising for a single model family. This reverses CLAUDE.md's
+"never appears in the training loop" rule and the 2026-08-31 restatement of it
+further down this file.
+
+**What it costs, stated plainly.** The primary contribution was a
+*gaming-resistant* metric, and the guarantee behind that word was that the
+judge never saw training. That guarantee is gone. A system trained against
+`gemini-3.7-flash` and scored on `gemini-3.7-flash` measures how well we fitted
+one listener, not how intelligible the audio is. **Every claim must now say
+*optimised for Gemini*, never *generalises to live models*.**
+
+**What replaces it — the holdout moves from the model to the data.**
+`sir0_privval` (n=1421) and `eval_private` are never scored, filtered or
+selected on during training. A number on those trials is still honest about
+generalisation *across trials and speakers*, which is the only holdout claim
+left. Losing that too would leave nothing defensible, so it is now the binding
+constraint.
+
+**Unchanged:** Gemini still cannot be backpropagated through, so it can never
+be a loss term. Every training-time Gemini call records model ID, prompt and
+date, exactly as a judge call does.
 
 ---
 

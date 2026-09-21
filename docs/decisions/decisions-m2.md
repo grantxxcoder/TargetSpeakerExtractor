@@ -14,6 +14,11 @@ the same commit.
 onward is the objective failing, being diagnosed and being repaired. Read them in
 date order or the repairs will not make sense.
 
+**2026-09-15 — what may supervise training changed.** Gemini is no longer held
+out; it may act as teacher, reward, data filter or selection criterion. It still
+cannot be a loss term (not differentiable), and `sir0_privval`/`eval_private`
+remain untouchable. Decision and its cost: `decisions-m4.md` 2026-09-15.
+
 ---
 
 ## 2026-08-20 — M2 training objective: three terms, six deviations from CARTSE
@@ -2165,3 +2170,100 @@ not improve". The same applies to the −3.88 ICR@2 in the arm's favour.
 insertions. A live conversational model may weigh them differently — in either
 direction. The arm passed the leakage gate, so the judge run is now the
 interesting question rather than a formality.
+
+---
+
+## 2026-09-15 — D17's structure term CANNOT SEE the difference it was built to make. D18 answered from data already on disk
+
+**In plain words: the model was given an extra instruction — "make your mask
+vary across frequency the way the perfect mask does" — and the instruction
+turned out to be unable to tell a detailed mask apart from a featureless one.
+On half the audio it actually preferred the featureless one. The model then did
+what it was told and made its mask more featureless.**
+
+**No new run.** The measurement was already in
+`experiments/results/2026-09-13-wstruct-anchor-sir0`, written by
+`scripts/derive_w_struct.py`, which scores `L_struct` on three reference masks.
+This entry re-reads it; `per_crop.csv` had never been opened.
+
+### The three anchors, and the margin between them
+
+| `L_struct` scored on | value | |
+|---|---|---|
+| a **flat** mask — zero frequency deviation everywhere | 0.16537 | |
+| **the model's own** mask | **0.16472** | better by **0.39 %** |
+| the **oracle** mask | 0.0 | the term's true optimum |
+
+**0.39 % is the entire range the term had to work with** at the point where the
+model actually sits. It was then weighted, by `scripts/derive_w_struct.py`, to
+take **15 % of the parameter gradient** (`w_struct` = 46.2981).
+
+### The per-crop table, which is where the mean lies
+
+25 batches / 50 crops, `sir0`, `model_sir0_10000-e6`:
+
+| | |
+|---|---|
+| crops where a **flat mask scores BETTER** than the model's | **13 of 25** |
+| median gap (flat − model; positive = model better) | **−0.0023 — NEGATIVE** |
+| mean gap | +0.00065 |
+| range | −0.064 to +0.070 |
+
+**On the typical crop the flat mask wins.** The mean is positive only because a
+handful of crops swing hard in the model's favour. **A term whose sign flips on
+half its data is not a training signal, it is a coin flip**, and it was bought
+at 15 % of the gradient.
+
+### The mechanism, and it predicts the direction the mask actually moved
+
+`_loss_mask_shape` is an **L1** between the model's mean-removed frequency shape
+and the oracle's. An L1 gradient has **constant magnitude regardless of how wrong
+the prediction is** — only its sign carries information. So when the model cannot
+predict the sign of the oracle's deviation in a cell, it receives a fixed-size
+push in an effectively random direction, and the L1-optimal response under that
+uncertainty is the **conditional median of the oracle deviation, which is ~0**.
+Not deviating at all is the cheapest way to stop being punished for deviating
+wrongly.
+
+**Measured, and this is the confirmation:** the arm's mask variation across
+frequency **halved** (`d_freq` 0.0253 → 0.0121) and freq/time fell 0.616 → 0.306
+against an ideal of 1.014 (`2026-09-15-mask-flatness-struct`). The term was
+built to raise that number and it lowered it.
+
+### A CORRECTION to how 2026-09-13's number was read
+
+`decisions-m3.md` 2026-09-13 records `fraction_of_the_way_to_flat` = 0.9961 as
+**motivation** — the mask is 99.6 % of the way to a volume knob, so there is
+headroom. **The same number, read the other way, says the term has 0.4 % of
+usable range at the operating point.** Both readings are arithmetically correct
+and the second one is the one that predicts the outcome. The derivation was
+sound; what was missing was checking the anchor **spread** before spending a
+training run on the mean.
+
+### What this authorises
+
+- **D17 is explained, not merely null.** The judge could not separate the arm
+  from the baseline (55.36 against 55.59, inside the ~3-point paired floor), and
+  this says why: the term could not separate them either.
+- **The structure HYPOTHESIS is untested, not refuted.** It was never given a
+  loss capable of testing it. Any successor must be **scale-free across
+  frequency** — correlation or cosine, where a flat prediction scores *worst*
+  rather than indifferently — or must match the deviation's variance. An L1 or
+  L2 to an unpredictable target has a flat mask at its own conditional optimum
+  and will keep producing this result.
+- **A cheap pre-flight is now mandatory for any future auxiliary term:** score it
+  on a degenerate output and on the model's, PER CROP, and refuse to run the arm
+  if the sign flips on a material fraction. `derive_w_struct.py` already computes
+  this; nothing new is needed but reading it.
+
+### What it does NOT authorise
+
+**This says nothing about whether frequency structure helps content fidelity.**
+It says one particular loss could not deliver it. Flatness remains a property of
+the mask, not of what a listener transcribes, and only LCF-WER scores an
+intervention (`decisions-pending.md` 2026-09-13).
+
+**And `train_L_struct` is absent from `2026-09-14-train-sir0-struct/history.csv`**
+— the logging fix landed alongside the run — so whether the term descended during
+training is still unmeasured. The anchors are measured at the checkpoint, not
+along the trajectory.

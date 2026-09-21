@@ -12,12 +12,16 @@ Working setup:
 1. **Metric first.** The primary contribution is a defined, gaming-resistant
    metric for live-model content fidelity, plus the harness that computes
    it. See docs/data/metric-definitions.md.
-2. **Train with differentiable proxies; judge with the live model.** A live
-   API model cannot be backpropagated through, so it is a held-out judge
-   only. Training uses differentiable proxies (frozen-ASR/SSL feature
-   matching, optionally ASR cross-entropy, speaker and VAD terms).
-   **The proxy must be a different model family from the judge** — training
-   against your own evaluator makes the benchmark meaningless.
+2. **Train with differentiable proxies; Gemini may now supervise them.** A
+   live API model still cannot be backpropagated through, so it can never be
+   a loss term. Differentiable proxies (frozen-ASR/SSL feature matching,
+   optionally ASR cross-entropy, speaker and VAD terms) remain the gradient
+   path. **The family-separation rule is WITHDRAWN 2026-09-15** — supervisor
+   approved over-optimising for one model family, so Gemini may supply
+   targets, rewards, filters and selection criteria offline. Consequence to
+   carry: the benchmark is no longer held out from the system, so every claim
+   must say *optimised for Gemini*, never *generalises to live models*.
+   See docs/decisions/decisions-m4.md 2026-09-15.
 3. **Data is ours.** Training and primary eval are constructed mixtures
    (LibriSpeech-derived + real noise/reverb), because differentiable
    proxies need a clean target signal and exact ground-truth text — neither
@@ -84,8 +88,13 @@ real conversational TSE.
   stating that in the text condition the judge is close to a pass-through,
   so the number mostly reflects the front-end ASR, not the judge's
   listening.
-- The judge model must never appear anywhere in the training loop, in any
-  form, including as a proxy or a data filter.
+- Gemini may appear in the training loop — as teacher, reward, data filter
+  or checkpoint-selection criterion. The held-out-judge rule was withdrawn
+  2026-09-15. Two limits replace it, and they are what keep one defensible
+  number: (a) `sir0_privval` and `eval_private` trials are NEVER scored,
+  filtered or selected on during training — the holdout moves from the model
+  to the data; (b) every training-time Gemini call records model ID, prompt
+  and date exactly as a judge call does.
 - Prefer small, single-purpose PRs over large ones.
 - When generating text/markdown files, I do not want long explanations. Short, concise answers are
   always preferred unless expressly asked otherwise.
