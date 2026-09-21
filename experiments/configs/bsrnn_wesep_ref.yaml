@@ -26,11 +26,32 @@
 # would already be 58 % of the model -- larger than the six-layer separator.
 # This config spends on both, and stays inside the memory ceiling.
 #
-# PROJECTED, NOT MEASURED: ~2.86 GB/trial from the measured linear law
-# (0.12 GB fixed + 2.15 GB per trial, E3b-E3f) scaled by 1.33. Run
-# scripts/profile_step.py --amp-only before trusting any of it, and check its
-# ALIGNED verdict -- `examples x T` must stay divisible by 8 or the 4.09x
-# fallback kernel fires and the bigger model will look slow for the wrong reason.
+# MEASURED 2026-09-21 on Kaggle T4 x2, superseding the projection this block
+# used to carry. The notebook probe reports, at 5 trials per card, fp16:
+#
+#     batch 12: OOM  (6/card)
+#     batch 10: FITS   peak allocated 12.79 GiB, reserved 14.31 GiB  (5/card x 2)
+#
+# which gives 2.534 GB/trial ((12.79 - 0.12) / 5), i.e. 1.18x the 7.19 M
+# baseline's measured 2.15 GB/trial -- NOT the 1.33x projected here before.
+# The projection was 13 % pessimistic, for the reason the entry predicted:
+# L_MR's eight retained STFTs are a large share of the memory and do not scale
+# with LSTM width at all.
+#
+# The same law now predicts the OOM as well as the fit: 6/card needs
+# 0.12 + 6 x 2.534 = 15.32 GB against ~14.56 usable, so batch 12 cannot fit and
+# does not. Two independent points, one line.
+#
+# CAVEAT ON THAT 12.79. `_probe_batch.py` is a single process with NO
+# DataParallel wrapper, so it measures one card's share of the FORWARD but the
+# loss over only that share. The real run gathers to cuda:0 and computes
+# LossBSRNN over the FULL batch there, so cuda:0's true peak is higher by the
+# gather plus the full-batch loss -- a few hundred MB against 1.77 GB of
+# headroom. Not measured. The 2-epoch run is the test.
+#
+# Still check profile_step.py's ALIGNED verdict -- `examples x T` must stay
+# divisible by 8 or the 4.09x fallback kernel fires and the bigger model will
+# look slow for the wrong reason.
 #
 seed: 42
 

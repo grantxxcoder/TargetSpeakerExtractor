@@ -2437,3 +2437,90 @@ bug. `select_on: present_branch` and the `select_abs_max` silence bar stay on.
   disagrees with `training.amp`. The E8 bullet should be marked closed.
 - **`DistributedDataParallel` deferred**, as E7 records: better tool, needs
   `spawn` inside a Kaggle notebook, not worth it for two cards on one host.
+
+---
+
+## 2026-09-21 — The capacity arm sizes on Kaggle: batch 10 across two T4s, and the memory law predicts both ends
+
+**MEASURED**, notebook probe, `bsrnn_wesep_ref.yaml` (14,731,404 params), T4 x2, fp16:
+
+    DataParallel: 2 cards, probing the PER-CARD share (global batch = per-card x 2)
+      batch 12: OOM  (6/card)
+      batch 10: FITS   peak allocated 12.79 GiB, reserved 14.31 GiB, probed in amp  (5/card x 2)
+
+### Three things this confirms at once
+
+**E7 works.** Batch 10 cannot fit on one T4 under any config here -- the 7.19 M
+baseline's single-card fp16 ceiling was 6 at 13.02 GB, and 10 would need
+~21.6 GB. So the probe accepting 10 is direct evidence both cards carry load.
+Half the allocated hardware is no longer idle.
+
+**The arm that ran is the 14.73 M one, checkable from the number alone.** At
+5 trials/card the 7.19 M model would allocate 0.12 + 5 x 2.15 = 10.87 GB. The
+probe read 12.79. So this is not the baseline wearing a new config name.
+
+**The linear memory law now predicts a fit AND an OOM.** Per-trial is
+(12.79 - 0.12) / 5 = **2.534 GB**, so 6/card needs 0.12 + 6 x 2.534 = 15.32 GB
+against ~14.56 usable -- batch 12 cannot fit, and did not. Two independent
+points from one line.
+
+### A CORRECTION to this file's own projection, in the safe direction
+
+The 2026-09-21 entry above projected ~1.33x the baseline's activation cost from
+scaling by LSTM width. Measured, it is **1.18x** (2.534 against 2.15). The
+projection was 13 % pessimistic **for exactly the reason that entry gave**:
+`L_MR`'s eight retained STFTs are a large share of memory and do not scale with
+LSTM width at all. The caveat was right; the number was not. Quote 1.18x.
+
+### What the probe does NOT measure, and it matters at this margin
+
+`_probe_batch.py` is a single process with **no DataParallel wrapper**. It
+measures one card's share of the forward and the loss over *that share only*.
+The real run gathers to `cuda:0` and computes `LossBSRNN` over the **full**
+batch there -- which is required, not incidental, since the loss means over
+subsets and a per-device reduction would reweight them. So `cuda:0`'s true peak
+is higher than 12.79 GiB by the gather plus the full-batch loss.
+
+Estimated at a few hundred MB against 1.77 GB of headroom, so it should hold --
+but `reserved` already reads 14.31 GiB, which is 98 % of the card. **This is the
+tightest configuration this project has run.** The 2-epoch run is the test, and
+it is a real test: the probe already exercises fwd+bwd+step, so training is the
+binding case, not validation (which runs under `no_grad` and has no backward).
+
+**The cost of being wrong is bounded**: `_last.pt` is written every epoch with
+`global_step`, so an OOM loses at most one epoch and `--resume` recovers the
+schedule position. Dropping to batch 8 (4/card, 10.26 GB) costs almost nothing
+in throughput -- per-trial time is flat across this range (0.990/0.994/1.005
+s/trial at batch 3/5/6, E3b-E3f) -- so it is the cheap fallback, not a
+concession.
+
+### The `w` schedule rescale fired, and landed where it always has
+
+    w_schedule.warmup_steps 3316 -> 1990 (holding steps x batch = 19,896 examples)
+    w_schedule.ramp_steps   2487 -> 1493 (holding steps x batch = 14,922 examples)
+
+Both invariants match the original `6632 x 3` and `4974 x 3` exactly. At 9,955
+trials and batch 10 that is 995 steps/epoch, so warmup is **2.0 epochs** and the
+ramp **1.5**, reaching full `w` at epoch 3.5 -- the same position it occupied at
+batch 3 and at batch 6. The absent branch is fully engaged well before the
+expected peak. Without the rescale the warmup would have covered 3.3x the audio
+it was calibrated for, silently.
+
+### The notebook's stock NOTE is fine here, and should be read down
+
+It warns that batch 10 is "below the requested 12" so `L_abs` is a noisier
+estimate. True, but the comparison that matters is against what has actually
+run: every previous run was batch 3 or 6. **Batch 10 is the closest this project
+has ever been to the batch 12 `w = 0.458` was calibrated against**, so the
+absent-branch estimate is better than any run to date, not worse.
+
+### Learning rate deliberately NOT changed
+
+`lr: 0.0005` was set at batch 3 and the effective batch is now 3.3x that.
+Textbook scaling says raise it; this run does not, because (a) it would move two
+variables at once and `decisions-m1.md` 2026-08-18 records effective batch as a
+training-dynamics parameter whose silent change makes curves incomparable,
+(b) `ReduceLROnPlateau` (factor 0.5, patience 3) adapts downward anyway, and
+(c) the batch-6 structure run held the same lr and peaked at -4.201 held-out
+against the batch-3 baseline's -2.941. If this run underfits, raising lr is the
+first follow-up **as its own arm**.
