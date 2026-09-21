@@ -40,7 +40,7 @@ from src.live_model_metric.judge import DEFAULT_MODEL_ID, Judge     # noqa: E402
 # model, never to rule a candidate out. Anything unmatched is a candidate.
 NOT_AUDIO_IN = ("-tts", "-image", "image-", "lyria", "nano-banana", "gemma",
                 "robotics", "computer-use", "deep-research", "antigravity",
-                "/aqa", "-translate")
+                "/aqa", "-translate", "embedding", "veo-")
 
 # Socket-only. Judge speaks generateContent, so probing these here FAILS BY
 # DESIGN and tells you nothing. They need the Live client (decisions-m4.md

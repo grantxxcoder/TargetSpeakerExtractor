@@ -49,17 +49,43 @@ listener must commit as it goes. **J1 is reopened, not overturned** — the
 
 ### The panel
 
+**SETTLED 2026-09-21 by enumeration against the real key.** 52 models reachable;
+25 whole-clip candidates, 8 live/socket-only.
+
 | # | listener | surface | role |
 |---|---|---|---|
 | 0 | `small.en` | local | free control. A certainly-different encoder — sets the scale for "a real difference". Sweep already run 2026-09-01 |
 | 1 | `gemini-3.7-flash` | `generateContent` | the incumbent. 653 calls already cached |
-| 2 | TBD — a different Gemini generation or size tier | `generateContent` | picked to MAXIMISE expected difference from 1. A sibling model proves nothing if the optima match |
-| 3 | `gemini-3.8-live` | Live socket | the deployment condition the thesis is about |
-| 4 | `gemini-3.5-transcribe-live` | Live socket | purpose-built transcriber; the cleanest "what did you hear" instrument available |
+| 2 | `gemini-3.5-transcribe` | `generateContent` | **control arm of the matched pair** |
+| 3 | `gemini-3.5-transcribe-live` | Live socket | **treatment arm — the same transcriber, streamed** |
+| 4 | `gemini-3.8-live` | Live socket | the deployment condition the thesis is about |
 
-Listener 2's exact ID is set by enumerating the API, not by guessing. Any
-candidate must be confirmed to accept audio on `generateContent` with one call
-before it is budgeted.
+**Listeners 2 and 3 are the point, and they were not in the original design.**
+Enumeration turned up `gemini-3.5-transcribe` and `gemini-3.5-transcribe-live`:
+same generation, same purpose, differing only in whole-clip versus streaming.
+That is a MATCHED PAIR, and it isolates the single variable this panel exists to
+test. The comparison it replaces — `gemini-3.7-flash` against `gemini-3.8-live`
+— moves generation, purpose and modality at once, so a difference in `alpha*`
+could not have been attributed to any of them. Listeners 1 and 4 are kept as
+the generational and deployment ends; the causal claim rests on 2 versus 3.
+
+**The older-generation listener is dropped from the core panel**, superseding
+the reasoning earlier in this entry. `gemini-2.5-flash` remains available as an
+optional fifth at ~1,854 calls if the generation axis is wanted once the pair
+reports.
+
+**Pro is out of the panel and the question that put it there has dissolved:
+there is no `gemini-3.7-pro`.** The nearest Pro tier is `gemini-3.1-pro-preview`,
+a different generation, so the same-generation-sibling objection never applied.
+Pro is used instead as a text-only contamination comparison (gate 2), where a
+larger model in the same family is expected to recite more if recital is
+happening at all.
+
+**Operational trap, recorded because it costs money.** `models.list()` returns
+IDs prefixed `models/`, and the judge cache key is built from the ID as passed.
+`models/gemini-3.7-flash` is therefore a DIFFERENT listener from
+`gemini-3.7-flash` and silently re-buys all 653 cached calls. Bare IDs
+everywhere. `scripts/enumerate_models.py` prints this warning on every run.
 
 **Live listeners are read through `inputAudioTranscription`**, the Live API's
 transcript of its own INPUT stream. Two consequences for the record: there is no
