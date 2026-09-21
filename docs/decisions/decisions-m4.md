@@ -151,6 +151,50 @@ Still not licensed: any claim about what is inside any model, and any claim of
 generalisation beyond the five listeners actually measured. The CLAUDE.md
 carry stands — *optimised for Gemini*, never *generalises to live models*.
 
+### MEASURED 2026-09-21 — the WeSep CONTROL, `small.en` half. The ASR damage REPLICATES
+
+**Grant's objection: "my model might not be good enough for these deductions —
+what if the sharpening is just stopping it doing anything?"** The control is the
+same three arms applied to **WeSep**, which is 25 points ahead of our baseline
+and whose mask is not a broadband volume knob. Recorded before the judge half
+runs.
+
+`experiments/results/2026-09-21-wesep-*` (arms) and `-holes-wesep-asr-*`
+(scores). n=103, paired bootstrap, 10,000 draws, seed 42.
+
+| arm | WER | vs control | p | ICR@2 | mean leak | dels | ins |
+|---|---|---|---|---|---|---|---|
+| hyst-control | 34.49 | — | — | 16.50 | 9.22 | 9.87 | 7.33 |
+| hystfix-mild | 46.27 | **+8.01** | **0.0032** | 12.62 | 8.20 | 8.79 | 15.98 |
+| hystfix-sharp | 49.42 | **+14.37** | **0.0002** | 12.62 | 8.18 | 9.05 | 19.15 |
+
+**The ASR damage replicates on a much stronger extractor.** Hard sharpening cost
+`small.en` +17.72 points on our baseline and **+14.37 here**, both highly
+significant. This is not an artefact of our model's flat mask.
+
+**The MECHANISM replicates too, which is the stronger claim.** Insertions explode
+— 7.33 -> 19.15 — while deletions stay flat, 9.87 -> 9.05. Identical to the
+baseline family, where insertions went 19.00 -> 30.85 with deletions flat. **Hard
+masking damages an ASR by making it FABRICATE, not by removing speech**, on two
+independent extractors.
+
+### The boundary condition, and it was flagged in advance
+
+**WeSep has almost no leakage left to cut.** Mean leak 9.22 -> 8.18 and ICR@2
+16.50 -> 12.62: sharpening removes roughly one point of leakage here against the
+baseline's 34.51 -> 25.01. **So on WeSep the intervention is nearly pure cost.**
+
+That is the third outcome registered before the run, and it matters for how the
+design rule is stated: **the permission to cut hard is only WORTH anything where
+there is leakage left to remove.** On an extractor that has already removed it,
+sharpening has no upside on either listener — which is a sensible limit, not a
+contradiction.
+
+**Still open: the judge half.** If the judge also pays ~0 on WeSep, the
+permission holds but has nothing to buy there. If the judge pays as much as the
+ASR does, the permission was specific to our extractor's artefacts after all.
+
+
 ### MEASURED 2026-09-21 — THE RESULT. Aggressive masking wrecks the ASR and is nearly free for the judge
 
 **Both listeners, six arms, one checkpoint, the same 103 trials, k=1.**
