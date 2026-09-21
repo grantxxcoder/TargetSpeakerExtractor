@@ -362,6 +362,11 @@ def evaluate(split="sir0_val", condition="both", estimate_directory=None,
             "judge_modality": "audio-in / text-out",
             "judge_prompt_file": str(prompt_file),
             "judge_prompt_sha256_12": prompt_sha(kw.get("prompt_file")),
+            # Recorded per CLAUDE.md alongside model ID, prompt, modality and
+            # date: whether the listener answered through the JSON schema. A
+            # schema-free answer comes from a different request and is keyed
+            # under a marked backend, so this belongs in the provenance.
+            "judge_structured_output": kw.get("structured_output", "auto"),
         })
 
     for system in systems:

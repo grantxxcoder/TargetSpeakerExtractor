@@ -150,6 +150,54 @@ Still not licensed: any claim about what is inside any model, and any claim of
 generalisation beyond the five listeners actually measured. The CLAUDE.md
 carry stands — *optimised for Gemini*, never *generalises to live models*.
 
+### MEASURED 2026-09-21 — the panel is THREE request shapes, not one
+
+**Probed with one real audio call per model** (`scripts/enumerate_models.py
+--probe`, clean target of `sir0_val-42-000002`, AI Studio paid key):
+
+| model | schema | latency | status |
+|---|---|---|---|
+| `gemini-3.7-flash` | honours it | **unmeasured** — cache hit | `speech` |
+| `gemini-3.5-transcribe` | **rejects** it, 400 `invalid_request` | 4.6 s schema-free | transcript is correct |
+| `gemini-2.5-flash` | **ignores** it, returns bare text | 4.7 s | `unparsed` |
+
+**The matched pair survives.** `gemini-3.5-transcribe` was never refusing audio
+— it was refusing `response_format`. Dropping the schema returns the right
+transcript in 4.6 s. Listener 2 stands.
+
+**Three modes, and they are not interchangeable.** Handling added to `Judge` as
+`structured_output`: `"auto"` (send the schema, fall back permanently on an
+invalid-argument 400), `True`, `False`. A model that ignores rather than rejects
+the schema cannot be detected automatically, so `False` must be set explicitly
+for it — `gemini-2.5-flash` is that case.
+
+**What this actually changes, and it is the silence signal, not the parsing.**
+A schema-free listener has no `status` field: an EMPTY response is its only way
+to say "heard nothing". That is a *different mechanism* from the incumbent's,
+not a degraded one. `gemini-3.7-flash` has the structured field and was measured
+never to use it — 0 of 6 silent clips, entry below — inventing fluent prose
+instead, which is exactly what blunted NRR and forced FR to replace it. A
+listener that simply returns nothing reports silence more honestly. **Never sum
+a `no_speech` count across the two modes; say which mechanism produced it.**
+
+**Keying, and the 655 cached rows.** The mode is part of the instrument, so it
+is in the cache key — but only when it is non-default. Schema-free answers are
+written under `backend='aistudio!noschema'`; a schema'd call keys exactly as it
+did before 2026-09-21, so nothing already bought is re-bought. Verified: a
+default `Judge` still reports `key_backend='aistudio'` against 655 existing rows.
+`load_once_index` reads the `backend` COLUMN rather than the key string, so no
+CSV migration was needed and the header is unchanged.
+
+**Cost, now measured rather than projected.** ~4.6–4.7 s per whole-clip call, so
+1,854 calls is **~2.4 h of wall clock per listener**, serial. Money remains
+irrelevant; wall clock is the constraint, as expected.
+
+**Still unmeasured: `gemini-3.7-flash`'s own latency.** Every probe clip was
+already in the cache, and `--fresh` alone did not force a call because repeat
+keying starts at `r0` and a prior spread study had bought `r0`. Needs
+`--fresh --repeat 1`. Not load-bearing for the panel design.
+
+
 ---
 
 ## 2026-09-15 — The judge is no longer held out. Family separation withdrawn

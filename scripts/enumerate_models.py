@@ -177,8 +177,18 @@ def main():
                 print(f"  {'':<40}         listener cannot signal 'heard "
                       f"nothing' the way the incumbent does.")
             if was_cached:
-                print(f"  {'':<40}      -> no call made; re-run with --fresh for "
-                      f"a real latency number.")
+                if args.fresh:
+                    # Observed 2026-09-21: --fresh alone was not enough, because
+                    # repeat keying starts at r0 and a previous spread study had
+                    # already bought r0 for this clip. Saying "re-run with
+                    # --fresh" when --fresh WAS passed is worse than saying
+                    # nothing, so name the actual next step.
+                    print(f"  {'':<40}      -> STILL cached at repeat="
+                          f"{args.repeat}; bump --repeat "
+                          f"{args.repeat + 1} to force a real call.")
+                else:
+                    print(f"  {'':<40}      -> no call made; re-run with --fresh "
+                          f"for a real latency number.")
         except Exception as exc:                                    # noqa: BLE001
             elapsed = time.time() - started
             print(f"  {model_id:<40} FAIL {elapsed:5.1f}s  {type(exc).__name__}")

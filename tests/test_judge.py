@@ -13,7 +13,8 @@ from pathlib import Path
 
 from src.live_model_metric.judge import (CACHE_FIELDS, Judge,
                                          NewCallLimitReached, QuotaExhausted,
-                                         _is_quota_error, cache_key,
+                                         _is_quota_error, _is_schema_rejected,
+                                         cache_key,
                                          load_cache, load_once_index,
                                          prompt_sha, runs_once)
 
@@ -423,3 +424,74 @@ def test_filter_retries_do_not_consume_the_throttle_budget(tmp_path, monkeypatch
     assert judge.judge(est) == ("speech", "made it")
     assert tries["n"] == 4
 
+
+
+# -- structured_output, added 2026-09-21 -----------------------------------
+# Measured that day: gemini-3.7-flash honours the JSON schema, gemini-3.5-
+# transcribe rejects it with a 400 and works without it, gemini-2.5-flash
+# accepts the request and ignores the schema. decisions-m4.md.
+
+def test_key_backend_unmarked_while_schema_is_in_use():
+    """THE REGRESSION THAT MATTERS: 655 cached rows must stay findable."""
+    judge = Judge(model_id="gemini-3.7-flash", backend="aistudio")
+    assert judge.key_backend == "aistudio"
+
+
+def test_key_backend_marked_when_schema_free():
+    judge = Judge(model_id="gemini-3.5-transcribe", backend="aistudio",
+                  structured_output=False)
+    assert judge.key_backend == "aistudio!noschema"
+
+
+def test_schema_free_is_a_different_cache_key(tmp_path):
+    """The two modes must never collide on one key -- they are two instruments."""
+    clip = tmp_path / "trial-1" / "estimate.wav"
+    clip.parent.mkdir(parents=True)
+    clip.write_bytes(b"RIFF....WAVE fake")
+    structured = Judge(model_id="m", backend="aistudio")
+    bare = Judge(model_id="m", backend="aistudio", structured_output=False)
+    key_a = cache_key(clip, "m", structured.sha, 0, structured.key_backend)
+    key_b = cache_key(clip, "m", bare.sha, 0, bare.key_backend)
+    assert key_a != key_b
+    assert "!noschema" in key_b and "!noschema" not in key_a
+
+
+def test_parse_bare_treats_whole_response_as_transcript():
+    assert Judge._parse_bare("Harry gave his farewells.") == (
+        "speech", "Harry gave his farewells.")
+
+
+def test_parse_bare_empty_is_the_only_silence_signal():
+    assert Judge._parse_bare("") == ("no_speech", "")
+    assert Judge._parse_bare("   \n ") == ("no_speech", "")
+
+
+def test_parse_bare_does_not_try_to_read_json():
+    """A bare listener's output is text even when it happens to look like JSON."""
+    status, text = Judge._parse_bare('{"status": "speech"}')
+    assert status == "speech"
+    assert text == '{"status": "speech"}'
+
+
+def test_structured_output_rejects_nonsense():
+    with pytest.raises(ValueError):
+        Judge(model_id="m", structured_output="yes")
+
+
+@pytest.mark.parametrize("message,expected", [
+    ("Error code: 400 - {'error': {'message': 'Request contains an invalid "
+     "argument.', 'code': 'invalid_request'}}", True),
+    ("BadRequestError: 400 invalid argument", True),
+    ("429 RESOURCE_EXHAUSTED quota", False),
+    ("400 content_blocked: Input blocked by Gemini's filters.", False),
+    ("500 internal", False),
+])
+def test_is_schema_rejected_is_narrow(message, expected):
+    """Narrow on purpose: an unrecognised 400 must NOT downgrade the instrument."""
+    assert _is_schema_rejected(Exception(message)) is expected
+
+
+def test_auto_does_not_downgrade_until_a_rejection(tmp_path):
+    judge = Judge(model_id="m", structured_output="auto")
+    assert judge._schema_ok is True
+    assert judge.key_backend == "aistudio"

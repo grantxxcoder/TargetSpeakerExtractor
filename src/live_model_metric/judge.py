@@ -258,6 +258,24 @@ def _is_content_blocked(exc):
             or "blocked by the safety filter" in text)
 
 
+def _is_schema_rejected(exc):
+    """Did the model reject the STRUCTURED OUTPUT request, rather than the audio?
+
+    Measured 2026-09-21: gemini-3.5-transcribe returns
+    400 `invalid_request` / "Request contains an invalid argument." for a call
+    carrying response_format, and answers the SAME audio correctly when the
+    schema is dropped. A transcription-only model has no structured-output path.
+
+    Deliberately narrow. A content block is a different 400 and is checked
+    first by the caller; anything this does not recognise is re-raised rather
+    than silently downgrading the instrument.
+    """
+    text = f"{type(exc).__name__}: {exc}".lower()
+    if "invalid_request" not in text and "invalid argument" not in text:
+        return False
+    return "400" in text or "badrequest" in text
+
+
 def _is_quota_error(exc):
     """google-genai does not expose a typed daily-quota error, so this reads the
     message. Deliberately conservative: anything mentioning a per-day quota is
@@ -303,7 +321,8 @@ class Judge:
                  backoff_initial_s=2.0, allow_new=True, verbose=True,
                  backend="aistudio", project=None, location="us-central1",
                  timeout_s=60.0, sdk_attempts=1, max_new_calls=None,
-                 repeat_run_once=False, filter_retries=2):
+                 repeat_run_once=False, filter_retries=2,
+                 structured_output="auto"):
         # WHICH SURFACE SERVES THE MODEL IS PART OF THE INSTRUMENT. The same
         # model_id on AI Studio and on Vertex should be the same weights, but
         # defaults (safety settings, exact served version) are not guaranteed
@@ -312,6 +331,25 @@ class Judge:
         if backend not in ("aistudio", "vertex"):
             raise ValueError(f"backend must be 'aistudio' or 'vertex', got {backend!r}")
         self.backend = backend
+        # STRUCTURED OUTPUT IS PART OF THE INSTRUMENT, so it is keyed, not a
+        # quiet request detail. Measured 2026-09-21: gemini-3.7-flash honours
+        # the JSON schema; gemini-3.5-transcribe rejects it with a 400 and works
+        # perfectly without it; gemini-2.5-flash accepts the request, ignores
+        # the schema and returns bare text (status=unparsed).
+        #
+        #   "auto"  send the schema, and on an invalid-argument 400 fall back to
+        #           schema-free FOR GOOD in this instance. A model that never
+        #           400s is therefore byte-identical to the old behaviour.
+        #   True    always send the schema. Unparsable output stays `unparsed`,
+        #           which for the incumbent is a real finding, not a format quirk.
+        #   False   never send it; the whole response IS the transcript. Set this
+        #           explicitly for a model that ignores the schema rather than
+        #           rejecting it, because nothing can detect that automatically.
+        if structured_output not in (True, False, "auto"):
+            raise ValueError("structured_output must be True, False or 'auto', "
+                             f"got {structured_output!r}")
+        self.structured_output = structured_output
+        self._schema_ok = structured_output is not False
         self.project = project
         self.location = location
         self.model_id = model_id
@@ -354,6 +392,17 @@ class Judge:
         self.calls_made = 0          # THIS process only. The cache is the real ledger.
         self.cache_hits = 0
 
+    @property
+    def key_backend(self):
+        """What goes in the cache key and the CSV `backend` column.
+
+        Unmarked while the schema is in use, so every key written before
+        2026-09-21 still matches byte for byte and no cached answer is re-bought.
+        A schema-free call is a DIFFERENT instrument and gets a marked backend,
+        so the two can never be conflated in one results table.
+        """
+        return self.backend if self._schema_ok else f"{self.backend}!noschema"
+
     # -- the transcribe_one seam -------------------------------------------
     def __call__(self, audio_path):
         status, text = self.judge(audio_path)
@@ -364,7 +413,7 @@ class Judge:
 
     def _once_slot(self, audio_path):
         path = Path(audio_path)
-        return (self.model_id, self.sha, self.backend, path.parent.name,
+        return (self.model_id, self.sha, self.key_backend, path.parent.name,
                 path.stem.lower())
 
     def cached(self, audio_path):
@@ -377,7 +426,7 @@ class Judge:
         if runs_once(audio_path) and not self.repeat_run_once:
             return self._once.get(self._once_slot(audio_path))
         key = cache_key(audio_path, self.model_id, self.sha, self.repeat,
-                        self.backend, force_repeat=self.repeat_run_once)
+                        self.key_backend, force_repeat=self.repeat_run_once)
         return self._cache.get(key)
 
     def preflight(self, audio_paths):
@@ -400,7 +449,7 @@ class Judge:
     def judge(self, audio_path):
         """(status, text). Serves the cache first; never re-calls a cached key."""
         path = Path(audio_path)
-        key = cache_key(path, self.model_id, self.sha, self.repeat, self.backend,
+        key = cache_key(path, self.model_id, self.sha, self.repeat, self.key_backend,
                         force_repeat=self.repeat_run_once)
 
         hit = self.cached(path)
@@ -422,7 +471,7 @@ class Judge:
                 f"Raise max_new_calls to continue -- cached work is kept.")
 
         status, text = self._call_with_retries(path)
-        row = {"key": key, "model": self.model_id, "backend": self.backend,
+        row = {"key": key, "model": self.model_id, "backend": self.key_backend,
                "prompt_sha": self.sha,
                "trial_id": path.parent.name, "file": path.name,
                "repeat": self.repeat, "status": status, "text": text,
@@ -551,6 +600,21 @@ class Judge:
                               f"{filter_attempts}x -- recorded as a "
                               f"non-response", flush=True)
                     return "blocked_by_filter", ""
+                # SCHEMA REJECTION -> fall back ONCE, permanently, and loudly.
+                # Sticky because a listener that silently alternated between
+                # structured and bare output would mix two instruments inside
+                # one results table. The key changes with it (see key_backend),
+                # so the two can never land in the same column anyway.
+                if (self._schema_ok and self.structured_output == "auto"
+                        and _is_schema_rejected(exc)):
+                    self._schema_ok = False
+                    print(f"    {self.model_id} REJECTED the JSON response "
+                          f"schema -- falling back to schema-free for the rest "
+                          f"of this run.", flush=True)
+                    print(f"    This is an INSTRUMENT CHANGE: answers are keyed "
+                          f"under backend='{self.key_backend}' and are NOT "
+                          f"comparable to schema'd rows.", flush=True)
+                    continue
                 throttled, daily = _is_quota_error(exc)
                 if daily:
                     raise QuotaExhausted(
@@ -575,16 +639,42 @@ class Judge:
     def _call_once(self, path):
         client = self._ensure_client()
         audio_b64 = base64.b64encode(Path(path).read_bytes()).decode("utf-8")
-        interaction = client.interactions.create(
-            model=self.model_id,
-            input=[
+        request = {
+            "model": self.model_id,
+            "input": [
                 {"type": "text", "text": self.prompt},
                 {"type": "audio", "data": audio_b64, "mime_type": AUDIO_MIME},
             ],
-            response_format={"type": "text", "mime_type": "application/json",
-                             "schema": RESPONSE_SCHEMA},
-        )
-        return self._parse(interaction.output_text)
+        }
+        if self._schema_ok:
+            request["response_format"] = {
+                "type": "text", "mime_type": "application/json",
+                "schema": RESPONSE_SCHEMA}
+        interaction = client.interactions.create(**request)
+        if self._schema_ok:
+            return self._parse(interaction.output_text)
+        return self._parse_bare(interaction.output_text)
+
+    @staticmethod
+    def _parse_bare(output_text):
+        """Parse a listener that has no structured-output path.
+
+        The whole response IS the transcript -- there is no status field to
+        read, so there is nothing to strip. An EMPTY response is the only
+        "heard nothing" signal such a listener has.
+
+        THAT IS A DIFFERENT SILENCE SIGNAL FROM THE INCUMBENT'S, not a weaker
+        one. gemini-3.7-flash has a structured `no_speech` field and was
+        measured never to use it -- 0 of 6 silent clips, decisions-m4.md
+        2026-09-02 -- inventing fluent prose instead, which is what blunted NRR.
+        A schema-free listener that simply returns nothing is reporting silence
+        more honestly. Do not read a `no_speech` count across the two as one
+        column; note which mechanism produced it.
+        """
+        transcript = (output_text or "").strip()
+        if not transcript:
+            return "no_speech", ""
+        return "speech", transcript
 
     @staticmethod
     def _parse(output_text):

@@ -65,6 +65,15 @@ def main():
                         help="override the judge prompt file. THE PROMPT IS PART "
                              "OF THE INSTRUMENT: a different file has its own "
                              "cache and cannot reuse another prompt's answers.")
+    parser.add_argument("--judge-structured", default="auto",
+                        choices=["auto", "on", "off"],
+                        help="structured JSON output. auto = send the schema "
+                             "and fall back if the model rejects it (a model "
+                             "that accepts it is unaffected). off = never send "
+                             "it; REQUIRED for a model that ignores rather than "
+                             "rejects the schema, e.g. gemini-2.5-flash. "
+                             "Schema-free answers are cached under a marked "
+                             "backend and are a DIFFERENT instrument.")
     parser.add_argument("--judge-rpm", type=int, default=10)
     parser.add_argument("--judge-max-new-calls", type=int, default=600,
                         help="hard cap on NEW judge calls. Refuses rather than "
@@ -103,6 +112,8 @@ def main():
         judge_kwargs=({k: v for k, v in {
             "model_id": args.judge_model,
             "prompt_file": args.judge_prompt,
+            "structured_output": {"auto": "auto", "on": True,
+                                  "off": False}[args.judge_structured],
             "requests_per_minute": args.judge_rpm,
             "max_new_calls": args.judge_max_new_calls,
         }.items() if v is not None} if args.listener == JUDGE else None),
@@ -118,7 +129,8 @@ def main():
         print(f"\nLIVE-MODEL RESULT. judge={prov['listener']} "
               f"({prov['judge_modality']}) via {prov['judge_backend']}, "
               f"prompt sha256[:12]={prov['judge_prompt_sha256_12']}, "
-              f"run {prov['date']}, speech gate {prov['speech_gate']}.")
+              f"run {prov['date']}, speech gate {prov['speech_gate']}, "
+              f"structured output {prov['judge_structured_output']}.")
         print("Closed models change silently: a comparison across dates is "
               "invalid unless re-run.")
 
