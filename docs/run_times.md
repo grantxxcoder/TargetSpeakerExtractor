@@ -20,6 +20,7 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
+| 2026-09-21 | `pytest tests/ -q` | 515 tests | 11 min | full suite after adding eval_by_case.py. Added by hand: pytest does not use run_log.timed |
 <!-- rows appended below by src/run_log.py -->
 | 2026-09-21 | `scripts/eval_by_case.py --split sir0_val --cases target_only,both,interferer_only,noise_only --listener asr` | 4 cases, sir0_val, listener asr | 8 min |  |
 | 2026-09-21 | `scripts/make_kaggle_bundle.py --split sir0 --code-only` | 22 code files staged + verified + zipped to 84 MB | 18 min | laptop HDD. Data untouched: `sir0_train` is unchanged at 9,955 trials and already a Kaggle dataset, so no 30 GB re-upload. Most of the wall time is the 85 MB dereferenced teacher backbone and the in-place verification batch, not the code. Added by hand: the script does not use `run_log.timed`. |

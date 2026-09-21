@@ -2558,6 +2558,50 @@ model, not in the data -- and on current evidence that means the speaker cue
 conditioning arm lands and the collapse persists, this decision is the first
 thing to revisit, as its own arm and with the anchors re-measured.
 
-**Not decided here:** whether the training range should be NARROWED, and
-whether `sir0`'s symmetry is the right training distribution at all. Both stay
-open; this decision only refuses the widening.
+### ALSO DECIDED: do NOT move the range to [-5, +15] either. That IS the old split
+
+**Raised and refused 2026-09-21.** `-5 .. +15` is not a new distribution, it is
+`train` to the decimal -- verified from the manifests today:
+
+| split | n | SIR mean | range | target louder |
+|---|---|---|---|---|
+| `train` (original) | 9,846 | **+5.58** | **-5.0 .. +15.0** | **90 %** |
+| `eval_public` | 230 | +4.87 | -4.9 .. +14.8 | 74 % |
+| `sir0_train` (current) | 4,930 | +0.08 | -10 .. +10 | 50 % |
+
+**That distribution is the documented cause of the model ignoring the
+enrolment** (2026-08-25, above): output moved 2.6 % on an enrolment swap,
+because where the target leads by 6 dB or more -- 379 of 747 trials --
+"keep the loud voice" is 81.5 % accurate against the learned cue's 58.5 %.
+`sir0` exists to remove exactly that shortcut. Reverting would re-create it.
+
+**It is worse now than it was in August.** 2026-09-21 measured the cue as 78 %
+rank-1 with `corr(alpha_t, frame loudness) = 0.990`, and `alpha_t =
+<|X_t|, u_t>` makes that STRUCTURAL rather than learned. A 90 %-target-louder
+distribution hands that structural confound a 90 %-accurate strategy to ride.
+The headline would improve and the model would get worse at the task.
+
+**Carry the distinction the 2026-08-25 entry drew:** narrowing SIR is not only
+difficulty relief, it is **relevance** relief. A task can be easy and still
+require the enrolment; this change makes it easy by making the enrolment
+unnecessary.
+
+**Two further costs.** It compresses the measurable range -- at SIR >= +5 the
+floor-to-ceiling span is 27.8 points against 77 at SIR < -5, and the
+irrelevance floor is 1.57. And difficulty is not the binding constraint
+anyway: the 2026-09-21 case suite captures only **14.9 %** of available
+headroom at SIR >= +5, so a dataset of easy bands would give a better-looking
+number on a test that no longer asks the research question.
+
+**The free alternative, and it needs no new data.** `eval_public` is already
+rendered and already target-louder. Scoring the current checkpoint on it, split
+by SIR band, gives the "easier data" reading and the residual level-bias
+diagnostic in one run. **If easier TRAINING is wanted, use a curriculum** --
+anneal target-louder to symmetric via the existing `remix_gains` redraw -- so
+the shortcut is not available at convergence. That is a legitimate arm; the
+permanent distribution change is not.
+
+**Not decided here:** whether the training range should be NARROWED
+symmetrically, and whether `sir0`'s symmetry is the right training distribution
+at all. Both stay open; these decisions refuse the widening below -5 dB and the
+revert to the target-louder range.
