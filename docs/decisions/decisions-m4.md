@@ -22,6 +22,110 @@ change silently.
 
 ---
 
+## 2026-09-21 — PLANNED. The listener PANEL: four listeners, two of them live
+
+**Decision: the judge stops being one model and becomes a panel of four.** Two
+whole-clip ("offline") Gemini models, two streaming Live models, plus the
+existing `small.en` as the free control. Not yet run; this entry registers the
+design before any of it is scored.
+
+**Why the panel, and it is not thoroughness for its own sake.** Google does not
+publish which audio encoder any Gemini model uses, so "is `gemini-3.7-flash`'s
+encoder the one a Live model uses?" is unanswerable from documentation. The
+panel converts it into a behavioural question that IS answerable: run the same
+mix-back sweep through every listener and compare where each one's optimum sits.
+Same optimum across listeners = the knob belongs to the audio. Different optima
+= tuning is listener-specific. **Either outcome is a result and neither needs to
+know what is inside the models.**
+
+**What J1 got wrong, recorded because it is the reason this exists.** J1
+(2026-08-31) chose the non-Live `generateContent` endpoint on the grounds that
+LCF measures the judge's audio encoder, not its duplexing. That argument never
+checked that the non-Live encoder matches a Live one, and it did not consider
+that reading a whole file is a different listening task from hearing a stream: a
+whole-clip reader can use later context to resolve an artefact, a streaming
+listener must commit as it goes. **J1 is reopened, not overturned** — the
+`gemini-3.7-flash` numbers stay and become listener 1 of the panel.
+
+### The panel
+
+| # | listener | surface | role |
+|---|---|---|---|
+| 0 | `small.en` | local | free control. A certainly-different encoder — sets the scale for "a real difference". Sweep already run 2026-09-01 |
+| 1 | `gemini-3.7-flash` | `generateContent` | the incumbent. 653 calls already cached |
+| 2 | TBD — a different Gemini generation or size tier | `generateContent` | picked to MAXIMISE expected difference from 1. A sibling model proves nothing if the optima match |
+| 3 | `gemini-3.8-live` | Live socket | the deployment condition the thesis is about |
+| 4 | `gemini-3.5-transcribe-live` | Live socket | purpose-built transcriber; the cleanest "what did you hear" instrument available |
+
+Listener 2's exact ID is set by enumerating the API, not by guessing. Any
+candidate must be confirmed to accept audio on `generateContent` with one call
+before it is budgeted.
+
+**Live listeners are read through `inputAudioTranscription`**, the Live API's
+transcript of its own INPUT stream. Two consequences for the record: there is no
+prompt, so `prompt_sha` is the sentinel `none-input-transcription`; and there is
+no `status` field, so an empty transcript is a genuine "heard nothing" rather
+than the fabrication `gemini-3.7-flash` produces. Audio is streamed at 1x real
+time — anything faster is not the condition being measured.
+
+**`judge.py` already carries the seam.** `backend` is a constructor argument, is
+part of `cache_key()` and is a CSV column. A Live listener is a branch in
+`_ensure_client()` plus a `_call_once_live()`. Every scoring module takes a
+`transcribe_one` callable, so nothing downstream changes.
+
+### Two gates before any budget is spent
+
+**Gate 1 — the noise floor.** k=5 repeats on ~30 clips at one alpha, per
+listener. The quantity being estimated is *the location of a minimum in a
+curve*, which is far more fragile to noise than a mean: one bad reading moves
+the answer a whole grid step. **If per-listener spread exceeds the between-
+listener gap, the panel cannot answer its question and the design changes.**
+
+**Gate 2 — LibriSpeech contamination of the judge.** The judge ceiling is
+**1.05 % LCF-WER against the offline ASR's 5.85 %** on the same clean audio.
+That is at or beyond published SOTA on clean read speech and it needs ruling
+out, because LibriSpeech transcripts are public-domain Gutenberg text a frontier
+model has plausibly memorised. **Recall and accurate transcription are
+indistinguishable when both are scored against the same reference**, so the
+metric cannot separate them and the fabrication column cannot either — recited
+text matches the reference and scores as "not invented".
+
+*Probe:* hand the judge the first ~5 words of each target transcript as TEXT,
+no audio, and ask it to continue. Reproduction well above chance = memorisation.
+103 text-only calls, no audio, and it is the cheapest thing on this page.
+Cross-check on AMI-derived audio (spontaneous speech, not public-domain books)
+if the probe fires.
+
+**If contamination is real it does not invalidate the panel — it changes what
+the number means**, and bigger models memorise more, which is itself a confound
+the panel would otherwise attribute to the encoder. It must be settled first.
+
+### Budget
+
+Per listener: 103 trials x 5 alpha x k=3 = 1,545 calls for the sweep (alpha=0 IS
+the floor anchor, so the floor comes free), plus 103 x 3 = 309 for the ceiling.
+**~1,854 per listener, ~7,400 for the panel.** At ~432 audio tokens per 13.5 s
+clip and $0.75/1M audio tokens, that is **under $5 in audio tokens — a
+PROJECTION from published pricing, not a measured bill.** Paid key, so the
+free-tier daily cap no longer binds.
+
+Wall clock is the real cost and only for the Live pair: 1x real time on 13.5 s
+mean clips is ~14 h serial for both, ~2 h at 8 concurrent sockets. **Projection,
+not measured.** The measured figure goes in `docs/run_times.md` when it runs.
+
+### What the panel licenses, and what it still does not
+
+Licensed: *"the best mix-back setting does / does not transfer between
+listeners, including between whole-clip and streaming ones."* That is the
+evidence for the thesis claim that a front end must be tuned for BOTH the
+extractor and the live system it feeds.
+
+Still not licensed: any claim about what is inside any model, and any claim of
+generalisation beyond the five listeners actually measured. The CLAUDE.md
+carry stands — *optimised for Gemini*, never *generalises to live models*.
+
+---
+
 ## 2026-09-15 — The judge is no longer held out. Family separation withdrawn
 
 **Decision: Gemini may be used inside the training loop** — as teacher, reward
