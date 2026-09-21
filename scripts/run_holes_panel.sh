@@ -18,7 +18,11 @@ set -euo pipefail
 LISTENER="${1:?usage: run_holes_panel.sh <asr|gemini-model-id> [rpm]}"
 RPM="${2:-12}"
 R=experiments/results
-ARMS="floor0.20 floor0.10 floor0.05 hyst-control hystfix-mild hystfix-sharp"
+# PREFIX and ARMS are overridable so the same family can be run on a DIFFERENT
+# extractor -- the control that answers "is this rule about listeners, or about
+# our model's flat mask?". decisions-m4.md 2026-09-21.
+PREFIX="${PREFIX:-2026-09-12-est-}"
+ARMS="${ARMS:-floor0.20 floor0.10 floor0.05 hyst-control hystfix-mild hystfix-sharp}"
 
 if [ "$LISTENER" = "asr" ]; then
     TAG=asr
@@ -32,13 +36,14 @@ else
            --judge-structured auto --judge-rpm "$RPM" --judge-max-new-calls 120)
 fi
 
-echo "listener=$LISTENER  arms=6  trials=103  -> $((6 * 103)) cells"
+N=$(echo $ARMS | wc -w)
+echo "listener=$LISTENER  prefix=$PREFIX  arms=$N  -> $((N * 103)) cells"
 for arm in $ARMS; do
-    OUT="$R/2026-09-21-holes-$TAG-$arm"
+    OUT="$R/2026-09-21-holes-${LABEL:-}$TAG-$arm"
     echo "=== $arm -> $OUT"
     python3 scripts/evaluate.py \
         --split sir0_val --condition both \
-        --est "$R/2026-09-12-est-$arm" \
+        --est "$R/$PREFIX$arm" \
         --systems estimate --metrics content \
         "${EXTRA[@]}" \
         --out "$OUT"
