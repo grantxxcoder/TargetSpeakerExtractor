@@ -151,6 +151,73 @@ Still not licensed: any claim about what is inside any model, and any claim of
 generalisation beyond the five listeners actually measured. The CLAUDE.md
 carry stands — *optimised for Gemini*, never *generalises to live models*.
 
+### MEASURED 2026-09-21 — the alpha sweep through the judge. A NEGATIVE result, honestly
+
+**`gemini-3.7-flash`, `sir0_val` `both`, n=103, k=1, 515 calls, ~15 min.**
+`scripts/make_mixback.py` then `scripts/evaluate.py` per alpha, read by
+`scripts/analyse_alpha_sweep.py` (10,000 paired bootstrap draws, seed 42).
+
+| alpha | LCF-WER | vs alpha=1 | p (Holm) |
+|---|---|---|---|
+| 0 (do nothing) | 64.14 | +6.02 | **0.020** |
+| 0.25 | 62.63 | +4.51 | 0.063 |
+| 0.5 | 59.92 | +1.80 | 0.506 |
+| 0.75 | 61.70 | +3.58 | 0.272 |
+| **1 (model untouched)** | **58.12** | — | — |
+
+**Mix-back does not help this listener.** The only contrast surviving Holm is
+alpha=0 being 6.0 points worse, which says *the extractor helps* — not *the knob
+helps*. Everything from 0.25 to 1 is indistinguishable from leaving the model
+alone. The minimum is at an ENDPOINT: interior in 27.3 % of resampled test sets
+against a 58.5 % null. **State this as the negative result it is; "alpha=1 was
+optimal" is true and makes a null sound like a discovery.**
+
+**What it did deliver: M6's near-tie family.** alpha 0.5 / 0.75 / 1 are
+statistically indistinguishable (0.5 vs 1, p=0.51). Three systems from ONE
+checkpoint, so **no training-seed variance enters the comparison at all** — the
+blank under every other delta in this project does not apply here. That was one
+of the three jobs the sweep was bought for and it is done.
+
+### The interaction test: UNDERPOWERED, and that is not the same as "no difference"
+
+Against the deterministic `small.en` sweep of 2026-09-01 (same blend, same
+checkpoint, same trials — free, no calls):
+
+| alpha | DiD vs alpha=1 | 95 % CI | p |
+|---|---|---|---|
+| 0 | −0.14 | [−6.52, 5.97] | 0.99 |
+| 0.25 | 0.15 | [−6.84, 6.63] | 0.95 |
+| **0.5** | **−8.65** | **[−20.77, 1.03]** | **0.091** |
+| 0.75 | −4.57 | [−16.38, 4.61] | 0.40 |
+
+**Concretely: moving from alpha=1 to alpha=0.5 costs `small.en` 10.4 points and
+`gemini-3.7-flash` only 1.8.** The same audio change hurts one listener roughly
+six times as much as the other. That is the panel's hypothesis showing up in the
+point estimate — and n=103 cannot confirm it.
+
+**The first verdict printed was wrong and the script was fixed.** It read "no
+detectable shape difference: alpha* may be SEPARABLE", which is a confident
+conclusion drawn from an interval admitting a 21-point difference. Separability
+is a claim that the difference is SMALL, so it requires the interval to EXCLUDE a
+material difference, not merely to contain zero. The test now returns three
+verdicts — differ / agree-by-equivalence / underpowered.
+
+**Nothing about separability may be recorded from this run.** The branch table
+above stays unresolved.
+
+**To resolve it, and NOT on the holdout.** SE of the alpha=0.5 DiD is 5.56 points
+at n=103. Excluding zero needs ~163 shared trials; 80 % power needs ~333. Only
+two cells matter (alpha 0.5 and 1), and the `small.en` side is free, so it is
+**~666 judge calls, ~90 min, drawn from `sir0_train`**. `sir0_privval` must NOT
+be spent on an exploratory mechanism question — that is precisely how a holdout
+is eroded.
+
+**Recurring theme worth carrying into the write-up:** n=103 is underpowered for
+every effect this project cares about. It could not resolve this 8.65-point
+divergence, and the same arithmetic says it could not resolve a per-clip head's
+likely 2–4 point gain either.
+
+
 ### OPEN 2026-09-21 — training the head on Whisper CONTRADICTS the panel, unless alpha* is separable
 
 **Grant's objection, and it is a real hole in the plan above.** The panel exists
