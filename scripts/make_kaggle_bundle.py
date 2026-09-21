@@ -99,6 +99,8 @@ CODE = [
     # simply absent from the bundle, so the Kaggle run cannot train that arm
     # and fails at staging rather than obviously. decisions-m2.md 2026-09-21.
     "experiments/configs/bsrnn_wesep_ref.yaml",
+    # The n_hidden probe: same as wesep_ref with the estimator back to depth 1.
+    "experiments/configs/bsrnn_estimator_probe.yaml",
     "docs/run_times.md",   # src.run_log appends here; give it a real file
 ]
 
