@@ -151,6 +151,86 @@ Still not licensed: any claim about what is inside any model, and any claim of
 generalisation beyond the five listeners actually measured. The CLAUDE.md
 carry stands — *optimised for Gemini*, never *generalises to live models*.
 
+### MEASURED 2026-09-21 — THE RESULT. Aggressive masking wrecks the ASR and is nearly free for the judge
+
+**Both listeners, six arms, one checkpoint, the same 103 trials, k=1.**
+`scripts/analyse_holes_panel.py`, 10,000 paired bootstrap draws, seed 42.
+`experiments/results/2026-09-21-holes-{asr,gemini-3.7-flash}-*`.
+
+| arm | judge | small.en |
+|---|---|---|
+| floor0.20 | 59.78 | 62.34 |
+| floor0.10 | 58.03 | 61.87 |
+| floor0.05 | 56.37 | 63.33 |
+| hyst-control | 51.51 | **57.95** |
+| **hystfix-mild** | **50.79** | 64.09 |
+| hystfix-sharp | 53.23 | 76.43 |
+
+**THE REGISTERED TEST FIRED, at `hystfix-sharp`: DiD −16.77 points,
+95 % CI [−31.25, −4.66], p = 0.0048.** Turning the knob hard costs `small.en`
+**+18.48** points and the judge **+1.72**. The listeners do not merely differ in
+degree; one is destroyed by a transform the other barely notices.
+
+### The rank inversion M6 has been missing
+
+Against the floor anchor — doing nothing at all:
+
+| instrument | floor | hystfix-sharp | verdict |
+|---|---|---|---|
+| `small.en` | 65.22 | **76.43** | 11.2 points WORSE — reject |
+| judge | 63.27 | **53.23** | 10.0 points BETTER — ship |
+
+**An ASR-based evaluation would discard a setting that measurably helps the live
+model.** M6's first answer (2026-09-03) was that no instrument inverts the
+ranking of two SYSTEMS. This inverts the ranking of a system against the FLOOR,
+which is the stronger form, and it carries p = 0.0048.
+
+### What was NOT confirmed, and the registered wording required checking
+
+The prediction was that the judge's optimum would sit strictly more aggressive
+than the ASR's. **It does — `hystfix-mild` against `hyst-control` — but that
+particular gap is 0.72 points at p = 0.109 and is NOT callable at n=103**, exactly
+as the gate-2 entry warned. The judge's argmin distribution splits 57.1 % mild /
+34.9 % control (nulls 14.7 % / 16.4 %); `small.en`'s is 92.9 % control (null
+11.5 %).
+
+**So the honest claim is "the listeners disagree about what aggressive processing
+COSTS", not "the judge prefers mild sharpening".** The optimum difference is
+directionally right and statistically unresolved; the cost difference at hard
+settings is what carries the result.
+
+### Two caveats that must travel with the headline
+
+**The winning setting fabricates more.** Judge FR@2 rises monotonically with
+sharpening, 34.31 -> 51.46, and invented/trial 1.58 -> 2.20. `hystfix-mild` wins
+on word error *while inventing more than the control*. Report both or the
+headline improves for a bad reason.
+
+**At severe damage the listeners SWAP failure modes**, which nothing predicted.
+control -> sharp: the judge's deletions triple (3.49 -> 10.97) while its
+insertions FALL (22.73 -> 18.34); `small.en`'s insertions explode
+(19.00 -> 30.85) while its deletions stay flat (11.15 -> 12.78). The
+"ASR deletes, judge fabricates" story of the error-budget entry holds at MILD
+damage and inverts at severe damage. Do not state it unconditionally.
+
+**Operational note.** The safety filter refused 2 clips permanently and 6
+transiently across the 618 calls. Recorded as non-responses, not silently
+dropped.
+
+### What this licenses
+
+**A listener-specific design rule, predicted in advance from a measured error
+budget and confirmed:** *when the downstream listener is a live model, the
+interferer can be cut far harder than any conventional metric would allow.*
+
+It needs no new training and no new architecture. **It is a claim about
+LISTENERS, not about our extractor**, which is why it survives the extractor
+being weaker than WeSep.
+
+**Not licensed:** that it generalises beyond `gemini-3.7-flash` and `small.en`.
+Two listeners is two listeners.
+
+
 ### MEASURED 2026-09-21 — holes-vs-leakage, LISTENER 0 (`small.en`). Recorded BEFORE the judge arm runs
 
 **All six arms, `sir0_val` `both`, n=103, offline ASR, deterministic.**
