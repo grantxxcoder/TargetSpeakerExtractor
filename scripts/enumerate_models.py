@@ -30,7 +30,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.live_model_metric.evaluate import load_trials              # noqa: E402
-from src.live_model_metric.judge import DEFAULT_MODEL_ID, Judge     # noqa: E402
+from src.live_model_metric.judge import (AUDIO_MIME, DEFAULT_MODEL_ID,  # noqa: E402
+                                         Judge)
 
 
 # Measured 2026-09-21: this SDK version reports no per-modality field, so every
@@ -57,6 +58,41 @@ def classify(name):
     return "candidate"
 
 
+
+def _retry_without_schema(judge, model_id, clip):
+    """Is the structured-output request what the model rejected?
+
+    Judge asks for a JSON schema (status + transcript). A transcription-only
+    model may accept audio perfectly well and reject the schema, which surfaces
+    as an indistinguishable 400. This re-sends the SAME audio with no
+    response_format, so a failure is attributed to the right cause rather than
+    the model being written off as unable to take audio.
+    """
+    import base64
+    print(f"  {'':<40}      retrying WITHOUT the JSON response schema...")
+    try:
+        client = judge._ensure_client()
+        audio_b64 = base64.b64encode(Path(clip).read_bytes()).decode("utf-8")
+        started = time.time()
+        interaction = client.interactions.create(
+            model=model_id,
+            input=[{"type": "text", "text": judge.prompt},
+                   {"type": "audio", "data": audio_b64, "mime_type": AUDIO_MIME}],
+        )
+        elapsed = time.time() - started
+        preview = (interaction.output_text or "")[:60].replace("\n", " ")
+        print(f"  {'':<40}      -> WORKS without the schema, {elapsed:.1f}s: {preview!r}")
+        print(f"  {'':<40}         So it takes audio. It needs a schema-free "
+              f"parse branch, which is")
+        print(f"  {'':<40}         an INSTRUMENT change -- record it in "
+              f"decisions-m4.md before scoring.")
+    except Exception as exc:                                        # noqa: BLE001
+        print(f"  {'':<40}      -> also fails without the schema: "
+              f"{type(exc).__name__}")
+        for line in str(exc).splitlines()[:6]:
+            print(f"  {'':<40}         {line}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -69,6 +105,13 @@ def main():
                              "call each. Costs one clip per model.")
     parser.add_argument("--split", default="sir0_val",
                         help="where --probe takes its one clip from")
+    parser.add_argument("--fresh", action="store_true",
+                        help="force a real call even if the clip is cached, so "
+                             "the latency column means something. Costs one "
+                             "call per model.")
+    parser.add_argument("--repeat", type=int, default=0,
+                        help="repeat index for --fresh; bump it to force "
+                             "another uncached call")
     args = parser.parse_args()
 
     # Credentials and SDK construction live in Judge so there is exactly one
@@ -111,18 +154,41 @@ def main():
     print(f"\n=== probing with one clip: {trial.trial_id} / {clip.name} ===\n")
     for model_id in [m.strip() for m in args.probe.split(",") if m.strip()]:
         judge = Judge(model_id=model_id, backend=args.backend,
-                      project=args.project, max_new_calls=1)
+                      project=args.project, max_new_calls=1,
+                      repeat=args.repeat, repeat_run_once=args.fresh,
+                      verbose=False)
+        # A CACHED ANSWER COSTS NO TIME, so reporting its elapsed seconds as
+        # "latency" is a measurement of nothing. Observed 2026-09-21:
+        # gemini-3.7-flash probed at 0.0s purely because this clip was already
+        # in the 653-call cache. Say which it was, every time.
+        was_cached = judge.cached(clip) is not None
         started = time.time()
         try:
             status, text = judge.judge(clip)
             elapsed = time.time() - started
-            preview = (text or "")[:70].replace("\n", " ")
-            print(f"  {model_id:<45} OK   {elapsed:5.1f}s  status={status:<12} {preview!r}")
+            preview = (text or "")[:60].replace("\n", " ")
+            tag = "CACHED" if was_cached else f"{elapsed:5.1f}s"
+            print(f"  {model_id:<40} OK   {tag:>7}  status={status:<11} {preview!r}")
+            if status == "unparsed":
+                print(f"  {'':<40}      -> IGNORED the JSON response schema and "
+                      f"returned bare text.")
+                print(f"  {'':<40}         Usable, but it has no structured "
+                      f"`no_speech` field, so this")
+                print(f"  {'':<40}         listener cannot signal 'heard "
+                      f"nothing' the way the incumbent does.")
+            if was_cached:
+                print(f"  {'':<40}      -> no call made; re-run with --fresh for "
+                      f"a real latency number.")
         except Exception as exc:                                    # noqa: BLE001
             elapsed = time.time() - started
-            print(f"  {model_id:<45} FAIL {elapsed:5.1f}s  {type(exc).__name__}: "
-                  f"{str(exc)[:90]}")
+            print(f"  {model_id:<40} FAIL {elapsed:5.1f}s  {type(exc).__name__}")
+            # FULL text, not a truncation. A 400 from these APIs names the
+            # offending field, and that name is the whole diagnosis.
+            for line in str(exc).splitlines():
+                print(f"  {'':<40}      {line}")
+            _retry_without_schema(judge, model_id, clip)
 
+    print()
     print("\nRead the latency column before committing. Panel budget is ~1,854 "
           "calls per listener, so a 5 s/call model is ~2.6 h of wall clock.")
 
