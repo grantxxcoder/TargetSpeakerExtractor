@@ -2605,3 +2605,96 @@ permanent distribution change is not.
 symmetrically, and whether `sir0`'s symmetry is the right training distribution
 at all. Both stay open; these decisions refuse the widening below -5 dB and the
 revert to the target-louder range.
+
+---
+
+## 2026-09-21 — The 14.73 M arm, read. Doubling the model bought NOTHING, and the result is CONFOUNDED
+
+`experiments/results/2026-09-21-train-sir0-wesepref/`, 16 epochs, 5.47 h,
+1,231 s/epoch, batch 10 across two T4s. Selected idx 10,
+`models/model_sir0_wesepref-e10.pt`. First DataParallel run.
+
+### The result
+
+| | 14.73 M | baseline 7.19 M |
+|---|---|---|
+| present-branch score (lower better) | **6.082** (idx 10) | **4.599** (idx 6) |
+| separation `L_pres` | −2.9020 | −2.9000 |
+| spectral `L_MR` | 0.3211 | 0.1815 |
+| output level `L_gain` | 3.4881 | 3.4040 |
+
+**Separation is identical to 0.002 dB.** `L_MR` is **91 %** of the 1.483 gap.
+2.05x the parameters bought no extraction improvement and cost spectral
+reconstruction.
+
+### It is under-optimisation, not overfitting, and not trainable out
+
+`L_MR` is worse on **TRAIN** too, 0.3226 against 0.1849. A model failing on data
+it has already seen is not memorising. It fell 0.364 -> 0.296 across 16 epochs,
+~0.005/epoch; reaching 0.1815 needs ~22 more, and `ReduceLROnPlateau` halved the
+lr at idx 13 while the run collapsed periodically (idx 11 scored 9.917).
+
+### CONFOUNDED — this is NOT a clean capacity result
+
+**`lr` was never scaled with batch: 0.0005 at batch 3, at batch 6 and at
+batch 10.** Model size and batch size moved together, so "more parameters did
+not help" cannot be separated from "fewer, unscaled updates". Raised by a peer
+session 2026-09-21 and accepted.
+
+Two things weaken the confound without removing it. Separation reached exact
+parity, so the optimiser was adequate for the separator at 5e-4 — a globally
+starved optimiser would have hurt both halves. And with Adam the update
+magnitude is roughly scale-invariant, so a larger batch at fixed lr takes
+same-sized but less noisy steps; at MATCHED STEPS this run is still 54 % worse
+(0.335 at 2,985 steps against the baseline's 0.217 at 3,318).
+
+**Record as confounded, not negative.** The earlier inference "capacity is ruled
+out, so by elimination it is the objective" does NOT hold.
+
+### The estimator cannot improve separation even in principle
+
+`src/models/modules.py:343-350`: every layer is `Conv1d(..., kernel_size=1)`
+applied per band — pointwise, per-frame, no temporal and no cross-band context.
+It can only re-map features the separator already fixed. **63 % of the added
+parameters (4.73 M of 7.54 M) went there.** That is a mechanical explanation for
+the −0.002 separation delta, and a sizing rule: capacity for separation belongs
+in the separator, never the estimator.
+
+### The likely cause of the L_MR failure, and it is not capacity
+
+`src/models/modules.py:340-347` builds the trunk as one `ChannelWiseLayerNorm`
+at the FRONT, then `[Conv1d, Tanh]` repeated `n_hidden` times. At `n_hidden: 2`
+that is two saturating nonlinearities back to back **with no normalisation
+between them** — a vanishing-gradient path, and localised to the estimator,
+which matches separation being untouched. Identified by a peer session and
+confirmed in the code here.
+
+`bsrnn_estimator_probe.yaml` tests it with lr held fixed: `n_hidden` 1,
+`lstm_hidden` 256, 10,000,524 params — separator byte-identical to this arm,
+estimator byte-identical to the baseline.
+
+### What this run does NOT say
+
+**No listener was scored.** No LCF-WER, no judge, no offline ASR, no RTF. The
+selection score is a training proxy and 2026-09-04 already measured separation
+improving 12 % while LCF-WER moved the WRONG way. Nothing above may be quoted as
+a content-fidelity result.
+
+**Do not quote `enrol_sens` or `pres_abs_gap` from idx 11 or 13.** Both reached
+near-best values at epochs where the model had collapsed — the same bad-reason
+pattern recorded 2026-09-04.
+
+### Worth keeping: it is much faster
+
+1,231 s/epoch at 14.73 M on two cards against 2,364 s at 7.19 M on one —
+**1.9x faster for 2.05x the model**, i.e. ~3.9x throughput per parameter. Memory
+measured 2.534 GB/trial, 1.18x the baseline's 2.15.
+
+### Housekeeping
+
+`kaggle_out/` deleted after extraction (1.1 GB). Kept: `history.csv`,
+`history_live.csv`, `meta.yaml`, `loss_plot.png`, the config that ran,
+`bundle_commit.txt`, `source_that_ran/`. Checkpoints kept as
+`models/model_sir0_wesepref-e10.pt` (selected) and `-last.pt`. The top-3
+insurance checkpoints e007/e012 were discarded — e010 is the selected epoch and
+is already kept, and the other two were epochs the selection rule rejected.
