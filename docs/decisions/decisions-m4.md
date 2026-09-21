@@ -151,6 +151,69 @@ Still not licensed: any claim about what is inside any model, and any claim of
 generalisation beyond the five listeners actually measured. The CLAUDE.md
 carry stands — *optimised for Gemini*, never *generalises to live models*.
 
+### REGISTERED 2026-09-21, BEFORE THE RUN — the holes-versus-leakage family, scored per listener
+
+**The prediction is written down before a single call is made.** It is derived
+arithmetically from the error budget above, so a null is as informative as a hit.
+
+**The trade, already measured through the offline ASR** (`postprocess_mask.py`,
+2026-09-12): a mask floor of 0.05 **cut deletions 27 %** (11.79 -> 8.64) and
+**raised leakage 7.8 points**. One knob, moving holes against leakage in opposite
+directions. Nothing in this family has ever been through the judge.
+
+**How the two listeners weigh those two errors** (error-budget entry above,
+alpha=1, share of all errors):
+
+| | leakage | deletion | ratio |
+|---|---|---|---|
+| `gemini-3.7-flash` | 35.6 % | 6.4 % | **5.6 : 1** |
+| `small.en` | 23.8 % | 20.8 % | **1.1 : 1** |
+
+**THE PREDICTION.** The judge punishes leakage 5.6x more than deletion; the ASR
+weighs them about equally. **So the judge should prefer HARDER sharpening and a
+LOWER floor than the ASR does — the same audio, opposite optima.** Formally: the
+argmin over the family should sit at a more aggressive setting for the judge than
+for `small.en`.
+
+**What each outcome means, decided now:**
+
+| outcome | reading |
+|---|---|
+| judge optimum strictly more aggressive than ASR's | **prediction confirmed.** A listener-specific design rule derived from measurement, which is the thesis contribution in one experiment |
+| optima coincide | the budget's error weights do not translate into a design rule. Honest negative; the divergence stays descriptive |
+| judge optimum LESS aggressive | prediction inverted — the budget is measuring something other than what drives the score. Would need explaining, not burying |
+
+**The family. Six arms, one checkpoint (`model_sir0_10000-e6.pt`), the same 103
+`sir0_val` `both` trials, verified present in all six.** Every arm passed through
+the same post-processing pipeline, so the control is a same-pipeline no-op rather
+than a differently-produced baseline.
+
+| arm | setting | direction |
+|---|---|---|
+| `est-floor0.20` | floor 0.20 | most hole-filling |
+| `est-floor0.10` | floor 0.10 | |
+| `est-floor0.05` | floor 0.05 | |
+| `est-hyst-control` | no-op | **control** |
+| `est-hystfix-mild` | hi/lo/down 1.4 / 0.6 / 0.2 | |
+| `est-hystfix-sharp` | hi/lo/down 1.5 / 0.5 / 0.0 | most sharpening |
+
+**Statistics, fixed in advance.** Paired bootstrap over the shared 103 trials,
+10,000 draws, seed 42, as `scripts/analyse_alpha_sweep.py` already does for the
+mix-back family — argmin distribution against its null calibration, and the
+three-way differ / agree / underpowered verdict for the listener interaction.
+**Adjacent arms differing by under ~4.7 points are not callable at n=103**
+(gate-2 entry), so the claim will be about WHERE the optimum sits, never about
+one arm beating its neighbour.
+
+**Cost: 6 x 103 = 618 calls per judge listener, 1,236 for both, ~1.7 h.**
+`small.en` is local and free and runs on all six.
+
+**Why this and not the sensitivity ladder.** Same question, but on artefacts the
+extractor actually produces rather than synthetic ones, on audio already
+rendered, and it tests a DESIGN RULE rather than a sensitivity curve. The ladder
+stays specced and unbuilt.
+
+
 ### MEASURED 2026-09-21 — THE ERROR BUDGET. Where the word errors actually come from
 
 **Free: 515 already-scored cells, no new calls.** Normaliser check passed — the
