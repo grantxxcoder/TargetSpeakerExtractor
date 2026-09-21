@@ -277,18 +277,33 @@ constantly and will not find in any paper, because they are yours.
 
 | Term | Meaning |
 |---|---|
-| **Judge** ★ | The live speech-to-speech model that scores you by reporting what it understood. Held out from training entirely — never a loss, never a proxy, never a data filter. |
+| **Judge** ★ | The live speech-to-speech model that scores you by reporting what it understood. **No longer held out from training (2026-09-15)** — it may now be teacher, reward, filter or selection criterion. It still can never be a loss, because you cannot backpropagate through an API. The holdout moved to the DATA: `sir0_privval` and `eval_private` are never trained on. |
 | **LCF** ★ | Live-model Content Fidelity. The metric family: how much of what the target actually said the judge recovered. |
 | **LCF-WER** ★ | The headline score. Word error rate of the judge's report against the target's true words. **Lower better.** |
 | **ICR** ★ | Interferer Content Rate. How often the judge reports words the *other* speaker said. Stops you scoring well by passing everything through. **Lower better.** |
 | **NRR** ★ | Non-Response Rate. How often the judge declines, hears nothing, or returns silence. Stops you scoring well by outputting silence. **Lower better.** |
 | **Floor / ceiling** ★ | Mandatory reference rows: the unprocessed mixture (doing nothing) and the clean target (the best extraction could ever do on this judge). A system that doesn't beat the floor is worthless; a score above the ceiling means something is wrong with your harness. |
-| **Proxy** ★ | A differentiable stand-in for the judge, used in training because you cannot backprop through an API. Must be a **different model family** from the judge. |
+| **Proxy** ★ | A differentiable stand-in for the judge, used in training because you cannot backprop through an API. ~~Must be a different model family~~ — **family separation WITHDRAWN 2026-09-15**, so a proxy may now be fitted to the judge deliberately. See **Surrogate judge**. |
 | **Output modality** ★ | Whether your system hands the judge **audio** or **text**. Audio is what we build; text is measured as a reference condition. Must be recorded on every result. |
 | **Text reference condition** ★ | Extractor → off-the-shelf streaming ASR → text → judge. A benchmark row, not a build target. Not an upper bound either — an ASR error is permanent, whereas audio leaves the judge acoustic evidence. |
 | **Text floor / text ceiling** ★ | The text path's own anchors: ASR run on the raw mixture, and the ground-truth transcript handed over directly. |
 | **Front-end ASR vs response ASR** ★ | Easy to confuse and important not to. The **front-end** ASR is part of your system, inside the latency budget, only present in the text condition. The **response** ASR is part of the measuring instrument, outside the budget, used to transcribe the judge's spoken reply in every condition. |
 | **Paralinguistics** ★ | Everything in speech that isn't the words: tone, emphasis, hesitation, emotion, identity. Destroyed by the text path, invisible to LCF because LCF is purely lexical. A known blind spot, stated rather than fixed. |
+
+### Tuning to a black-box listener ★
+
+Added 2026-09-16. The judge cannot be differentiated, so these are the ways its
+preferences reach a system. Full treatment in `decisions-pending.md` G1.
+
+| Term | Meaning |
+|---|---|
+| **Mix-back** ★ | Blending the model's output back with its own untouched input: `s_alpha = alpha * s_hat + (1 - alpha) * x`. `alpha = 1` is the model, `alpha = 0` is doing nothing. **Costs one multiply-add per sample and adds zero latency**, because output sample *n* needs only input sample *n*. Every value comes from ONE forward pass, so a whole family of systems exists without retraining. |
+| **Alpha sweep** ★ | Scoring several `alpha` values through the judge to find which blend it transcribes best. Answers "how much of our processing does the listener actually want?". **It tunes exactly ONE number — the extractor's weights are untouched.** |
+| **Alpha-oracle** ★ | The same sweep read PER TRIAL rather than in aggregate: `alpha*(trial)` is the best blend for that trial. If it is constant, ship a global knob. If it varies, the judge has just supplied a **supervised target** for a model that picks its own `alpha` — the capability measured as missing on 2026-09-01. |
+| **Expert iteration** ★ | Make N attempts, let the judge pick the winner, then retrain the model to produce that winner by default — and repeat. The "expert" is model-plus-selection, which beats the model alone; training on its output folds that advantage back into the weights. **The judge only votes, so it never needs to be differentiable.** Also called rejection-sampling fine-tuning. |
+| **Candidate set** ★ | The N outputs expert iteration chooses between. Ours come free from `alpha`, mask post-processing and existing checkpoints. **Its span is the hard ceiling**: training on winners can only teach the model to internalise a choice it could already have made, never to find a separation no candidate contained. |
+| **Surrogate judge** ★ | A local, differentiable model fitted to the judge's behaviour. The only route whose gradient can push toward outputs **no candidate set contains**. Two uses, very different in risk: as a **ranker** (re-orders candidates; a mistake is checkable against the real judge) or as a **loss** (a mistake becomes adversarial audio nobody catches). |
+| **Control listener** ★ | A second transcriber never optimised against — currently `small.en`. If tuning to the judge also improves it, intelligibility improved; if not, we fitted the judge's quirks. **What is left of the gaming-resistance claim after 2026-09-15.** |
 
 ### Reading a results table
 

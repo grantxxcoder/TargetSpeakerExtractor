@@ -53,6 +53,24 @@ actually taken go to the decision log of the milestone they belong to —
   activations, which rules out 8-bit optimisers (~43 MB of ~13 GB) and audio
   compression (cannot touch GPU memory at all). Beyond 6 needs `hop` 128->256.
   See Group E.
+- **D18 — PROPOSAL: why `L_struct` FLATTENED the mask.** The shape term is an L1
+  to a target the model cannot predict, whose optimum is a flat mask. Free test,
+  no training. See the 2026-09-15 menu.
+- **D19 — PROPOSAL: run the flatness instrument on WeSep.** Is the volume knob
+  ours or the task's? No training run. The single cheapest redirect available.
+  See the 2026-09-15 menu.
+- **J5 — PROPOSAL: run-to-run training variance.** Ten training runs, all
+  `seed: 42`, no replicate anywhere. The third noise source is unmeasured and M6
+  needs it. See the 2026-09-15 menu.
+- **G1 — PROPOSAL: the Gemini tuner.** A local stand-in for the judge, trained on
+  Gemini labels, used as the differentiable signal the API cannot give. Measured
+  starting point: a free local listener already explains 68 % of the judge's
+  per-trial error (r^2 0.680) but is 21.7 points out on the level. See the
+  2026-09-15 G1 section at the end of this file.
+- **O1/O2/O3 — obligations, not options.** Score the struct control on
+  `sir0_privval` (1.2 h, its registered acceptance test is unrun), write D17 up,
+  and produce M6's stratified tables. See the 2026-09-15 menu.
+
 - **A1 needs sign-off only, not a decision.** Reference is the full reverberant
   target: separate and denoise, do not dereverberate. Removing a 0.6 s tail inside
   a 300 ms causal window is not possible, and trying trades residue for artefacts,
@@ -3210,3 +3228,717 @@ SAME way, so the confound cannot explain the result away — it reinforces it.
   `sir0_privval`, per SIR band, scores it.
 - **Single seed, n=50, one architecture.** Run-to-run training variance is still
   unmeasured and sits on top of every interval here.
+
+---
+
+## 2026-09-15 — THE MENU: what is open, what each costs, and what it buys
+
+**Written as a decision menu, not a decision.** Nothing below is taken. Every
+cost is from `run_times.md` or a completed comparable run; none is estimated.
+Ordered by information per hour, obligations first.
+
+### Obligations — these are not optional and two of them are cheap
+
+| # | what | cost | why it is not optional |
+|---|---|---|---|
+| **O1** | **Score the struct control on `sir0_privval`.** `2026-09-14-est-privval-control` is 1,421 rendered trials with a `meta.yaml`, and it has never been through `evaluate.py`. | **1.2 h**, measured | D17's config names LCF-WER on `sir0_privval` **per SIR band** as its acceptance test. The arm has that number (47.37); the control does not. **The arm is currently unjudged against its own registered test.** |
+| **O2** | **Write D17 up.** The arm ran, was evaluated four ways, and appears in no decision log. | ~1 h, writing | Project rule: every experiment gets a logged result. It is the only unlogged run in the repo. |
+| **O3** | **M6's stratified tables (B13) and latency curve (B11).** Scoring only, no training. | unmeasured; `evaluate.py` already emits the columns | M6 is the thesis's central finding and its checklist is 2 of 8. A headline aggregate must never appear alone. |
+
+### D17's result, stated here because the options below branch on it
+
+**In plain words: the arm was told to give the mask frequency detail, and it
+produced a mask with half the frequency detail it started with.** The live judge
+could not tell the two systems apart.
+
+| on `sir0_val` `both`, n=103, same trials | baseline e6 | struct e12 |
+|---|---|---|
+| LCF-WER (judge) | 55.59 | **55.36** (−0.23, inside the ~3-point paired floor) |
+| leakage ICR@2 | 61.17 | 65.05 (worse) |
+| fabrication FR@2 | 43.69 | 48.04 (worse) |
+| mask variation across frequency, `d_freq` | 0.0253 | **0.0121 — halved** |
+| freq/time ratio (ideal 1.014, must RISE) | 0.616 | **0.306 — fell** |
+
+**Flag, per the rule about headline numbers moving for bad reasons:** LCF-WER is
+flat and the *direction* is wrong on every diagnostic. Read this as a null with a
+mechanism, not as a tie.
+
+**And `train_L_struct` is absent from `2026-09-14-train-sir0-struct/history.csv`.**
+The logging fix landed alongside the run. **We cannot say whether the term
+descended.**
+
+---
+
+### D18. Why L_struct FLATTENED the mask — the degenerate-optimum hypothesis
+
+**Status: proposal. The cheap half needs no training.**
+
+**Hypothesis.** `_loss_mask_shape` is an energy-weighted **L1** between the
+model's mean-removed frequency shape and the oracle's. When the target is not
+predictable from the input, the L1-optimal constant prediction is the
+**conditional median of the oracle deviation, which is ~0** — i.e. a flat mask.
+So a shape loss the model cannot fit does not teach shape; **it actively pays the
+model to remove the shape it had.** That is exactly the measured signature.
+
+**Test 1, free, no training.** On cached crops, compute the term for (a) the
+model's mask, (b) a constant-zero shape, (c) the oracle. **If (b) beats (a), the
+term's own optimum is the flat mask** and every "supervise the shape" variant
+inherits the fault.
+
+**Test 2, one training run.** If Test 1 confirms it, the fix is a loss whose
+optimum is not zero — correlation or cosine across frequency (scale-free, so a
+flat prediction scores worst, not best), or a variance-matching penalty. Same
+weight-derivation procedure.
+
+**What it is worth.** D15's successor and D17 are the same idea; if the loss form
+is the fault, the idea has never actually been tested. If Test 1 refutes it, the
+shape idea is dead on evidence and M5 should spend its remaining weeks elsewhere.
+
+### D19. Is the volume knob OURS or the TASK'S? Run the flatness instrument on WeSep
+
+**Status: proposal. Cheapest high-information item on this page.**
+
+WeSep `tfmap_context_causal_100` scores **26.40 LCF-WER against our 55.59** on the
+same 103 trials — floor 63.27, ceiling 1.05. It is causal, out of domain by its
+own config, and it beats us by ~29 points.
+
+**The measurement.** Point `scripts/measure_mask_flatness.py` at WeSep's mask.
+
+- **WeSep's `f/t` near the ideal 1.01** ⇒ the volume knob is a property of **our
+  objective**, and that is the most defensible finding in the project: a
+  published, better-scoring causal model on the same trials does not do it.
+- **WeSep's `f/t` also ~0.5** ⇒ the knob is what causal band-split masking does,
+  the flatness diagnosis does not explain the 29-point gap, **and D18/D15/D17 are
+  the wrong tree entirely.**
+
+Either answer redirects M5. Neither needs a training run. The one obstacle is
+reaching WeSep's internal mask rather than its waveform; if that is not
+exposed, the free fallback is the mask implied by output/input magnitude.
+
+**Carry the caveat:** different data, different objective, different training
+budget. This diagnoses *our* model; it is not a comparison claim.
+
+### J5. Run-to-run training variance — the third noise source, still unmeasured
+
+**Status: proposal. This one is uncomfortable and it is load-bearing.**
+
+**Ten training runs exist and every one is `seed: 42`.** No same-config replicate
+has ever been trained. Two noise sources are measured — trial sampling (~3 points
+paired, `decisions-m3.md` 2026-09-12) and judge SEM (~0.5) — and **the third,
+training itself, is a blank.**
+
+Consequence: the state arm's −1.72 and D17's −0.23 are both compared against an
+error bar nobody has drawn. Both were correctly written up as "did not improve"
+rather than "lost", but **M6 cannot claim two systems differ without this.**
+
+**The measurement.** Re-train `bsrnn_baseline.yaml` at two further seeds, score
+all three on the same 103 trials. Cost: 2 training runs plus 2 judge passes
+(14 min each, measured). **Do E8 first** — it roughly halves the training half.
+
+**Register before running:** if the seed spread exceeds ~3 points, no
+single-seed intervention in this project is separable from noise, and the M6
+write-up becomes a spread-versus-spread comparison rather than a point one.
+
+### Already-open items, re-costed against the above
+
+| id | one line | cost | verdict today |
+|---|---|---|---|
+| **E8 + E7** | fp32 batch probe writes batch 3 into an fp16 run that fits 6; then the second T4 is idle | ~half a day, ~2x throughput | **Do this first if anything in J5 or D13 runs.** It is the multiplier on every remaining training hour. |
+| **D13** | the per-band mix-back gate — **M5's actual scoped deliverable, and it is not built** | one build + one run | Oracle ceiling 2.2 points against a ~3-point paired floor. **Declare the effect size and k before running**, or the null is uninterpretable. M6 already says this. |
+| **D4a** | `bsrnn_tfmap_inject.yaml` — built 2026-09-11, **never run** | one training run | A finished arm sitting unused. Cheapest untested modelling change on the page. |
+| **D2** | attention temperature, one line of code | an afternoon | D7 records it as run but never logged as an arm. Either log it or re-run it as one. |
+| **D14** | state teacher | done | Measured and written up. No further arm without a reason. |
+| **D1** | phoneme-template cue | M5-scale | **Do not start.** Gated on D2, and M5 is cuttable with ~4 weeks left. |
+
+### The sequencing this implies
+
+1. **O1** (1.2 h) — finishes D17 against its own test.
+2. **D19** + **D18 Test 1** — both free of training, both redirect M5.
+3. **O2**, then **E8/E7**.
+4. Then **one** of D13 or J5, chosen by what 2 and 3 say. **Not both — there is
+   not room before 14 October**, and M6 must still run.
+
+**The honest reading of the last three arms.** The state teacher moved its own
+term and lost the metric; D17 moved its own diagnostic the wrong way and drew;
+the data hypothesis was refuted outright. Three interventions, no gain. **D19 is
+on this list because it is the only item that asks whether the diagnosis itself
+is right**, and it costs no training.
+
+---
+
+## 2026-09-15 — G1: THE GEMINI TUNER. A local stand-in for the judge
+
+**Status: PROPOSAL, raised 2026-09-15 (supervisor). Nothing below is taken.**
+Unblocked by the same day's withdrawal of family separation (decisions-m4.md
+2026-09-15): Gemini may now supply targets, rewards and filters offline.
+
+**The ask, as given.** Build a local model — expected to be large — that learns
+what Gemini Live would predict: the word error a mixture would produce given its
+target and interferer. Regress the extractor against it.
+
+### G1a vs G1b vs G1c — three different systems, and only two can train anything
+
+| | input | output | trains the extractor? | what it is actually for |
+|---|---|---|---|---|
+| **G1a** difficulty model | mixture + enrolment | predicted LCF-WER | **NO** | curriculum, data curation, analysis |
+| **G1b** scorer / reward | **extractor output** + target script | predicted LCF-WER | yes — 1 scalar per clip | cheap offline metric |
+| **G1c** distilled judge | **extractor output** | **Gemini's transcript** | yes — ~100 tokens per clip | the training signal itself |
+
+**Raise this at the next meeting before anything is built: the ask as worded is
+G1a, and G1a cannot tune the extractor.** The extractor does not change the
+mixture, so a function of the mixture has zero gradient with respect to the
+extractor's weights. Predicting difficulty from a mixture is a genuinely useful
+instrument — it is how you pick which trials to train on — but it is not a loss.
+To be a loss the predictor must be fed **what the extractor produced**.
+
+**Recommended shape: G1c, which subsumes the other two.** Run a distilled judge
+on a mixture and you have G1a; score its transcript with the existing
+`lcf_wer.py` / `icr.py` / `fabrication.py` and you have G1b, free.
+
+### Why a transcript target and not a WER target
+
+**A scalar is a starvation-level gradient.** One number per ~19.6 s clip, against
+~100 reference words. Fitting it needs many labels, it hands the extractor a
+single direction, and it is the classic reward-hacking target: the extractor
+finds audio the scorer likes and the judge does not, and the scorer cannot say so
+because it is off its own training distribution.
+
+**A transcript is per-token supervision of the thing we actually want.** With a
+distilled judge `G`, the extractor loss is the cross-entropy of the **true target
+script** under `G` conditioned on the extractor's output — "make audio a
+Gemini-like listener transcribes correctly". That is ASR cross-entropy, which
+CLAUDE.md already lists as an allowed proxy; the novelty is only that the ASR has
+been aligned to the judge's behaviour instead of being a generic Whisper. It is
+an increment on a sanctioned path, not a new invention to defend from scratch.
+
+### The measured facts that constrain the design
+
+**All from disk. None estimated.**
+
+1. **A free local listener already explains 68 % of the judge's per-trial word
+   error.** `experiments/results/2026-09-15-judge-predictability/`, n=412
+   (4 systems x 103 trials): pooled Pearson r 0.825, r² 0.680, Spearman 0.781.
+   **The surrogate does not start at zero — it starts at r² 0.68 and that is the
+   bar.** What the free proxy gets wrong is the LEVEL: mean absolute error
+   **21.7 points**.
+2. **Agreement is WORST on the best system.** WeSep — cleanest audio, lowest word
+   error — falls to r² 0.453 while the three ~62 % systems sit at 0.70–0.72.
+   **The free proxy degrades exactly in the regime an improving extractor moves
+   into**, which is the argument for training one, and also the warning that a
+   surrogate trained on today's mediocre outputs will be weakest on tomorrow's
+   better ones.
+3. **The offset is not a constant.** The ASR reads 3.9–4.9 points higher than the
+   judge on both baselines and 7.4 higher on WeSep, but **1.1 points LOWER** on
+   struct-e12. One calibration constant cannot fix it.
+4. **The judge's own test-retest noise is UNMEASURED and it bounds everything.**
+   Three clips in the cache carry repeats (5 calls each); one moved **16.0
+   points**. If the judge's self-disagreement is ~15 points MAE, the whole
+   surrogate project is competing for ~6 points of headroom against the free
+   proxy's 21.7. **Nobody knows this number and it costs ~$0.40 to get.**
+5. **Labels are cheap in money and expensive in wall-clock.** ~$0.0013 per clip
+   (~53 cents over ~412 clips, project-state.md) at **10 requests/minute**
+   (103 clips in 11–14 min, measured, `run_times.md`). So 5,000 labels ≈ **$6.50
+   and 8.3 h**; 20,000 ≈ **$26 and 33 h**. **Check whether the prepay tier lifts
+   10 rpm — that single fact sets the whole schedule.**
+6. **2,636 estimate clips are already rendered on `sir0_val` across 19 system
+   variants**, of which 412 are already judged. The remaining **2,224 cost ~$2.90
+   and ~3.7 h** to label and need no inference: the mask post-processing sweeps
+   (hysteresis, floor, follow), state-e6, noresidual, struct-e12, WeSep and both
+   baselines are 19 distinct points in artefact space on the same 103 trials.
+7. **There is no local GPU** (`run_times.md`). Training happens on a Kaggle T4
+   under a 12 h session cap. **"Quite large, trained locally" is not available.**
+   The realistic route is to inherit size from a pretrained checkpoint —
+   fine-tune `whisper small.en` (already a project dependency) or a WavLM/wav2vec2
+   encoder on the Gemini labels — which turns "learn what Gemini would say" from a
+   from-scratch problem into domain adaptation with a few thousand labels.
+8. **The judge scores ~19.6 s clips; training uses 4.008 s crops.** A surrogate
+   trained on clips and applied to crops is out of distribution on every step.
+   **Buy the training labels on 4 s crops** (same price per call) and keep clip
+   labels only for validating that the surrogate predicts the real metric.
+
+### Staged plan, each stage a decision point and each one a result on its own
+
+| stage | what | cost | kills the project if |
+|---|---|---|---|
+| **0** | predictability floor — DONE, free | 0 | — (r² 0.680, MAE 21.7) |
+| **1** | **judge test-retest noise floor**: k=5 repeats on ~100 clips spanning easy→hard | **~$0.65, ~1 h** | self-MAE ≈ 20 pts: there is nothing left to learn and G1 stops here |
+| **2** | label the 2,224 rendered clips + a synthetic corruption ladder | **~$3, ~4 h** | — |
+| **3** | fine-tune `small.en` on (audio → Gemini transcript); score r²/MAE **on a held-out SYSTEM** | 1 T4 session | held-out-system r² ≤ 0.68: it learned the systems, not the judge |
+| **4** | CE of the true script under the distilled judge as an extractor loss term | 1 training run | — |
+| **5** | trust region: re-judge 103 clips every N epochs, plot predicted vs actual | $0.13, 14 min each | divergence ⇒ buy labels on the new outputs, retrain, continue |
+
+**Stage 1 before Stage 2.** It is the cheapest thing on this page and it is the
+only one that can say the project is not worth doing.
+
+### Where the training distribution comes from, and why it is the hard part
+
+**The failure that kills reward models is distribution shift**, not accuracy: the
+surrogate is trained on outputs of today's extractor and then asked to score
+outputs of an extractor that has been optimising against it. Three sources, in
+increasing order of what they buy:
+
+1. **The 19 rendered variants** (fact 6) — real artefacts, already on disk, but
+   only 103 distinct trials.
+2. **Synthetic corruption ladders** — take the clean target and apply mix-back at
+   a range of α, band drops, spectral holes, musical noise, level scaling,
+   clipping. **Free to generate, unlimited trials, and it covers the artefact
+   space deliberately rather than by accident.** This is the cheapest way to make
+   the surrogate robust where it matters.
+3. **Online re-labelling** (Stage 5) — the only thing that actually tracks the
+   extractor as it moves.
+
+**Trial diversity must come from `sir0_train`, never from `sir0_privval` or
+`eval_private`.** Those two are the entire remaining holdout (decisions-m4.md
+2026-09-15) and touching them for labels destroys the last defensible number.
+
+### Registered before running
+
+- **Declare the effect size.** M6 already requires this and the last three arms
+  ignored it. State what LCF-WER gain counts as success BEFORE Stage 4, against
+  the ~3-point paired floor and the still-unmeasured seed spread (J5).
+- **Held-out-system evaluation is the honest test of the surrogate**, not
+  held-out-trial. In use it must score a checkpoint it has never seen.
+- **Every Gemini call in Stages 1–5 is a training-time call** and records model
+  ID, prompt and date exactly as a judge call does. `judge.py` already does this,
+  which is why no new logging is needed.
+- **Every claim says *optimised for Gemini*, never *generalises to live models*.**
+
+### What it costs against what is already on the page
+
+**This does not fit alongside the 2026-09-15 menu.** Stages 0–3 are roughly a
+week; Stages 4–5 are a training run plus iteration, against **4 weeks to the
+2026-10-14 freeze** with O1/O2/O3 outstanding and M6 unrun. Taking G1 means
+dropping D13 and J5, i.e. M5's scoped deliverable and the seed-variance
+measurement. **That is a supervisor decision, not one to take here.**
+
+**The argument for taking it anyway:** the last three arms (state teacher, D17,
+the data hypothesis) all returned nulls, and G1 is a result either way — "how
+well can a local model predict a live model's listening, and does regressing on
+it help?" is publishable as a negative. **The argument against:** it puts the
+thesis's stated primary contribution (a gaming-resistant metric) and its
+replacement (the surrogate) on the same four weeks.
+
+### G1c concretised — exact inputs, outputs, and where the term goes
+
+**Raised 2026-09-15 (Grant): "backbone + a head fine-tuned by Gemini — but what
+are the input and output, and how does it reach the extractor?"**
+
+#### The surrogate has two lives, and the input/output differ between them
+
+**Life 1 — TRAINING THE SURROGATE. Fixed audio; the label is what Gemini said.**
+
+| | |
+|---|---|
+| input | any 4.008 s audio crop, `(B, 64128)` at 16 kHz |
+| label | **Gemini's transcript of that same crop** — its errors, its leakage, its inventions |
+| trained | the head only; backbone frozen |
+| learns | *how this listener mishears* |
+
+**Life 2 — TRAINING THE EXTRACTOR. The surrogate is frozen; the audio moves.**
+
+| | |
+|---|---|
+| input | `s_output`, the extractor's waveform, `(B, 64128)` — WITH gradient |
+| target | the clean stem `s_target`, already in the loss call |
+| trained | the extractor; surrogate weights frozen |
+| asks | *now do not mishear* — and pushes that back into the audio |
+
+**This is the whole idea in one line: learn to mishear like Gemini, then ask the
+extractor to make audio that defeats the mishearing.** The labels are Gemini
+transcripts; the extractor's target is never a Gemini transcript.
+
+#### The backbone: `torchaudio.pipelines.WAV2VEC2_ASR_BASE_960H`
+
+**No new dependency — torchaudio 2.11.0 is already installed and ships it.**
+16 kHz native, matching `sample_rate`, and it already carries a trained CTC head
+over a **29-symbol character vocabulary** (`'-', '|', A-Z, '`). So the starting
+point is a working ASR whose head is fine-tuned onto Gemini behaviour, which is
+exactly the proposed shape and not a from-scratch build.
+
+**Do NOT use Whisper for the in-loop term.** Its encoder takes a fixed 30 s
+window, so every 4.008 s crop would cost a 30 s forward pass — ~7.5x wasted
+compute on every training step. `faster-whisper` is worse than unsuitable: it is
+CTranslate2, an inference engine with no autograd at all. Whisper stays where it
+is, as the offline stand-in listener.
+
+Shapes, for the 4.008 s crop (conv stack strides 5,2,2,2,2,2,2 = 320, i.e. 50 Hz):
+
+    waveform      (B, 64128)        B = 6 at batch_size 3 x both_directions
+    features      (B, 200, 768)
+    CTC logits    (B, 200, 29)
+
+#### Two heads on the one frozen backbone
+
+| head | output | trained against | used for |
+|---|---|---|---|
+| **T** transcription | `(B, 200, 29)` CTC logits | CTC vs **Gemini's transcript** | **the gradient path** |
+| **S** score | one scalar | Huber vs measured per-trial LCF-WER | reading only, NEVER in the gradient |
+
+**Head S is the instrument, not the trainer.** It answers "is the surrogate
+actually predicting the judge" (against the r^2 0.680 / MAE 21.7 floor already
+measured) and it gives free checkpoint selection. It must never be
+backpropagated: a scalar is one number per clip against ~100 reference words, and
+it is the textbook reward-hacking target.
+
+#### The extractor's loss term, and why it needs no text alignment
+
+**Option 1, SHIP THIS FIRST — "transcribe like the clean stem does".**
+
+    L_gem = D( HeadT(G(s_output)) , HeadT(G(s_target)) )
+
+`D` = KL over the frame-wise character posteriors, or L1 on the logits.
+**No ground-truth text is needed anywhere**, because the reference is the clean
+stem, which `losses.py` already receives. That matters: the loader yields 4 s
+crops with no text, so anything text-based needs per-crop alignment work first.
+
+**Option 2, LATER — "get the words right".**
+
+    L_gem = CTC( HeadT(G(s_output)) , words spoken inside this crop )
+
+More tolerant — any audio that transcribes correctly scores well, however it
+sounds — but it needs the crop's text. That is buildable: the loader already
+returns `crop_start` and `trial_id`, and the manifest carries `target_utts` and
+`target_onsets_s`. A middle route avoids the alignment entirely: greedily decode
+`HeadT(G(s_target))` and use THAT as the crop's pseudo-label.
+
+#### Where it goes: one term beside `L_MR`, taking the same two tensors
+
+`scripts/train.py:723-731` already computes exactly what is needed:
+
+    s_output, mask = model(mixture, enrollment, return_mask=True)
+    loss, parts = loss_fn(target, s_output.float(), mixture, crop_absent, ...)
+
+So `L_gem` enters `LossBSRNN.__call__` in the **present branch**, next to `L_MR`,
+reading the same `s_target` / `s_output` pair and gated the same way — on an
+absent crop there is no clean stem to listen to, and `L_abs` already owns that
+case.
+
+**The defensible framing, and it is the reason to build it this way.** `L_MR`
+already compares output to target in a feature space; it just happens to be four
+STFT magnitudes. **`L_gem` is `L_MR` with a learned, Gemini-aligned feature space
+instead of a hand-chosen one.** One term, one weight, `w_gem = 0` reproduces
+today's objective exactly, and the weight is DERIVED by the same procedure as
+`w_g` and `w_struct` (`derive_w_g.py`), never chosen by hand.
+
+#### The extractor does not change, and that protects the latency result
+
+**The surrogate is training-time only.** At inference the shipped model is the
+same 7.19 M parameters at RTF 0.528 and 162 ms. Nothing in the streaming or
+latency story moves. This is the strongest practical argument for the whole
+approach over changing the architecture.
+
+#### Registered before building — the things that will actually bite
+
+1. **Step-time and memory cost are UNMEASURED.** A base backbone runs forward AND
+   backward on every step (frozen weights still pass gradient to the input),
+   against a current 0.674 s/step at batch 3. **Measure with
+   `scripts/profile_step.py` before committing** — and do not quote a projection
+   as a measurement. Gradient checkpointing on the backbone is the mitigation if
+   the T4's memory will not take it; E5 already records activations as the
+   binding constraint.
+2. **The front end must be torch ops end to end**, or the gradient stops. This is
+   satisfied by the torchaudio bundle and is exactly what `faster-whisper` fails.
+3. **Per-clip waveform normalisation inside the backbone destroys level
+   information.** Wanted, not a bug — it means `L_gem` cannot be gamed by getting
+   louder — but `L_gain` must stay in the objective to cover level.
+4. **Train the surrogate on 4 s crops**, the same length it will see in the loop.
+   A surrogate trained on 19.6 s clips is out of distribution on every step.
+5. **Cache backbone features when training the head.** The audio is fixed in
+   Life 1, so features are computed once and head training becomes minutes. In
+   Life 2 the audio changes every step and nothing can be cached.
+6. **Validate Head S on a held-out SYSTEM, not a held-out trial.** In use it
+   scores checkpoints it has never seen.
+
+### G1 REFRAMED — 2026-09-16. A surrogate answers scarcity, and scarcity may not bind
+
+**Raised by Grant: "how do I tune to a transcription tool that has its own biases
+and flaws, and how do I do it with Gemini if tokens are not scarce?"**
+
+**The correction to G1 as proposed.** A differentiable surrogate exists for ONE
+reason: you cannot backpropagate through an API. That is a constraint on
+*gradients*, not on *tuning*. **There are four routes by which a black-box
+listener's signal can reach a system, and only the last needs a surrogate.**
+
+| level | what moves | needs the judge differentiable? | hacking risk |
+|---|---|---|---|
+| **1 selection** | which artefact you keep (epoch, config, trials) | no | none — no pressure on the audio |
+| **2 parameter search** | non-learned knobs, scored directly by the judge | no | low — few parameters |
+| **3 imitation of winners** | **the weights** — best-of-N, then retrain toward the winners | **no** | moderate |
+| **4 differentiable surrogate** | the weights, through backprop | yes | high |
+
+**Level 3 is the one that was missed.** Generate N candidates per trial, let
+Gemini rank them, fine-tune the extractor against the WINNING audio using the
+loss that already exists. The judge's preferences reach the weights and Gemini is
+never differentiated. This is expert iteration / rejection-sampling fine-tuning.
+**G1's surrogate drops from "necessary" to "last resort".**
+
+#### Tuning to a biased listener — the two things that make it defensible
+
+1. **Keep an unoptimised second listener as the control.** `small.en` is still
+   untouched by training. If tuning to Gemini also moves Whisper, intelligibility
+   improved; if it does not, we fitted Gemini's quirks. **Both are reportable, and
+   this partially recovers what the 2026-09-15 withdrawal cost** — the holdout
+   moved from the model to the data, and it can also move to the LISTENER.
+   Measured baseline for that check already exists: r^2 0.680, MAE 21.7
+   (`2026-09-15-judge-predictability`).
+2. **Separate systematic bias from stochastic noise.** Bias is tunable; noise
+   never is. One clip moved **16.0 points across five identical calls**, so a
+   label built from k=1 is part noise. **With a free budget the right purchase is
+   REPEATS, not more trials** — aggregates already have SEM ~0.5 over 103, but
+   every method above consumes PER-TRIAL labels, and those are the noisy ones.
+
+#### What "no shortage of tokens" does and does not unlock
+
+- **Does:** mass labelling, k>=3 on everything, best-of-N at large N.
+- **Does NOT:** Gemini inside the gradient loop. ~8 s per call against a 0.674
+  s training step. That is latency, not cost, and no budget removes it.
+- **UNVERIFIED AND IT SETS THE WHOLE PLAN.** `judge_gate.yaml` records
+  `tier: "free"`, 10 rpm / 1500 rpd, both annotated *"VERIFY in AI Studio --
+  third-party figure"*, while `project-state.md` says AI Studio **prepay**. These
+  disagree. At 10 rpm, 100k labels is 167 h; at 1000 rpm it is 100 minutes.
+  **Check the console, and check whether batch mode is available for this model
+  — it is built for exactly this and usually runs far above the interactive
+  limit.** Minutes of work, and it decides everything below.
+
+#### The experiment to run first: the alpha-oracle
+
+**It attacks the project's biggest measured failure using Gemini as the teacher,
+needs no retraining for the diagnostic, and no surrogate.**
+
+The #1 finding against our model is that **it applies one transform to
+everything** — SIR/SAR flat from easy to hard while the outcome swings −4.2 to
++23.1 points (decisions-m3.md 2026-09-01). D11's mix-back is the knob:
+`s_alpha = alpha * s_hat + (1 - alpha) * x`, **zero added latency, no retraining,
+every alpha from one forward pass.** Not yet built — `postprocess_mask.py` does
+hysteresis sharpening, not mix-back — but it is a multiply-add.
+
+1. Sweep `alpha` over ~5 values on N trials (one forward pass, trivial DSP).
+2. Score every `(trial, alpha)` through the judge at **k>=3**.
+3. Take `alpha*(trial)`, the per-trial best.
+
+**Read it:**
+
+- **`alpha*` roughly constant** ⇒ nothing trial-dependent to learn. Ship the
+  global knob; "tuned to Gemini" is one honest number, cheaply obtained.
+- **`alpha*` varies with the trial** ⇒ **Gemini has just handed us a supervised
+  target for a per-frame gate.** That is D11 strategy 1 (learned,
+  input-conditioned alpha), it directly attacks "the model cannot tell the cases
+  apart", and the labels came from the judge.
+
+**This is NOT the patch D11's objection rejected.** That objection stands against
+a global constant presented as a fix — it trades hard-trial gains for easy-trial
+harm and gives the model no new capability. Here the sweep is (a) a probe for what
+the judge actually wants and (b) a way to MANUFACTURE TRAINING TARGETS for the
+principled per-frame version. Report it that way or the objection applies again.
+
+#### Revised order
+
+1. **Verify the rate limit and batch availability.** Minutes. Gates everything.
+2. **Judge test-retest noise, k=5 on ~100 clips.** Still the gate: if the judge
+   disagrees with itself by ~20 points there is nothing to tune to.
+3. **The alpha-oracle sweep.** Either outcome is a result.
+4. **Learned per-frame alpha head**, if step 3 says alpha is trial-dependent.
+5. **Expert iteration** (best-of-N over alpha x hysteresis x checkpoints, retrain
+   on winners), if time remains.
+6. **G1c's surrogate LAST**, and only if a signal is needed inside the gradient.
+
+**Carry to every claim either way: *optimised for Gemini*, never *generalises to
+live models*. The Whisper control is what says which of the two we achieved.**
+
+### J6 — 2026-09-16. Tuning the LISTENER: a second instrument, never a parameter
+
+**Raised by Grant: "can the Gemini side be tuned to best account for my system?"**
+
+**The trap, stated first.** LCF-WER is *what the live model reports*, so the live
+model IS the transcriber. There is no separate frozen scorer that could grade a
+tuned receiver. **Tuning the listener until it is kinder to our audio, then
+reporting one number, games the benchmark more completely than anything the
+2026-09-15 withdrawal allowed** — that withdrawal kept the DATA held out; this
+would remove the last fixed reference point in the project.
+
+**The resolution, and it costs nothing.** A listener configuration is an
+**instrument, not a parameter**. Changing it does not tune anything: it creates a
+SECOND instrument, on which **every system is re-scored, floor and ceiling
+included**. Two tables, and the comparison between them is itself a finding.
+`metric-definitions.md` already treats the prompt, the normaliser and the gate
+this way; decoding configuration simply joins that list.
+
+#### DEFECT, and it must be fixed before any of this is attempted
+
+**The cache key does not include the generation config.**
+
+    f"{model_id}@{backend}|{prompt_sha}|{trial}|{file}|{audio_sha}|r{repeat}"
+
+Model ID and prompt hash are in it, so changing the prompt correctly forces
+anchors to be re-bought. **Change the temperature and the cache silently serves
+answers produced at the old setting.** Fix it BACKWARD-COMPATIBLY — fold the
+config into the key only when it is non-default — or all 653 paid-for responses
+are invalidated at a stroke.
+
+#### The instrument is currently running on server defaults
+
+`Judge._call_once` sets **no temperature, no seed, no top_p, no thinking budget**.
+Everything is whatever the server picks.
+
+**This is the likeliest source of the 16.0-point spread** measured across five
+identical calls on one ambiguous clip (2.9 on another, 0.0 on the ceiling), and
+that spread is exactly what blocks per-trial claims — project-state.md "Cannot":
+*per-trial needs k>=3 and averaging*.
+
+| knob | now | expected effect | verdict |
+|---|---|---|---|
+| **temperature / seed** | **unset, server default** | likely large — the noise source | **a REPAIR, not tuning** |
+| **k-sample consensus** (vote over k transcripts) | k=1 on estimates | attacks per-trial noise directly | legitimate as a second instrument |
+| **thinking budget** | unset | unknown; plausibly large on degraded audio | legitimate as a second instrument |
+| prompt wording | frozen `d118b7d3bf30` | **MEASURED LOW** — cross-prompt range 18.0 against same-prompt noise 16.0 | answered; do not spend time here |
+| enrolment audio as context | no | probably large | **FORBIDDEN by J3** — hands the extractor's job to the judge |
+| fine-tuning Gemini on our outputs | no | large | **destroys the premise** — a tuned Gemini is no longer the off-the-shelf live model the project claims to serve |
+
+**Pinning temperature is a repair rather than tuning** because it is applied
+identically to every system and reduces variance rather than shifting the mean in
+our favour. **That must be VERIFIED, not assumed:** re-score floor and ceiling
+first and report the mean shift alongside the variance drop. If the mean moves
+materially, it is a new instrument and every number moves with it.
+
+#### The version that is a contribution rather than a problem
+
+The project is a **pipeline**: extractor -> live model. In deployment both ends
+get tuned, and **"where is the headroom, the front end or the receiver's
+configuration?" is a real question nobody in TSE asks.**
+
+Run it as systems x listener-configurations, every cell re-scoring its own floor
+and ceiling. The ceiling is 1.05 % on clean audio, so listener tuning can buy
+almost nothing there — **the whole question is whether a better-configured
+listener is more ROBUST TO EXTRACTOR ARTEFACTS**, which is
+`metric-definitions.md` 1's hypothesis approached from the other side.
+
+**If a listener configuration closes more of the floor-to-ceiling gap than our
+extractor does, that is a finding about where effort belongs in live-model
+pipelines.** Uncomfortable, cheap (scoring, no training), and honest.
+
+#### Order
+
+1. **Fix the cache key, backward-compatibly.** Nothing else is safe until then.
+2. **Pin temperature and seed; re-score anchors; report mean shift AND variance.**
+3. **k-sample consensus as a declared second instrument.**
+4. Do NOT tune the prompt, do NOT send the enrolment, do NOT fine-tune Gemini.
+
+### 2026-09-16 — THE RECOMMENDED SEQUENCE. A recommendation, not a decision
+
+**Four weeks to the 2026-10-14 freeze.** Ties together G1, G1c, the G1 reframe
+and J6 above. **Dropping D13 is a real decision and is NOT taken here.**
+
+**The convergence worth noticing: `project-state.md` "Next" item 1 already names
+the mix-back sweep as the cheap route to M6's missing near-tie.** Free tokens do
+not introduce a new idea — they promote that sweep from a *measuring instrument*
+to a *teacher*, because every `(trial, alpha)` cell can now be scored densely
+enough to read `alpha*` per trial.
+
+#### Everything in this conversation bottlenecks on ONE number
+
+Per-trial judge noise blocks all of it: per-trial claims (project-state
+"Cannot"), a surrogate (noise cannot be fitted), `alpha*(trial)` (a per-trial
+quantity), best-of-N (per-trial ranking), and every delta's error bar. **It is
+unmeasured at n>=3 clips, and it may be a config line** — J6 found the instrument
+running on server-default temperature. **Quieten the instrument first and
+everything downstream gets cheaper at once.**
+
+#### Tier 1 — this week. Cheap, unblocking, none of it optional
+
+| | what | cost |
+|---|---|---|
+| 1 | verify the real rate limit + batch availability (J6, G1 reframe) | minutes |
+| 2 | fix the judge cache key backward-compatibly (J6 defect) | small |
+| 3 | pin temperature/seed; re-score anchors; report **mean shift AND variance** | ~600 calls |
+| 4 | judge test-retest, k=5 on ~100 clips — the noise floor | ~$0.65 |
+| 5 | **O1** (struct control on `sir0_privval`) and **O2** (write D17 up) | 1.2 h + 1 h |
+
+#### Tier 2 — the one new experiment: the alpha-oracle sweep
+
+**It does three jobs at once**, which is why it beats every other candidate:
+
+1. attacks the top measured failure — one transform applied to everything;
+2. **produces M6's missing near-tie family**, from one checkpoint, no retraining;
+3. if `alpha*` is trial-dependent, Gemini has handed us a supervised target for
+   the per-frame gate (D11 strategy 1).
+
+**The methodological prize, and it is large: every member of the alpha family
+shares one set of weights.** So within-family comparisons carry NO training
+noise, and **J5's unmeasured seed variance cannot confound them** — the blank
+underneath every delta reported so far simply does not apply here. No retraining
+arm can say that.
+
+#### Tier 3 — conditional. Learned per-frame alpha head, one training run
+
+Only if Tier 2 says `alpha*` varies by trial. This becomes M5's deliverable in
+place of D13, and is better motivated than D13 because the target came from the
+judge rather than from an oracle mask.
+
+#### Tier 4 — in parallel, and it is the part that cannot be cut
+
+M6's stratified tables (**O3**) and the five findings that already exist and are
+unwritten. **The thesis risk is not that the extractor is weak — that is itself
+an honest, evidenced result. The risk is that M6, the stated central finding,
+never runs.**
+
+#### Recommended DROP, each with its reason
+
+| item | why |
+|---|---|
+| **G1c surrogate** | answers scarcity; scarcity may not bind. Last resort, not first |
+| **D13 per-band gate** | Tier 2 delivers M6's near-tie family more cheaply and with no training noise |
+| **D18 / D19** | diagnostics of the mask-shape line, which Tier 2 routes around |
+| **J5 seed variance** | deferrable *only because* Tier 2 is retraining-free. Required again the moment Tier 3 runs |
+
+**Carry regardless: *optimised for Gemini*, never *generalises to live models*,
+and `small.en` stays untouched as the control listener that tells the two apart.**
+
+### AMENDMENT 2026-09-16 — the four routes are not four ways to do the SAME thing
+
+**Correcting an implication in the G1 reframe above.** That section said the
+surrogate "drops from necessary to last resort". That is right about SEQUENCE and
+misleading about SUFFICIENCY, and the difference matters.
+
+**The four routes differ in HOW MUCH OF THE SYSTEM the judge shapes.**
+
+| route | what Gemini decides | parameters Gemini shapes | are the extractor's weights tuned? |
+|---|---|---|---|
+| selection | which artefact is kept | 0 — a choice among N | **no** |
+| alpha sweep, global | one scalar | **1** | **no** |
+| alpha sweep -> learned per-frame head | the head's training target | ~thousands | partially |
+| **expert iteration** | which of N candidate outputs is best | **all 7.19 M** | **yes — within the span of the candidate set** |
+| **differentiable surrogate** | the gradient itself, every step | **all 7.19 M** | **yes — including directions no candidate set contains** |
+
+**So the alpha sweep is barely "tuning to Gemini" at all** — it is one knob whose
+value Gemini picks. It was recommended because it is cheap, attacks the top
+measured failure, and hands M6 its near-tie family. **Those are reasons of
+project risk, not of fidelity to the stated goal.** Say so when presenting it.
+
+**Expert iteration's ceiling, stated plainly.** Candidates built from mix-back and
+mask post-processing are all variants of ONE separation, so retraining on the
+winners can only teach the model to internalise post-processing it could already
+have applied. **It cannot discover a separation that was never in the candidate
+set.** Widening that set — stochastic masks, several checkpoints, several
+architectures — raises the ceiling; it does not remove it.
+
+**Which is exactly why the surrogate exists, and why the supervisor proposed it.**
+A gradient explores continuously, so it can push toward outputs no candidate set
+contains. **If the goal is genuinely "tune the extractor to Gemini", the surrogate
+is the only route that fully does it. There is no cheap substitute for that
+property.**
+
+#### The middle path not previously named: surrogate as RANKER, never as gradient
+
+Train G1c's **Head S only** (scalar LCF-WER, the cheap half), then use it to rank
+thousands of candidates locally at zero API cost, keep the winners, retrain on
+them, and **verify the winners with real judge calls**.
+
+- Gemini labels train the ranker; the ranker supplies candidate throughput the
+  rate limit could never buy.
+- **A wrong ranker is far safer here than in a gradient loop**: it only re-orders
+  a fixed candidate set, and every winner is checkable against the real judge.
+- It needs no differentiable front end, no backward pass through a backbone, and
+  no step-time cost in training.
+
+**This is the best fidelity-per-risk point on the page** and it was missing from
+the sequence above.

@@ -1,0 +1,87 @@
+{
+  "split": "sir0_val",
+  "systems": {
+    "baseline-5000-e7": "experiments/results/2026-09-01-est-sir0-5000",
+    "wesep": "experiments/results/2026-09-03-est-wesep-tfmap-causal",
+    "baseline-10000-e6": "experiments/results/2026-09-04-train-sir0-10000",
+    "struct-e12": "experiments/results/2026-09-15-est-struct-e12-sir0val"
+  },
+  "coverage": {
+    "baseline-5000-e7": {
+      "paired": 103,
+      "no_judge": 47,
+      "no_asr": 0,
+      "missing_dir": false
+    },
+    "wesep": {
+      "paired": 103,
+      "no_judge": 0,
+      "no_asr": 0,
+      "missing_dir": false
+    },
+    "baseline-10000-e6": {
+      "paired": 103,
+      "no_judge": 47,
+      "no_asr": 0,
+      "missing_dir": false
+    },
+    "struct-e12": {
+      "paired": 103,
+      "no_judge": 0,
+      "no_asr": 0,
+      "missing_dir": false
+    }
+  },
+  "groups": [
+    {
+      "group": "POOLED",
+      "n": 412,
+      "judge_mean": 54.87037802316075,
+      "asr_mean": 58.65558467052374,
+      "pearson": 0.8247416037113703,
+      "r_squared": 0.680198712892403,
+      "spearman": 0.7805571387766144,
+      "mean_absolute_error": 21.73276820212839
+    },
+    {
+      "group": "baseline-5000-e7",
+      "n": 103,
+      "judge_mean": 62.28377973541705,
+      "asr_mean": 66.22384697792347,
+      "pearson": 0.8497885234227294,
+      "r_squared": 0.7221405345409827,
+      "spearman": 0.8111005824773811,
+      "mean_absolute_error": 20.851043119108603
+    },
+    {
+      "group": "wesep",
+      "n": 103,
+      "judge_mean": 31.922199178985103,
+      "asr_mean": 39.29164589497447,
+      "pearson": 0.6731884595683506,
+      "r_squared": 0.4531827020960088,
+      "spearman": 0.7378935810776496,
+      "mean_absolute_error": 19.777865018313197
+    },
+    {
+      "group": "baseline-10000-e6",
+      "n": 103,
+      "judge_mean": 61.75112305310921,
+      "asr_mean": 66.6467233199519,
+      "pearson": 0.8359803863091357,
+      "r_squared": 0.6988632062935718,
+      "spearman": 0.7446224496569066,
+      "mean_absolute_error": 24.061168316749846
+    },
+    {
+      "group": "struct-e12",
+      "n": 103,
+      "judge_mean": 63.52441012513163,
+      "asr_mean": 62.46012248924511,
+      "pearson": 0.846709211971841,
+      "r_squared": 0.716916489637976,
+      "spearman": 0.7907841897375432,
+      "mean_absolute_error": 22.24099635434192
+    }
+  ]
+}

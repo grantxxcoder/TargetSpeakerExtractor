@@ -25,7 +25,7 @@ system & (\%) & (\%) & (\%) & /trial & (\%) \\
 Floor (do nothing)  & 63.27 & 75.73 & 63.33 & 1.24 & 32.0 \\
 Ours (4{,}976 trials) & 56.72 & 62.14 & 50.15 & 1.83 & 41.7 \\
 Ours (9{,}955 trials) & 55.59 & 61.17 & 48.32 & 2.01 & 43.7 \\
-Extension (gate)    & --- & --- & --- & --- & --- \\
+Extension (mask structure) & 55.36 & 65.05 & 47.98 & 2.28 & 48.04 \\
 WeSep    & \textbf{26.40} & \textbf{25.24} & \textbf{12.92} & \textbf{1.80} & \textbf{38.8} \\
 Ceiling (clean)     & 1.05 & 0.00 & 0.00 & 0.20 & 1.0 \\
 \bottomrule
@@ -48,7 +48,7 @@ system & (\%) & (\%) & (\%) & /trial & (\%) \\
 Floor (do nothing)    & 65.22 & 66.99 & 51.30 & 2.61 & 57.28 \\
 Ours (4{,}976 trials) & 59.05 & 54.37 & 39.13 & \textbf{2.73} & \textbf{60.61} \\
 Ours (9{,}955 trials) & 59.52 & 50.49 & 34.58 & 3.08 & 68.00 \\
-Extension (gate)      & --- & --- & --- & --- & --- \\
+Extension (mask structure) & 56.58 & 49.51 & 31.63 & 3.45 & 70.59 \\
 WeSep    & \textbf{34.60} & \textbf{15.53} & \textbf{9.02} & 3.03 & 73.79 \\
 Ceiling (clean)       & 5.85 & 0.00 & 0.00 & 0.88 & 19.42 \\
 \bottomrule
@@ -107,7 +107,7 @@ system & $S$ & $D$ & $I$ & $S$ & $D$ & $I$ \\
 Floor    & 29.22 & 5.97 & 28.08 & 32.89 & 9.28  & 23.05 \\
 Ours (4{,}976) & 27.07 & 3.43 & 26.22 & 28.06 & 12.60 & 18.39 \\
 Ours (9{,}955) & 25.64 & 3.00 & 26.95 & 28.20 & 11.79 & 19.53 \\
-Extension (gate) & --- & --- & --- & --- & --- & --- \\
+Extension (mask structure) & 22.18 & 5.09 & 28.08 & 27.27 & 8.76 & 20.55 \\
 WeSep    & 10.62 & 6.78 & 8.99  & 18.51 & 8.91  & 7.19 \\
 Ceiling  & 0.87  & 0.15 & 0.03  & 3.43  & 0.67  & 1.75 \\
 \bottomrule
@@ -137,7 +137,7 @@ system & SDR & SIR & SAR \\
 Floor (do nothing)  & $-1.12$ & $-1.12$ & $+30.00$ \\
 Ours (4{,}976 trials)     & $+0.86$ & $+3.21$ & $+10.34$ \\
 Ours (9{,}955 trials)     & $+1.29$ & $+3.66$ & $\mathbf{+11.11}$ \\
-Extension (gate)    & --- & --- & --- \\
+Extension (mask structure) & $+2.29$ & $+5.33$ & $+9.96$ \\
 WeSep   & $\mathbf{+4.68}$ & $\mathbf{+10.34}$ & $+8.26$ \\
 Ceiling (clean)     & $+30.00$ & $+30.00$ & $+30.00$ \\
 \bottomrule
@@ -169,7 +169,7 @@ system & P808 & SIG & BAK & OVRL \\
 Floor (do nothing)  & 2.913 & 4.090 & 2.031 & 2.497 \\
 Ours (4{,}976 trials)     & 2.937 & 3.366 & 2.266 & 2.237 \\
 Ours (9{,}955 trials)     & 2.955 & 3.233 & 2.286 & 2.183 \\
-Extension (gate)    & --- & --- & --- & --- \\
+Extension (mask structure) & 2.996 & 3.375 & 2.498 & 2.347 \\
 WeSep   & \textbf{3.010} & \textbf{3.450} & \textbf{2.640} & \textbf{2.510} \\
 Ceiling (clean)     & 3.550 & 4.175 & 3.592 & 3.429 \\
 \bottomrule
@@ -196,7 +196,7 @@ Ceiling (clean)     & 3.550 & 4.175 & 3.592 & 3.429 \\
 
 \begin{table}[htbp]
 \centering
-\caption{Latency and throughput, measured over 2{,}250 chunks of \SI{80}{\milli\second} on CPU (i5-1135G7, 4 threads). The requirement is $\textup{RTF} < 1$ and latency within \SI{200}{}--\SI{300}{\milli\second}.}
+\caption{Latency and throughput over 2{,}250 chunks of \SI{80}{\milli\second} on CPU (i5-1135G7, 4 threads), except where marked. The requirement is $\textup{RTF} < 1$ \emph{and} latency within \SI{200}{}--\SI{300}{\milli\second}; the first is the binding constraint, because a chunk that finishes inside its own duration meets the latency budget automatically. Every figure is an \emph{estimate}, not a streaming measurement: chunks are processed independently with no carried state, which is worth 10--20\,\% either way.}
 \label{tab:latency}
 \small
 \begin{tabular}{@{}lccccc@{}}
@@ -205,15 +205,26 @@ Ceiling (clean)     & 3.550 & 4.175 & 3.592 & 3.429 \\
 \cmidrule(lr){2-3}\cmidrule(lr){4-5}
 system & mean & p99 & mean & p99 & budget \\
 \midrule
-Baseline         & 0.528 & 0.706 & 162.2 & 176.5 & yes \\
-Extension (gate) & --- & --- & --- & --- & --- \\
+Ours (4{,}976 trials)$^\dagger$ & \textbf{0.528} & \textbf{0.706} & \textbf{162.2} & \textbf{176.5} & yes$^\dagger$ \\
+Ours (9{,}955 trials)      & 0.783 & 1.095 & 182.6 & 207.6 & mean only \\
+Extension (gate)           & --- & --- & --- & --- & --- \\
+Extension (mask structure) & 0.839 & 1.278 & 187.1 & 222.2 & mean only \\
 WeSep & 2.854 & 5.300 & 348.3 & 544.0 & no$^\ddagger$ \\
 \bottomrule
 \end{tabular}
 
 \vspace{0.5em}
-{\footnotesize $^\ddagger$ And cannot stream at all, independently of its throughput. See the causality result above.}
+{\footnotesize $^\dagger$ Timed over 500 chunks, where every other row uses 2{,}250. The shorter run reads systematically faster, so this row is \emph{not} comparable with the rest of the table and its apparent win is an artefact of the protocol. Re-timing it is outstanding.\\
+$^\ddagger$ And cannot stream at all, independently of its throughput. See the causality result above.}
 \end{table}
+
+The extension needs about \SI{67}{\milli\second} to process each \SI{80}{\milli\second} of audio, so on a typical chunk it finishes with roughly \SI{13}{\milli\second} to spare and holds pace with a live stream. The delay a listener would experience averages \SI{187}{\milli\second}: the \SI{80}{\milli\second} of audio that must arrive before the chunk can be processed, the \SI{40}{\milli\second} of lookahead the architecture requires, and the compute itself. The slowest one percent of chunks reach \SI{222}{\milli\second}. Both figures sit inside the \SI{200}{}--\SI{300}{\milli\second} budget.
+
+The worst chunks, however, do not keep up, and that is the constraint that binds. The slowest one percent take \SI{102}{\milli\second} to process \SI{80}{\milli\second} of audio, so during those chunks work arrives faster than it is cleared and a backlog forms. The delays quoted above assume no queue; under a burst of slow chunks the true delay exceeds them by whatever backlog has built up, which means \SI{222}{\milli\second} is a floor rather than a worst case. The 9{,}955-trial model behaves the same way (p99 1.095). Only the 4{,}976-trial row clears the deadline at the 99th percentile, and that row was timed under a protocol which flatters it.
+
+The extension is not slower than the model it extends. Compared like for like at 2{,}250 chunks it costs 7\,\% more compute per chunk (0.783 against 0.839) and \SI{4.5}{\milli\second} more delay, but the two share an architecture and a parameter count of 7{,}189{,}644: the mask-structure term acts on the training objective and leaves the network untouched, so the true difference is zero by construction and the gap measures run-to-run variation on a laptop CPU. It must not be read as a cost of the extension.
+
+All of these timings come from a four-thread laptop CPU of 2021 vintage, whereas the deployment assumption is server-class hardware. They are therefore a conservative bound and not a projection of deployed performance; a GPU timing remains outstanding.
 
 
 % TODO: write out as prose. The four that must appear:
