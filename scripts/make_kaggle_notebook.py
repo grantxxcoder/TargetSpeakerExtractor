@@ -317,21 +317,31 @@ shutil.copytree(CODE, REPO)
 Path(OUT).mkdir(parents=True, exist_ok=True)
 Path(RES).mkdir(parents=True, exist_ok=True)
 
+cfg_path = Path(REPO) / CONFIG
+cfg = yaml.safe_load(cfg_path.read_text())
+
 # Import from the staged copy exactly as train.py will, before any GPU time is
 # spent. A staging bug is invisible until the training subprocess dies; this
 # turns it into one obvious line here.
+_mods = ["src.data.dataset_loader", "src.models.bsrnn", "src.models.losses",
+         "src.models.stft", "src.models.bands", "src.models.modules",
+         "src.models.conditioning", "src.run_log"]
+if cfg["model"].get("context_embedding", False):
+    # ITEM 1c ONLY, and conditional on purpose: this module pulls in
+    # speechbrain, which the baseline and 1a paths must not be made to require.
+    # Checked HERE so a missing dependency or an unstaged ECAPA snapshot fails
+    # in this cell, in seconds, rather than 40 minutes into the run as the arm
+    # silently failing to start. decisions-m2.md 2026-09-22.
+    _mods.append("src.models.context_encoder")
 chk = subprocess.run(
-    [sys.executable, "-c", "import sys; sys.path.insert(0, '.'); "
-     "import src.data.dataset_loader, src.models.bsrnn, src.models.losses, "
-     "src.models.stft, src.models.bands, src.models.modules, "
-     "src.models.conditioning, src.run_log"],
+    [sys.executable, "-c", "import sys; sys.path.insert(0, '.'); import "
+     + ", ".join(_mods)],
     cwd=REPO, capture_output=True, text=True)
 if chk.returncode:
     raise SystemExit(f"staged code at {REPO} does not import:\n{chk.stderr}")
-print("  staged code imports OK")
-
-cfg_path = Path(REPO) / CONFIG
-cfg = yaml.safe_load(cfg_path.read_text())
+print(f"  staged code imports OK ({len(_mods)} modules"
+      + (", including the 1c encoder" if "src.models.context_encoder" in _mods else "")
+      + ")")
 # The batch the CONFIG asks for, kept before the ceiling overwrites it. The w
 # schedule was calibrated against this number and has to be rescaled if the
 # probe lands somewhere else. decisions-m2.md 2026-09-21.
@@ -381,6 +391,7 @@ import sys, yaml, torch
 from pathlib import Path
 sys.path.insert(0, ".")
 from scripts.train import (get_data_loaders, build_model, build_loss_fn, unpack,
+                          build_context_encoder, context_kwargs,
                            amp_ctx, oracle_mask_and_mag)
 # argv, NOT a notebook global: this runs in its OWN subprocess (see the comment
 # in the driver below), so a bare CONFIG here is a NameError at import time.
@@ -412,6 +423,12 @@ CALIB_STEPS = 25
 scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 tr, _ = get_data_loaders(split, data / "manifests", data, cfg)
 m = build_model(cfg).to(dev); m.train()
+# ITEM 1c. The memory probe is a CALL SITE like any other, and on 2026-09-22 it
+# was the THIRD one the required-keyword design caught -- this time on Kaggle,
+# before any training time was spent rather than after. Building the encoder
+# here also makes the probe honest: 1c's peak memory includes the encoder's
+# forward, so probing without it would size the batch for a different model.
+enc = build_context_encoder(cfg, dev)
 L = build_loss_fn(cfg)
 opt = torch.optim.AdamW(m.parameters(), lr=float(cfg["training"]["lr"]),
                         weight_decay=float(cfg["training"]["weight_decay"]))
@@ -431,9 +448,9 @@ for i, b in enumerate(tr):
     # scale / unscale / clip / step / update.
     with amp_ctx(use_amp):
         if want_mask:
-            out, mask = m(x, e, return_mask=True)
+            out, mask = m(x, e, return_mask=True, **context_kwargs(enc, e))
         else:
-            out, mask = m(x, e), None
+            out, mask = m(x, e, **context_kwargs(enc, e)), None
     oracle, mix_mag = (oracle_mask_and_mag(m, s, x) if want_mask
                        else (None, None))
     loss, _ = L(s, out.float(), x, a,
