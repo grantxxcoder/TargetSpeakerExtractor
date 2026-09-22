@@ -100,10 +100,31 @@ at epoch 7, is the **overfitting / data-limited** signature already diagnosed
   diagnostic: `eval_public` keeps the target-louder distribution while `sir0`
   is symmetric (C2, they differ by 7.8 points), so scoring one checkpoint on
   both, split by SIR band, measures residual level bias with no training.
-- **1b, one line.** `conditioning.py:158` applies `ChannelWiseLayerNorm(bw)`
-  *within each band*. For the fifteen 3-bin bands that leaves two degrees of
-  freedom and **deletes `alpha_t`**. Normalise across the whole TF-Map or not
-  at all. This is the mechanical cause of D4a's gates sitting near zero.
+- **1b, one line. CORRECTED 2026-09-22 -- the diagnosis holds, the PRESCRIPTION
+  WAS WRONG.** `conditioning.py:158` applies `ChannelWiseLayerNorm(bw)` *within
+  each band*, and it does delete `alpha_t` -- exactly, not approximately:
+
+      (a*x - mean(a*x)) / std(a*x) = a(x - mean(x)) / (a*std(x)) = (x - mean(x)) / std(x)
+
+  MEASURED 2026-09-22: max |norm(a*u) - norm(u)| is 0.0 at a=1 and 4.6e-04 at
+  a=100, the residual being LayerNorm's eps and nothing else. Since `alpha_t` is
+  the only part of the cue that varies over TIME, what the injector re-presents
+  is a nearly static band-local shape -- a complete mechanical account of D4a's
+  gates sitting at zero.
+
+  **But "normalise across the whole TF-Map" DOES NOT FIX IT.** The identity
+  above does not care whether you standardise 3 values or 257: any PER-FRAME
+  normalisation is scale-invariant and `alpha_t` is a per-frame scale. Measured
+  the same way and it cancels just as completely. Only two things preserve it:
+  do not normalise the cue at all (the "or not at all" half was right), or use
+  statistics that span TIME, which for a causal model means a running statistic.
+
+  **AND ITEM 1a ALREADY SOLVES THE UNDERLYING PROBLEM.** Rather than hoping a
+  per-frame scalar survives a scale-invariant normalisation, 1a hands it over as
+  its OWN channel (`match_fraction`), which after scaling drives ~98 % of the
+  separator's input. 1b was never really about the injector; it was about the
+  same defect, on the disabled path instead of the live one. If D4a is revisited
+  its fix is REMOVE that norm, not widen it. decisions-m2.md 2026-09-22.
 - **1c, the real arm.** A frozen pretrained speaker encoder as a contextual
   embedding, multiplicative fusion. **ECAPA is already downloaded and wired in**
   for the state teacher (`state_teacher.py:245-276`, `../ecapa_pretrained`).

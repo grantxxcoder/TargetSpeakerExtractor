@@ -3110,3 +3110,69 @@ a DIFFERENT config, and printed `params=7,189,644`.
   every other number is about 1a, not 1c.
 - Then the four-case suite. An arm scored only on `both` cannot tell leakage
   REMOVED from leakage MOVED.
+
+### 2026-09-22 addendum — item 1c's EVALUATION path, which was the missing half
+
+Building the training path is not building the arm. Every evaluation script
+calls `model(mixture, enrollment)`, so on a 1c checkpoint every one of them
+raised TypeError -- the required-keyword design working, and a reminder that it
+protects by BREAKING things rather than by being remembered.
+
+`build_context_encoder(config, device)` in train.py is now the single
+constructor, used by training AND by every evaluation, so a score cannot be
+computed with different encoder settings from the run that produced the weights.
+Paired with the existing `context_kwargs()`, which is `{}` on every other arm and
+leaves those call sites byte-identical.
+
+Wired, and each VERIFIED end to end against a synthetic 1c checkpoint rather
+than assumed:
+
+  * `scripts/diagnose_cue_directional.py` -- THE ARM'S REGISTERED ACCEPTANCE
+    TEST. It embeds BOTH enrolments, because the enrolment feeds the cue and the
+    anchor, and swapping only one would score a model that was never asked for
+    the other speaker. It also now reports ||gamma||, the registered check that
+    the anchor is being used at all: near zero means every other number on the
+    page is about 1a and must not be reported as 1c's.
+  * `scripts/make_estimates.py` -- the extractor every evaluation goes through.
+    Whole-clip, so one encoder pass per trial.
+  * `scripts/measure_rtf.py` -- THE EMBEDDING IS COMPUTED OUTSIDE THE TIMING
+    LOOP, and that placement IS the claim the script exists to substantiate.
+
+**The latency claim is now measured, not asserted.** 1c on CPU, 80 ms chunks:
+RTF mean 0.6512, p99 0.8454; latency mean 172.1 ms, p99 187.6 ms against the
+200-300 ms budget. If the 20.77 M-parameter encoder ran per chunk over 5 s of
+enrolment, per-chunk time would be enormous and RTF far above 1. At 52 ms per
+chunk it demonstrably runs ONCE. (Synthetic weights: timing depends on shapes,
+not values, so the timing is valid and the quality numbers from that run are
+not recorded.)
+
+A test locks the property down: the same embedding reused across many forwards
+must give bit-identical outputs, or `measure_rtf.py` placing it outside the loop
+becomes a lie rather than an optimisation.
+
+### 2026-09-22 — ITEM 1b: the diagnosis holds, the PRESCRIBED FIX DOES NOT
+
+`ranked-next-steps.md` said the injector's per-band `ChannelWiseLayerNorm(bw)`
+deletes `alpha_t`, and to "normalise across the whole TF-Map or not at all".
+
+**The deletion is real and EXACT, not approximate.** LayerNorm is scale-invariant
+by construction, and `alpha_t` enters the band as a pure scale:
+
+    (a*x - mean(a*x)) / std(a*x) = (x - mean(x)) / std(x)
+
+MEASURED: max |norm(a*u) - norm(u)| = 0.0 at a=1, 4.6e-04 at a=100, the residual
+being LayerNorm's eps alone. `alpha_t` is the only time-varying part of the cue,
+so the injector re-presents a nearly static shape -- which fully explains D4a's
+gates sitting at zero, without needing any appeal to optimisation.
+
+**THE PRESCRIPTION IS WRONG.** Normalising across all 257 bins cancels `alpha_t`
+identically: the algebra is indifferent to how many values are standardised, and
+any per-frame normalisation is scale-invariant. Only two things preserve it --
+not normalising the cue at all, or statistics spanning TIME (a causal running
+statistic, not a per-frame one).
+
+**ITEM 1a ALREADY SOLVES IT, on the path that matters.** `match_fraction` is
+handed over as its own channel rather than riding on a magnitude, so no
+normalisation can cancel it; measured at ~98 % of the separator's input after
+scaling. 1b and 1a are the same defect on two different paths, one disabled and
+one live. 1b stays third, and its fix is REMOVE the norm, not widen it.

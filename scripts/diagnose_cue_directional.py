@@ -107,7 +107,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from src.data.dataset_loader import TrialDataset, collate_pairs  # noqa: E402
 from src.run_log import timed  # noqa: E402
-from train import SPLIT_MANIFESTS, build_model, git_commit  # noqa: E402
+from train import (SPLIT_MANIFESTS, build_context_encoder,  # noqa: E402
+                   build_model, context_kwargs, git_commit)
 
 # A stem whose energy is below this fraction of the mixture's is treated as
 # silent and every score against it is NaN rather than a number. SI-SDR against
@@ -212,6 +213,11 @@ def main():
     model = build_model(ckpt["config"])
     model.load_state_dict(ckpt["model"])
     model.to(device).eval()
+    # ITEM 1c. THIS SCRIPT IS THE ARM'S REGISTERED ACCEPTANCE TEST, so it has to
+    # run on a 1c checkpoint or the arm cannot be judged at all. Encoder from
+    # the CHECKPOINT's config, so the swap below is scored with the same
+    # embedding the run was trained with.
+    encoder = build_context_encoder(ckpt["config"], device)
 
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False,
                         collate_fn=collate_pairs)
@@ -245,8 +251,12 @@ def main():
                 enroll_t, enroll_i = enroll[0::2], enroll[1::2]
                 s_t, s_i = stems[0::2], stems[1::2]
 
-                y_t = model(mix_t, enroll_t)
-                y_i = model(mix_t, enroll_i)
+                # BOTH HALVES OF THE CONDITIONING SWAP, which is the whole
+                # point of this script: the enrolment feeds the cue AND the
+                # identity anchor, and embedding only one of them would measure
+                # a model that was never asked for the other speaker.
+                y_t = model(mix_t, enroll_t, **context_kwargs(encoder, enroll_t))
+                y_i = model(mix_t, enroll_i, **context_kwargs(encoder, enroll_i))
 
                 # Silence guard, applied to the STEM not the output: a silent
                 # stem makes its column of the matrix undefined, and that is a
@@ -338,6 +348,20 @@ def main():
               f"{100 * row['follows_request']:>8.1f}{100 * row['tracks_louder']:>8.1f}"
               f"{row['rel_movement_pct']:>8.0f}{row['level_yt_db']:>8.2f}"
               f"{row['level_yi_db']:>8.2f}")
+
+    # ITEM 1c's OTHER REGISTERED CRITERION. gamma near zero means the identity
+    # anchor is being IGNORED, in which case every other number on this page is
+    # about item 1a and must not be reported as 1c's. Cheap, so there is no
+    # excuse for not having it beside the result it qualifies.
+    if hasattr(model, "context"):
+        with torch.no_grad():
+            g = model.context.gamma(encoder.embed(
+                next(iter(loader))["enrollment"].to(device)))
+        print(f"\n  IDENTITY ANCHOR  ||gamma|| mean {g.norm(dim=-1).mean():.4f}  "
+              f"max |gamma| {g.abs().max():.4f}  over {g.shape[1]} features")
+        if g.abs().max() < 1e-3:
+            print("    NEAR ZERO -- the anchor is being ignored. Everything below")
+            print("    is about item 1a, not 1c. Do not report it as 1c's result.")
 
     a = summary["all"]
     print("\n  READING")

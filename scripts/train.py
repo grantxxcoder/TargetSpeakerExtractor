@@ -312,6 +312,37 @@ def format_epoch_breakdown(epoch, num_epochs, tr, va, epoch_seconds, w_trained):
     return "\n".join(lines)
 
 
+def build_context_encoder(config, device="cpu"):
+    """The frozen speaker encoder item 1c needs, or None for every other arm.
+
+    ONE constructor, used by training AND by every evaluation script, so an eval
+    cannot silently differ from the run it is scoring -- a different L2-norm
+    setting or a different snapshot would change the embedding and therefore the
+    output, with nothing appearing in a diff.
+
+    Pair it with `context_kwargs()`:
+
+        encoder = build_context_encoder(ckpt["config"], device)
+        y = model(mixture, enrollment, **context_kwargs(encoder, enrollment))
+
+    which is a no-op on the baseline and 1a paths.
+    """
+    if not bool(config["model"].get("context_embedding", False)):
+        return None
+    from src.models.context_encoder import ContextEncoder
+    encoder = ContextEncoder(
+        ecapa_dir=config["model"].get("ecapa_dir", "../ecapa_pretrained"),
+        device=device,
+        expected_hashes=config["model"].get("ecapa_sha256"),
+        normalise=bool(config["model"].get("context_normalise", True)))
+    want = int(config["model"].get("context_embedding_dim", 192))
+    if encoder.embedding_dim != want:
+        raise ValueError(
+            f"the snapshot emits {encoder.embedding_dim}-d embeddings but the "
+            f"model was built for {want}. Set model.context_embedding_dim.")
+    return encoder
+
+
 def context_kwargs(encoder, enrollment):
     """`enrol_embedding=...` for item 1c, or nothing at all.
 
@@ -1360,21 +1391,9 @@ def main():
     # not bloat every saved checkpoint by ~83 MB. src/models/context_encoder.py
     # gives the full reasoning. None for every other arm, and `context_kwargs`
     # then returns {} so those paths are byte-identical.
-    context_encoder = None
-    if bool(config["model"].get("context_embedding", False)):
-        from src.models.context_encoder import ContextEncoder
-        context_encoder = ContextEncoder(
-            ecapa_dir=config["model"].get("ecapa_dir", "../ecapa_pretrained"),
-            device=device,
-            expected_hashes=config["model"].get("ecapa_sha256"),
-            normalise=bool(config["model"].get("context_normalise", True)))
+    context_encoder = build_context_encoder(config, device)
+    if context_encoder is not None:
         print(f"  context encoder: {context_encoder.describe()}", flush=True)
-        got, want = context_encoder.embedding_dim, int(
-            config["model"].get("context_embedding_dim", 192))
-        if got != want:
-            raise ValueError(
-                f"the snapshot emits {got}-d embeddings but the model was built "
-                f"for {want}. Set model.context_embedding_dim.")
 
     # BOTH T4s. decisions-pending.md E7: Kaggle's "GPU T4 x2" gives two cards and
     # every run before 2026-09-21 used one, because `torch.device("cuda")` is

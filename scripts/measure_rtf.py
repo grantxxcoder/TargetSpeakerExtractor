@@ -50,7 +50,8 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.run_log import timed  # noqa: E402
-from train import build_model, git_commit  # noqa: E402
+from train import (build_context_encoder, build_model,  # noqa: E402
+                   context_kwargs, git_commit)
 
 WARMUP_CHUNKS = 20
 
@@ -100,6 +101,19 @@ def main():
     enrollment = torch.randn(1, int(args.enrollment_seconds * sample_rate), device=device)
     chunk = torch.randn(1, chunk_samples, device=device)
 
+    # ITEM 1c. THE EMBEDDING IS COMPUTED ONCE, HERE, OUTSIDE THE TIMING LOOP --
+    # and that placement IS the claim this script exists to substantiate. The
+    # enrolment is known before the stream begins, so the speaker encoder runs
+    # exactly once per utterance and contributes ZERO per-frame cost. Embedding
+    # inside the loop would re-run a 20.77 M-parameter encoder over 5 s of audio
+    # for every 80 ms chunk, which would be an honest measurement of a design
+    # nobody would ship. `ctx` is {} on every other arm.
+    encoder = build_context_encoder(checkpoint["config"], device)
+    ctx = context_kwargs(encoder, enrollment)
+    if encoder is not None:
+        print(f"  identity anchor   embedded ONCE, outside the loop "
+              f"({tuple(ctx['enrol_embedding'].shape)})")
+
     print(f"  device            {args.device}  ({hardware_description(args.device)})")
     print(f"  threads           {args.threads}")
     print(f"  chunk             {args.chunk_ms:.0f} ms = {chunk_samples} samples")
@@ -108,7 +122,7 @@ def main():
 
     with torch.inference_mode():
         for _ in range(WARMUP_CHUNKS):
-            model(chunk, enrollment)
+            model(chunk, enrollment, **ctx)
         if device.type == "cuda":
             torch.cuda.synchronize()
 
@@ -117,7 +131,7 @@ def main():
         for _ in range(args.repeats):
             for _ in range(chunks_per_repeat):
                 start = time.perf_counter()
-                model(chunk, enrollment)
+                model(chunk, enrollment, **ctx)
                 if device.type == "cuda":
                     torch.cuda.synchronize()
                 per_chunk_ms.append((time.perf_counter() - start) * 1000.0)

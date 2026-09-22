@@ -143,3 +143,40 @@ def test_gradients_reach_the_projection_through_the_whole_model():
     m(torch.randn(2, 8000), torch.randn(2, 8000),
       enrol_embedding=unit()).pow(2).sum().backward()
     assert m.context.project.weight.grad.abs().max() > 0
+
+
+# --- the evaluation path --------------------------------------------------
+
+def test_the_embedding_is_reusable_across_many_forwards():
+    """THE LATENCY CLAIM, as a test. The whole design rests on the embedding
+    being computed ONCE per utterance and reused for every chunk, so reusing one
+    across forwards must give exactly the same answer as passing it each time.
+    If this ever fails, measure_rtf.py's placement of the embedding outside the
+    timing loop becomes a lie rather than an optimisation."""
+    torch.manual_seed(0)
+    m = tiny().eval()
+    torch.nn.init.normal_(m.context.project.weight, std=0.1)
+    e = unit(1)
+    chunks = [torch.randn(1, 2000) for _ in range(3)]
+    enrol = torch.randn(1, 8000)
+    with torch.no_grad():
+        once = [m(c, enrol, enrol_embedding=e) for c in chunks]
+        again = [m(c, enrol, enrol_embedding=e) for c in chunks]
+    for a, b in zip(once, again):
+        torch.testing.assert_close(a, b, rtol=0, atol=0)
+
+
+def test_context_kwargs_is_a_noop_without_an_encoder():
+    """Every baseline and 1a call site goes through this helper; it must leave
+    them byte-identical."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    from train import context_kwargs
+    assert context_kwargs(None, torch.randn(2, 8000)) == {}
+
+
+def test_build_context_encoder_returns_none_off_the_arm():
+    """No speechbrain import, no snapshot, on any config that is not 1c."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    from train import build_context_encoder
+    assert build_context_encoder({"model": {}}) is None
+    assert build_context_encoder({"model": {"context_embedding": False}}) is None
