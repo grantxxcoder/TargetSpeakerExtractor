@@ -126,6 +126,14 @@ RESUME_FROM = None    # e.g. "/kaggle/input/prev-run/models/model_sir0.pt"
 # 7.19 M model on one card, which is a silently wrong arm rather than a crash.
 # decisions-m2.md 2026-09-21.
 #
+# bsrnn_cue_context.yaml is ITEM 1c, 2026-09-22: item 1a PLUS a frozen ECAPA
+# speaker encoder as an identity anchor. 7,281,168 params (+24,704 trainable);
+# ECAPA is 20,767,552 FROZEN and lives outside the model, so it is absent from
+# the checkpoint and runs ONCE per utterance, not per chunk. ITS CONTROL IS
+# bsrnn_cue_parts.yaml, NOT the 2026-09-04 baseline -- 1a is already a change.
+# KEEP BATCH_SIZE AT 3: the comparison against that control needs the same
+# batch, and the same lr, and the same schedule. decisions-m2.md 2026-09-22.
+#
 # bsrnn_cue_parts.yaml is ITEM 1a, 2026-09-22: the speaker cue hands over its
 # PARTS (direction, match_fraction, unmatched) instead of their product, so the
 # network input is 5 channels not 3. BASELINE SIZING otherwise -- 7.19 M ->
@@ -138,7 +146,7 @@ RESUME_FROM = None    # e.g. "/kaggle/input/prev-run/models/model_sir0.pt"
 # in six separate places; editing only some of them probes one arm, trains
 # another, and archives a third, and every one of those runs still prints
 # "OK" -- a silently wrong arm, not a crash. decisions-pending.md E8.
-CONFIG      = "experiments/configs/bsrnn_cue_parts.yaml"
+CONFIG      = "experiments/configs/bsrnn_cue_context.yaml"
 
 # The two Kaggle dataset mount points. Change only if you rename the datasets.
 DATA_DIR     = "/kaggle/input/tse-audio-s0-v3"   # the dataset holding the audio
