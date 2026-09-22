@@ -2752,3 +2752,174 @@ epochs identical on every present-crop term where the second is merely quieter
 on silent-target crops: `total` scores that as an improvement, `present_branch`
 is unmoved. A final test asserts all three modes agree with `selection_score`,
 so a future re-derivation here fails rather than silently reintroducing the bug.
+
+## 2026-09-22 — THE CUE IS A PITCH DETECTOR, NOT A LOUDNESS METER. And item 1a, built
+
+`scripts/diagnose_cue_directional.py`, `scripts/measure_cue_loudness.py`,
+`experiments/results/2026-09-22-cue-directional-sir0`,
+`experiments/results/2026-09-22-cue-loudness-sir0`,
+`experiments/configs/bsrnn_cue_parts.yaml`, baseline `model_sir0_10000-e6.pt`,
+`sir0_val`, seed 42, 10 min + under a minute, CPU.
+
+### The measurement that was missing since August
+
+`diagnose_cue.py` measures `||a-b||^2/||a||^2` -- a MAGNITUDE with no direction.
+"The output moves 48.2 % on an enrollment swap" is fully consistent with the
+output only changing VOLUME. **D5 was demoted on 2026-08-30 on that evidence and
+the directional test was never run.** It has now been run.
+
+The data already contained the swap: `both_directions` renders every trial
+twice, the same mixture asked for the target and asked for the other speaker,
+each with its own enrollment and its own ground-truth stem. So the swap is not a
+perturbation we invent -- it is a second, equally valid request with a known
+right answer. Score both outputs against both stems and read the 2x2.
+
+### CORRECTION CARRIED: n is 77, not 103
+
+`condition` labels the CLIP; the model is scored on a 4 s CROP. **26 of the 103
+`both`-labelled trials have one speaker silent in the crop actually scored.**
+Those crops cannot answer an identity question -- with one voice there is no
+choice to make. Every rate below is over the 77 crops with two live voices, and
+the script now prints `n_both_live` beside `n` so it cannot be misread again.
+Same trap as `losses.py:240`, which is why `crop_absent` comes from the loader
+and never from the manifest.
+
+### THE RESULT: the enrollment steers the output, but only far enough on PITCH
+
+| stratum | crops | lands on the right voice | selectivity |
+|---|---|---|---|
+| cross-gender | 39 | **71.8 %** (p = 0.0001) | **+7.31 dB** [5.79, 8.88] |
+| same-gender | 38 | **52.6 %** (p = 0.73, a coin flip) | **+2.47 dB** [1.55, 3.48] |
+| difference | | chi2 p = 0.022 | Welch p < 0.0001 |
+
+Both selectivities are significantly above zero, so the enrollment is never
+ignored outright. **But shifting and arriving are different things.** Selectivity
+is a continuous dB nudge; "lands on the right voice" is whether the nudge was
+big enough. On same-gender pairs the output moves toward the requested speaker
+and still ends up closer to the wrong one half the time.
+
+In headroom terms -- 50 % is a model ignoring the enrollment, 100 % is perfect --
+**same-gender captures 5.2 % of what is available, cross-gender 43.6 %.**
+
+**The obvious confound is ruled out.** Same- and cross-gender crops have
+indistinguishable loudness balance (|SIR| 5.64 vs 4.86 dB, Welch p = 0.23;
+signed p = 0.17). Restricting to |SIR| < 5 dB, where loudness helps least, the
+gap WIDENS: cross-gender 77.5 % (p = 0.001), same-gender 56.2 % (p = 0.60).
+
+Secondary, and treat as indicative only: at SIR >= +5 dB the output tracks the
+LOUDER voice 94.7 % of the time against following the request 55.3 % -- but only
+19 crops in that band are both-live, so the n is small even though every band
+points the same way.
+
+**Absence conditioning WORKS and should not be touched.** Asked for a speaker who
+is not in the mixture, the model goes quiet: on `target_only`, requesting the
+absent interferer drops the output 5.8 dB (-6.47 -> -12.24); on
+`interferer_only` the same reversed (-13.24 asked for the absent target, -7.29
+for the present one).
+
+### CONSEQUENCE: retire "the cue is a loudness meter"
+
+`ranked-next-steps.md`'s headline is too strong and this measurement contradicts
+it. `corr(matched_level, loudness) = 0.990` is still true and still arithmetic,
+but 5.19 dB of directional selectivity is also true. **The defensible statement
+is: the cue separates voices by PITCH, with a loudness default when one speaker
+dominates.** Every future write-up uses that form.
+
+It also sharpens D5 from an analogy with WeSep into a targeted prediction:
+ECAPA is trained to discriminate speakers WITHIN gender, which is exactly the
+52.6 %. **The registered acceptance test for 1c is the same-gender rate**, not an
+aggregate word error.
+
+### ITEM 1a, BUILT: hand over the cue's parts, not their product
+
+`model.tfmap_parts: true`, `experiments/configs/bsrnn_cue_parts.yaml`. One key
+differs from `bsrnn_baseline.yaml`; everything else is verbatim.
+
+The cue's last step projects the UN-normalised mixture frame onto the template:
+
+    matched_level = <x_t, direction_t> = ||x_t|| * cos(theta_t)
+
+One number, two causes, multiplied. **The deeper reason it matters, and the one
+for the report: the mask is a RATIO -- keep this fraction of this bin -- while
+`matched_level` is an ABSOLUTE quantity.** "5 units of target here" cannot say
+whether that is the whole frame or 70 % of it. An absolute measurement was
+feeding an inherently relative decision.
+
+The arm hands over the exact orthogonal decomposition instead:
+
+    x = matched_level * direction + unmatched,   <direction, unmatched> = 0
+    ||x||^2 = matched_level^2 + ||unmatched||^2
+
+`direction` (unit norm, loudness-free), `match_fraction` (the ratio, in [0,1]),
+`unmatched` (what does not match). Input width 3 -> 5 channels.
+
+**+66,820 parameters (+0.93 %), MEASURED: 7,189,644 -> 7,256,464.** NOT
+parameter-matched to its control; the write-up must say so, as `tfmap_inject`'s
+arm does. The figure is 128*257*2 of conv weight PLUS 2*257*2 of LayerNorm gain
+and bias -- the second term is easy to forget and was, once, here.
+
+**`unmatched` is the point.** Every enrollment frame and every softmax weight is
+non-negative, so `direction` is a non-negative combination of the TARGET'S OWN
+spectra. The cue can say "this looks like them" and has no way to say "this
+energy belongs to the other person". `unmatched` is the first negative evidence
+anywhere in the path, and it says WHERE IN FREQUENCY the other speaker sits.
+
+### A REPRESENTATION CHANGE, NOT AN INFORMATION CHANGE. Say it that way
+
+All five channels are deterministic functions of the three the baseline already
+had: Re and Im give `||x||`, and the old cue gives `matched_level * direction`.
+**Information-theoretically this adds nothing.** The claim is that the recovery
+is not cheaply COMPUTABLE here -- it needs a square root of a sum of squares and
+a data-dependent division, which 1x1 convolutions cannot do, and `SubbandNorm`
+normalises the channels jointly within each band, destroying the per-frame scale
+before the first block.
+
+This commits us to something, and it is worth stating rather than discovering in
+a viva: **if the model were a large enough function approximator with enough
+data, 1a would do nothing.** That bet is already supported -- 2026-09-21 measured
+doubling the parameters as buying exactly zero separation improvement, so this
+model is not capacity-limited in a way that would let it learn the recovery for
+itself. The capacity result and this change point the same way.
+
+### ACCEPTANCE TEST, PRIMARY: PASSED, and it cost no training
+
+`TFMap` is parameter-free, so this is a property of the data and `tfmap_scale`,
+not of training -- the arm could have failed before a GPU hour was spent.
+200 crops, 100,800 frames, no checkpoint:
+
+| quantity | Pearson vs loudness | Spearman |
+|---|---|---|
+| `matched_level` (the baseline cue) | **0.982** | 0.994 |
+| `match_fraction` (item 1a) | **-0.088** | -0.022 |
+
+0.982 reproduces the 0.990 recorded on 2026-09-21, which is the script
+validating itself against a known number.
+
+**THE CAVEAT TRAVELS WITH THE NUMBER.** `match_fraction` is `matched_level`
+divided by the very quantity being correlated against, so a large drop is partly
+guaranteed by the algebra and must never be reported as a discovery. **The
+informative number is what SURVIVES, and it is -0.088 (Spearman -0.022).** Near
+zero means loud frames are NOT genuinely more target-like in this data, so 1a
+leaves no residual loudness confound for 1c to inherit. That is the finding; the
+drop itself is arithmetic.
+
+The -60 dB quiet floor excluded 0 of 100,800 frames, so the `audible` and `all`
+rows are the same frames by construction, not by coincidence.
+
+### REGISTERED BEFORE THE TRAINING RUN
+
+- **Same-gender "lands on the right voice"** (baseline 52.6 %, chance 50 %).
+  **EXPECTED TO BARELY MOVE.** 1a adds no new identity information -- it removes
+  a confound so 1c can be read cleanly. A large jump here needs explaining, not
+  celebrating.
+- Then the **four-case eval suite**. An arm scored only on `both` cannot tell
+  leakage REMOVED from leakage MOVED (`decisions-m3.md` 2026-09-21).
+- A representation fix should produce a modest mechanistic improvement, not a
+  jump in word error.
+
+### NOT COMBINABLE WITH `tfmap_inject`
+
+The injector projects a 1-channel cue and asserts it. The constructor now refuses
+both arms together with a message rather than tripping an assert six frames deep
+in a Kaggle log. Item 1b is ranked after this arm for the same reason, and
+`decisions-pending.md` D4 already says run D4a before D4b.

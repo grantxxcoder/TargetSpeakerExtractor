@@ -87,6 +87,14 @@ written after it.
   every mention of it — different data, offline (its normaliser is global, RTF
   2.854, cannot stream), 27.2 M against our 7.19 M, and out of domain by its own
   config. Full statement: `decisions-pending.md` O4, 2026-09-21.
+- **#19 FIGURE: visualise the cue decomposition.** One mixture frame, worked
+  through end to end, for the methodology chapter. Show: the enrolment's frames
+  as a dictionary, the softmax weights picking which ones blend, the resulting
+  template, and then the frame split into the part that matches it and the part
+  that does not. Needs a same-gender trial (where the cue fails) beside a
+  cross-gender one (where it works) — the contrast IS the argument for 1c.
+  Data is already on disk; `experiments/results/2026-09-22-cue-directional-sir0`
+  has the per-trial scores to pick good examples from.
 - **#14 Abstract** — stub. Write last.
 
 ## Cleanup

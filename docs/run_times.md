@@ -22,6 +22,8 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 |---|---|---|---|---|
 | 2026-09-21 | `pytest tests/ -q` | 515 tests | 11 min | full suite after adding eval_by_case.py. Added by hand: pytest does not use run_log.timed |
 <!-- rows appended below by src/run_log.py -->
+| 2026-09-22 | `pytest tests/ -q` | 541 tests, after the item-1a cue change | 9 min | cpu. Was 74 tests / 5 s on 2026-08-15 -- the suite is now long enough to plan around |
+
 | 2026-09-22 | `scripts/diagnose_cue_directional.py` | 200 trials x 2 directions, sir0 | 10 min | cpu, batch 4 trials |
 | 2026-09-22 | `scripts/diagnose_cue_directional.py` | 200 trials x 2 directions, sir0 | 16 min | cpu, batch 4 trials |
 | 2026-09-21 | `scripts/diagnose_cue.py` | 200 crops, sir0 | 17 min | cpu, batch 4 |

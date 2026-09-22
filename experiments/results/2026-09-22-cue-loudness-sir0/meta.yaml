@@ -1,0 +1,37 @@
+date: '2026-09-22'
+git_commit: fe52c0c005c4d5bb94c4207706cdfaf508ba4333-dirty
+seed: 42
+split: sir0
+manifest: sir0_val
+config: experiments/configs/bsrnn_baseline.yaml
+tfmap_scale: 16.0
+n_trials: 200
+n_frames: 100800
+quiet_floor_db: -60.0
+frames_below_quiet_floor: 0
+checkpoint: NONE -- TFMap is parameter-free
+correlations:
+  matched_level/all:
+    pearson: 0.9815710859578646
+    spearman: 0.9936804720291973
+    n: 100800
+  matched_level/audible:
+    pearson: 0.9815710859578646
+    spearman: 0.9936804720291973
+    n: 100800
+  match_fraction/all:
+    pearson: -0.08827737404159744
+    spearman: -0.022387151160177372
+    n: 100800
+  match_fraction/audible:
+    pearson: -0.08827737404159744
+    spearman: -0.022387151160177372
+    n: 100800
+  unmatched_fraction/all:
+    pearson: 0.057123194587895984
+    spearman: 0.022387149898148346
+    n: 100800
+  unmatched_fraction/audible:
+    pearson: 0.057123194587895984
+    spearman: 0.022387149898148346
+    n: 100800

@@ -429,6 +429,15 @@ def build_model(config):
         # to its control and the write-up has to say so.
         tfmap_inject=bool(config["model"].get("tfmap_inject", False)),
         tfmap_gate_init=float(config["model"].get("tfmap_gate_init", 0.0)),
+        # ITEM 1a, ranked-next-steps.md. Absent key => False, the 1-channel
+        # product cue every run up to 2026-09-22 trained on. True hands the
+        # network the cue's PARTS instead (direction, normalised similarity,
+        # unexplained residual), widening the input 3 -> 5 channels and
+        # SubbandNorm by +66,820 parameters (+0.93 %), MEASURED at the shipped
+        # width -- 128*257*2 of conv weight plus 2*257*2 of LayerNorm gain and
+        # bias, the second term easy to forget. Like tfmap_inject this
+        # is NOT parameter-matched to its control and the write-up must say so.
+        tfmap_parts=bool(config["model"].get("tfmap_parts", False)),
     )
 
 

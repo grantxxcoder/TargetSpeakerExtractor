@@ -74,11 +74,19 @@ actually taken go to the decision log of the milestone they belong to —
   mid-challenge metric-gaming incident, which is first-hand evidence for this
   project's metric contribution. Four confounds in the WeSep comparison are
   listed there and must travel with it. See the 2026-09-21 O4 section.
-- **D5 — REOPENED 2026-09-21: the discriminative speaker encoder.** Demoted
+- **D5 — REOPENED 2026-09-21, and the directional test RAN 2026-09-22.** Demoted
   2026-08-30 on `rel_movement`, a magnitude-without-direction diagnostic that
   cannot distinguish "moved toward the interferer" from "changed level". The
-  directional test was never run. D5 is the largest conditioning difference
-  between us and the reference model. See `ranked-next-steps.md` items 1-2.
+  directional test has now been run and D5 survives it with a SHARPER
+  justification: the cue lands on the right voice 71.8 % of the time
+  cross-gender and **52.6 % same-gender, which is a coin flip** (n = 38 crops,
+  p = 0.73; the gender gap chi2 p = 0.022, and it widens inside the
+  balanced-SIR slice). A frozen ECAPA is trained to discriminate speakers WITHIN
+  gender, which is exactly the failure. **The registered acceptance test for 1c
+  is the same-gender rate, not an aggregate word error.** Item 1a is built and
+  its own acceptance test passed. Full entry: `decisions-m2.md` 2026-09-22.
+  Retire "the cue is a loudness meter" -- it is a PITCH detector with a loudness
+  default. See `ranked-next-steps.md` items 1-2.
 - **O1/O2/O3 — obligations, not options.** Score the struct control on
   `sir0_privval` (1.2 h, its registered acceptance test is unrun), write D17 up,
   and produce M6's stratified tables. See the 2026-09-15 menu.
