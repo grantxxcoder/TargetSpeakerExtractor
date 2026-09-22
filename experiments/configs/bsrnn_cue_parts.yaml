@@ -301,6 +301,26 @@ training:
   #
   #   New arms should set `present_branch`, matching select_on so the schedule
   #   and the selector cannot drift apart again. decisions-m2.md 2026-09-21.
+  lr_schedule_on: present_branch
+                        # SET, 2026-09-22, because this file is a new arm and the
+                        # block above says new arms must. It was inherited
+                        # COMMENTED OUT from bsrnn_baseline.yaml on 2026-09-22
+                        # and the first Kaggle attempt therefore ran with the
+                        # schedule on `total` while select_on was already
+                        # `present_branch` -- the two watching different numbers,
+                        # which is the exact drift 31655e5 existed to end.
+                        #
+                        # CONSEQUENCE TO CARRY: the 2026-09-04 baseline of record
+                        # ran with the schedule on `total`, because the fix did
+                        # not exist yet. So this arm's lr TRAJECTORY may diverge
+                        # from its control's. That is accepted deliberately --
+                        # the alternative is knowingly scheduling on a number the
+                        # project has already shown cannot rank a model. State it
+                        # in the write-up rather than discovering it in a viva.
+                        #
+                        # It cannot affect a 2-epoch probe either way:
+                        # lr_patience is 3, so ReduceLROnPlateau cannot fire
+                        # inside two epochs whatever it is watching.
   lr_factor: 0.5        # ReduceLROnPlateau on val total
   lr_patience: 3        # must stay < patience or training stops before the
                         # lr ever drops

@@ -95,7 +95,17 @@ EPOCHS      = 2       # STABILITY PROBE for item 1a, 2026-09-22. Two epochs is
                       # trials) was ~18,600 optimiser steps, which at 4,976
                       # trials lands near epoch 6, so 25 is ~4x past it.
                       # Run EPOCHS = 2 first for a measured s/epoch.
-BATCH_SIZE  = 12      # CEILING, not a promise. 12 OOMs on a 14.6 GiB T4; the
+BATCH_SIZE  = 3       # PINNED TO THE BASELINE, 2026-09-22, not chosen for
+                      # memory. The 2026-09-04 baseline of record trained at
+                      # batch 3; the probe left free picks 6 on one T4, which
+                      # halves the optimiser steps per epoch while lr stays at
+                      # 0.0005 -- the exact confound that made the 14.73 M
+                      # capacity arm "confounded, not negative"
+                      # (decisions-m2.md 2026-09-21). An arm meant to be read
+                      # against that baseline's CURVES has to match its batch.
+                      # Raise it only for a run that is not being compared
+                      # epoch-for-epoch. Original note follows.
+                      # CEILING, not a promise. 12 OOMs on a 14.6 GiB T4; the
                       # probe below steps down until one fwd+bwd+step fits and
                       # writes the winner into the config that trains.
 BATCH_FLOOR = 2       # give up below this
