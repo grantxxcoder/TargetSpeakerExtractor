@@ -2923,3 +2923,190 @@ The injector projects a 1-channel cue and asserts it. The constructor now refuse
 both arms together with a message rather than tripping an assert six frames deep
 in a Kaggle log. Item 1b is ranked after this arm for the same reason, and
 `decisions-pending.md` D4 already says run D4a before D4b.
+
+## 2026-09-22 — ITEM 1a's PROBE: a trade, not a win. The cue channels were mis-scaled, and the fix is DERIVED
+
+`experiments/configs/bsrnn_cue_parts.yaml`, `sir0`, 9,955 trials, batch 3, one
+T4, 2 epochs, 1.4 h, seed 42. Control: the 2026-09-04 baseline at the SAME
+batch, schedule, data and lr, which is what pinning batch 3 bought.
+
+### The probe's own question -- does a 5-channel input destabilise training?
+
+**No.** No NaNs, no divergence, every term finite. 2,482-2,492 s/epoch against
+the baseline's 2,364, so **+5.2 %** for the two extra channels.
+
+### The result: BETTER SEPARATION, WORSE RECONSTRUCTION, and the second is not closing
+
+| term | baseline ep1 | 1a ep1 | |
+|---|---|---|---|
+| separation `L_pres` val | -2.8202 | **-3.0231** | 1a better |
+| separation `L_pres` train | -3.2982 | **-3.6541** | 1a better |
+| reconstruction `L_MR` val | 0.2016 | **0.3398** | 1a worse |
+| reconstruction `L_MR` train | 0.2157 | **0.3467** | 1a worse |
+| level `L_gain` val | 3.4837 | 3.4344 | 1a slightly better |
+
+Worse on TRAIN as well as val is the under-optimisation signature, not
+overfitting -- the same shape as the 14.73 M capacity arm.
+
+**And the gap widens rather than closes.** Validation reconstruction falls
+0.0097/epoch for 1a against the baseline's 0.015, while the baseline continues
+0.2166 -> 0.2016 -> 0.1889 -> 0.1853. **The registered criterion for the scale
+fix ("if it sits near 0.35 it is stuck") is MET at 0.3398.**
+
+**Enrolment responsiveness is up**: the output moves 16.9 % on a swap against
+the baseline's 12.1 % at the same epoch, higher at both epochs and growing.
+**NOT A FINDING YET** -- `rel_movement` is magnitude without direction, the
+exact statistic D5 was wrongly demoted on. It cannot distinguish "moved toward
+the right speaker" from "changed volume" until the directional test runs.
+
+**Flagged as a possible bad reason for a good number:** better separation
+alongside worse spectral reconstruction is consistent with an output that is
+more separated but ROUGHER, i.e. trading leaked speech for artefact -- which
+the 2026-09-21 panel shows listeners price very differently. Check it on a
+trained checkpoint; do not assume either way.
+
+### Why: the decomposition is badly scaled, and SubbandNorm preserves that
+
+Zeroing each cue channel and measuring how far the separator's input moves, at
+random init:
+
+| channel | mean magnitude | share of the separator's input |
+|---|---|---|
+| **baseline's single cue** | 0.159 | **50.9 %** |
+| `direction` | 0.028 | **0.5 %** |
+| `match_fraction` | 0.851 | **135.3 %** |
+| `unmatched` | 0.102 | 4.4 % |
+| *Re / Im, the reference* | 0.106 / 0.105 | -- |
+
+The old cue happened to sit at the same magnitude as the STFT values beside it.
+The three new channels span **30x**, and `ChannelWiseLayerNorm` standardises all
+five JOINTLY within a band, so it preserves their relative sizes rather than
+equalising them. `SubbandNorm`'s own docstring already makes this argument one
+axis over: normalising all 257 bins together "would leave the high bands
+numerically invisible".
+
+**This is the SAME DEFECT AS ITEM 1b**, which is a per-band normalisation
+destroying a per-frame scalar inside the (disabled) cue injector. Found because
+the 1b question was asked; the acceptance test for 1a had stopped at the cue's
+output and never looked at what reached the separator.
+
+### The architecture CAN fix it and does not do so fast enough. MEASURED
+
+On the 2-epoch checkpoint, the per-channel LayerNorm gains for band 0:
+
+    direction        1.0000 -> 1.1687      the RIGHT direction, +17 %
+    match_fraction   1.0000 -> 0.9881      also right, -1 %
+    Re / Im          1.0000 -> 1.007 / 1.012
+
+and the shares moved `direction` 0.5 -> 0.8 %, `match_fraction` 135.3 -> **185.1
+%**, `unmatched` 4.4 -> 3.4 %.
+
+**So the network is rebalancing in exactly the correct direction and is ~6 % of
+the way there after two epochs, needing roughly 280 % on `direction` -- while
+the channel that was already eight times too loud got LOUDER.** This is an
+OPTIMISATION problem, not a capability one, which is why the fix is conditioning
+the input rather than adding capacity. It also retires my earlier claim that the
+imbalance was necessarily blocking: it is learnable, just not on this timescale.
+
+**Worth a paragraph in the report on its own:** we measured whether a
+badly-conditioned input self-corrects, and quantified how slowly.
+
+### THE FIX: `tfmap_part_scales`, derived by measurement
+
+`scripts/derive_cue_scales.py`,
+`experiments/results/2026-09-22-cue-scales-sir0`, 200 crops, no checkpoint.
+
+**Criterion, stated so it can be argued with:** match each cue channel's RMS to
+the RMS of the Re/Im channels it is concatenated with. RMS and not
+mean-absolute, because the normalisation standardises by a STANDARD DEVIATION,
+so a channel's influence is governed by its spread.
+
+| channel | RMS | derived scale |
+|---|---|---|
+| `direction` | 0.0624 | **6.9402** |
+| `match_fraction` | 0.8533 | **0.5073** |
+| `unmatched` | 0.3381 | **1.2803** |
+| *reference (Re, Im)* | 0.4329 | 1.0 |
+
+**CHECKABLE, not merely plausible.** `direction` is unit-norm over F bins, so
+its per-bin RMS is exactly 1/sqrt(257) = 0.0624 in closed form. The derivation
+measured 0.0624.
+
+**DERIVED THEN VERIFIED**, the same discipline as `derive_w_g.py`. Applying the
+scales and re-measuring the shares:
+
+    direction        0.6 %  ->  26.8 %
+    match_fraction 134.9 %  ->  98.0 %
+    unmatched        4.4 %  ->   8.8 %
+
+**RESIDUAL IMBALANCE IS EXPECTED AND IS NOT A BUG.** `match_fraction` is
+CONSTANT across bins within a frame while Re/Im vary, and a constant shifts a
+mean-subtracting normalisation more than a varying channel of the same RMS.
+Equal RMS therefore does not give equal share. Report that; do not tune the
+numbers until the shares match.
+
+**The 2-epoch probe ran WITHOUT these scales.** Its archived config travels with
+its results directory, so it stays reproducible -- but its curves must never be
+compared to a scaled run's.
+
+### ITEM 1c, BUILT: a frozen speaker encoder as the identity anchor
+
+`src/models/context_encoder.py`, `ContextFusion` in `conditioning.py`,
+`BSRNN_TFMAP_CONTEXT` in `bsrnn.py`, `experiments/configs/bsrnn_cue_context.yaml`.
+**Its control is `bsrnn_cue_parts.yaml`, NOT the baseline** -- 1a is already a
+change, and comparing 1c to the baseline would credit it with 1a's effect.
+
+    e_hat = normalise(ECAPA(enrolment))        192-d, frozen, once per utterance
+    gamma = W e_hat + b                        192 -> 128
+    z'    = z * (1 + gamma)                    over every band and every frame
+
+**+24,704 trainable (+0.34 %).** ECAPA is **20,767,552** frozen parameters --
+MEASURED from the snapshot, not taken from WeSep's config, whose 14.597 M
+`spk_ft` is a different frontend and would understate this by 30 %.
+
+**THE ENCODER LIVES OUTSIDE THE MODEL.** Weighed on four axes: DataParallel
+re-replicates a submodule every forward; the checkpoint stays small (~83 MB/epoch
+saved); the fusion is testable with a synthetic 192-vector in milliseconds
+against a 9-minute suite; and it keeps the streaming claim LITERALLY TRUE -- the
+deployed model contains no speaker encoder in its per-frame path, and the
+per-frame cost is exactly zero.
+
+**The risk that trade creates is closed by the type system, not by vigilance.**
+`BSRNN_TFMAP_CONTEXT.forward` takes `enrol_embedding` as a REQUIRED KEYWORD
+ARGUMENT, so a call site that forgets it raises TypeError rather than silently
+running an unconditioned model that still scores. A SUBCLASS for the reason
+`losses_state_head.py` is one: the parent is untouched, ~17 existing call sites
+are unchanged, and an old config cannot reach the new path. decisions-pending.md
+E8.
+
+**Zero init.** W and b start at zero, so at initialisation the arm is
+bit-identical to its 1a control and cannot be credited with a different starting
+point.
+
+### Two Kaggle bugs fixed before they cost a session
+
+1. **The ECAPA path did not resolve on Kaggle.** The bundle stages the snapshot
+   INSIDE the code tree (`/kaggle/working/repo/ecapa_pretrained`) while every
+   config says `../ecapa_pretrained`, which from train.py's working directory
+   there is `/kaggle/working/ecapa_pretrained`. Different directory, and nothing
+   in the notebook rewrites it. `resolve_ecapa_dir()` now tries the configured
+   path, then the repo root, then the sibling, and fails naming all three.
+2. **ECAPA shipped only as a side effect of staging the state teacher**, so
+   `--no-teacher` produced a bundle that trains the baseline fine and fails for
+   1c alone -- after the upload. `stage_ecapa_only()` now ships it regardless.
+
+Also: `make_kaggle_bundle.py --verify-config` now exercises arm configs. It
+previously hardcoded the baseline, so it staged `bsrnn_cue_parts.yaml`, verified
+a DIFFERENT config, and printed `params=7,189,644`.
+
+### Registered before the next run
+
+- **Same-gender "lands on the right voice", 52.6 % against a 50 % coin flip.**
+  The number the whole 1c arm exists to move.
+- Cross-gender (71.8 %) must HOLD. If cross-gender improves while same-gender
+  does not, the anchor is being used as a louder pitch detector and the arm has
+  FAILED on its own terms.
+- `||gamma||` after training: near zero means the anchor is being ignored and
+  every other number is about 1a, not 1c.
+- Then the four-case suite. An arm scored only on `both` cannot tell leakage
+  REMOVED from leakage MOVED.

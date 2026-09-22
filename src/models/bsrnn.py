@@ -51,7 +51,7 @@ import torch
 import torch.nn as nn
 
 from src.models.bands import band_plan
-from src.models.conditioning import TFMap, TFMapInjector
+from src.models.conditioning import ContextFusion, TFMap, TFMapInjector
 from src.models.modules import (
     BandSequenceModel,
     BandSplit,
@@ -119,7 +119,7 @@ class BSRNN_TFMAP(nn.Module):
                  residual_branch=True, in_channels=3, tfmap_scale=16.0,
                  state_head=False, state_head_detach=False,
                  tfmap_inject=False, tfmap_gate_init=0.0, mask_floor=0.0,
-                 tfmap_parts=False):
+                 tfmap_parts=False, tfmap_part_scales=None):
         super().__init__()
         self.lookahead_frames = lookahead_frames
         self.band_widths = band_plan(sample_rate, n_fft, band_segments)
@@ -152,7 +152,8 @@ class BSRNN_TFMAP(nn.Module):
                 "reason.")
 
         self.stft         = STFT(n_fft, hop, sample_rate)
-        self.tfmap        = TFMap(scale=tfmap_scale, return_parts=tfmap_parts)
+        self.tfmap        = TFMap(scale=tfmap_scale, return_parts=tfmap_parts,
+                                  part_scales=tfmap_part_scales)
         self.split        = BandSplit(self.band_widths)
         self.subband_norm = SubbandNorm(self.band_widths, in_channels, feature_dim, causal)
         self.separator    = BandSequenceModel(feature_dim, hidden_dim, num_repeat, causal)
@@ -175,8 +176,12 @@ class BSRNN_TFMAP(nn.Module):
         self.state_head = (AuxStateHead(feature_dim, detach_features=state_head_detach)
                            if state_head else None)
 
+    def _fuse_context(self, z, context):
+        """No-op in the base class. See BSRNN_TFMAP_CONTEXT."""
+        return z
+
     def forward(self, mixture, enrollment, return_state=False,
-                return_mask=False):
+                return_mask=False, *, context=None):
         """(B, T_samples), (B, T_enroll) -> (B, T_samples)
 
         With `return_state=True`, returns `(waveform, state_logits)` where the
@@ -205,6 +210,11 @@ class BSRNN_TFMAP(nn.Module):
             gates = self.tfmap_inject.gates
 
         z = self.subband_norm(feat_bands)
+        # Item 1c's insertion point. The base class ignores `context` entirely,
+        # so every pre-2026-09-22 call is bit-identical; BSRNN_TFMAP_CONTEXT
+        # overrides `_fuse_context`. A hook rather than a duplicated forward:
+        # copying thirty lines to insert one is how two paths drift apart.
+        z = self._fuse_context(z, context)
         z = self.separator(z, cue=cue, gates=gates)
 
         # BEFORE lookahead_shift, deliberately. The shift moves frame t's
@@ -247,3 +257,52 @@ class BSRNN_TFMAP(nn.Module):
                 "Construct BSRNN_TFMAP(state_head=True), or set "
                 "model.state_head: true in the config.")
         return waveform, state_logits
+
+
+class BSRNN_TFMAP_CONTEXT(BSRNN_TFMAP):
+    """BSRNN_TFMAP plus a frozen speaker embedding modulating the features.
+
+    Item 1c, ranked-next-steps.md. A SUBCLASS IN ITS OWN CLASS for the reason
+    `losses_state_head.py` gives for being one: the parent is untouched, so
+    every run predating this arm reproduces BY CONSTRUCTION rather than by a
+    flag being false, and `build_model()` returns the parent unless the config
+    asks for `context_embedding` -- an old config cannot reach this code path.
+
+    `enrol_embedding` IS REQUIRED AND KEYWORD-ONLY, deliberately. The encoder
+    lives outside the model (see src/models/context_encoder.py for why), which
+    would otherwise create the failure this project guards against hardest: a
+    call site that forgets the embedding running an UNCONDITIONED model that
+    still produces audio and still scores. Python raises TypeError instead.
+    Nothing has to be remembered, and no runtime check has to be trusted.
+    decisions-pending.md E8.
+
+    The encoder itself is NOT a submodule, so it is absent from state_dict(),
+    from parameters(), from the optimiser, and from DataParallel's per-forward
+    replication. The only weights this class adds are the fusion's projection.
+    """
+
+    def __init__(self, *args, embedding_dim=192, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Constructed LAST so that turning this arm on leaves every other weight
+        # in the model, and the dataloader's shuffle, bit-identical to the 1a
+        # control -- the same discipline AuxStateHead follows.
+        self.context = ContextFusion(embedding_dim, self.subband_norm.feature_dim)
+
+    def _fuse_context(self, z, context):
+        if context is None:
+            raise ValueError(
+                "BSRNN_TFMAP_CONTEXT reached the separator with no embedding. "
+                "forward() requires enrol_embedding; this can only happen if "
+                "forward was bypassed.")
+        return self.context(z, context)
+
+    def forward(self, mixture, enrollment, return_state=False,
+                return_mask=False, *, enrol_embedding):
+        """(B, T), (B, T_enroll), (B, D) -> (B, T).
+
+        `enrol_embedding` comes from ContextEncoder.embed(), computed ONCE per
+        utterance. It is not recomputed per chunk, which is what keeps the
+        per-frame cost of this arm at exactly zero.
+        """
+        return super().forward(mixture, enrollment, return_state=return_state,
+                               return_mask=return_mask, context=enrol_embedding)

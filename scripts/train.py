@@ -24,7 +24,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 # `python scripts/train.py` puts scripts/ on sys.path, not the repo root.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.data.dataset_loader import TrialDataset, collate_pairs  # noqa: E402
-from src.models.bsrnn import BSRNN_TFMAP  # noqa: E402
+from src.models.bsrnn import BSRNN_TFMAP, BSRNN_TFMAP_CONTEXT  # noqa: E402
 from src.models.losses import LossBSRNN  # noqa: E402
 from src.run_log import timed  # noqa: E402
 
@@ -312,8 +312,21 @@ def format_epoch_breakdown(epoch, num_epochs, tr, va, epoch_seconds, w_trained):
     return "\n".join(lines)
 
 
+def context_kwargs(encoder, enrollment):
+    """`enrol_embedding=...` for item 1c, or nothing at all.
+
+    ONE place decides, so the training forward, the validation forward and the
+    swap diagnostic cannot disagree about whether the arm is on. `encoder` is
+    None for every other arm and this returns {}, leaving those call sites
+    byte-identical to their pre-2026-09-22 form.
+    """
+    if encoder is None:
+        return {}
+    return {"enrol_embedding": encoder.embed(enrollment)}
+
+
 def diagnostic_accumulate(diag, model, mixture, enrollment, s_output, crop_absent,
-                          amp=False):
+                          amp=False, enrol_embedding=None):
     """Accumulate the two leading indicators over one val batch.
 
     Costs one extra val forward per epoch. Rolls within the batch rather than
@@ -324,8 +337,18 @@ def diagnostic_accumulate(diag, model, mixture, enrollment, s_output, crop_absen
         # Forward in fp16 when training does, but .float() IMMEDIATELY: the sums
         # below are sums of squares over 64k samples and would overflow fp16's
         # 65504 ceiling, silently turning the diagnostic into inf.
+        # ITEM 1c: ROLL THE EMBEDDING TOO. The enrolment feeds the model twice --
+        # the TF-Map cue and the identity anchor -- and rolling only the
+        # waveform would swap half the conditioning while leaving the anchor
+        # pointing at the original speaker. The diagnostic would then read as
+        # "the model barely responds to the enrolment" for a model that
+        # responds correctly to the half it was actually given. Rolling the
+        # precomputed embedding is exactly equivalent to re-embedding the
+        # rolled enrolment, because the embedding is per-example.
+        swapped = ({} if enrol_embedding is None
+                   else {"enrol_embedding": enrol_embedding.roll(1, 0)})
         with amp_ctx(amp):
-            y_swapped = model(mixture, enrollment.roll(1, 0))
+            y_swapped = model(mixture, enrollment.roll(1, 0), **swapped)
         y_swapped = y_swapped.float()
         diag["swap_num"] += float((s_output - y_swapped).pow(2).sum())
         diag["swap_den"] += float(s_output.pow(2).sum())
@@ -385,7 +408,17 @@ def build_model(config):
     actually trains. One key deliberately not passed: separator.norm (implied
     by causal=True). It belongs in the yaml.
     """
-    return BSRNN_TFMAP(
+    # ITEM 1c. Absent key => the parent class, i.e. every run up to 2026-09-22.
+    # The subclass's forward REQUIRES enrol_embedding, so a config that turns
+    # this on cannot be run by a script that has not been taught to supply one:
+    # it is a TypeError, not a silently unconditioned model. decisions-m2.md
+    # 2026-09-22, decisions-pending.md E8.
+    cls = (BSRNN_TFMAP_CONTEXT if bool(config["model"].get("context_embedding", False))
+           else BSRNN_TFMAP)
+    extra = ({"embedding_dim": int(config["model"].get("context_embedding_dim", 192))}
+             if cls is BSRNN_TFMAP_CONTEXT else {})
+    return cls(
+        **extra,
         sample_rate=config["data"]["sample_rate"],
         n_fft=config["model"]["stft"]["n_fft"],
         hop=config["model"]["stft"]["hop"],
@@ -438,6 +471,9 @@ def build_model(config):
         # bias, the second term easy to forget. Like tfmap_inject this
         # is NOT parameter-matched to its control and the write-up must say so.
         tfmap_parts=bool(config["model"].get("tfmap_parts", False)),
+        # DERIVED by scripts/derive_cue_scales.py. Absent => all ones, which is
+        # the un-scaled form the first 1a probe trained, kept reproducible.
+        tfmap_part_scales=config["model"].get("tfmap_part_scales"),
     )
 
 
@@ -685,7 +721,7 @@ def selection_eligible(val_loss, config):
     return True if bar is None else float(val_loss["L_abs"]) <= float(bar)
 
 
-def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_debug=False, save_path=None, config=None, scheduler=None, start_epoch=0, best_val=float("inf"), best_row=None, start_step=0):
+def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_debug=False, save_path=None, config=None, scheduler=None, start_epoch=0, best_val=float("inf"), best_row=None, start_step=0, context_encoder=None):
     model.to(device)
     # Weights are saved and the STFT grid is read from the REAL module, never
     # from a DataParallel wrapper. See unwrap().
@@ -781,6 +817,11 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
             if hasattr(loss_fn, "enrolment_embedding"):
                 loss_fn.enrolment_embedding = loss_fn.teacher.embed_enrolment(enrollment)
 
+            # ITEM 1c. {} for every other arm, so this line is a no-op on the
+            # baseline and 1a paths. Computed ONCE per batch: the enrolment does
+            # not change within a step, and the encoder is the larger forward.
+            ctx = context_kwargs(context_encoder, enrollment)
+
             optimizer.zero_grad()
             # D17: only ask for the mask when the term is configured. The flag
             # retains a (B, F, T) tensor in the graph, so a run that does not use
@@ -788,9 +829,9 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
             want_mask = getattr(loss_fn, "w_struct", 0.0) > 0.0 or log_struct
             with amp_ctx(use_amp):
                 if want_mask:
-                    s_output, mask = model(mixture, enrollment, return_mask=True)
+                    s_output, mask = model(mixture, enrollment, return_mask=True, **ctx)
                 else:
-                    s_output, mask = model(mixture, enrollment), None
+                    s_output, mask = model(mixture, enrollment, **ctx), None
             oracle, mix_mag = (oracle_mask_and_mag(core, target, mixture)
                                if want_mask else (None, None))
             # arg order is (reference, output, mixture, mask) -- reference
@@ -841,14 +882,16 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
                 if hasattr(loss_fn, "enrolment_embedding"):
                     loss_fn.enrolment_embedding = loss_fn.teacher.embed_enrolment(enrollment)
 
+                ctx = context_kwargs(context_encoder, enrollment)
+
                 # Val runs in the same precision as training on purpose: a
                 # metric measured in a precision the model was not trained in
                 # describes a model that does not exist. The loss is still fp32.
                 with amp_ctx(use_amp):
                     if want_mask_val:
-                        s_output, mask = model(mixture, enrollment, return_mask=True)
+                        s_output, mask = model(mixture, enrollment, return_mask=True, **ctx)
                     else:
-                        s_output, mask = model(mixture, enrollment), None
+                        s_output, mask = model(mixture, enrollment, **ctx), None
                 s_output = s_output.float()
                 oracle, mix_mag = (oracle_mask_and_mag(core, target, mixture)
                                    if want_mask_val else (None, None))
@@ -857,7 +900,8 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
                                    oracle_mask=oracle, mixture_mag=mix_mag)
                 add_parts(val_sums, val_counts, parts)
                 diagnostic_accumulate(diag, model, mixture, enrollment,
-                                      s_output, crop_absent, amp=use_amp)
+                                      s_output, crop_absent, amp=use_amp,
+                                      enrol_embedding=ctx.get("enrol_embedding"))
 
         val_loss = epoch_report(val_sums, val_counts, w_report, loss_fn.wm, loss_fn.wg)
         val_loss.update(diagnostic_report(diag))
@@ -1311,6 +1355,27 @@ def main():
     model = build_model(config)
     model.to(device)
 
+    # ITEM 1c. Built BESIDE the model, never inside it: it is frozen, it is not
+    # optimised, it must not be replicated per card by DataParallel, and it must
+    # not bloat every saved checkpoint by ~83 MB. src/models/context_encoder.py
+    # gives the full reasoning. None for every other arm, and `context_kwargs`
+    # then returns {} so those paths are byte-identical.
+    context_encoder = None
+    if bool(config["model"].get("context_embedding", False)):
+        from src.models.context_encoder import ContextEncoder
+        context_encoder = ContextEncoder(
+            ecapa_dir=config["model"].get("ecapa_dir", "../ecapa_pretrained"),
+            device=device,
+            expected_hashes=config["model"].get("ecapa_sha256"),
+            normalise=bool(config["model"].get("context_normalise", True)))
+        print(f"  context encoder: {context_encoder.describe()}", flush=True)
+        got, want = context_encoder.embedding_dim, int(
+            config["model"].get("context_embedding_dim", 192))
+        if got != want:
+            raise ValueError(
+                f"the snapshot emits {got}-d embeddings but the model was built "
+                f"for {want}. Set model.context_embedding_dim.")
+
     # BOTH T4s. decisions-pending.md E7: Kaggle's "GPU T4 x2" gives two cards and
     # every run before 2026-09-21 used one, because `torch.device("cuda")` is
     # cuda:0 and nothing here asked for more.
@@ -1408,6 +1473,7 @@ def main():
             save_path=save_path,
             config=config,
             scheduler=scheduler,
+            context_encoder=context_encoder,
             start_epoch=start_epoch,
             best_val=best_val,
             best_row=best_row,

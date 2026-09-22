@@ -1,69 +1,75 @@
-# ARM 1a: hand the network the speaker cue's PARTS, not their product.
+# ARM 1c: a FROZEN SPEAKER ENCODER as an identity anchor, on top of item 1a.
 #
-# ONE KEY DIFFERS FROM bsrnn_baseline.yaml: model.tfmap_parts: true.
-# Everything else -- data, seed, schedule, loss weights, sizing -- is the
-# baseline verbatim, so this is a controlled ablation of the cue's
-# REPRESENTATION and of nothing else.
+# TWO KEYS differ from bsrnn_cue_parts.yaml: model.context_embedding and its
+# dimension. Everything else -- data, seed, schedule, loss weights, sizing,
+# tfmap_parts -- is verbatim, so this is a controlled ablation of the identity
+# anchor and of nothing else. ITS CONTROL IS bsrnn_cue_parts.yaml, NOT the
+# 2026-09-04 baseline: 1a is already a change, and comparing 1c to the baseline
+# would credit this arm with 1a's effect as well.
 #
-# THE OBSERVATION. The cue ends by projecting the UN-normalised mixture frame
-# onto the target's template direction:
+# THE OBSERVATION IT ANSWERS. MEASURED 2026-09-22, decisions-m2.md: the TF-Map
+# cue lands on the right voice 71.8 % of the time cross-gender and 52.6 %
+# same-gender -- a coin flip, n = 38 crops, p = 0.73. The gender gap is
+# significant (chi2 p = 0.022) and WIDENS inside the balanced-SIR slice, so it
+# is not a loudness artefact.
 #
-#     matched_level = <x_t, direction_t> = ||x_t|| * cos(theta_t)
-#                                           ------   ------------
-#                                           loudness   identity
+# WHY. The cue's template is a convex combination of the ENROLMENT'S OWN
+# SPECTRA, i.e. a spectral average. Two speakers with similar average spectra --
+# similar pitch, similar vocal tract length -- give similar templates, and no
+# amount of training fixes a representation that cannot express the difference.
 #
-# One number, two causes, multiplied. MEASURED 2026-09-21:
-# corr(matched_level, frame loudness) = 0.990. That is ARITHMETIC, not a
-# training failure -- no change to the data distribution can move it, and
-# 2026-09-21 verified sir0_train SIR is symmetric (mean +0.08 dB), so the model
-# is not being handed a loudness shortcut by the data either.
+# THE CHANGE. A frozen ECAPA-TDNN (Desplanques et al., Interspeech 2020),
+# trained on VoxCeleb with a speaker-discriminative objective, emits one 192-d
+# vector per enrolment. L2-normalised (only the DIRECTION carries identity,
+# which is why verification scores with cosine similarity), projected to 128,
+# and fused MULTIPLICATIVELY into the separator's features:
 #
-# WHY IT MATTERS. The mask the model predicts is a RATIO -- keep this fraction
-# of this bin. matched_level is an ABSOLUTE quantity: "5 units of target here"
-# cannot say whether that is the whole frame or 70 % of it. An absolute
-# measurement was feeding an inherently relative decision.
+#     gamma = W e_hat + b
+#     z'    = z * (1 + gamma)        broadcast over every band and every frame
 #
-# THE CHANGE. Hand over the exact orthogonal decomposition instead:
+# Multiplicative adaptation follows Delcroix et al., ICASSP 2020 (time-domain
+# SpeakerBeam); same form as FiLM's gamma (Perez et al., AAAI 2018). BORROWED
+# METHOD -- our data, metric and protocol differ from all of them and nothing
+# here is comparable to a published number.
 #
-#     x = matched_level * direction + unmatched,  <direction, unmatched> = 0
+# gamma depends on the SPEAKER and on nothing else: not time, not frequency,
+# not the mixture. So it carries no per-frame loudness and cannot be confounded
+# by which speaker is louder -- the failure measured at SIR >= +5 dB, where the
+# cue tracks the louder voice 94.7 % of the time.
 #
-#     direction        the template at unit length   loudness-free
-#     match_fraction   matched_level / ||x||         the RATIO, in [0,1]
-#     unmatched        x - matched_level*direction   what does NOT match
+# COST. +24,704 trainable (+0.34 %). ECAPA is 20,767,552 frozen parameters and
+# lives OUTSIDE the model (src/models/context_encoder.py): absent from
+# state_dict, from the optimiser, and from DataParallel's per-forward
+# replication. AT INFERENCE IT RUNS ONCE, BEFORE THE STREAM, so the per-frame
+# cost is exactly ZERO and the latency budget is untouched. That is the claim
+# the design exists to make true, not a convenient story told afterwards.
 #
-# Input width 3 -> 5 channels. +66,820 parameters (+0.93 %), MEASURED:
-# 7,189,644 -> 7,256,464. NOT parameter-matched to its control, and the
-# write-up must say so, exactly as tfmap_inject's arm does.
-#
-# THIS IS A REPRESENTATION CHANGE, NOT AN INFORMATION CHANGE. All five channels
-# are deterministic functions of the three the baseline already had (Re and Im
-# give ||x||). The claim is that the recovery is not CHEAPLY COMPUTABLE here: it
-# needs a sqrt of a sum of squares and a data-dependent division, which 1x1
-# convolutions cannot do, and SubbandNorm destroys the per-frame scale before
-# the first block. Say it that way in the report; an examiner will ask.
+# ZERO INIT. W and b start at zero, so gamma = 0 and z' == z EXACTLY: at
+# initialisation this model is bit-identical to its 1a control and the arm
+# cannot be credited with a different starting point.
 #
 # ACCEPTANCE TEST, REGISTERED BEFORE THE RUN.
 #
-#   PRIMARY, and it needs NO TRAINING -- TFMap is parameter-free:
-#     corr(match_fraction, frame loudness) must fall well below the
-#     0.990 of matched_level. scripts/measure_cue_loudness.py.
-#     CAVEAT TO REPORT WITH IT: match_fraction is matched_level divided by the
-#     very quantity being correlated against, so a large drop is partly
-#     guaranteed by the algebra. The INFORMATIVE number is what SURVIVES.
+#   PRIMARY: same-gender "lands on the right voice", currently 52.6 % against a
+#     50 % coin flip. scripts/diagnose_cue_directional.py. THIS IS THE NUMBER
+#     THE WHOLE ARM EXISTS TO MOVE.
 #
-#   SECONDARY, after training:
-#     same-gender "lands on the right voice" (diagnose_cue_directional.py),
-#     baseline 52.6 % against a 50 % coin flip, cross-gender 71.8 %.
-#     EXPECTED TO BARELY MOVE. 1a removes a confound so that 1c (the frozen
-#     speaker encoder) can be read cleanly; it adds no new identity
-#     information, so a large jump here would need explaining, not celebrating.
+#   Cross-gender (71.8 %) should HOLD or improve. If cross-gender improves while
+#     same-gender does not, the anchor is being used as a louder pitch detector
+#     and the arm has FAILED on its own terms -- say so rather than reporting
+#     the aggregate.
+#
+#   ||gamma|| after training. gamma staying near zero means the anchor is being
+#     ignored, and every other number is then about 1a, not 1c.
 #
 #   THEN the four-case eval suite. An arm scored only on `both` cannot tell
 #     leakage REMOVED from leakage MOVED (decisions-m3.md 2026-09-21).
 #
-# NOT COMBINABLE WITH tfmap_inject: the injector projects a 1-channel cue and
-# the constructor refuses both. Item 1b is ranked after this arm for that
-# reason. decisions-m2.md 2026-09-22, ranked-next-steps.md item 1a.
+# MEMORISATION IS NOT A RISK HERE, and the reason is worth stating rather than
+# rediscovering: the encoder is FROZEN and was trained on VoxCeleb, so it never
+# sees our speakers; our splits are speaker-disjoint by construction; and the
+# enrolment is dry while the mixture is reverberant, so channel matching is
+# actively unavailable and voice is what is left. decisions-pending.md D5.
 
 seed: 42
 
@@ -142,6 +148,26 @@ model:
     hop: 128            # 8 ms
   lookahead_frames: 0   # 0-16. Each frame = one hop = 8 ms.
   tfmap_scale: 16.0      # scale factor for the attention logits in TFMap, see src/models/conditioning.py
+  context_embedding: true    # ITEM 1c. Builds BSRNN_TFMAP_CONTEXT instead of
+                             # BSRNN_TFMAP. Its forward REQUIRES enrol_embedding,
+                             # so a script that has not been taught to supply one
+                             # gets a TypeError rather than silently running an
+                             # UNCONDITIONED model that still scores.
+                             # decisions-pending.md E8.
+  context_embedding_dim: 192 # asserted against the snapshot at startup, not
+                             # trusted: a different ECAPA would change it.
+  context_normalise: true    # L2-normalise before the projection. Only the
+                             # DIRECTION carries identity; the magnitude varies
+                             # with the enrolment's length and level. The
+                             # un-normalised form is a one-line ablation.
+  # ecapa_dir:               # absent => resolved automatically, trying the
+                             # configured path, then <repo>/ecapa_pretrained
+                             # (where the Kaggle bundle stages it), then the
+                             # sibling ../ecapa_pretrained (where it lives
+                             # locally). See resolve_ecapa_dir().
+  # ecapa_sha256:            # optional pin. The hashes are recorded in
+                             # meta.yaml on every run regardless, so a silent
+                             # weights change is detectable after the fact.
   tfmap_part_scales: [6.9402, 0.5073, 1.2803]
                          # DERIVED 2026-09-22, scripts/derive_cue_scales.py over
                          # 200 sir0_val crops, NOT chosen. Order: direction,

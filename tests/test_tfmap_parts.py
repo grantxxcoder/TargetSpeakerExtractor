@@ -146,3 +146,44 @@ def test_forward_runs_end_to_end_and_the_default_path_is_untouched():
         with torch.no_grad():
             y = model(mixture, enrol)
         assert y.shape == mixture.shape and torch.isfinite(y).all()
+
+
+# --- per-channel scales (derive_cue_scales.py) ----------------------------
+
+def test_scales_default_to_ones_so_the_first_probe_reproduces():
+    mix, enrol = _mags(seed=21)
+    a = TFMap(scale=16.0, return_parts=True)(mix, enrol)
+    b = TFMap(scale=16.0, return_parts=True, part_scales=[1, 1, 1])(mix, enrol)
+    torch.testing.assert_close(a, b, rtol=0, atol=0)
+
+
+def test_scales_multiply_their_own_channel_and_no_other():
+    mix, enrol = _mags(seed=23)
+    plain = TFMap(scale=16.0, return_parts=True)(mix, enrol)
+    scaled = TFMap(scale=16.0, return_parts=True,
+                   part_scales=[7.5, 0.5, 1.3])(mix, enrol)
+    for channel, factor in enumerate((7.5, 0.5, 1.3)):
+        torch.testing.assert_close(scaled[:, channel], plain[:, channel] * factor,
+                                   rtol=1e-4, atol=1e-5)
+
+
+def test_direction_rms_is_the_closed_form_the_derivation_checks_against():
+    """1/sqrt(F) exactly, because the direction is unit-norm over F bins. This
+    is what makes derive_cue_scales.py's measurement checkable rather than
+    merely plausible."""
+    mix, enrol = _mags(seed=29)
+    direction = TFMap(scale=16.0, return_parts=True)(mix, enrol)[:, 0]
+    rms = direction.pow(2).mean().sqrt()
+    torch.testing.assert_close(rms, torch.tensor(1.0 / F_BINS ** 0.5),
+                               rtol=1e-4, atol=1e-6)
+
+
+def test_scales_survive_the_model_and_are_not_parameters():
+    """A buffer, not a parameter: it must not be optimised, and it must not
+    appear in the checkpoint as something that could silently differ from the
+    config that claims to describe the run."""
+    m = tiny_model(tfmap_parts=True, tfmap_part_scales=[7.5, 0.5, 1.3])
+    torch.testing.assert_close(m.tfmap.part_scales,
+                               torch.tensor([7.5, 0.5, 1.3]))
+    assert not any(p is m.tfmap.part_scales for p in m.parameters())
+    assert not any("part_scales" in k for k in m.state_dict())

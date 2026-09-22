@@ -77,7 +77,13 @@ across a config change, so do not edit the knobs between sessions.
 cells.append(code(r'''
 # ============================== KNOBS ==============================
 SPLIT       = "sir0"  # "mid" = 90% target-louder (control) | "sir0" = symmetric
-EPOCHS      = 2       # STABILITY PROBE for item 1a, 2026-09-22. Two epochs is
+EPOCHS      = 16      # THE REAL ARM, 2026-09-22. 16 and NOT 25: at batch 3 with
+                      # 9,955 trials the 2026-09-04 run MEASURED 10.5 h for 16
+                      # epochs against Kaggle's 12 h cap, so 25 (~16.4 h) would
+                      # be killed mid-run. The 25 in the note below was
+                      # calibrated when sir0_train was 4,976 trials.
+                      # The baseline's best epoch was 6, so 16 is ample.
+                      # Previous note, from the 2-epoch stability probe:
                       # NOT a result -- it reads whether the 5-channel input
                       # destabilises training, by comparing L_pres and L_MR
                       # against the baseline's own first two epochs. Note both
