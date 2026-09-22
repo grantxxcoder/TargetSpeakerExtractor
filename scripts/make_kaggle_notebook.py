@@ -301,6 +301,41 @@ print("  data verified")
 '''))
 
 cells.append(code(r'''
+# ITEM 1c ONLY. speechbrain is NOT in the Kaggle image -- measured 2026-09-22,
+# ModuleNotFoundError in the batch probe. It is in requirements.txt (1.1.1) but
+# nothing here installed it, because until 1c nothing on the KAGGLE path needed
+# it: the state teacher is the only other user and it has never run here.
+#
+# NEEDS INTERNET ON in the notebook settings (Settings -> Internet). That cuts
+# against this project's usual offline stance, so the version is PINNED: an
+# unpinned fetch would make every number this encoder produces irreproducible.
+# The ECAPA WEIGHTS still come from the staged snapshot and are never fetched.
+#
+# If you would rather keep the session offline, the alternative is vendoring the
+# wheel and its deps into the bundle -- more setup, no internet, same result.
+import subprocess, sys, yaml
+from pathlib import Path
+
+_cfg = yaml.safe_load((Path(CODE) / CONFIG).read_text())
+if _cfg["model"].get("context_embedding", False):
+    try:
+        import speechbrain  # noqa: F401
+        print(f"speechbrain already present: {speechbrain.__version__}")
+    except ModuleNotFoundError:
+        print("installing speechbrain==1.1.1 (item 1c needs it) ...")
+        r = subprocess.run([sys.executable, "-m", "pip", "install", "-q",
+                            "speechbrain==1.1.1"], capture_output=True, text=True)
+        if r.returncode:
+            raise SystemExit(
+                "pip install failed. Is Internet ON in the notebook settings?\n"
+                + r.stderr[-2000:])
+        import speechbrain  # noqa: F401
+        print(f"speechbrain {speechbrain.__version__} installed")
+else:
+    print("not the 1c arm -- speechbrain not needed")
+'''))
+
+cells.append(code(r'''
 # --- stage the code somewhere writable, then write the derived config -----
 # /kaggle/input is read-only and src.run_log writes repo_root/docs/run_times.md,
 # so the code cannot run in place.
@@ -327,12 +362,17 @@ _mods = ["src.data.dataset_loader", "src.models.bsrnn", "src.models.losses",
          "src.models.stft", "src.models.bands", "src.models.modules",
          "src.models.conditioning", "src.run_log"]
 if cfg["model"].get("context_embedding", False):
-    # ITEM 1c ONLY, and conditional on purpose: this module pulls in
-    # speechbrain, which the baseline and 1a paths must not be made to require.
-    # Checked HERE so a missing dependency or an unstaged ECAPA snapshot fails
-    # in this cell, in seconds, rather than 40 minutes into the run as the arm
-    # silently failing to start. decisions-m2.md 2026-09-22.
+    # ITEM 1c ONLY, and conditional on purpose: this pulls in speechbrain,
+    # which the baseline and 1a paths must not be made to require.
+    #
+    # BOTH NAMES, and the second is the one that matters. Importing
+    # src.models.context_encoder proves nothing, because its speechbrain import
+    # is LAZY, inside __init__ -- MEASURED 2026-09-22, when this check passed
+    # ("9 modules, including the 1c encoder") and the run then died in the batch
+    # probe with ModuleNotFoundError. A check that passes when the thing it
+    # checks is absent is worse than no check.
     _mods.append("src.models.context_encoder")
+    _mods.append("speechbrain.inference.speaker")
 chk = subprocess.run(
     [sys.executable, "-c", "import sys; sys.path.insert(0, '.'); import "
      + ", ".join(_mods)],
