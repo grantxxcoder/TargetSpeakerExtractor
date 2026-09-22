@@ -101,6 +101,12 @@ CODE = [
     "experiments/configs/bsrnn_wesep_ref.yaml",
     # The n_hidden probe: same as wesep_ref with the estimator back to depth 1.
     "experiments/configs/bsrnn_estimator_probe.yaml",
+    # 2026-09-22, ITEM 1a. The cue hands over its PARTS (direction,
+    # match_fraction, unmatched) instead of their product, so the input is 5
+    # channels not 3. Baseline sizing otherwise -- 7.19 M -> 7.26 M. No new
+    # source file: the change is inside conditioning.py and bsrnn.py, both
+    # already staged. decisions-m2.md 2026-09-22.
+    "experiments/configs/bsrnn_cue_parts.yaml",
     "docs/run_times.md",   # src.run_log appends here; give it a real file
 ]
 
@@ -325,7 +331,8 @@ def write_verify_manifests(td: Path, split: str, new_only: int) -> None:
     shutil.copy2(REPO / "data/manifests" / f"{val_stem}.csv", td / f"{val_stem}.csv")
 
 
-def verify(code_dir: Path, data_dir: Path, split: str, man_dir: Path = None) -> None:
+def verify(code_dir: Path, data_dir: Path, split: str, man_dir: Path = None,
+           config: str = "experiments/configs/bsrnn_baseline.yaml") -> None:
     """Import and run one batch through the loss FROM THE STAGED COPIES.
 
     Own process, cwd=code_dir, so nothing can silently resolve against the real
@@ -344,7 +351,7 @@ import sys, yaml, torch
 from pathlib import Path
 sys.path.insert(0, ".")
 from scripts.train import get_data_loaders, build_loss_fn, build_model, unpack
-cfg = yaml.safe_load(open("experiments/configs/bsrnn_baseline.yaml"))
+cfg = yaml.safe_load(open("{config}"))
 
 # SEEDED once at the top: random init + shuffle=True made this number swing
 # 13.5 to 24.5 between runs, and an unreproducible number detects no regression.
@@ -407,6 +414,15 @@ def main() -> None:
     ap.add_argument("--split", default="mid", choices=sorted(SPLIT_FILES),
                     help="which split's audio to bundle")
     ap.add_argument("--out", default="kaggle_bundle")
+    # The baseline is ALWAYS verified, as the regression check. This adds arm
+    # configs on top. Added 2026-09-22: the bundle happily staged
+    # bsrnn_cue_parts.yaml -- a 5-channel input the baseline never exercises --
+    # and reported "params=7,189,644", i.e. it had verified something else
+    # entirely. An arm that cannot build should fail HERE, not after the upload.
+    ap.add_argument("--verify-config", action="append", default=[],
+                    metavar="YAML",
+                    help="also run the one-batch check against this config; "
+                         "repeatable. The baseline is always checked.")
     ap.add_argument("--code-only", action="store_true",
                     help="skip the audio entirely; use after a code change")
     ap.add_argument("--no-zip", action="store_true")
@@ -454,8 +470,12 @@ def main() -> None:
             with tempfile.TemporaryDirectory() as td:
                 write_verify_manifests(Path(td), args.split, args.new_only)
                 verify(code_dir, data_dir, args.split, Path(td))
+                for extra in args.verify_config:
+                    verify(code_dir, data_dir, args.split, Path(td), config=extra)
         else:
             verify(code_dir, data_dir, args.split)
+            for extra in args.verify_config:
+                verify(code_dir, data_dir, args.split, config=extra)
     else:
         print("  (no staged data; skipping verification)")
 

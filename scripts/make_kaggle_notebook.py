@@ -77,7 +77,17 @@ across a config change, so do not edit the knobs between sessions.
 cells.append(code(r'''
 # ============================== KNOBS ==============================
 SPLIT       = "sir0"  # "mid" = 90% target-louder (control) | "sir0" = symmetric
-EPOCHS      = 25      # 12 h GPU cap. sir0_train is 4,976 trials as of
+EPOCHS      = 2       # STABILITY PROBE for item 1a, 2026-09-22. Two epochs is
+                      # NOT a result -- it reads whether the 5-channel input
+                      # destabilises training, by comparing L_pres and L_MR
+                      # against the baseline's own first two epochs. Note both
+                      # epochs sit INSIDE the w warmup (warmup_steps 6632 ~ 2
+                      # epochs at 9,955 trials, batch 3), so w = 0 throughout and
+                      # this reads the PRESENT branch only -- which is exactly
+                      # the comparison wanted. DERIVED from the measured 2,364
+                      # s/epoch of the 2026-09-04 run: ~79 min at batch 3. Set
+                      # back to 25 for the real arm. Original note follows.
+                      # 12 h GPU cap. sir0_train is 4,976 trials as of
                       # 2026-08-31 (was 1,989), so ~1,360 s/epoch PROJECTED from
                       # the measured 523-568 at 1,989 -- about 29 epochs fit a
                       # session. 25 leaves headroom and patience 10 will stop it
@@ -100,12 +110,19 @@ RESUME_FROM = None    # e.g. "/kaggle/input/prev-run/models/model_sir0.pt"
 # 7.19 M model on one card, which is a silently wrong arm rather than a crash.
 # decisions-m2.md 2026-09-21.
 #
+# bsrnn_cue_parts.yaml is ITEM 1a, 2026-09-22: the speaker cue hands over its
+# PARTS (direction, match_fraction, unmatched) instead of their product, so the
+# network input is 5 channels not 3. BASELINE SIZING otherwise -- 7.19 M ->
+# 7.26 M (+66,820, +0.93 %), one card, data_parallel OFF. Its acceptance test
+# already PASSED without training: corr(cue, frame loudness) 0.982 -> -0.088.
+# decisions-m2.md 2026-09-22.
+#
 # Declared ONCE and threaded through the staging check, the batch probe, the
 # training call and the archived copy. It was hardcoded to bsrnn_baseline.yaml
 # in six separate places; editing only some of them probes one arm, trains
 # another, and archives a third, and every one of those runs still prints
 # "OK" -- a silently wrong arm, not a crash. decisions-pending.md E8.
-CONFIG      = "experiments/configs/bsrnn_baseline.yaml"
+CONFIG      = "experiments/configs/bsrnn_cue_parts.yaml"
 
 # The two Kaggle dataset mount points. Change only if you rename the datasets.
 DATA_DIR     = "/kaggle/input/tse-audio-s0-v3"   # the dataset holding the audio
