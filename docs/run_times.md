@@ -22,6 +22,8 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 |---|---|---|---|---|
 | 2026-09-21 | `pytest tests/ -q` | 515 tests | 11 min | full suite after adding eval_by_case.py. Added by hand: pytest does not use run_log.timed |
 <!-- rows appended below by src/run_log.py -->
+| 2026-09-22 | `scripts/diagnose_cue_directional.py` | 200 trials x 2 directions, sir0 | 10 min | cpu, batch 4 trials |
+| 2026-09-22 | `scripts/diagnose_cue_directional.py` | 200 trials x 2 directions, sir0 | 16 min | cpu, batch 4 trials |
 | 2026-09-21 | `scripts/diagnose_cue.py` | 200 crops, sir0 | 17 min | cpu, batch 4 |
 | 2026-09-21 | `scripts/measure_rtf.py` | --checkpoint models/model_sir0_wesepref-e10.pt --config experiments/configs/bsrnn_wesep_ref.yaml --chunk-ms 80 --threads 4 --device cpu --out /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-21-rtf-wesepref-e10 | 3 min |  |
 | 2026-09-21 | `scripts/evaluate.py` | --split sir0_val --condition both --est /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-21-est-wesepref-e10 --metrics content --listener judge --judge-rpm 10 --out /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-21-eval-wesepref-e10-judge | 15 min |  |
