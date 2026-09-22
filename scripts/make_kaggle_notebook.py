@@ -77,7 +77,23 @@ across a config change, so do not edit the knobs between sessions.
 cells.append(code(r'''
 # ============================== KNOBS ==============================
 SPLIT       = "sir0"  # "mid" = 90% target-louder (control) | "sir0" = symmetric
-EPOCHS      = 25      # 12 h GPU cap. sir0_train is 4,976 trials as of
+EPOCHS      = 16      # THE REAL ARM, 2026-09-22. 16 and NOT 25: at batch 3 with
+                      # 9,955 trials the 2026-09-04 run MEASURED 10.5 h for 16
+                      # epochs against Kaggle's 12 h cap, so 25 (~16.4 h) would
+                      # be killed mid-run. The 25 in the note below was
+                      # calibrated when sir0_train was 4,976 trials.
+                      # The baseline's best epoch was 6, so 16 is ample.
+                      # Previous note, from the 2-epoch stability probe:
+                      # NOT a result -- it reads whether the 5-channel input
+                      # destabilises training, by comparing L_pres and L_MR
+                      # against the baseline's own first two epochs. Note both
+                      # epochs sit INSIDE the w warmup (warmup_steps 6632 ~ 2
+                      # epochs at 9,955 trials, batch 3), so w = 0 throughout and
+                      # this reads the PRESENT branch only -- which is exactly
+                      # the comparison wanted. DERIVED from the measured 2,364
+                      # s/epoch of the 2026-09-04 run: ~79 min at batch 3. Set
+                      # back to 25 for the real arm. Original note follows.
+                      # 12 h GPU cap. sir0_train is 4,976 trials as of
                       # 2026-08-31 (was 1,989), so ~1,360 s/epoch PROJECTED from
                       # the measured 523-568 at 1,989 -- about 29 epochs fit a
                       # session. 25 leaves headroom and patience 10 will stop it
@@ -85,7 +101,17 @@ EPOCHS      = 25      # 12 h GPU cap. sir0_train is 4,976 trials as of
                       # trials) was ~18,600 optimiser steps, which at 4,976
                       # trials lands near epoch 6, so 25 is ~4x past it.
                       # Run EPOCHS = 2 first for a measured s/epoch.
-BATCH_SIZE  = 12      # CEILING, not a promise. 12 OOMs on a 14.6 GiB T4; the
+BATCH_SIZE  = 3       # PINNED TO THE BASELINE, 2026-09-22, not chosen for
+                      # memory. The 2026-09-04 baseline of record trained at
+                      # batch 3; the probe left free picks 6 on one T4, which
+                      # halves the optimiser steps per epoch while lr stays at
+                      # 0.0005 -- the exact confound that made the 14.73 M
+                      # capacity arm "confounded, not negative"
+                      # (decisions-m2.md 2026-09-21). An arm meant to be read
+                      # against that baseline's CURVES has to match its batch.
+                      # Raise it only for a run that is not being compared
+                      # epoch-for-epoch. Original note follows.
+                      # CEILING, not a promise. 12 OOMs on a 14.6 GiB T4; the
                       # probe below steps down until one fwd+bwd+step fits and
                       # writes the winner into the config that trains.
 BATCH_FLOOR = 2       # give up below this
@@ -94,14 +120,33 @@ RESUME_FROM = None    # e.g. "/kaggle/input/prev-run/models/model_sir0.pt"
 
 # THE CONFIG THAT TRAINS, and the arm the run is. bsrnn_baseline.yaml is the
 # w_struct=0 control; bsrnn_struct.yaml is the structure-loss arm (w_struct
-# 46.2981, derived 2026-09-13 by scripts/derive_w_struct.py).
+# 46.2981, derived 2026-09-13 by scripts/derive_w_struct.py);
+# bsrnn_wesep_ref.yaml is the 14.73 M capacity arm and the ONLY config that
+# turns data_parallel on -- leaving this line at bsrnn_baseline.yaml runs the
+# 7.19 M model on one card, which is a silently wrong arm rather than a crash.
+# decisions-m2.md 2026-09-21.
+#
+# bsrnn_cue_context.yaml is ITEM 1c, 2026-09-22: item 1a PLUS a frozen ECAPA
+# speaker encoder as an identity anchor. 7,281,168 params (+24,704 trainable);
+# ECAPA is 20,767,552 FROZEN and lives outside the model, so it is absent from
+# the checkpoint and runs ONCE per utterance, not per chunk. ITS CONTROL IS
+# bsrnn_cue_parts.yaml, NOT the 2026-09-04 baseline -- 1a is already a change.
+# KEEP BATCH_SIZE AT 3: the comparison against that control needs the same
+# batch, and the same lr, and the same schedule. decisions-m2.md 2026-09-22.
+#
+# bsrnn_cue_parts.yaml is ITEM 1a, 2026-09-22: the speaker cue hands over its
+# PARTS (direction, match_fraction, unmatched) instead of their product, so the
+# network input is 5 channels not 3. BASELINE SIZING otherwise -- 7.19 M ->
+# 7.26 M (+66,820, +0.93 %), one card, data_parallel OFF. Its acceptance test
+# already PASSED without training: corr(cue, frame loudness) 0.982 -> -0.088.
+# decisions-m2.md 2026-09-22.
 #
 # Declared ONCE and threaded through the staging check, the batch probe, the
 # training call and the archived copy. It was hardcoded to bsrnn_baseline.yaml
 # in six separate places; editing only some of them probes one arm, trains
 # another, and archives a third, and every one of those runs still prints
 # "OK" -- a silently wrong arm, not a crash. decisions-pending.md E8.
-CONFIG      = "experiments/configs/bsrnn_baseline.yaml"
+CONFIG      = "experiments/configs/bsrnn_cue_context.yaml"
 
 # The two Kaggle dataset mount points. Change only if you rename the datasets.
 DATA_DIR     = "/kaggle/input/tse-audio-s0-v3"   # the dataset holding the audio
@@ -256,6 +301,41 @@ print("  data verified")
 '''))
 
 cells.append(code(r'''
+# ITEM 1c ONLY. speechbrain is NOT in the Kaggle image -- measured 2026-09-22,
+# ModuleNotFoundError in the batch probe. It is in requirements.txt (1.1.1) but
+# nothing here installed it, because until 1c nothing on the KAGGLE path needed
+# it: the state teacher is the only other user and it has never run here.
+#
+# NEEDS INTERNET ON in the notebook settings (Settings -> Internet). That cuts
+# against this project's usual offline stance, so the version is PINNED: an
+# unpinned fetch would make every number this encoder produces irreproducible.
+# The ECAPA WEIGHTS still come from the staged snapshot and are never fetched.
+#
+# If you would rather keep the session offline, the alternative is vendoring the
+# wheel and its deps into the bundle -- more setup, no internet, same result.
+import subprocess, sys, yaml
+from pathlib import Path
+
+_cfg = yaml.safe_load((Path(CODE) / CONFIG).read_text())
+if _cfg["model"].get("context_embedding", False):
+    try:
+        import speechbrain  # noqa: F401
+        print(f"speechbrain already present: {speechbrain.__version__}")
+    except ModuleNotFoundError:
+        print("installing speechbrain==1.1.1 (item 1c needs it) ...")
+        r = subprocess.run([sys.executable, "-m", "pip", "install", "-q",
+                            "speechbrain==1.1.1"], capture_output=True, text=True)
+        if r.returncode:
+            raise SystemExit(
+                "pip install failed. Is Internet ON in the notebook settings?\n"
+                + r.stderr[-2000:])
+        import speechbrain  # noqa: F401
+        print(f"speechbrain {speechbrain.__version__} installed")
+else:
+    print("not the 1c arm -- speechbrain not needed")
+'''))
+
+cells.append(code(r'''
 # --- stage the code somewhere writable, then write the derived config -----
 # /kaggle/input is read-only and src.run_log writes repo_root/docs/run_times.md,
 # so the code cannot run in place.
@@ -272,21 +352,40 @@ shutil.copytree(CODE, REPO)
 Path(OUT).mkdir(parents=True, exist_ok=True)
 Path(RES).mkdir(parents=True, exist_ok=True)
 
+cfg_path = Path(REPO) / CONFIG
+cfg = yaml.safe_load(cfg_path.read_text())
+
 # Import from the staged copy exactly as train.py will, before any GPU time is
 # spent. A staging bug is invisible until the training subprocess dies; this
 # turns it into one obvious line here.
+_mods = ["src.data.dataset_loader", "src.models.bsrnn", "src.models.losses",
+         "src.models.stft", "src.models.bands", "src.models.modules",
+         "src.models.conditioning", "src.run_log"]
+if cfg["model"].get("context_embedding", False):
+    # ITEM 1c ONLY, and conditional on purpose: this pulls in speechbrain,
+    # which the baseline and 1a paths must not be made to require.
+    #
+    # BOTH NAMES, and the second is the one that matters. Importing
+    # src.models.context_encoder proves nothing, because its speechbrain import
+    # is LAZY, inside __init__ -- MEASURED 2026-09-22, when this check passed
+    # ("9 modules, including the 1c encoder") and the run then died in the batch
+    # probe with ModuleNotFoundError. A check that passes when the thing it
+    # checks is absent is worse than no check.
+    _mods.append("src.models.context_encoder")
+    _mods.append("speechbrain.inference.speaker")
 chk = subprocess.run(
-    [sys.executable, "-c", "import sys; sys.path.insert(0, '.'); "
-     "import src.data.dataset_loader, src.models.bsrnn, src.models.losses, "
-     "src.models.stft, src.models.bands, src.models.modules, "
-     "src.models.conditioning, src.run_log"],
+    [sys.executable, "-c", "import sys; sys.path.insert(0, '.'); import "
+     + ", ".join(_mods)],
     cwd=REPO, capture_output=True, text=True)
 if chk.returncode:
     raise SystemExit(f"staged code at {REPO} does not import:\n{chk.stderr}")
-print("  staged code imports OK")
-
-cfg_path = Path(REPO) / CONFIG
-cfg = yaml.safe_load(cfg_path.read_text())
+print(f"  staged code imports OK ({len(_mods)} modules"
+      + (", including the 1c encoder" if "src.models.context_encoder" in _mods else "")
+      + ")")
+# The batch the CONFIG asks for, kept before the ceiling overwrites it. The w
+# schedule was calibrated against this number and has to be rescaled if the
+# probe lands somewhere else. decisions-m2.md 2026-09-21.
+CFG_BATCH = int(cfg["data"]["batch_size"])
 cfg["data"]["batch_size"]  = BATCH_SIZE
 cfg["data"]["num_workers"] = NUM_WORKERS
 # Written back so meta.yaml records the config that actually trained, and so a
@@ -332,6 +431,7 @@ import sys, yaml, torch
 from pathlib import Path
 sys.path.insert(0, ".")
 from scripts.train import (get_data_loaders, build_model, build_loss_fn, unpack,
+                          build_context_encoder, context_kwargs,
                            amp_ctx, oracle_mask_and_mag)
 # argv, NOT a notebook global: this runs in its OWN subprocess (see the comment
 # in the driver below), so a bare CONFIG here is a NameError at import time.
@@ -363,6 +463,12 @@ CALIB_STEPS = 25
 scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 tr, _ = get_data_loaders(split, data / "manifests", data, cfg)
 m = build_model(cfg).to(dev); m.train()
+# ITEM 1c. The memory probe is a CALL SITE like any other, and on 2026-09-22 it
+# was the THIRD one the required-keyword design caught -- this time on Kaggle,
+# before any training time was spent rather than after. Building the encoder
+# here also makes the probe honest: 1c's peak memory includes the encoder's
+# forward, so probing without it would size the batch for a different model.
+enc = build_context_encoder(cfg, dev)
 L = build_loss_fn(cfg)
 opt = torch.optim.AdamW(m.parameters(), lr=float(cfg["training"]["lr"]),
                         weight_decay=float(cfg["training"]["weight_decay"]))
@@ -382,9 +488,9 @@ for i, b in enumerate(tr):
     # scale / unscale / clip / step / update.
     with amp_ctx(use_amp):
         if want_mask:
-            out, mask = m(x, e, return_mask=True)
+            out, mask = m(x, e, return_mask=True, **context_kwargs(enc, e))
         else:
-            out, mask = m(x, e), None
+            out, mask = m(x, e, **context_kwargs(enc, e)), None
     oracle, mix_mag = (oracle_mask_and_mag(m, s, x) if want_mask
                        else (None, None))
     loss, _ = L(s, out.float(), x, a,
@@ -438,13 +544,26 @@ elif not torch.cuda.is_available():
     chosen = cfg["data"]["batch_size"]
     print(f"no CUDA: leaving batch_size at {chosen}, probe skipped")
 else:
+    # DATAPARALLEL-AWARE. `_probe_batch.py` runs one process on cuda:0, so what
+    # it measures is what ONE card must hold. Under DataParallel the config's
+    # batch_size is the GLOBAL batch and each card holds batch/n_gpu, so the
+    # probe must be handed the per-card share and the ceiling it finds is worth
+    # n_gpu times as much. Probing the global batch on one card would cap the
+    # run at the single-card ceiling and leave the second T4 half idle -- the
+    # exact waste E7 exists to fix. decisions-pending.md E7.
+    N_GPU = (torch.cuda.device_count()
+             if bool(cfg["training"].get("data_parallel", False)) else 1)
+    if N_GPU > 1:
+        print(f"DataParallel: {N_GPU} cards, probing the PER-CARD share "
+              f"(global batch = per-card x {N_GPU})")
     cands = [b for b in [BATCH_SIZE, 10, 8, 6, 5, 4, 3, 2]
-             if BATCH_FLOOR <= b <= BATCH_SIZE]
+             if BATCH_FLOOR <= b <= BATCH_SIZE and b % N_GPU == 0]
     cands = sorted(set(cands), reverse=True)
     chosen = None
     for B in cands:
-        r = subprocess.run([sys.executable, "_probe_batch.py", str(B), str(DATA_ROOT),
-                            SPLIT, CONFIG],
+        # B is the GLOBAL batch; B // N_GPU is what each card actually allocates.
+        r = subprocess.run([sys.executable, "_probe_batch.py", str(B // N_GPU),
+                            str(DATA_ROOT), SPLIT, CONFIG],
                            cwd=REPO, capture_output=True, text=True)
         ok_line = next((ln for ln in r.stdout.splitlines()
                         if ln.startswith("OK ")), None)
@@ -455,7 +574,8 @@ else:
             # every Kaggle run got capped at the fp32 ceiling. E8.
             _, b_ok, peak, res, prec = ok_line.split()
             print(f"  batch {B:2d}: FITS   peak allocated {peak} GiB, "
-                  f"reserved {res} GiB, probed in {prec}")
+                  f"reserved {res} GiB, probed in {prec}"
+                  + (f"  ({B // N_GPU}/card x {N_GPU})" if N_GPU > 1 else ""))
             if prec != ("amp" if cfg["training"].get("amp") else "fp32"):
                 raise SystemExit(f"probe ran in {prec} but training.amp="
                                  f"{cfg['training'].get('amp')}; the ceiling it "
@@ -471,7 +591,8 @@ else:
             print(r.stderr[-500:])
             raise SystemExit(f"probe inconclusive at batch {B}: see above")
         if "OutOfMemoryError" in r.stderr or "out of memory" in r.stderr.lower():
-            print(f"  batch {B:2d}: OOM")
+            print(f"  batch {B:2d}: OOM"
+                  + (f"  ({B // N_GPU}/card)" if N_GPU > 1 else ""))
             continue
         # The SystemExit below is NOT the error -- it is the handler. The real
         # traceback is the block printed here, so label it loudly enough that it
@@ -488,6 +609,31 @@ else:
 
 cfg["data"]["batch_size"]  = chosen
 cfg["data"]["num_workers"] = NUM_WORKERS
+
+# THE ABSENT-BRANCH WARMUP MOVES WITH THE BATCH, or the run is silently wrong.
+# It is indexed in optimiser STEPS, which makes it invariant to dataset size
+# (decisions-m2.md 2026-09-03) but NOT to batch size: at twice the batch each
+# step consumes twice the audio, so the same step count covers twice the
+# examples. The warmup exists to stop the early mute and its length in EXAMPLES
+# is what matters, so hold `steps x batch` constant.
+#
+# Before this, a probe that stepped the batch down from the configured value
+# silently doubled the warmup in examples and nothing said so.
+# decisions-m2.md 2026-09-21, decisions-pending.md E8.
+if chosen != CFG_BATCH:
+    sched = cfg.get("loss", {}).get("w_schedule")
+    if sched:
+        for key in ("warmup_steps", "ramp_steps"):
+            if key in sched:
+                before = int(sched[key])
+                # Round UP: a warmup one step short is harmless, one step long
+                # is not, and integer division would silently shorten it.
+                sched[key] = -(-before * CFG_BATCH // chosen)
+                print(f"  w_schedule.{key} {before} -> {sched[key]} "
+                      f"(holding steps x batch = {before * CFG_BATCH:,} examples)")
+    else:
+        print("  NOTE: no loss.w_schedule in this config, nothing to rescale")
+
 # Rewritten so meta.yaml records the batch size that ACTUALLY trained, not the
 # ceiling that was asked for.
 cfg_path.write_text(yaml.safe_dump(cfg, sort_keys=False))

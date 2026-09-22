@@ -2267,3 +2267,912 @@ intervention (`decisions-pending.md` 2026-09-13).
 — the logging fix landed alongside the run — so whether the term descended during
 training is still unmeasured. The anchors are measured at the checkpoint, not
 along the trajectory.
+
+---
+
+## 2026-09-21 — Step up the sizing ladder to the wesep reference, and use the second T4
+
+Two changes, one config: `experiments/configs/bsrnn_wesep_ref.yaml`.
+`bsrnn_baseline.yaml` is untouched, so every existing run reproduces and every
+checkpoint on disk still resumes.
+
+### The sizing: 7.19 M -> 14.73 M, and it is not an arbitrary number
+
+`decisions-m1.md` 2026-08-19 recorded exactly two deviations from the wesep
+reference, both deliberately toward smaller, and closed with "If it underfits,
+step up this ladder and record which rung and why."
+
+**It underfits.** WeSep captures 51.6 % of the offline-ASR word-error headroom
+against our 10.4 % (`project-state.md`). This entry is that record.
+
+| | baseline | this config | source of the value |
+|---|---|---|---|
+| `lstm_hidden` | 192 | **256** | wesep reference, `feature_dim * 2` |
+| `n_hidden` | 1 | **2** | wesep reference; the paper gives width, not depth |
+| separator | 4.90 M | 7.71 M | |
+| estimator | 2.19 M | 6.92 M | |
+| **total** | **7.19 M** | **14.73 M** | 2.05x |
+
+Nothing else moves. `mlp_hidden` stays at 384 because that IS the paper's stated
+width (Yu et al., Interspeech 2023 §4.2) and is not a deviation.
+
+### Why the capacity is split, and not all put in the estimator
+
+Memory on the T4 is essentially all activations -- 7.19 M params is ~29 MB and
+AdamW state ~57 MB against ~13,000 MB measured (`decisions-pending.md` E8). So
+activation cost tracks LSTM width x depth, not parameter count, and the routes to
+~2x parameters cost very different amounts of memory:
+
+| route | params | activations | batch that fits |
+|---|---|---|---|
+| `mlp_hidden` 512 / `n_hidden` 2 | 16.3 M | ~1.00x | 3, unchanged |
+| **`lstm_hidden` 256 / `n_hidden` 2** | **14.7 M** | **~1.33x** | **3 per card** |
+| `feature_dim` 192 / `lstm_hidden` 320 | 18.0 M | ~2.50x | 1-2 |
+
+The all-estimator route is cheapest in memory and `decisions-m1.md` 2026-08-19
+says why it is also the least useful: "Capacity added there buys per-band readout
+richness, not temporal or cross-band modelling", and at 384x2 the estimator is
+already 58 % of the model, larger than the six-layer separator. The chosen rung
+spends on both paths and stays inside the ceiling.
+
+**The activation multipliers are PROJECTIONS, from the measured linear law
+(0.12 GB fixed + 2.15 GB per trial, E3b-E3f) scaled by LSTM width.** They are not
+measured. `scripts/profile_step.py --amp-only` measures them and E1's analytic
+model was already found 2.4-3x low, so profile before committing a session. Part
+of the memory -- `L_MR`'s eight retained STFTs -- does not scale with width at
+all, so the LSTM-width row is probably pessimistic.
+
+**`n_hidden` was unreachable from the yaml until today.** `build_model()` left it
+at the ctor default of 1, which `decisions-m1.md` 2026-08-19 flagged ("Both belong
+in the yaml") and nothing acted on. It is now passed, defaulting to 1 when the key
+is absent, so no existing config or checkpoint changes meaning.
+
+### The second T4 (E7), which has been idle on every run to date
+
+`nn.DataParallel`, gated on `training.data_parallel` and `device_count() > 1`,
+default off. Kaggle's "GPU T4 x2" gives two cards; `torch.device("cuda")` is
+`cuda:0` and nothing asked for the other.
+
+**It splits the batch, not the model.** Both cards hold a full replica, so this
+buys batch headroom and throughput, NOT room for a wider model -- the measured
+per-card ceiling still applies. E7's "two cards is also 2x the memory" is true of
+batch and must not be read as licence to widen.
+
+**The loss stays outside the model, and that is required.** `LossBSRNN` means over
+subsets (`n_present`, `n_absent`); a per-device reduction would silently reweight
+them. `DataParallel` gathers to `cuda:0` before the loss, so this is preserved.
+Direction pairing survives for the same reason: `collate_pairs` keeps both
+directions in one batch, splitting separates some pairs in the forward, but the
+model is per-example independent and the contrast lives in the gathered loss.
+
+**The trap, handled:** `DataParallel` prefixes every `state_dict()` key with
+`module.`. All three `torch.save` sites, the resume `load_state_dict`,
+`model.stft` in `oracle_mask_and_mag` and `model.band_widths` in `log_results`
+now go through `unwrap()`. Checkpoints are written unwrapped, so files stay
+interchangeable between one-card and two-card runs.
+
+### `batch_size` 3 -> 6, and what it is NOT for
+
+Six, split 3 per card, so per-card memory is exactly what every run to date used.
+
+**It does not make one card faster.** Per-trial throughput is flat across batch
+3/5/6 (0.990 / 0.994 / 1.005 s/trial, E3b-E3f) -- the T4 is saturated at batch 3,
+which is why gradient checkpointing was withdrawn. The 7.66x came from
+tensor-core alignment, not batch size. The gain here is the second card.
+
+**`bsrnn_baseline.yaml`'s comment promising batch 12 is wrong by 4x** and is not
+corrected in place, because that file must keep reproducing past runs. 6 is the
+fp16 ceiling on one T4 (13.02 GB of 14.56); 7 needs 15.17 GB; fp32 caps at 3.
+
+### The `w` schedule had to move with the batch, or the run is silently wrong
+
+The absent-branch warmup is indexed in optimiser STEPS, which makes it invariant
+to dataset size (2026-09-03) but **not** to batch size: at batch 6 each step
+consumes twice the audio. The warmup exists to stop the early mute and its length
+in EXAMPLES is what matters, so the invariant held is `warmup_steps x batch`:
+
+    warmup  6632 x 3 = 19,896  ->  3316 x 6 = 19,896
+    ramp    4974 x 3 = 14,922  ->  2487 x 6 = 14,922
+
+Left alone, the warmup would have covered twice the audio it was calibrated for.
+
+### The Kaggle probe had to change too, and one of its bugs was NOT the known one
+
+Two problems, both of which would have quietly wasted the second card or
+corrupted the schedule. `scripts/make_kaggle_notebook.py`.
+
+**1. The probe was not DataParallel-aware.** `_probe_batch.py` runs one process
+on `cuda:0`, so what it measures is what ONE card must hold -- but the config's
+`batch_size` is the GLOBAL batch, which DataParallel splits. Probing the global
+batch on one card caps the run at the single-card ceiling and leaves the second
+T4 half idle, which is the exact waste E7 exists to remove. The probe is now
+handed `B // n_gpu` and candidates are filtered to multiples of `n_gpu`.
+
+**2. A probe-chosen batch did not drag the `w` schedule with it, and nothing
+said so.** The probe steps the batch down until one fits and writes the winner
+into the config that trains. The absent-branch warmup is indexed in optimiser
+STEPS, so a batch the probe lowered from the configured value silently made the
+warmup cover MORE examples than it was calibrated for -- the same class of
+confound the step-indexing of 2026-09-03 was introduced to remove, arriving
+through a different door. The notebook now rescales `warmup_steps` and
+`ramp_steps` to hold `steps x batch` constant whenever `chosen != CFG_BATCH`,
+and prints the rescale. Rounded UP: a warmup one step short is harmless, one
+step long is not.
+
+**This second one is not in E8** and was found while wiring E7. E8 says only
+"do not let the probe pick a new batch size during the 9,955-trial run" and
+prescribes pinning the knob by hand -- a workaround that depends on remembering
+it. The rescale makes the coupling automatic.
+
+### How this must be read when it lands
+
+**Speed claim only for the DataParallel half.** Numerics are not bit-identical
+(different kernel split, different fp16 reduction order), so a 2-epoch A/B shows
+val terms agreeing within known between-run noise, never exactly, and a difference
+must never be reported as a quality change.
+
+**Two variables move at once** -- capacity and the device count. They are
+separable by their signatures (throughput vs. held-out separation) but the run is
+not a clean single-variable arm and the write-up says so.
+
+**Read it on `sir0_privval` word error, not on dB.** 2026-09-04 measured 2x the
+data buying +0.316 dB of separation while LCF-WER moved the WRONG way
+(59.05 -> 59.52 %) and headroom captured fell 10.4 -> 9.6 %. A capacity gain that
+shows up only in dB is not yet a result.
+
+**Expect overfitting to arrive earlier, not later.** The diagnosis at every data
+scale is data-limited (train falls monotonically, held-out peaks then collapses).
+Adding capacity to a data-limited model moves the peak earlier and deepens the
+collapse. If the peak lands before epoch 6 that is the predicted signature, not a
+bug. `select_on: present_branch` and the `select_abs_max` silence bar stay on.
+
+### Not done
+
+- **Not profiled.** `profile_step.py --amp-only` on this config, and its ALIGNED
+  verdict, before any session. `examples x T` must stay divisible by 8 or the
+  4.09x fallback kernel fires and the bigger model looks slow for the wrong reason.
+- **E8's "the notebook probe measures fp32" is STALE and is corrected here.**
+  It was fixed on 2026-09-04: `_probe_batch.py` wraps its forward in
+  `amp_ctx(use_amp)` and the notebook refuses a probe whose reported precision
+  disagrees with `training.amp`. The E8 bullet should be marked closed.
+- **`DistributedDataParallel` deferred**, as E7 records: better tool, needs
+  `spawn` inside a Kaggle notebook, not worth it for two cards on one host.
+
+---
+
+## 2026-09-21 — The capacity arm sizes on Kaggle: batch 10 across two T4s, and the memory law predicts both ends
+
+**MEASURED**, notebook probe, `bsrnn_wesep_ref.yaml` (14,731,404 params), T4 x2, fp16:
+
+    DataParallel: 2 cards, probing the PER-CARD share (global batch = per-card x 2)
+      batch 12: OOM  (6/card)
+      batch 10: FITS   peak allocated 12.79 GiB, reserved 14.31 GiB, probed in amp  (5/card x 2)
+
+### Three things this confirms at once
+
+**E7 works.** Batch 10 cannot fit on one T4 under any config here -- the 7.19 M
+baseline's single-card fp16 ceiling was 6 at 13.02 GB, and 10 would need
+~21.6 GB. So the probe accepting 10 is direct evidence both cards carry load.
+Half the allocated hardware is no longer idle.
+
+**The arm that ran is the 14.73 M one, checkable from the number alone.** At
+5 trials/card the 7.19 M model would allocate 0.12 + 5 x 2.15 = 10.87 GB. The
+probe read 12.79. So this is not the baseline wearing a new config name.
+
+**The linear memory law now predicts a fit AND an OOM.** Per-trial is
+(12.79 - 0.12) / 5 = **2.534 GB**, so 6/card needs 0.12 + 6 x 2.534 = 15.32 GB
+against ~14.56 usable -- batch 12 cannot fit, and did not. Two independent
+points from one line.
+
+### A CORRECTION to this file's own projection, in the safe direction
+
+The 2026-09-21 entry above projected ~1.33x the baseline's activation cost from
+scaling by LSTM width. Measured, it is **1.18x** (2.534 against 2.15). The
+projection was 13 % pessimistic **for exactly the reason that entry gave**:
+`L_MR`'s eight retained STFTs are a large share of memory and do not scale with
+LSTM width at all. The caveat was right; the number was not. Quote 1.18x.
+
+### What the probe does NOT measure, and it matters at this margin
+
+`_probe_batch.py` is a single process with **no DataParallel wrapper**. It
+measures one card's share of the forward and the loss over *that share only*.
+The real run gathers to `cuda:0` and computes `LossBSRNN` over the **full**
+batch there -- which is required, not incidental, since the loss means over
+subsets and a per-device reduction would reweight them. So `cuda:0`'s true peak
+is higher than 12.79 GiB by the gather plus the full-batch loss.
+
+Estimated at a few hundred MB against 1.77 GB of headroom, so it should hold --
+but `reserved` already reads 14.31 GiB, which is 98 % of the card. **This is the
+tightest configuration this project has run.** The 2-epoch run is the test, and
+it is a real test: the probe already exercises fwd+bwd+step, so training is the
+binding case, not validation (which runs under `no_grad` and has no backward).
+
+**The cost of being wrong is bounded**: `_last.pt` is written every epoch with
+`global_step`, so an OOM loses at most one epoch and `--resume` recovers the
+schedule position. Dropping to batch 8 (4/card, 10.26 GB) costs almost nothing
+in throughput -- per-trial time is flat across this range (0.990/0.994/1.005
+s/trial at batch 3/5/6, E3b-E3f) -- so it is the cheap fallback, not a
+concession.
+
+### The `w` schedule rescale fired, and landed where it always has
+
+    w_schedule.warmup_steps 3316 -> 1990 (holding steps x batch = 19,896 examples)
+    w_schedule.ramp_steps   2487 -> 1493 (holding steps x batch = 14,922 examples)
+
+Both invariants match the original `6632 x 3` and `4974 x 3` exactly. At 9,955
+trials and batch 10 that is 995 steps/epoch, so warmup is **2.0 epochs** and the
+ramp **1.5**, reaching full `w` at epoch 3.5 -- the same position it occupied at
+batch 3 and at batch 6. The absent branch is fully engaged well before the
+expected peak. Without the rescale the warmup would have covered 3.3x the audio
+it was calibrated for, silently.
+
+### The notebook's stock NOTE is fine here, and should be read down
+
+It warns that batch 10 is "below the requested 12" so `L_abs` is a noisier
+estimate. True, but the comparison that matters is against what has actually
+run: every previous run was batch 3 or 6. **Batch 10 is the closest this project
+has ever been to the batch 12 `w = 0.458` was calibrated against**, so the
+absent-branch estimate is better than any run to date, not worse.
+
+### Learning rate deliberately NOT changed
+
+`lr: 0.0005` was set at batch 3 and the effective batch is now 3.3x that.
+Textbook scaling says raise it; this run does not, because (a) it would move two
+variables at once and `decisions-m1.md` 2026-08-18 records effective batch as a
+training-dynamics parameter whose silent change makes curves incomparable,
+(b) `ReduceLROnPlateau` (factor 0.5, patience 3) adapts downward anyway, and
+(c) the batch-6 structure run held the same lr and peaked at -4.201 held-out
+against the batch-3 baseline's -2.941. If this run underfits, raising lr is the
+first follow-up **as its own arm**.
+
+---
+
+## 2026-09-21 — DECIDED: do NOT widen the training SIR range below -5 dB
+
+**Keep the training SIR distribution as it is. Do not add trials below -5 dB to
+chase the low-SIR collapse.**
+
+**Why.** The collapse below 0 dB SIR is real and it is where the entire gap to
+the reference model sits (ours 88.2 WER at SIR < -5 against WeSep's 49.4,
+`decisions-m3.md` 2026-09-12). Widening the training range was the obvious data
+answer and it is rejected on evidence:
+
+- **The reference model does not do it either.** `tfmap_context_causal_100`'s
+  own config (`../wesep_pretrained/tfmap_context_causal_100/config.yaml`) trains
+  on Libri2Mix `train-100` with `noise_prob: 0` -- clean, no noise, no reverb,
+  and no low-SIR curriculum. It still reaches 49.4 where we reach 88.2. **A
+  system that never saw our hard band beats us on our hard band**, so training
+  coverage cannot be what separates us.
+- **Nobody in the field trains below -5 dB.** The standard "hard" case ends
+  roughly where our collapse begins, so widening would put us off the edge of
+  the comparable literature for a mechanism nobody has shown to work.
+- **It would spend the one clean variable we have.** `remix_gains: true`
+  redraws SIR per epoch from the difficulty regime; changing that range changes
+  the difficulty distribution, the absent rate's calibration and the anchors
+  together. `decisions-m0.md` B1 already holds `overlap_ratio` to be narrowed
+  LAST for the same reason.
+
+**Consequence to carry.** The low-SIR collapse must therefore be fixed in the
+model, not in the data -- and on current evidence that means the speaker cue
+(see `decisions-pending.md` D5 and the 2026-09-21 obligation O4). If a
+conditioning arm lands and the collapse persists, this decision is the first
+thing to revisit, as its own arm and with the anchors re-measured.
+
+### ALSO DECIDED: do NOT move the range to [-5, +15] either. That IS the old split
+
+**Raised and refused 2026-09-21.** `-5 .. +15` is not a new distribution, it is
+`train` to the decimal -- verified from the manifests today:
+
+| split | n | SIR mean | range | target louder |
+|---|---|---|---|---|
+| `train` (original) | 9,846 | **+5.58** | **-5.0 .. +15.0** | **90 %** |
+| `eval_public` | 230 | +4.87 | -4.9 .. +14.8 | 74 % |
+| `sir0_train` (current) | 4,930 | +0.08 | -10 .. +10 | 50 % |
+
+**That distribution is the documented cause of the model ignoring the
+enrolment** (2026-08-25, above): output moved 2.6 % on an enrolment swap,
+because where the target leads by 6 dB or more -- 379 of 747 trials --
+"keep the loud voice" is 81.5 % accurate against the learned cue's 58.5 %.
+`sir0` exists to remove exactly that shortcut. Reverting would re-create it.
+
+**It is worse now than it was in August.** 2026-09-21 measured the cue as 78 %
+rank-1 with `corr(alpha_t, frame loudness) = 0.990`, and `alpha_t =
+<|X_t|, u_t>` makes that STRUCTURAL rather than learned. A 90 %-target-louder
+distribution hands that structural confound a 90 %-accurate strategy to ride.
+The headline would improve and the model would get worse at the task.
+
+**Carry the distinction the 2026-08-25 entry drew:** narrowing SIR is not only
+difficulty relief, it is **relevance** relief. A task can be easy and still
+require the enrolment; this change makes it easy by making the enrolment
+unnecessary.
+
+**Two further costs.** It compresses the measurable range -- at SIR >= +5 the
+floor-to-ceiling span is 27.8 points against 77 at SIR < -5, and the
+irrelevance floor is 1.57. And difficulty is not the binding constraint
+anyway: the 2026-09-21 case suite captures only **14.9 %** of available
+headroom at SIR >= +5, so a dataset of easy bands would give a better-looking
+number on a test that no longer asks the research question.
+
+**The free alternative, and it needs no new data.** `eval_public` is already
+rendered and already target-louder. Scoring the current checkpoint on it, split
+by SIR band, gives the "easier data" reading and the residual level-bias
+diagnostic in one run. **If easier TRAINING is wanted, use a curriculum** --
+anneal target-louder to symmetric via the existing `remix_gains` redraw -- so
+the shortcut is not available at convergence. That is a legitimate arm; the
+permanent distribution change is not.
+
+**Not decided here:** whether the training range should be NARROWED
+symmetrically, and whether `sir0`'s symmetry is the right training distribution
+at all. Both stay open; these decisions refuse the widening below -5 dB and the
+revert to the target-louder range.
+
+---
+
+## 2026-09-21 — The 14.73 M arm, read. Doubling the model bought NOTHING, and the result is CONFOUNDED
+
+`experiments/results/2026-09-21-train-sir0-wesepref/`, 16 epochs, 5.47 h,
+1,231 s/epoch, batch 10 across two T4s. Selected idx 10,
+`models/model_sir0_wesepref-e10.pt`. First DataParallel run.
+
+### The result
+
+| | 14.73 M | baseline 7.19 M |
+|---|---|---|
+| present-branch score (lower better) | **6.082** (idx 10) | **4.599** (idx 6) |
+| separation `L_pres` | −2.9020 | −2.9000 |
+| spectral `L_MR` | 0.3211 | 0.1815 |
+| output level `L_gain` | 3.4881 | 3.4040 |
+
+**Separation is identical to 0.002 dB.** `L_MR` is **91 %** of the 1.483 gap.
+2.05x the parameters bought no extraction improvement and cost spectral
+reconstruction.
+
+### It is under-optimisation, not overfitting, and not trainable out
+
+`L_MR` is worse on **TRAIN** too, 0.3226 against 0.1849. A model failing on data
+it has already seen is not memorising. It fell 0.364 -> 0.296 across 16 epochs,
+~0.005/epoch; reaching 0.1815 needs ~22 more, and `ReduceLROnPlateau` halved the
+lr at idx 13 while the run collapsed periodically (idx 11 scored 9.917).
+
+### CONFOUNDED — this is NOT a clean capacity result
+
+**`lr` was never scaled with batch: 0.0005 at batch 3, at batch 6 and at
+batch 10.** Model size and batch size moved together, so "more parameters did
+not help" cannot be separated from "fewer, unscaled updates". Raised by a peer
+session 2026-09-21 and accepted.
+
+Two things weaken the confound without removing it. Separation reached exact
+parity, so the optimiser was adequate for the separator at 5e-4 — a globally
+starved optimiser would have hurt both halves. And with Adam the update
+magnitude is roughly scale-invariant, so a larger batch at fixed lr takes
+same-sized but less noisy steps; at MATCHED STEPS this run is still 54 % worse
+(0.335 at 2,985 steps against the baseline's 0.217 at 3,318).
+
+**Record as confounded, not negative.** The earlier inference "capacity is ruled
+out, so by elimination it is the objective" does NOT hold.
+
+### The estimator cannot improve separation even in principle
+
+`src/models/modules.py:343-350`: every layer is `Conv1d(..., kernel_size=1)`
+applied per band — pointwise, per-frame, no temporal and no cross-band context.
+It can only re-map features the separator already fixed. **63 % of the added
+parameters (4.73 M of 7.54 M) went there.** That is a mechanical explanation for
+the −0.002 separation delta, and a sizing rule: capacity for separation belongs
+in the separator, never the estimator.
+
+### The likely cause of the L_MR failure, and it is not capacity
+
+`src/models/modules.py:340-347` builds the trunk as one `ChannelWiseLayerNorm`
+at the FRONT, then `[Conv1d, Tanh]` repeated `n_hidden` times. At `n_hidden: 2`
+that is two saturating nonlinearities back to back **with no normalisation
+between them** — a vanishing-gradient path, and localised to the estimator,
+which matches separation being untouched. Identified by a peer session and
+confirmed in the code here.
+
+`bsrnn_estimator_probe.yaml` tests it with lr held fixed: `n_hidden` 1,
+`lstm_hidden` 256, 10,000,524 params — separator byte-identical to this arm,
+estimator byte-identical to the baseline.
+
+### What this run does NOT say
+
+**No listener was scored.** No LCF-WER, no judge, no offline ASR, no RTF. The
+selection score is a training proxy and 2026-09-04 already measured separation
+improving 12 % while LCF-WER moved the WRONG way. Nothing above may be quoted as
+a content-fidelity result.
+
+**Do not quote `enrol_sens` or `pres_abs_gap` from idx 11 or 13.** Both reached
+near-best values at epochs where the model had collapsed — the same bad-reason
+pattern recorded 2026-09-04.
+
+### Worth keeping: it is much faster
+
+1,231 s/epoch at 14.73 M on two cards against 2,364 s at 7.19 M on one —
+**1.9x faster for 2.05x the model**, i.e. ~3.9x throughput per parameter. Memory
+measured 2.534 GB/trial, 1.18x the baseline's 2.15.
+
+### Housekeeping
+
+`kaggle_out/` deleted after extraction (1.1 GB). Kept: `history.csv`,
+`history_live.csv`, `meta.yaml`, `loss_plot.png`, the config that ran,
+`bundle_commit.txt`, `source_that_ran/`. Checkpoints kept as
+`models/model_sir0_wesepref-e10.pt` (selected) and `-last.pt`. The top-3
+insurance checkpoints e007/e012 were discarded — e010 is the selected epoch and
+is already kept, and the other two were epochs the selection rule rejected.
+
+---
+
+## 2026-09-21 — The LR scheduler was watching the number selection refuses to rank on
+
+**`scripts/train.py:844` stepped `ReduceLROnPlateau` on `val_loss["total"]`.**
+That is the quantity `selection_score`'s own docstring spends two paragraphs
+explaining cannot rank a model: `total` contains `L_abs`, `L_abs` rewards
+silence, so it keeps falling as the model goes quiet long after separation has
+stopped improving.
+
+**Selection was fixed on 2026-08-30. The schedule was not.** The two disagreed
+for three weeks and nothing noticed, because a learning rate that drops for the
+wrong reason produces a run that looks entirely normal.
+
+**MEASURED CONSEQUENCE.** The 14.73 M run halved its lr at epoch idx 13
+(`2026-09-21-train-sir0-wesepref/history.csv`, `lr` 5.00e-04 -> 2.50e-04) on a
+number a model can improve by muting itself. Idx 13's `L_abs` was -13.60, the
+second quietest of the run, while separation had fallen to -2.285.
+
+### The fix
+
+New key `training.lr_schedule_on`, dispatched through **`selection_score`'s own
+arithmetic** rather than re-derived, so the schedule and the selector cannot
+drift apart again. `lr_schedule_metric()` is a thin shim over it.
+
+**Defaults to `total`.** Changing the schedule changes training dynamics, so
+every config written before today keeps the behaviour it actually ran under and
+its curves stay comparable. New arms opt in with `present_branch`. Documented as
+a commented block in `bsrnn_baseline.yaml` — the key is deliberately ABSENT
+there, not set.
+
+### NOT `separation` (L_pres alone), and the reason is already in the repo
+
+It was the obvious candidate and `selection_score` records it measured on
+2026-08-30 and rejected: computed only on target-present crops, it leaves absent
+behaviour unconstrained and picks epochs that are loud on crops where the target
+never speaks. The same objection applies to a schedule — one watching only
+separation would hold the lr up while the model learns to shout through silence.
+Mode kept reachable, not recommended.
+
+### Not applied to the estimator probe, deliberately
+
+`bsrnn_estimator_probe.yaml` must differ from the 14.73 M arm in `n_hidden`
+alone. Adding a second change would break the single-variable comparison it
+exists to make.
+
+### Tests
+
+`tests/test_lr_schedule_metric.py`, 5 cases. The load-bearing one constructs two
+epochs identical on every present-crop term where the second is merely quieter
+on silent-target crops: `total` scores that as an improvement, `present_branch`
+is unmoved. A final test asserts all three modes agree with `selection_score`,
+so a future re-derivation here fails rather than silently reintroducing the bug.
+
+## 2026-09-22 — THE CUE IS A PITCH DETECTOR, NOT A LOUDNESS METER. And item 1a, built
+
+`scripts/diagnose_cue_directional.py`, `scripts/measure_cue_loudness.py`,
+`experiments/results/2026-09-22-cue-directional-sir0`,
+`experiments/results/2026-09-22-cue-loudness-sir0`,
+`experiments/configs/bsrnn_cue_parts.yaml`, baseline `model_sir0_10000-e6.pt`,
+`sir0_val`, seed 42, 10 min + under a minute, CPU.
+
+### The measurement that was missing since August
+
+`diagnose_cue.py` measures `||a-b||^2/||a||^2` -- a MAGNITUDE with no direction.
+"The output moves 48.2 % on an enrollment swap" is fully consistent with the
+output only changing VOLUME. **D5 was demoted on 2026-08-30 on that evidence and
+the directional test was never run.** It has now been run.
+
+The data already contained the swap: `both_directions` renders every trial
+twice, the same mixture asked for the target and asked for the other speaker,
+each with its own enrollment and its own ground-truth stem. So the swap is not a
+perturbation we invent -- it is a second, equally valid request with a known
+right answer. Score both outputs against both stems and read the 2x2.
+
+### CORRECTION CARRIED: n is 77, not 103
+
+`condition` labels the CLIP; the model is scored on a 4 s CROP. **26 of the 103
+`both`-labelled trials have one speaker silent in the crop actually scored.**
+Those crops cannot answer an identity question -- with one voice there is no
+choice to make. Every rate below is over the 77 crops with two live voices, and
+the script now prints `n_both_live` beside `n` so it cannot be misread again.
+Same trap as `losses.py:240`, which is why `crop_absent` comes from the loader
+and never from the manifest.
+
+### THE RESULT: the enrollment steers the output, but only far enough on PITCH
+
+| stratum | crops | lands on the right voice | selectivity |
+|---|---|---|---|
+| cross-gender | 39 | **71.8 %** (p = 0.0001) | **+7.31 dB** [5.79, 8.88] |
+| same-gender | 38 | **52.6 %** (p = 0.73, a coin flip) | **+2.47 dB** [1.55, 3.48] |
+| difference | | chi2 p = 0.022 | Welch p < 0.0001 |
+
+Both selectivities are significantly above zero, so the enrollment is never
+ignored outright. **But shifting and arriving are different things.** Selectivity
+is a continuous dB nudge; "lands on the right voice" is whether the nudge was
+big enough. On same-gender pairs the output moves toward the requested speaker
+and still ends up closer to the wrong one half the time.
+
+In headroom terms -- 50 % is a model ignoring the enrollment, 100 % is perfect --
+**same-gender captures 5.2 % of what is available, cross-gender 43.6 %.**
+
+**The obvious confound is ruled out.** Same- and cross-gender crops have
+indistinguishable loudness balance (|SIR| 5.64 vs 4.86 dB, Welch p = 0.23;
+signed p = 0.17). Restricting to |SIR| < 5 dB, where loudness helps least, the
+gap WIDENS: cross-gender 77.5 % (p = 0.001), same-gender 56.2 % (p = 0.60).
+
+Secondary, and treat as indicative only: at SIR >= +5 dB the output tracks the
+LOUDER voice 94.7 % of the time against following the request 55.3 % -- but only
+19 crops in that band are both-live, so the n is small even though every band
+points the same way.
+
+**Absence conditioning WORKS and should not be touched.** Asked for a speaker who
+is not in the mixture, the model goes quiet: on `target_only`, requesting the
+absent interferer drops the output 5.8 dB (-6.47 -> -12.24); on
+`interferer_only` the same reversed (-13.24 asked for the absent target, -7.29
+for the present one).
+
+### CONSEQUENCE: retire "the cue is a loudness meter"
+
+`ranked-next-steps.md`'s headline is too strong and this measurement contradicts
+it. `corr(matched_level, loudness) = 0.990` is still true and still arithmetic,
+but 5.19 dB of directional selectivity is also true. **The defensible statement
+is: the cue separates voices by PITCH, with a loudness default when one speaker
+dominates.** Every future write-up uses that form.
+
+It also sharpens D5 from an analogy with WeSep into a targeted prediction:
+ECAPA is trained to discriminate speakers WITHIN gender, which is exactly the
+52.6 %. **The registered acceptance test for 1c is the same-gender rate**, not an
+aggregate word error.
+
+### ITEM 1a, BUILT: hand over the cue's parts, not their product
+
+`model.tfmap_parts: true`, `experiments/configs/bsrnn_cue_parts.yaml`. One key
+differs from `bsrnn_baseline.yaml`; everything else is verbatim.
+
+The cue's last step projects the UN-normalised mixture frame onto the template:
+
+    matched_level = <x_t, direction_t> = ||x_t|| * cos(theta_t)
+
+One number, two causes, multiplied. **The deeper reason it matters, and the one
+for the report: the mask is a RATIO -- keep this fraction of this bin -- while
+`matched_level` is an ABSOLUTE quantity.** "5 units of target here" cannot say
+whether that is the whole frame or 70 % of it. An absolute measurement was
+feeding an inherently relative decision.
+
+The arm hands over the exact orthogonal decomposition instead:
+
+    x = matched_level * direction + unmatched,   <direction, unmatched> = 0
+    ||x||^2 = matched_level^2 + ||unmatched||^2
+
+`direction` (unit norm, loudness-free), `match_fraction` (the ratio, in [0,1]),
+`unmatched` (what does not match). Input width 3 -> 5 channels.
+
+**+66,820 parameters (+0.93 %), MEASURED: 7,189,644 -> 7,256,464.** NOT
+parameter-matched to its control; the write-up must say so, as `tfmap_inject`'s
+arm does. The figure is 128*257*2 of conv weight PLUS 2*257*2 of LayerNorm gain
+and bias -- the second term is easy to forget and was, once, here.
+
+**`unmatched` is the point.** Every enrollment frame and every softmax weight is
+non-negative, so `direction` is a non-negative combination of the TARGET'S OWN
+spectra. The cue can say "this looks like them" and has no way to say "this
+energy belongs to the other person". `unmatched` is the first negative evidence
+anywhere in the path, and it says WHERE IN FREQUENCY the other speaker sits.
+
+### A REPRESENTATION CHANGE, NOT AN INFORMATION CHANGE. Say it that way
+
+All five channels are deterministic functions of the three the baseline already
+had: Re and Im give `||x||`, and the old cue gives `matched_level * direction`.
+**Information-theoretically this adds nothing.** The claim is that the recovery
+is not cheaply COMPUTABLE here -- it needs a square root of a sum of squares and
+a data-dependent division, which 1x1 convolutions cannot do, and `SubbandNorm`
+normalises the channels jointly within each band, destroying the per-frame scale
+before the first block.
+
+This commits us to something, and it is worth stating rather than discovering in
+a viva: **if the model were a large enough function approximator with enough
+data, 1a would do nothing.** That bet is already supported -- 2026-09-21 measured
+doubling the parameters as buying exactly zero separation improvement, so this
+model is not capacity-limited in a way that would let it learn the recovery for
+itself. The capacity result and this change point the same way.
+
+### ACCEPTANCE TEST, PRIMARY: PASSED, and it cost no training
+
+`TFMap` is parameter-free, so this is a property of the data and `tfmap_scale`,
+not of training -- the arm could have failed before a GPU hour was spent.
+200 crops, 100,800 frames, no checkpoint:
+
+| quantity | Pearson vs loudness | Spearman |
+|---|---|---|
+| `matched_level` (the baseline cue) | **0.982** | 0.994 |
+| `match_fraction` (item 1a) | **-0.088** | -0.022 |
+
+0.982 reproduces the 0.990 recorded on 2026-09-21, which is the script
+validating itself against a known number.
+
+**THE CAVEAT TRAVELS WITH THE NUMBER.** `match_fraction` is `matched_level`
+divided by the very quantity being correlated against, so a large drop is partly
+guaranteed by the algebra and must never be reported as a discovery. **The
+informative number is what SURVIVES, and it is -0.088 (Spearman -0.022).** Near
+zero means loud frames are NOT genuinely more target-like in this data, so 1a
+leaves no residual loudness confound for 1c to inherit. That is the finding; the
+drop itself is arithmetic.
+
+The -60 dB quiet floor excluded 0 of 100,800 frames, so the `audible` and `all`
+rows are the same frames by construction, not by coincidence.
+
+### REGISTERED BEFORE THE TRAINING RUN
+
+- **Same-gender "lands on the right voice"** (baseline 52.6 %, chance 50 %).
+  **EXPECTED TO BARELY MOVE.** 1a adds no new identity information -- it removes
+  a confound so 1c can be read cleanly. A large jump here needs explaining, not
+  celebrating.
+- Then the **four-case eval suite**. An arm scored only on `both` cannot tell
+  leakage REMOVED from leakage MOVED (`decisions-m3.md` 2026-09-21).
+- A representation fix should produce a modest mechanistic improvement, not a
+  jump in word error.
+
+### NOT COMBINABLE WITH `tfmap_inject`
+
+The injector projects a 1-channel cue and asserts it. The constructor now refuses
+both arms together with a message rather than tripping an assert six frames deep
+in a Kaggle log. Item 1b is ranked after this arm for the same reason, and
+`decisions-pending.md` D4 already says run D4a before D4b.
+
+## 2026-09-22 — ITEM 1a's PROBE: a trade, not a win. The cue channels were mis-scaled, and the fix is DERIVED
+
+`experiments/configs/bsrnn_cue_parts.yaml`, `sir0`, 9,955 trials, batch 3, one
+T4, 2 epochs, 1.4 h, seed 42. Control: the 2026-09-04 baseline at the SAME
+batch, schedule, data and lr, which is what pinning batch 3 bought.
+
+### The probe's own question -- does a 5-channel input destabilise training?
+
+**No.** No NaNs, no divergence, every term finite. 2,482-2,492 s/epoch against
+the baseline's 2,364, so **+5.2 %** for the two extra channels.
+
+### The result: BETTER SEPARATION, WORSE RECONSTRUCTION, and the second is not closing
+
+| term | baseline ep1 | 1a ep1 | |
+|---|---|---|---|
+| separation `L_pres` val | -2.8202 | **-3.0231** | 1a better |
+| separation `L_pres` train | -3.2982 | **-3.6541** | 1a better |
+| reconstruction `L_MR` val | 0.2016 | **0.3398** | 1a worse |
+| reconstruction `L_MR` train | 0.2157 | **0.3467** | 1a worse |
+| level `L_gain` val | 3.4837 | 3.4344 | 1a slightly better |
+
+Worse on TRAIN as well as val is the under-optimisation signature, not
+overfitting -- the same shape as the 14.73 M capacity arm.
+
+**And the gap widens rather than closes.** Validation reconstruction falls
+0.0097/epoch for 1a against the baseline's 0.015, while the baseline continues
+0.2166 -> 0.2016 -> 0.1889 -> 0.1853. **The registered criterion for the scale
+fix ("if it sits near 0.35 it is stuck") is MET at 0.3398.**
+
+**Enrolment responsiveness is up**: the output moves 16.9 % on a swap against
+the baseline's 12.1 % at the same epoch, higher at both epochs and growing.
+**NOT A FINDING YET** -- `rel_movement` is magnitude without direction, the
+exact statistic D5 was wrongly demoted on. It cannot distinguish "moved toward
+the right speaker" from "changed volume" until the directional test runs.
+
+**Flagged as a possible bad reason for a good number:** better separation
+alongside worse spectral reconstruction is consistent with an output that is
+more separated but ROUGHER, i.e. trading leaked speech for artefact -- which
+the 2026-09-21 panel shows listeners price very differently. Check it on a
+trained checkpoint; do not assume either way.
+
+### Why: the decomposition is badly scaled, and SubbandNorm preserves that
+
+Zeroing each cue channel and measuring how far the separator's input moves, at
+random init:
+
+| channel | mean magnitude | share of the separator's input |
+|---|---|---|
+| **baseline's single cue** | 0.159 | **50.9 %** |
+| `direction` | 0.028 | **0.5 %** |
+| `match_fraction` | 0.851 | **135.3 %** |
+| `unmatched` | 0.102 | 4.4 % |
+| *Re / Im, the reference* | 0.106 / 0.105 | -- |
+
+The old cue happened to sit at the same magnitude as the STFT values beside it.
+The three new channels span **30x**, and `ChannelWiseLayerNorm` standardises all
+five JOINTLY within a band, so it preserves their relative sizes rather than
+equalising them. `SubbandNorm`'s own docstring already makes this argument one
+axis over: normalising all 257 bins together "would leave the high bands
+numerically invisible".
+
+**This is the SAME DEFECT AS ITEM 1b**, which is a per-band normalisation
+destroying a per-frame scalar inside the (disabled) cue injector. Found because
+the 1b question was asked; the acceptance test for 1a had stopped at the cue's
+output and never looked at what reached the separator.
+
+### The architecture CAN fix it and does not do so fast enough. MEASURED
+
+On the 2-epoch checkpoint, the per-channel LayerNorm gains for band 0:
+
+    direction        1.0000 -> 1.1687      the RIGHT direction, +17 %
+    match_fraction   1.0000 -> 0.9881      also right, -1 %
+    Re / Im          1.0000 -> 1.007 / 1.012
+
+and the shares moved `direction` 0.5 -> 0.8 %, `match_fraction` 135.3 -> **185.1
+%**, `unmatched` 4.4 -> 3.4 %.
+
+**So the network is rebalancing in exactly the correct direction and is ~6 % of
+the way there after two epochs, needing roughly 280 % on `direction` -- while
+the channel that was already eight times too loud got LOUDER.** This is an
+OPTIMISATION problem, not a capability one, which is why the fix is conditioning
+the input rather than adding capacity. It also retires my earlier claim that the
+imbalance was necessarily blocking: it is learnable, just not on this timescale.
+
+**Worth a paragraph in the report on its own:** we measured whether a
+badly-conditioned input self-corrects, and quantified how slowly.
+
+### THE FIX: `tfmap_part_scales`, derived by measurement
+
+`scripts/derive_cue_scales.py`,
+`experiments/results/2026-09-22-cue-scales-sir0`, 200 crops, no checkpoint.
+
+**Criterion, stated so it can be argued with:** match each cue channel's RMS to
+the RMS of the Re/Im channels it is concatenated with. RMS and not
+mean-absolute, because the normalisation standardises by a STANDARD DEVIATION,
+so a channel's influence is governed by its spread.
+
+| channel | RMS | derived scale |
+|---|---|---|
+| `direction` | 0.0624 | **6.9402** |
+| `match_fraction` | 0.8533 | **0.5073** |
+| `unmatched` | 0.3381 | **1.2803** |
+| *reference (Re, Im)* | 0.4329 | 1.0 |
+
+**CHECKABLE, not merely plausible.** `direction` is unit-norm over F bins, so
+its per-bin RMS is exactly 1/sqrt(257) = 0.0624 in closed form. The derivation
+measured 0.0624.
+
+**DERIVED THEN VERIFIED**, the same discipline as `derive_w_g.py`. Applying the
+scales and re-measuring the shares:
+
+    direction        0.6 %  ->  26.8 %
+    match_fraction 134.9 %  ->  98.0 %
+    unmatched        4.4 %  ->   8.8 %
+
+**RESIDUAL IMBALANCE IS EXPECTED AND IS NOT A BUG.** `match_fraction` is
+CONSTANT across bins within a frame while Re/Im vary, and a constant shifts a
+mean-subtracting normalisation more than a varying channel of the same RMS.
+Equal RMS therefore does not give equal share. Report that; do not tune the
+numbers until the shares match.
+
+**The 2-epoch probe ran WITHOUT these scales.** Its archived config travels with
+its results directory, so it stays reproducible -- but its curves must never be
+compared to a scaled run's.
+
+### ITEM 1c, BUILT: a frozen speaker encoder as the identity anchor
+
+`src/models/context_encoder.py`, `ContextFusion` in `conditioning.py`,
+`BSRNN_TFMAP_CONTEXT` in `bsrnn.py`, `experiments/configs/bsrnn_cue_context.yaml`.
+**Its control is `bsrnn_cue_parts.yaml`, NOT the baseline** -- 1a is already a
+change, and comparing 1c to the baseline would credit it with 1a's effect.
+
+    e_hat = normalise(ECAPA(enrolment))        192-d, frozen, once per utterance
+    gamma = W e_hat + b                        192 -> 128
+    z'    = z * (1 + gamma)                    over every band and every frame
+
+**+24,704 trainable (+0.34 %).** ECAPA is **20,767,552** frozen parameters --
+MEASURED from the snapshot, not taken from WeSep's config, whose 14.597 M
+`spk_ft` is a different frontend and would understate this by 30 %.
+
+**THE ENCODER LIVES OUTSIDE THE MODEL.** Weighed on four axes: DataParallel
+re-replicates a submodule every forward; the checkpoint stays small (~83 MB/epoch
+saved); the fusion is testable with a synthetic 192-vector in milliseconds
+against a 9-minute suite; and it keeps the streaming claim LITERALLY TRUE -- the
+deployed model contains no speaker encoder in its per-frame path, and the
+per-frame cost is exactly zero.
+
+**The risk that trade creates is closed by the type system, not by vigilance.**
+`BSRNN_TFMAP_CONTEXT.forward` takes `enrol_embedding` as a REQUIRED KEYWORD
+ARGUMENT, so a call site that forgets it raises TypeError rather than silently
+running an unconditioned model that still scores. A SUBCLASS for the reason
+`losses_state_head.py` is one: the parent is untouched, ~17 existing call sites
+are unchanged, and an old config cannot reach the new path. decisions-pending.md
+E8.
+
+**Zero init.** W and b start at zero, so at initialisation the arm is
+bit-identical to its 1a control and cannot be credited with a different starting
+point.
+
+### Two Kaggle bugs fixed before they cost a session
+
+1. **The ECAPA path did not resolve on Kaggle.** The bundle stages the snapshot
+   INSIDE the code tree (`/kaggle/working/repo/ecapa_pretrained`) while every
+   config says `../ecapa_pretrained`, which from train.py's working directory
+   there is `/kaggle/working/ecapa_pretrained`. Different directory, and nothing
+   in the notebook rewrites it. `resolve_ecapa_dir()` now tries the configured
+   path, then the repo root, then the sibling, and fails naming all three.
+2. **ECAPA shipped only as a side effect of staging the state teacher**, so
+   `--no-teacher` produced a bundle that trains the baseline fine and fails for
+   1c alone -- after the upload. `stage_ecapa_only()` now ships it regardless.
+
+Also: `make_kaggle_bundle.py --verify-config` now exercises arm configs. It
+previously hardcoded the baseline, so it staged `bsrnn_cue_parts.yaml`, verified
+a DIFFERENT config, and printed `params=7,189,644`.
+
+### Registered before the next run
+
+- **Same-gender "lands on the right voice", 52.6 % against a 50 % coin flip.**
+  The number the whole 1c arm exists to move.
+- Cross-gender (71.8 %) must HOLD. If cross-gender improves while same-gender
+  does not, the anchor is being used as a louder pitch detector and the arm has
+  FAILED on its own terms.
+- `||gamma||` after training: near zero means the anchor is being ignored and
+  every other number is about 1a, not 1c.
+- Then the four-case suite. An arm scored only on `both` cannot tell leakage
+  REMOVED from leakage MOVED.
+
+### 2026-09-22 addendum — item 1c's EVALUATION path, which was the missing half
+
+Building the training path is not building the arm. Every evaluation script
+calls `model(mixture, enrollment)`, so on a 1c checkpoint every one of them
+raised TypeError -- the required-keyword design working, and a reminder that it
+protects by BREAKING things rather than by being remembered.
+
+`build_context_encoder(config, device)` in train.py is now the single
+constructor, used by training AND by every evaluation, so a score cannot be
+computed with different encoder settings from the run that produced the weights.
+Paired with the existing `context_kwargs()`, which is `{}` on every other arm and
+leaves those call sites byte-identical.
+
+Wired, and each VERIFIED end to end against a synthetic 1c checkpoint rather
+than assumed:
+
+  * `scripts/diagnose_cue_directional.py` -- THE ARM'S REGISTERED ACCEPTANCE
+    TEST. It embeds BOTH enrolments, because the enrolment feeds the cue and the
+    anchor, and swapping only one would score a model that was never asked for
+    the other speaker. It also now reports ||gamma||, the registered check that
+    the anchor is being used at all: near zero means every other number on the
+    page is about 1a and must not be reported as 1c's.
+  * `scripts/make_estimates.py` -- the extractor every evaluation goes through.
+    Whole-clip, so one encoder pass per trial.
+  * `scripts/measure_rtf.py` -- THE EMBEDDING IS COMPUTED OUTSIDE THE TIMING
+    LOOP, and that placement IS the claim the script exists to substantiate.
+
+**The latency claim is now measured, not asserted.** 1c on CPU, 80 ms chunks:
+RTF mean 0.6512, p99 0.8454; latency mean 172.1 ms, p99 187.6 ms against the
+200-300 ms budget. If the 20.77 M-parameter encoder ran per chunk over 5 s of
+enrolment, per-chunk time would be enormous and RTF far above 1. At 52 ms per
+chunk it demonstrably runs ONCE. (Synthetic weights: timing depends on shapes,
+not values, so the timing is valid and the quality numbers from that run are
+not recorded.)
+
+A test locks the property down: the same embedding reused across many forwards
+must give bit-identical outputs, or `measure_rtf.py` placing it outside the loop
+becomes a lie rather than an optimisation.
+
+### 2026-09-22 — ITEM 1b: the diagnosis holds, the PRESCRIBED FIX DOES NOT
+
+`ranked-next-steps.md` said the injector's per-band `ChannelWiseLayerNorm(bw)`
+deletes `alpha_t`, and to "normalise across the whole TF-Map or not at all".
+
+**The deletion is real and EXACT, not approximate.** LayerNorm is scale-invariant
+by construction, and `alpha_t` enters the band as a pure scale:
+
+    (a*x - mean(a*x)) / std(a*x) = (x - mean(x)) / std(x)
+
+MEASURED: max |norm(a*u) - norm(u)| = 0.0 at a=1, 4.6e-04 at a=100, the residual
+being LayerNorm's eps alone. `alpha_t` is the only time-varying part of the cue,
+so the injector re-presents a nearly static shape -- which fully explains D4a's
+gates sitting at zero, without needing any appeal to optimisation.
+
+**THE PRESCRIPTION IS WRONG.** Normalising across all 257 bins cancels `alpha_t`
+identically: the algebra is indifferent to how many values are standardised, and
+any per-frame normalisation is scale-invariant. Only two things preserve it --
+not normalising the cue at all, or statistics spanning TIME (a causal running
+statistic, not a per-frame one).
+
+**ITEM 1a ALREADY SOLVES IT, on the path that matters.** `match_fraction` is
+handed over as its own channel rather than riding on a magnitude, so no
+normalisation can cancel it; measured at ~98 % of the separator's input after
+scaling. 1b and 1a are the same defect on two different paths, one disabled and
+one live. 1b stays third, and its fix is REMOVE the norm, not widen it.

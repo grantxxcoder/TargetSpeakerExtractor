@@ -1315,3 +1315,86 @@ rendered, so a resumed pass cannot log a per-trial rate for trials it skipped.
 
 **Changes no number.** A full render with no prior output behaves exactly as
 before, bit for bit.
+
+---
+
+## 2026-09-21 — THE OTHER HALF OF THE DATA, scored for the first time
+
+`scripts/eval_by_case.py`, `experiments/results/2026-09-21-case-suite-baseline-e6`,
+`sir0_val`, baseline `model_sir0_10000-e6.pt`, faster-whisper `small.en`
+STAND-IN (not a live-model result), 8 min.
+
+**Every content number this project had reported was on `both`, which is 51.5 %
+of the split. The other 48.5 % had never been scored. Here it is.**
+
+| case | n | floor | ours | ceiling | reading |
+|---|---|---|---|---|---|
+| `target_only` | 47 | 4.00 | **5.34** | 2.80 | we make easy speech *worse* |
+| `both` | 103 | 65.22 | 59.52 | 5.85 | reproduces the known numbers exactly |
+
+Absent cases, where word error is undefined (words emitted per trial; zero is
+correct):
+
+| case | n | floor | ours | median suppression |
+|---|---|---|---|---|
+| `interferer_only` | 42 | 30.81 | **24.81** | **-6.14 dB** |
+| `noise_only` | 8 | 0.00 | 0.00 | -26.33 dB |
+
+### The finding: we pass a whole stranger through as if it were the target
+
+**On the 42 trials where the target never spoke and another person did, our
+output still yields 1,042 transcribable words against the raw mixture's 1,294.
+We remove 19 % of a stranger's speech.** 83 % of those clips still produce
+words that a downstream consumer would attribute to the target. Median
+suppression is **-6.14 dB** -- the mean of -10.97 is carried by a few clips and
+is the wrong statistic to quote.
+
+**And the model produced no clean silences of its own.** Non-response was 16.7 %
+(7 of 42) and the speech gate blocked exactly 7 -- so every correct silence on
+this case came from Silero, not from the extractor.
+
+**`noise_only` says nothing about the model.** The gate blocked 8/8 clips for
+*both* the mixture and our output. Only its -26.33 dB suppression is the
+model's own, and that is a signal-domain number with no listener in it.
+
+### We damage speech that needed no separation
+
+On `target_only` the mixture is already nearly intelligible (4.00) and we move
+it to 5.34. **+1.33 is BELOW the 1.57-point irrelevance floor, so "worse" is
+NOT established** -- report it as unchanged-to-worse, never as a loss.
+Fabrication is the larger move and is not bounded by that floor: FR@2 goes
+21.28 -> **29.78**, invented words per trial 0.85 -> 1.06, against a ceiling of
+14.89. Substitutions do the work (3.18 -> 4.26).
+
+**The same pattern is on `both`, where it was never reported: FR@2 57.28 ->
+68.00.** We reduce word error by 5.70 points and raise fabrication by 10.7. A
+headline improving while a disjoint failure mode grows.
+
+### `both` by SIR band — read as headroom captured, not as WER
+
+| SIR band | n | floor | ours | ceiling | **headroom captured** |
+|---|---|---|---|---|---|
+| < -5 | 33 | 80.29 | 76.94 | 3.27 | **4.4 %** |
+| -5..0 | 23 | 79.05 | 72.55 | 6.10 | **8.9 %** |
+| 0..+5 | 24 | 58.92 | 49.12 | 9.42 | 19.8 % |
+| >= +5 | 23 | 33.56 | 29.42 | 5.80 | 14.9 % |
+
+**Where the interferer is louder we capture under 9 % of the available
+headroom; where it is not, 15-20 %.** That is the collapse, stated in the one
+unit that is comparable across bands with different amounts of room to win.
+
+**NOT COMPARABLE TO THE 2026-09-12 TABLE.** That one averaged per-trial WER;
+this aggregates corpus-wide. Same trials, different question (89.5/88.2 there
+against 80.29/76.94 here). Never quote one against the other.
+
+### Consequences
+
+1. **Leakage on target-absent trials is now a measured headline, not an
+   inference.** It is the purest available instrument for the conditioning
+   question: there is no target to extract, so anything transcribable is the
+   model failing to reject a non-target speaker.
+2. **Every future arm must be scored on all four cases.** An arm that improves
+   `both` while worsening `interferer_only` has moved leakage around, not
+   removed it, and the old protocol could not see that.
+3. **`noise_only` needs the gate disabled** (`--no-gate`) to say anything about
+   the model, or a larger n. 8 trials is too few either way.

@@ -94,6 +94,24 @@ CODE = [
     # environment that trains, which is the only way the number is reproducible.
     "experiments/configs/bsrnn_struct.yaml",
     "scripts/derive_w_struct.py",
+    # 2026-09-21. The 14.73 M capacity arm, and the only config that turns
+    # data_parallel on. CODE is an ALLOW-LIST: a config missing from it is
+    # simply absent from the bundle, so the Kaggle run cannot train that arm
+    # and fails at staging rather than obviously. decisions-m2.md 2026-09-21.
+    "experiments/configs/bsrnn_wesep_ref.yaml",
+    # The n_hidden probe: same as wesep_ref with the estimator back to depth 1.
+    "experiments/configs/bsrnn_estimator_probe.yaml",
+    # 2026-09-22, ITEM 1a. The cue hands over its PARTS (direction,
+    # match_fraction, unmatched) instead of their product, so the input is 5
+    # channels not 3. Baseline sizing otherwise -- 7.19 M -> 7.26 M. No new
+    # source file: the change is inside conditioning.py and bsrnn.py, both
+    # already staged. decisions-m2.md 2026-09-22.
+    "experiments/configs/bsrnn_cue_parts.yaml",
+    # 2026-09-22, ITEM 1c. The frozen speaker encoder as an identity anchor, on
+    # top of 1a. Needs src/models/context_encoder.py AND the ECAPA snapshot,
+    # which stage_ecapa_only() now ships even under --no-teacher.
+    "experiments/configs/bsrnn_cue_context.yaml",
+    "src/models/context_encoder.py",
     "docs/run_times.md",   # src.run_log appends here; give it a real file
 ]
 
@@ -167,6 +185,18 @@ def stage_code(out: Path) -> None:
     (out / "docs").mkdir(parents=True, exist_ok=True)
     (out / "docs/bundle_commit.txt").write_text(git_commit() + "\n")
     print(f"  code: {len(CODE)} files, stamped commit {git_commit()[:12]}")
+
+
+def stage_ecapa_only(out: Path, ecapa_dir: Path) -> None:
+    """The ECAPA snapshot without the teacher checkpoint, for item 1c."""
+    dst = out / "ecapa_pretrained"
+    dst.mkdir(parents=True, exist_ok=True)
+    n = 0
+    for src in sorted(Path(ecapa_dir).iterdir()):
+        if src.is_file():
+            shutil.copyfile(src, dst / src.name)
+            n += 1
+    print(f"  ecapa: {n} files -> {dst} (no teacher staged)")
 
 
 def stage_teacher(out: Path, teacher_rel: str, ecapa_dir: Path) -> None:
@@ -318,7 +348,8 @@ def write_verify_manifests(td: Path, split: str, new_only: int) -> None:
     shutil.copy2(REPO / "data/manifests" / f"{val_stem}.csv", td / f"{val_stem}.csv")
 
 
-def verify(code_dir: Path, data_dir: Path, split: str, man_dir: Path = None) -> None:
+def verify(code_dir: Path, data_dir: Path, split: str, man_dir: Path = None,
+           config: str = "experiments/configs/bsrnn_baseline.yaml") -> None:
     """Import and run one batch through the loss FROM THE STAGED COPIES.
 
     Own process, cwd=code_dir, so nothing can silently resolve against the real
@@ -337,7 +368,7 @@ import sys, yaml, torch
 from pathlib import Path
 sys.path.insert(0, ".")
 from scripts.train import get_data_loaders, build_loss_fn, build_model, unpack
-cfg = yaml.safe_load(open("experiments/configs/bsrnn_baseline.yaml"))
+cfg = yaml.safe_load(open("{config}"))
 
 # SEEDED once at the top: random init + shuffle=True made this number swing
 # 13.5 to 24.5 between runs, and an unreproducible number detects no regression.
@@ -348,6 +379,21 @@ mans = Path(r"{(man_dir or (data_dir / 'data' / 'manifests')).resolve()}")
 tr, va = get_data_loaders("{split}", mans, data, cfg)
 assert len(tr.dataset) and len(va.dataset), "empty dataset"
 L, m = build_loss_fn(cfg), build_model(cfg); m.eval()
+
+# ITEM 1c. The verifier is a CALL SITE like any other, and on 2026-09-22 it was
+# the first one the required-keyword design caught -- locally, before an upload,
+# which is exactly what that design is for. Building the encoder here also makes
+# the check meaningful: it proves the ECAPA snapshot is STAGED and resolvable
+# from the bundle, which is the other Kaggle failure this file now guards.
+ctx = {{}}
+if bool(cfg["model"].get("context_embedding", False)):
+    from src.models.context_encoder import ContextEncoder
+    _enc = ContextEncoder(
+        ecapa_dir=cfg["model"].get("ecapa_dir", "ecapa_pretrained"),
+        device="cpu",
+        normalise=bool(cfg["model"].get("context_normalise", True)))
+    print(f"  context encoder resolved: {{_enc.ecapa_dir}} dim={{_enc.embedding_dim}}")
+
 print(f"train={{len(tr.dataset)}} val={{len(va.dataset)}} "
       f"params={{sum(p.numel() for p in m.parameters()):,}} "
       f"num_workers={{cfg['data'].get('num_workers')}} seed={{cfg['seed']}}")
@@ -360,7 +406,9 @@ seen, shown = {{"present": 0, "absent": 0}}, []
 with torch.no_grad():
     for i, b in enumerate(tr):
         x, s, e, a = unpack(b, "cpu")
-        loss, parts = L(s, m(x, e), x, a)
+        if bool(cfg["model"].get("context_embedding", False)):
+            ctx = {{"enrol_embedding": _enc.embed(e)}}
+        loss, parts = L(s, m(x, e, **ctx), x, a)
         seen["present"] += parts["n_present"]; seen["absent"] += parts["n_absent"]
         shown.append((i, float(loss), parts))
         if seen["present"] and seen["absent"]:
@@ -400,6 +448,15 @@ def main() -> None:
     ap.add_argument("--split", default="mid", choices=sorted(SPLIT_FILES),
                     help="which split's audio to bundle")
     ap.add_argument("--out", default="kaggle_bundle")
+    # The baseline is ALWAYS verified, as the regression check. This adds arm
+    # configs on top. Added 2026-09-22: the bundle happily staged
+    # bsrnn_cue_parts.yaml -- a 5-channel input the baseline never exercises --
+    # and reported "params=7,189,644", i.e. it had verified something else
+    # entirely. An arm that cannot build should fail HERE, not after the upload.
+    ap.add_argument("--verify-config", action="append", default=[],
+                    metavar="YAML",
+                    help="also run the one-batch check against this config; "
+                         "repeatable. The baseline is always checked.")
     ap.add_argument("--code-only", action="store_true",
                     help="skip the audio entirely; use after a code change")
     ap.add_argument("--no-zip", action="store_true")
@@ -434,6 +491,13 @@ def main() -> None:
     stage_code(code_dir)
     if not args.no_teacher:
         stage_teacher(code_dir, args.teacher, Path(args.ecapa_dir))
+    elif any("context_embedding" in Path(c).read_text()
+             for c in CODE if c.endswith(".yaml") and Path(c).exists()):
+        # ITEM 1c needs the ECAPA snapshot even with NO teacher. Before
+        # 2026-09-22 the snapshot shipped only as a side effect of staging the
+        # state teacher, so `--no-teacher` produced a bundle that trains the
+        # baseline fine and fails on Kaggle for 1c alone -- after the upload.
+        stage_ecapa_only(code_dir, Path(args.ecapa_dir))
 
     if not args.code_only:
         if args.new_only:
@@ -447,8 +511,12 @@ def main() -> None:
             with tempfile.TemporaryDirectory() as td:
                 write_verify_manifests(Path(td), args.split, args.new_only)
                 verify(code_dir, data_dir, args.split, Path(td))
+                for extra in args.verify_config:
+                    verify(code_dir, data_dir, args.split, Path(td), config=extra)
         else:
             verify(code_dir, data_dir, args.split)
+            for extra in args.verify_config:
+                verify(code_dir, data_dir, args.split, config=extra)
     else:
         print("  (no staged data; skipping verification)")
 

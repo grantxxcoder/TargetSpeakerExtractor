@@ -465,4 +465,13 @@ def lookahead_shift(h, k):
     """
     if k == 0:
         return h
-    return F.pad(h[..., k:], (0, k), mode="replicate")
+    # PAD SPEC MUST BE 4 LONG, NOT 2. h is 4-D (B, K, N, T) and F.pad's
+    # `replicate` mode requires the pad tuple to cover every spatial dim it
+    # treats as spatial -- a 2-tuple on a 4-D input raises
+    # "NotImplementedError: Padding size 2 is not supported for 4D input
+    # tensor", so EVERY non-zero lookahead_frames crashed. Fixed 2026-09-21;
+    # the latency ablation documented since decisions-m1.md 2026-08-18 had been
+    # silently un-runnable the whole time, which is why no run ever used k > 0.
+    # (0, k, 0, 0) pads the LAST dim (time) on the right by k and the
+    # second-to-last (N) by nothing, which is the intended behaviour.
+    return F.pad(h[..., k:], (0, k, 0, 0), mode="replicate")

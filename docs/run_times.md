@@ -20,7 +20,22 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
+| 2026-09-21 | `pytest tests/ -q` | 515 tests | 11 min | full suite after adding eval_by_case.py. Added by hand: pytest does not use run_log.timed |
 <!-- rows appended below by src/run_log.py -->
+| 2026-09-22 | `pytest tests/ -q` | 541 tests, after the item-1a cue change | 9 min | cpu. Was 74 tests / 5 s on 2026-08-15 -- the suite is now long enough to plan around |
+
+| 2026-09-22 | `scripts/diagnose_cue_directional.py` | 200 trials x 2 directions, sir0 | 10 min | cpu, batch 4 trials |
+| 2026-09-22 | `scripts/diagnose_cue_directional.py` | 200 trials x 2 directions, sir0 | 16 min | cpu, batch 4 trials |
+| 2026-09-21 | `scripts/diagnose_cue.py` | 200 crops, sir0 | 17 min | cpu, batch 4 |
+| 2026-09-21 | `scripts/measure_rtf.py` | --checkpoint models/model_sir0_wesepref-e10.pt --config experiments/configs/bsrnn_wesep_ref.yaml --chunk-ms 80 --threads 4 --device cpu --out /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-21-rtf-wesepref-e10 | 3 min |  |
+| 2026-09-21 | `scripts/evaluate.py` | --split sir0_val --condition both --est /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-21-est-wesepref-e10 --metrics content --listener judge --judge-rpm 10 --out /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-21-eval-wesepref-e10-judge | 15 min |  |
+| 2026-09-21 | `scripts/evaluate.py` | --split sir0_val --condition both --est /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-21-est-wesepref-e10 --metrics content --out /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-21-eval-wesepref-e10-asr | 6 min |  |
+| 2026-09-21 | `scripts/evaluate.py` | --split sir0_val --condition both --est /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-21-est-wesepref-e10 --metrics signal,perceptual --out /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-21-eval-wesepref-e10-signal | 23 min |  |
+| 2026-09-21 | `scripts/make_estimates.py` | 103 trials rendered, sir0 | 28 min | cpu, whole-clip |
+| 2026-09-21 | `scripts/train.py --split sir0` | 9,955 trials x 16 epochs (no early stop, best idx 10), sir0 | 5.5 h | batch 10, cuda (**T4 x2, DataParallel**), **1,231 s/epoch**. 14.73 M params. 1.9x FASTER than the 7.19 M single-card run's 2,364 s/epoch at 2.05x the model. Copied by hand from the Kaggle session before deleting kaggle_out. |
+| 2026-09-21 | `scripts/eval_by_case.py --split sir0_val --cases target_only,both,interferer_only,noise_only --listener asr` | 4 cases, sir0_val, listener asr | 8 min |  |
+| 2026-09-21 | `scripts/make_kaggle_bundle.py --split sir0 --code-only` | 22 code files staged + verified + zipped to 84 MB | 18 min | laptop HDD. Data untouched: `sir0_train` is unchanged at 9,955 trials and already a Kaggle dataset, so no 30 GB re-upload. Most of the wall time is the 85 MB dereferenced teacher backbone and the in-place verification batch, not the code. Added by hand: the script does not use `run_log.timed`. |
+| 2026-09-21 | `pytest tests/ -q` | 507 tests, whole suite | 11 min | laptop, 4 threads. Added by hand: pytest does not use `run_log.timed`. Was 74 tests / 5 s on 2026-08-15. |
 | 2026-09-15 | `scripts/evaluate.py` | --split sir0_privval --condition both --est experiments/results/2026-09-14-est-privval-control --metrics content --out experiments/results/2026-09-15-eval-privval-control-asr | 1.5 h |  |
 | 2026-09-15 | `scripts/measure_effective_mask_flatness.py` | 3 systems x 103 trials | 2 min | cpu, whole-clip, no model inference |
 | 2026-09-15 | `scripts/measure_rtf.py` | --checkpoint models/model_sir0_struct-e12.pt --config experiments/configs/bsrnn_struct.yaml --chunk-ms 80 --threads 4 --device cpu --out experiments/results/2026-09-15-rtf-struct-e12 | 3 min |  |
