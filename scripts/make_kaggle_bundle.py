@@ -112,6 +112,16 @@ CODE = [
     # which stage_ecapa_only() now ships even under --no-teacher.
     "experiments/configs/bsrnn_cue_context.yaml",
     "src/models/context_encoder.py",
+    # 2026-09-23. The in-loop validation WER probe and the two modules it pulls
+    # in. train.py imports content_probe only when `content_probe.enabled`, so
+    # an arm that does not use it pays nothing -- but the files must SHIP, or
+    # the run dies at the end of epoch 0 with ModuleNotFoundError, several hours
+    # and one Kaggle session too late. The same class of miss as speechbrain
+    # (31f6dac). decisions-m2.md 2026-09-23.
+    "src/live_model_metric/content_probe.py",
+    "src/live_model_metric/lcf_wer.py",   # content_probe scores with count_errors
+    "src/estimates/__init__.py",
+    "src/estimates/runner.py",            # read_trials + the Extractor contract
     "docs/run_times.md",   # src.run_log appends here; give it a real file
 ]
 

@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import argparse
 import contextlib
+import copy
 import math
 import yaml
 import hashlib
@@ -234,7 +235,12 @@ HISTORY_FIELDS = ["total", "L_pres", "L_MR", "L_gain", "L_abs", "L_state", "L_st
 # pres_abs_gap_db says whether the correction was SELECTIVE. Fixing level by
 # turning everything up scores well on L_gain and leaves this flat -- that is a
 # pass-through, not an extractor.
-VAL_DIAGNOSTICS = ["enrol_sens_db", "pres_abs_gap_db"]
+# `content_wer` is the in-loop validation WORD ERROR RATE and `content_wer_ema`
+# its smoothed twin. NaN on runs and epochs where the probe did not run, which
+# is every run before 2026-09-23 -- history_row uses .get, so old histories and
+# hand-built val rows keep working. src/live_model_metric/content_probe.py.
+VAL_DIAGNOSTICS = ["enrol_sens_db", "pres_abs_gap_db",
+                   "content_wer", "content_wer_ema"]
 
 
 def history_header():
@@ -722,6 +728,32 @@ def selection_score(val_loss, config):
     the same breath as any result. decisions-pending.md D14.
     """
     mode = str(config["training"].get("select_on", "present_branch"))
+    if mode == "content_wer":
+        # THE ONLY MODE THAT WATCHES WHAT THE PROJECT MEASURES. Every
+        # signal-domain mode below ranked item 1a's epoch 9 first, and epoch 9
+        # is worse than doing nothing on content (ASR LCF-WER 65.63 against a
+        # 65.22 floor) while epoch 15, tenth of fourteen on `present_branch`,
+        # reads 52.77. No reweighting of the present branch reaches 15;
+        # scripts/reselect_epochs.py checks all of them. decisions-m2.md
+        # 2026-09-23.
+        #
+        # Reads the SMOOTHED value, and that is not a detail. LCF-WER is not a
+        # smooth function of audio quality -- the 2026-09-01 mix-back sweep
+        # moved the signal monotonically while WER went 65.2, 63.4, 69.6, 67.2,
+        # 59.1 -- so a raw per-epoch WER would plateau-trigger the scheduler on
+        # noise. The raw number is logged beside it.
+        #
+        # Raises rather than falling back when the probe is off: silently
+        # selecting on something other than what the config asked for is the
+        # class of bug this whole entry is about.
+        value = val_loss.get("content_wer_ema", val_loss.get("content_wer"))
+        if value is None or value != value:
+            raise ValueError(
+                "select_on/lr_schedule_on is `content_wer` but no validation "
+                "WER was computed this epoch. Enable the probe with a "
+                "`content_probe:` block, and set `every_n_epochs: 1` -- the "
+                "scheduler needs a number every epoch.")
+        return float(value)
     if mode == "total":
         return float(val_loss["total"])          # pre-2026-08-30 behaviour
     if mode == "present_branch":
@@ -738,7 +770,7 @@ def selection_score(val_loss, config):
         # no target at all.
         return float(val_loss["L_pres"])
     raise ValueError(f"training.select_on: unknown mode {mode!r}. "
-                     "Known: present_branch, total, separation.")
+                     "Known: content_wer, present_branch, total, separation.")
 
 
 def selection_eligible(val_loss, config):
@@ -752,7 +784,134 @@ def selection_eligible(val_loss, config):
     return True if bar is None else float(val_loss["L_abs"]) <= float(bar)
 
 
-def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_debug=False, save_path=None, config=None, scheduler=None, start_epoch=0, best_val=float("inf"), best_row=None, start_step=0, context_encoder=None):
+HOLDOUT_SPLITS = frozenset({"sir0_privval", "eval_private"})
+
+# Where the probe's data is MOUNTED, filled from --data-root / --manifest-dir by
+# main(). A location, not a training setting -- --data-root itself is not in the
+# config -- so it must never decide whether two configs are the same run.
+PROBE_PATH_KEYS = ("data_root", "manifest_dir")
+
+
+def comparable_config(config):
+    """The config minus run-time data locations, for "is this the same run?".
+
+    Every checkpoint since 2026-09-23 stores the Kaggle mount paths inside
+    `content_probe`, and the config FILE does not, so a plain != refused the
+    first resume of the content_wer run. The notebook's pre-check mirrors this.
+    """
+    out = copy.deepcopy(config or {})
+    probe = out.get("content_probe")
+    if isinstance(probe, dict):
+        for key in PROBE_PATH_KEYS:
+            probe.pop(key, None)
+    return out
+
+
+def build_content_probe(config, verbose=True):
+    """The in-loop validation WER probe, or None when the run does not want one.
+
+    Config, all optional inside `content_probe:`:
+
+        content_probe:
+          enabled: true
+          split: sir0_val      # NEVER a holdout -- refused below
+          n_trials: 40         # the cost knob
+          every_n_epochs: 1    # 1 if the scheduler steps on it
+          asr_device: cpu      # cpu keeps it identical to the reported instrument
+          ema_span: 3
+          cap_errors_at_spoken: true   # loop guard; see content_probe.clip_errors.
+                                       # Absent = false. Set it on a FRESH run only:
+                                       # a resume refuses the change, by design.
+
+    COST, and it is the reason for `n_trials`. MEASURED 2026-09-23 end to end:
+    ~4 s per clip for the ASR on cpu, ~16 s per clip for extraction on cpu. On
+    Kaggle extraction runs on the T4 and is the cheap half, so the ASR sets the
+    cost: 40 clips is ~2.7 min per epoch, about 7 % of a 2,575 s epoch, or ~48
+    min over a 16-epoch run. `asr_device: cuda` is far faster, but the
+    transcripts are then not bit-identical to the reported instrument, which is
+    why cpu is the default and the device is recorded.
+    """
+    block = (config.get("content_probe") or {})
+    if not block.get("enabled", False):
+        return None
+    from src.live_model_metric.content_probe import ContentProbe, load_probe_trials
+
+    split = str(block.get("split", "sir0_val"))
+    if split in HOLDOUT_SPLITS:
+        raise ValueError(
+            f"content_probe.split={split!r} is a reported holdout. Steering "
+            f"training on it would destroy the only clean number the project "
+            f"has. CLAUDE.md; decisions-m4.md 2026-09-15.")
+    data_root = Path(block.get("data_root", "data"))
+    trials = load_probe_trials(
+        Path(block.get("manifest_dir", "data/manifests")) / f"{split}.csv",
+        data_root / "rendered" / split,
+        limit=int(block.get("n_trials", 40)),
+        condition=str(block.get("condition", "both")))
+    probe = ContentProbe(trials,
+                         device=str(block.get("asr_device", "cpu")),
+                         ema_span=int(block.get("ema_span", 3)),
+                         # 2026-09-24 loop guard. Absent = off, so a run begun
+                         # without it resumes under the rule it was scored by.
+                         cap_errors_at_spoken=bool(block.get("cap_errors_at_spoken", False)))
+    if verbose:
+        print(f"  content probe ON: {probe.describe()}, split {split}, "
+              f"every {int(block.get('every_n_epochs', 1))} epoch(s)")
+    return probe
+
+
+def live_extractor(model, context_encoder, device):
+    """runner.py's Extractor contract over the model currently being trained.
+
+    Whole clip, one forward pass, no chunking -- the same path
+    scripts/make_estimates.py:build_extractor uses, so the probe scores the
+    audio the evaluation harness would score rather than a training crop. The
+    caller is responsible for model.eval() and torch.no_grad().
+    """
+    def extract(mixture, enrollment, sample_rate):    # noqa: ARG001
+        enrol = torch.from_numpy(enrollment).unsqueeze(0).to(device)
+        estimate = model(torch.from_numpy(mixture).unsqueeze(0).to(device), enrol,
+                         **context_kwargs(context_encoder, enrol))
+        return estimate.squeeze(0).float().cpu().numpy()
+    return extract
+
+
+def checkpoints_to_drop(kept, keep_top_k, keep_stride=0, last_epoch=None):
+    """Which epochs' weights may be deleted. `kept` is a sorted (score, epoch) list.
+
+    A PURE FUNCTION so the retention policy can be tested without a training
+    run. The failure it guards against is unrecoverable: once the weights are
+    gone, re-scoring an epoch means training again.
+
+    TWO KINDS OF INSURANCE, AND THEY COVER DIFFERENT RISKS.
+
+    `keep_top_k` keeps the best few BY THE SIGNAL SCORE. It covers "the exchange
+    rate between the terms was slightly wrong".
+
+    `keep_stride` keeps every k-th epoch regardless of score, plus the last. It
+    covers the larger risk, which is that the signal score does not rank epochs
+    the way CONTENT does at all. Measured 2026-09-23: item 1a's best content
+    epoch (15, ASR LCF-WER 52.77 against a 65.22 floor) sits TENTH OF FOURTEEN
+    eligible epochs on `present_branch`, so no top-k cut reaches it and no
+    reweighting of the present branch reaches it either. Only a cut that ignores
+    the score entirely -- a stride -- is guaranteed to span the run.
+
+    Cost, so the trade is explicit: ~87 MB per checkpoint. Over a 16-epoch run,
+    `keep_stride: 3` retains 6 by stride, union'd with top-k, and lands near
+    600-700 MB. Keeping every epoch would be 1.4 GB, which is why this is a
+    stride and not a flag.
+    """
+    survivors = set()
+    if keep_top_k > 0:
+        survivors |= {epoch for _, epoch in kept[:keep_top_k]}
+    if keep_stride and keep_stride > 0:
+        survivors |= {epoch for _, epoch in kept if epoch % keep_stride == 0}
+        if last_epoch is not None:
+            survivors.add(last_epoch)
+    return sorted({epoch for _, epoch in kept} - survivors)
+
+
+def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_debug=False, save_path=None, config=None, scheduler=None, start_epoch=0, best_val=float("inf"), best_row=None, start_step=0, context_encoder=None, resumed_wer_history=None):
     model.to(device)
     # Weights are saved and the STFT grid is read from the REAL module, never
     # from a DataParallel wrapper. See unwrap().
@@ -762,6 +921,7 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
 
     if config is None:
         raise ValueError("Config must be provided to build the loss function.")
+    resumed_wer_history = list(resumed_wer_history or [])
 
     loss_fn = build_loss_fn(config)
     # D17. `log_struct` computes and LOGS L_struct while leaving it out of the
@@ -774,11 +934,25 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
     grad_clip = float(config["training"]["grad_clip"])
     patience = int(config["training"]["patience"])
     keep_top_k = int(config["training"].get("keep_top_k", 3))
+    # Defaults 0 (off) so every config written before 2026-09-23 keeps the disk
+    # footprint it ran with. New arms that will be selected on content opt in
+    # with `keep_stride: 3`.
+    keep_stride = int(config["training"].get("keep_stride", 0))
     kept = []          # (score, epoch) for the top-k checkpoints still on disk
     print(f"  selecting on `{config['training'].get('select_on', 'present_branch')}`"
           f", silence bar L_abs <= {config['training'].get('select_abs_max', 'none')}"
           f", keeping top {keep_top_k}")
     epochs_since_best = 0
+    content_probe = build_content_probe(config)
+    probe_every = int((config.get("content_probe") or {}).get("every_n_epochs", 1))
+    if content_probe is not None and resumed_wer_history:
+        content_probe.warm_start(resumed_wer_history)
+        print(f"  content probe warm-started from {len(resumed_wer_history)} "
+              f"earlier epochs; EMA resumes at {content_probe.smoothed[-1]:.2f}")
+    elif content_probe is not None and start_epoch > 0:
+        print("  WARNING: resuming with a COLD content probe -- this checkpoint "
+              "predates content_wer_history, so the EMA and the trend restart. "
+              "The first epoch or two after the resume will read low-confidence.")
     # Fixed for the whole run. Every `total` reported anywhere uses this, so the
     # curve is one objective even while the schedule moves the training w.
     w_report = float(config["loss"]["w"])
@@ -936,6 +1110,16 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
 
         val_loss = epoch_report(val_sums, val_counts, w_report, loss_fn.wm, loss_fn.wg)
         val_loss.update(diagnostic_report(diag))
+        # THE CONTENT PROBE. Still inside model.eval(); torch.no_grad() is the
+        # probe's own business because it calls the model itself. Whole clips,
+        # so this is a second pass over a small fixed subset rather than a
+        # re-read of the 4 s validation crops -- LCF-WER needs a whole utterance
+        # and its reference text, and a crop has neither.
+        if content_probe is not None and epoch % probe_every == 0:
+            with torch.no_grad():
+                val_loss["content_wer"] = content_probe.score(
+                    live_extractor(core, context_encoder, device))
+            val_loss["content_wer_ema"] = content_probe.smoothed[-1]
         val_loss["epoch"] = epoch
         val_loss["lr"] = optimizer.param_groups[0]["lr"]
         # the w that TRAINED this epoch, not w_report -- see history_header()
@@ -957,6 +1141,12 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
         print(format_epoch_breakdown(epoch, num_epochs, epoch_loss, val_loss,
                                      time.time() - epoch_start, w_trained),
               file=sys.stderr, flush=True)
+
+        # "Is this run worth continuing?" -- the question item 1a could not
+        # answer, because its content was still improving at the last epoch and
+        # nothing in the loop was watching.
+        if content_probe is not None and content_probe.history:
+            print("  " + content_probe.verdict(), file=sys.stderr, flush=True)
 
         if scheduler is not None:
             # NOT val_loss["total"] -- see lr_schedule_metric(). Defaults to
@@ -985,6 +1175,15 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
                 # Where the w schedule had got to. Without it a resume restarts
                 # the warmup. See w_at_step().
                 "global_step": global_step,
+                # THE PROBE'S HISTORY MUST SURVIVE A RESUME. The EMA the
+                # scheduler reads, and trend(), are functions of every epoch
+                # so far. A 12 h Kaggle session caps this run at ~16 epochs
+                # (2,575 s/epoch measured), so going further MEANS resuming,
+                # and a resumed probe that restarts its EMA hands
+                # ReduceLROnPlateau a step change that is an artefact of the
+                # session boundary. decisions-m2.md 2026-09-23.
+                "content_wer_history": (content_probe.history
+                                        if content_probe is not None else []),
                 "best_val": best_val,
                 "best_row": best_row,
                 "config": config,
@@ -1001,7 +1200,18 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
         # Before 2026-08-30 just best-and-last were kept, so when the criterion
         # turned out to be wrong the good checkpoints were already gone and the
         # only recovery was a re-run. 87 MB each; keep a few.
-        if save_path and keep_top_k > 0:
+        #
+        # 2026-09-23: TOP-K IS NOT ENOUGH INSURANCE, MEASURED. Item 1a's epoch
+        # 15 is the best content result the project has produced (ASR LCF-WER
+        # 52.77 against a 65.22 floor) and it ranks TENTH OF FOURTEEN eligible
+        # epochs on `present_branch` (4.319 at the kept epoch 9, 6.443 at 15).
+        # No top-k shortlist reaches it and no reweighting of the present branch
+        # reaches it either -- dropping L_gain still keeps 9. It survived only
+        # because `_last.pt` is written unconditionally, which is luck, not
+        # policy: a 20-epoch run would have deleted it unscored.
+        # `keep_stride` is what makes post-hoc selection on content possible
+        # at all. See scripts/select_by_wer.py and decisions-m2.md 2026-09-23.
+        if save_path and (keep_top_k > 0 or keep_stride > 0):
             # Deliberately NOT gated on `eligible`: on a run too short to ever
             # clear the silence bar these are the only weights that survive, and
             # the flag below is what tells you which ones cleared it.
@@ -1012,11 +1222,12 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
             torch.save({"model": core.state_dict(), "epoch": epoch,
                         "score": score, "eligible": eligible, "row": val_loss,
                         "config": config, "seed": config["seed"]}, rank_path)
-            for _, dropped in kept[keep_top_k:]:
+            for dropped in checkpoints_to_drop(kept, keep_top_k, keep_stride,
+                                               last_epoch=epoch):
                 stale = Path(save_path).with_name(
                     f"{Path(save_path).stem}_e{dropped:03d}.pt")
                 stale.unlink(missing_ok=True)
-            del kept[keep_top_k:]
+                kept[:] = [(sc, ep) for sc, ep in kept if ep != dropped]
 
         if eligible and score < best_val:
             best_val = score
@@ -1029,6 +1240,15 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
                     "scheduler": scheduler.state_dict() if scheduler else None,
                     "epoch": epoch,
                     "global_step": global_step,
+                # THE PROBE'S HISTORY MUST SURVIVE A RESUME. The EMA the
+                # scheduler reads, and trend(), are functions of every epoch
+                # so far. A 12 h Kaggle session caps this run at ~16 epochs
+                # (2,575 s/epoch measured), so going further MEANS resuming,
+                # and a resumed probe that restarts its EMA hands
+                # ReduceLROnPlateau a step change that is an artefact of the
+                # session boundary. decisions-m2.md 2026-09-23.
+                "content_wer_history": (content_probe.history
+                                        if content_probe is not None else []),
                     "best_val": best_val,
                     "best_row": best_row,
                     "config": config,
@@ -1367,6 +1587,14 @@ def main():
     config = yaml.safe_load(config_path.read_text())
     data_path_root = Path(args.data_root)
     csv_path = Path(args.manifest_dir)
+    # The content probe reads the SAME data as the val loader, so it takes the
+    # CLI's --data-root / --manifest-dir unless its config block names its own.
+    # Without this it fell back to "data/manifests", which does not exist on
+    # Kaggle: 2026-09-23 run died at startup, "no manifest at
+    # data/manifests/sir0_val.csv".
+    if (config.get("content_probe") or {}).get("enabled", False):
+        config["content_probe"].setdefault("data_root", str(data_path_root))
+        config["content_probe"].setdefault("manifest_dir", str(csv_path))
 
     if args.split not in SPLIT_MANIFESTS:
         raise ValueError(f"Unknown split: {args.split}")
@@ -1440,6 +1668,9 @@ def main():
     save_path.parent.mkdir(parents=True, exist_ok=True)
 
     start_epoch, best_val, best_row, start_step = 0, float("inf"), None, 0
+    # Empty on a fresh run; the resume branch below replaces it. Declared here
+    # so the train() call is valid on both paths.
+    resumed_wer_history = []
     if args.resume:
         if not save_path.exists():
             raise FileNotFoundError(f"--resume but no checkpoint at {save_path}")
@@ -1464,8 +1695,12 @@ def main():
         # .get, not [...]: checkpoints written before best_row existed have no
         # such key, and a missing best row is not a reason to refuse a resume.
         best_row = ckpt.get("best_row")
+        # .get with a default: only runs from 2026-09-23 onward carry it, and a
+        # missing probe history is not a reason to refuse a resume -- it just
+        # means the EMA starts cold, which the warning below makes visible.
+        resumed_wer_history = list(ckpt.get("content_wer_history") or [])
         # A resume across a config change is two experiments in one curve.
-        if ckpt.get("config") != config:
+        if comparable_config(ckpt.get("config")) != comparable_config(config):
             raise ValueError(f"{save_path} was trained under a different config, start a fresh run or pass a matching --config")
         print(f"resumed {save_path} at epoch {start_epoch}, step {start_step}, "
               f"best_val {best_val:.4f}")
@@ -1497,6 +1732,7 @@ def main():
             best_val=best_val,
             best_row=best_row,
             start_step=start_step,
+            resumed_wer_history=resumed_wer_history,
         )
         ran["epochs"] = len(train_loss_history)
     wall_s = time.time() - t0

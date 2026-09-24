@@ -77,12 +77,23 @@ across a config change, so do not edit the knobs between sessions.
 cells.append(code(r'''
 # ============================== KNOBS ==============================
 SPLIT       = "sir0"  # "mid" = 90% target-louder (control) | "sir0" = symmetric
-EPOCHS      = 16      # THE REAL ARM, 2026-09-22. 16 and NOT 25: at batch 3 with
-                      # 9,955 trials the 2026-09-04 run MEASURED 10.5 h for 16
-                      # epochs against Kaggle's 12 h cap, so 25 (~16.4 h) would
-                      # be killed mid-run. The 25 in the note below was
-                      # calibrated when sir0_train was 4,976 trials.
-                      # The baseline's best epoch was 6, so 16 is ample.
+EPOCHS      = 14      # 1c + THE CONTENT PROBE, 2026-09-23. CUT FROM 16, and the
+                      # 16 was calibrated on the WRONG RUN: it came from
+                      # 2026-09-04 at 2,364 s/epoch, but 1c MEASURED
+                      # 2,575 s/epoch (the ECAPA encoder is ~9 % per epoch).
+                      # Against Kaggle's 12 h cap, with the cpu probe at
+                      # ~160 s/epoch (40 clips x ~4 s, measured 2026-09-23):
+                      #   16 ep = 12.16 h  OVER THE CAP, killed mid-run
+                      #   15 ep = 11.40 h  no margin for unzip and setup
+                      #   14 ep = 10.64 h  <- this, ~1.4 h of margin
+                      # TO GO FURTHER, RESUME -- do not raise this number. Set
+                      # RESUME_FROM in a second session; the probe's EMA and
+                      # trend now survive a resume (content_wer_history in the
+                      # checkpoint), so the scheduler does not see a step change
+                      # at the session boundary. decisions-m2.md 2026-09-23.
+                      # Whether a second session is WORTH it is now a measured
+                      # question, not a guess: read the probe's verdict line on
+                      # the last epoch. STILL IMPROVING means resume.
                       # Previous note, from the 2-epoch stability probe:
                       # NOT a result -- it reads whether the 5-channel input
                       # destabilises training, by comparing L_pres and L_MR
@@ -333,6 +344,37 @@ if _cfg["model"].get("context_embedding", False):
         print(f"speechbrain {speechbrain.__version__} installed")
 else:
     print("not the 1c arm -- speechbrain not needed")
+
+# The in-loop validation WER probe needs an ASR in the training image. Same
+# conditional shape as speechbrain above: installed only when the config asks
+# for it, so arms that do not use the probe pay nothing and need no internet.
+# NOTE the model weights (~250 MB for small.en, CTranslate2 int8) are fetched
+# from HuggingFace on FIRST USE, not by pip, so Internet must stay ON for the
+# first epoch -- not just for the install cell.
+if (_cfg.get("content_probe") or {}).get("enabled", False):
+    try:
+        import faster_whisper, jiwer  # noqa: F401
+        from whisper_normalizer.english import EnglishTextNormalizer  # noqa: F401
+        print("faster-whisper + scorer deps already present")
+    except ModuleNotFoundError:
+        print("installing faster-whisper + the LCF-WER scorer's deps ...")
+        r = subprocess.run([sys.executable, "-m", "pip", "install", "-q",
+                            "faster-whisper==1.2.1",
+                            # src/live_model_metric/lcf_wer.py imports these
+                            # lazily, so a missing one surfaces only when the
+                            # probe first scores -- at the END of epoch 0.
+                            "jiwer==4.0.0",
+                            "whisper-normalizer==0.1.15"],
+                           capture_output=True, text=True)
+        if r.returncode:
+            raise SystemExit(
+                "pip install failed. Is Internet ON in the notebook settings?\n"
+                + r.stderr[-2000:])
+        import faster_whisper, jiwer  # noqa: F401
+        from whisper_normalizer.english import EnglishTextNormalizer  # noqa: F401
+        print("faster-whisper + scorer deps installed")
+else:
+    print("content probe off -- faster-whisper not needed")
 '''))
 
 cells.append(code(r'''
@@ -403,7 +445,17 @@ if RESUME_FROM:
     shutil.copy2(RESUME_FROM, dst)
     ck = torch.load(dst, map_location="cpu", weights_only=False)
     print(f"resume: copied checkpoint from epoch {ck['epoch']}, best_val {ck['best_val']:.4f}")
-    if ck.get("config") != cfg:
+    # Mirrors train.py's comparable_config: content_probe.data_root /
+    # manifest_dir are mount paths train.py fills in from the CLI, so they are
+    # in every checkpoint since 2026-09-23 and never in the config file.
+    import copy
+    def _sans_mounts(c):
+        c = copy.deepcopy(c or {})
+        if isinstance(c.get("content_probe"), dict):
+            for k in ("data_root", "manifest_dir"):
+                c["content_probe"].pop(k, None)
+        return c
+    if _sans_mounts(ck.get("config")) != _sans_mounts(cfg):
         raise SystemExit("checkpoint config != this config; train.py will refuse. "
                          "Restore the knobs used for that checkpoint.")
 '''))

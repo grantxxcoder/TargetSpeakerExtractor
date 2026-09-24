@@ -362,7 +362,9 @@ training:
   #
   #   New arms should set `present_branch`, matching select_on so the schedule
   #   and the selector cannot drift apart again. decisions-m2.md 2026-09-21.
-  lr_schedule_on: present_branch
+  lr_schedule_on: content_wer   # 2026-09-23: was present_branch. That number
+                                # kept 1a's epoch 9, which is worse than doing
+                                # nothing on content. decisions-m2.md.
                         # SET, 2026-09-22, because this file is a new arm and the
                         # block above says new arms must. It was inherited
                         # COMMENTED OUT from bsrnn_baseline.yaml on 2026-09-22
@@ -392,7 +394,11 @@ training:
   # was never derived to rank finished models, and ranking with it kept a
   # checkpoint at 1.13 dB held-out separation when the same run reached 2.36 dB
   # (remix arm, 2026-08-30). decisions-m2.md 2026-08-30.
-  select_on: present_branch   # present_branch | total | separation.
+  select_on: content_wer      # content_wer | present_branch | total | separation.
+                              # 2026-09-23: was present_branch. 1c's own e5 was
+                              # selected by it and lands the requested speaker
+                              # 53.9 % of the time; e12, which it rejected,
+                              # reaches 67.1 %. Same failure as 1a.
                               # `total` = the pre-2026-08-30 behaviour, kept so
                               # the old runs remain reproducible.
                               # `separation` = L_pres alone; available and NOT
@@ -403,7 +409,29 @@ training:
                               # target-absent crops. A CONSTRAINT rather than a
                               # second weighting: "quiet enough, then the best
                               # separator". null disables it.
+  keep_stride: 3              # ALSO keep every 3rd epoch, and the last,
+                              # regardless of score. 1a's best content epoch
+                              # ranked 10th of 14, so a score-ordered cut
+                              # discards it. ~87 MB each.
   keep_top_k: 3               # Also keep the k best eligible epochs as
                               # model_<split>_e{NNN}.pt. Insurance: the criterion
                               # is a judgement call, and re-scoring a run later
                               # needs the weights to still exist. 0 disables.
+
+# VALIDATION WORD ERROR RATE, IN THE LOOP. Added 2026-09-23 for the 1c rerun.
+# The scheduler and the selector both read `content_wer` (see training:), so
+# every_n_epochs MUST stay 1 -- ReduceLROnPlateau needs a number every epoch.
+# Cost, MEASURED 2026-09-23 on this laptop: ~4 s/clip for the ASR on cpu, so
+# 40 clips is ~2.7 min. Extraction is the cheap half on a T4 (it is ~16 s/clip
+# on cpu, which is why this number is a Kaggle number, not a laptop one).
+# Against a 2,575 s epoch that is ~7 %, i.e. ~48 min on a 16-epoch run.
+# Halve it with n_trials: 24, or set asr_device: cuda -- much faster, but then
+# the transcripts are NOT the reported instrument's.
+content_probe:
+  enabled: true
+  split: sir0_val        # never a holdout -- train.py refuses those
+  condition: both
+  n_trials: 40
+  every_n_epochs: 1
+  asr_device: cpu        # cpu keeps it identical to the reported instrument
+  ema_span: 3

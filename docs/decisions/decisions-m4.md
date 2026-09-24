@@ -44,6 +44,9 @@ generalisation *across trials and speakers*, which is the only holdout claim
 left. Losing that too would leave nothing defensible, so it is now the binding
 constraint.
 
+**2026-09-24:** `sir0_privval` is no longer scored at all (`decisions-m3.md`
+2026-09-24), so the selection-free number now comes from `eval_public` alone.
+
 **Unchanged:** Gemini still cannot be backpropagated through, so it can never
 be a loss term. Every training-time Gemini call records model ID, prompt and
 date, exactly as a judge call does.

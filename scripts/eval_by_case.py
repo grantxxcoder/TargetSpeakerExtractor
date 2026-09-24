@@ -357,7 +357,9 @@ def main():
 
     judge_kwargs = None
     if args.listener == JUDGE:
-        judge_kwargs = {"rpm": args.judge_rpm,
+        # Judge.__init__'s name, as scripts/evaluate.py passes it. Was `rpm`,
+        # which raised TypeError before the first call -- this path had never run.
+        judge_kwargs = {"requests_per_minute": args.judge_rpm,
                         "max_new_calls": args.judge_max_new_calls}
         if args.judge_model:
             judge_kwargs["model_id"] = args.judge_model

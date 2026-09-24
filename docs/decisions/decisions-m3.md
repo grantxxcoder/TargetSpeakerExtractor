@@ -1398,3 +1398,51 @@ against 80.29/76.94 here). Never quote one against the other.
    removed it, and the old protocol could not see that.
 3. **`noise_only` needs the gate disabled** (`--no-gate`) to say anything about
    the model, or a larger n. 8 trials is too few either way.
+
+---
+
+## 2026-09-24 — `sir0_privval` DROPPED from evaluation
+
+**Decision (Grant): no further estimates or scoring on `sir0_privval`.**
+Development numbers come from `sir0_val` through the judge; the only
+selection-free check left is `eval_public`.
+
+**Why.** The split's only listener was the offline ASR, which does not track
+the judge across our arms, and one system costs 3.6 h of CPU to render
+(`run_times.md` 2026-09-14) for a number no decision rests on.
+
+**Measured, and it travels with the reason.** Rank agreement between the ASR
+and the judge over our 8 judged arms (`sir0_val` `both`, n=103):
+
+| ASR scoring | Spearman | p |
+|---|---|---|
+| as reported | 0.16 | 0.71 |
+| loop guard on (`content_probe.cap_errors_at_spoken`) | 0.75 | 0.03 |
+
+Most of the disagreement is Whisper looping on 3 clips of the WER-selected e13
+(ASR 63.24, last; judge 42.93, first), not the ASR hearing the audio
+differently. Per-trial r = 0.825 (`2026-09-15-judge-predictability`).
+
+### Consequences to carry
+
+- **No selection-free number exists for any current checkpoint.** 1a e15 and
+  1c e12 were picked after seeing `sir0_val`; wer e13 was picked by the in-loop
+  probe on `sir0_val` clips. The one time this was measured, the bias was most
+  of the effect: 1a e15 vs baseline **−6.76** on `sir0_val`, **−1.51
+  [−4.07, +1.04]** on `sir0_privval` (`decisions-m2.md` 2026-09-24).
+- **That check now has to come from `eval_public`**, which is easier than
+  training (SIR +4.76 dB, 75.1 % target-louder; weak-point B1). Report it per
+  SIR band.
+- **CLAUDE.md limit (a) is unchanged.** `sir0_privval` is still never scored,
+  filtered or selected on during training.
+
+### Kept, not deleted
+
+Recorded `sir0_privval` results stand and stay citable: baseline 48.90,
+struct e8 46.99 / e12 47.37, 1a e15 47.38. 1a e15's leakage cut, **−13.46
+[−15.01, −11.90]**, is the only selection-free finding the split produced.
+
+The wer e13 render (`2026-09-24-est-privval-cuecontext-wer-e13`) is abandoned
+at 215 of 1,421 trials. It is resumable (2026-09-15 entry) and is not to be
+scored. On disk: rendered split 5.4 GB, estimate dirs 3.4 GB + 247 MB partial.
+Delete only on request.

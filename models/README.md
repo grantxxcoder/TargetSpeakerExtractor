@@ -87,3 +87,12 @@ extraction. On arm A that cost a full dB. `training.select_on` and
 **And neither augmentation raised the ceiling.** Peaks of 2.23 / 2.40 / 2.35 dB
 across control / A / C sit inside the epoch-to-epoch swing (0.31-0.52 dB). The
 result is negative and is logged as such in decisions-m2.md 2026-08-30.
+
+## Item 1a, cue parts: 2026-09-23 (`experiments/results/2026-09-23-train-sir0-cueparts/`)
+
+| file | epoch | why it is kept |
+|---|---|---|
+| `model_sir0_cueparts-e9.pt` | 9 | the epoch training selected, and the control 1c is registered against. Scores no better than the baseline on word error. |
+| `model_sir0_cueparts-e15.pt` | 15 | the last epoch, best of ours on sir0_val word error (ASR 52.76, judge 45.23), reached by cutting harder. Clean speech: Whisper 11.2 % vs 5.3 %, but judge 2.86 % vs 4.00 %. Chosen post hoc. **sir0_privval (ASR): 47.38 vs baseline 48.90, inside the noise**; leakage halved. |
+| `model_sir0_cueparts-e2.pt`, `-e4.pt` | 2, 4 | weights only. The only other surviving epochs of a run whose selection misranked. |
+| `model_sir0_cueparts-probe-e1.pt` | 1 | the 2026-09-22 2-epoch probe, UNSCALED. The evidence for the LayerNorm-gain rebalancing measurement in decisions-m2.md 2026-09-22. Never compare with a scaled run. |

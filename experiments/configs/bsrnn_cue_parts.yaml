@@ -381,3 +381,28 @@ training:
                               # model_<split>_e{NNN}.pt. Insurance: the criterion
                               # is a judgement call, and re-scoring a run later
                               # needs the weights to still exist. 0 disables.
+
+# VALIDATION WORD ERROR RATE, IN THE LOOP. Added 2026-09-23.
+# OFF by default, so this block changes nothing until `enabled: true`.
+#
+# Why it exists: every signal-domain rule ranked this run's epoch 9 first, and
+# epoch 9 is worse than doing nothing on content (ASR LCF-WER 65.63 against a
+# 65.22 floor) while epoch 15 reads 52.77. Nothing in training could see that,
+# because nothing in training computed it. decisions-m2.md 2026-09-23.
+#
+# Turning it on: set enabled true, then point `training.select_on` and
+# `training.lr_schedule_on` at `content_wer`. Leave `every_n_epochs: 1` if the
+# scheduler reads it -- ReduceLROnPlateau needs a number every epoch.
+#
+# Cost: ~3 s per clip to transcribe on CPU, so 40 clips is ~2 min on top of a
+# 2,356 s epoch, under 6 %. Extraction runs on the training GPU and is not the
+# expensive half. `asr_device: cpu` keeps the transcripts bit-identical to the
+# reported instrument; cuda is faster and is a DIFFERENT instrument.
+content_probe:
+  enabled: false
+  split: sir0_val        # never a holdout -- train.py refuses those
+  condition: both
+  n_trials: 40           # the cost knob
+  every_n_epochs: 1
+  asr_device: cpu
+  ema_span: 3            # WER is not smooth; the scheduler reads the EMA

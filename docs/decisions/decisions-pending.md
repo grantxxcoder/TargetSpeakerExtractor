@@ -88,8 +88,9 @@ actually taken go to the decision log of the milestone they belong to —
   Retire "the cue is a loudness meter" -- it is a PITCH detector with a loudness
   default. See `ranked-next-steps.md` items 1-2.
 - **O1/O2/O3 — obligations, not options.** Score the struct control on
-  `sir0_privval` (1.2 h, its registered acceptance test is unrun), write D17 up,
-  and produce M6's stratified tables. See the 2026-09-15 menu.
+  `sir0_privval` (**done 2026-09-15**, 48.90; `sir0_privval` then dropped from
+  evaluation 2026-09-24, `decisions-m3.md`), write D17 up, and produce M6's
+  stratified tables. See the 2026-09-15 menu.
 
 - **A1 needs sign-off only, not a decision.** Reference is the full reverberant
   target: separate and denoise, do not dereverberate. Removing a 0.6 s tail inside
@@ -3337,6 +3338,23 @@ exposed, the free fallback is the mask implied by output/input magnitude.
 
 **Carry the caveat:** different data, different objective, different training
 budget. This diagnoses *our* model; it is not a comparison claim.
+
+### D20. Derive the silence bar from the listener, not from a dB number
+
+**Status: proposal, opened 2026-09-23 (`decisions-m2.md` 2026-09-23).**
+
+**Why.** `select_abs_max: -10.0` was never derived. Suppression in dB is not
+silence to the listener: the control at -11.0 dB on `interferer_only` still hands
+the ASR 81 % of the other speaker's words.
+
+**The measurement.** For each absent-target estimate: suppression (dB) against
+words the listener transcribes, using the speech gate's 0.10 s speech floor.
+Needs a small per-trial script -- `eval_by_case.py` writes only aggregates. No
+training run, no API if the ASR is the listener.
+
+- **A dB level where words reach ~0** => that is the bar, derived.
+- **No such level short of the -20 dB floor** => the silence term should target
+  content, not loudness, and `L_abs` is the wrong instrument for it.
 
 ### J5. Run-to-run training variance — the third noise source, still unmeasured
 

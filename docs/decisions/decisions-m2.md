@@ -3176,3 +3176,568 @@ handed over as its own channel rather than riding on a magnitude, so no
 normalisation can cancel it; measured at ~98 % of the separator's input after
 scaling. 1b and 1a are the same defect on two different paths, one disabled and
 one live. 1b stays third, and its fix is REMOVE the norm, not widen it.
+
+## 2026-09-23 — ITEM 1a, READ: +1.2 dB separation over the baseline, reconstruction WORSE THAN DOING NOTHING, and the do-nothing anchor was the wrong protocol
+
+`bsrnn_cue_parts.yaml` with `tfmap_part_scales` (archived copy in the results
+dir), `experiments/results/2026-09-23-train-sir0-cueparts/`,
+`models/model_sir0_cueparts-e9.pt` (md5 `ca537406…`, identical to the Kaggle
+`model_sir0.pt`), bundle `062d7c6-dirty`, `sir0`, 9,955 trials, batch 3, one T4,
+16 epochs, no early stop, 10.5 h, seed 42. Control: `2026-09-04-train-sir0-10000`,
+`model_sir0_10000-e6.pt`. Epochs 0-indexed, as elsewhere in this file.
+
+**`-dirty` is the scales.** They were committed in `0feec13`, after the bundle was
+cut. The archived config carries them, so it -- not the commit -- is the provenance.
+
+### Everything that differs from the control
+
+| | control | 1a | effect on the comparison |
+|---|---|---|---|
+| cue | 1 channel | 5 channels, scaled | the arm |
+| `lr_schedule_on` | `total` | `present_branch` | lr identical to idx 6; 1a halves at idx 7, control at idx 10 |
+| `log_struct` | absent | on, `w_struct` 0.0 | none on the weights: `losses.py` adds it only `if self.w_struct:` |
+| val crops | 261 present / 139 absent | same | identical: the one loader change between `cacc933` and `062d7c6` adds `crop_start` to metadata |
+| seed | 42 | 42 | one seed each; J5 still unmeasured |
+
+### The do-nothing anchor was measured on different crops. CORRECTED
+
+`scripts/measure_passthrough_val.py` (new), `experiments/results/2026-09-23-passthrough-val-sir0/`,
+17 s. Scores output = mixture through `train.py`'s own val dataset and accumulator.
+
+| pass-through on `sir0_val` | present crops | separation |
+|---|---|---|
+| **the validation loop (both directions)** | 261 | **+0.931 dB** |
+| target direction only | 145 | +1.614 dB -- reproduces `derive_w_g.py`'s 1.593 |
+| asked for the other speaker (by subtraction) | 116 | ~+0.08 dB |
+
+1.593 is a target-direction figure; the validation loop scores both directions.
+2026-08-29 flagged the two as "not directly subtractable" and 09-01/09-04
+subtracted them anyway. **Every "margin over pass-through" in this file is
+understated by 0.66 dB.** All five earlier `sir0` runs scored the same 261/139
+crops (checked), so the shift is uniform: the data-scaling margins
+0.542 / 0.991 / 1.307 become **1.204 / 1.653 / 1.969**. The increments (+0.449,
++0.316) and the log-linear conclusion are untouched; 09-04's "+32 %" becomes
+**+19 %**.
+
+Pass-through reconstruction on the same crops: **`L_MR` 0.2704.**
+
+### The result: separates better, reconstructs worse than the raw mixture
+
+Best eligible epoch of each run, `sir0_val`:
+
+| | better | pass-through | control idx 6 | 1a idx 9 |
+|---|---|---|---|---|
+| separation | higher | +0.93 dB | +2.90 dB | **+4.10 dB** |
+| margin over pass-through | higher | -- | +1.97 dB | **+3.17 dB (+61 %)** |
+| reconstruction `L_MR` | lower | 0.2704 | **0.1815** | 0.2984 |
+| level error `L_gain` | lower | 4.96 | 3.40 | 3.28 |
+| absent suppression `L_abs` | lower | 0.0 | -11.30 | -13.17 |
+| selection score | lower | 10.06 | 4.599 | **4.319** |
+
+- **The separation gain is a gap, not one lucky epoch.** 1a leads at 15 of 16
+  epochs (behind only at idx 6, 2.36 vs 2.90) and at 6 of 7 over idx 0-6, where
+  the two lrs are identical -- so the schedule difference does not explain it.
+  For scale: the last doubling of the data bought +0.32 dB.
+- **FLAG: 1a reconstructs WORSE THAN THE UNPROCESSED MIXTURE, at every epoch.**
+  Its best is 0.2794 (idx 15) against pass-through's 0.2704; the control sits 33 %
+  below pass-through. Level does not explain it: 1a is nearer the right level than
+  the mixture (3.28 vs 4.96), and muting improves `L_MR` (2026-08-28).
+  **Hypothesis, not measured:** `L_MR` compresses magnitudes (p = 0.3) and so
+  weights quiet bins heavily, while SI-SDR is energy-weighted. An output that
+  removes the interferer's energy but leaves errors in low-energy bins scores
+  exactly like this. **Only the content evaluation can say whether the listener
+  cares** -- running now, `2026-09-23-est-cueparts-e9`.
+- **The selection score hides most of the gain.** Separation contributes -1.20,
+  reconstruction +1.12 (9.62 x 0.117), level -0.20: net -0.28.
+- **The channel scales did not fix the reconstruction lag.** At idx 1: control
+  0.2016, unscaled probe 0.3398, scaled 0.3270 -- 9 % of the gap closed, and it
+  persists for 16 epochs. 2026-09-22 called it "an OPTIMISATION problem ... the
+  fix is conditioning the input". The full run does not support that. Cause open.
+- **Overfits after idx 9.** Training separation 5.43 -> 6.99 dB while validation
+  falls back to 2.80-3.75. Over the same epochs the swap response rose 57 -> 81 %
+  and the present/absent gap 13.0 -> 18.2 dB: the diagnostics improving for a bad
+  reason, exactly as on 09-04.
+- **2,356 s/epoch against the control's 2,364.** The probe's "+5.2 % for the two
+  extra channels" was Kaggle session variance, and `log_struct`'s extra STFT pair
+  is not visible either. Quote no cost under ~5 % without a same-session comparison.
+
+### Directional test: the registered prediction held
+
+`scripts/diagnose_cue_directional.py`,
+`experiments/results/2026-09-23-cue-directional-sir0-cueparts-e9/`, 200 trials x 2
+directions, CPU, 25 min (contended). Paired against 2026-09-22 on the same 77
+two-voice crops; +- is the 95 % CI of the paired difference.
+
+| lands on the requested voice | control | 1a | gained / lost | McNemar | pull toward the requested voice |
+|---|---|---|---|---|---|
+| same-gender (76 decisions) | 52.6 % | **56.6 %** | 3 / 0 | p = 0.25 | +2.47 -> +4.51 dB, diff +2.04 +- 1.82 |
+| cross-gender (78) | 71.8 % | **82.1 %** | 10 / 2 | p = 0.039 | +7.31 -> +12.44 dB, diff +5.13 +- 1.65 |
+| all two-voice (154) | 62.3 % | **69.5 %** | 13 / 2 | p = 0.007 | +4.92 -> +8.53 dB, diff +3.61 +- 1.27 |
+
+- **Registered: same-gender "EXPECTED TO BARELY MOVE". It did not move
+  significantly**, and is still indistinguishable from a coin (p = 0.30). The
+  pull toward the right voice grew (CI excludes zero), just not far enough to
+  land. Headroom captured: same-gender 5.2 -> 13.2 %, cross-gender 43.6 -> 64.2 %.
+  **The gap between the two WIDENED.**
+- **Absence got sharper.** Asked for a speaker who is not there, the output drops
+  10.6 dB on `target_only` (control 5.8) and 9.3 dB on `interferer_only` (6.0).
+- Loud-voice default at SIR >= +5: follows the request 60.5 %, tracks the louder
+  voice 89.5 % (control 55.3 / 94.7). 19 crops; indicative only.
+
+### Consequences for 1c
+
+- **1c is judged against 1a, not the baseline**: same-gender must beat **56.6 %**,
+  cross-gender must hold **82.1 %**.
+- **The test's resolution.** 38 same-gender crops = 76 decisions. Distinguishable
+  from a coin at >= 48/76 (**63.2 %**); a McNemar-significant gain over 1a needs
+  roughly 6-8 net flips. A smaller real gain is invisible on this set.
+- **1a already shows the pattern 1c's registered failure describes** -- cross-gender
+  up, same-gender not. On 1c that pattern is 1a's effect, not 1c's. Read
+  `||gamma||` first.
+- **Interim, 4 of 13 epochs** (pasted Kaggle log; superseded by the run's own
+  results dir). 1c leads 1a on training separation, growing (+0.02 / +0.05 /
+  +0.10 / +0.22 dB at idx 0-3); trails on validation at 3 of 4 (-0.51 / -0.27 /
+  -0.46 / +0.07); worse selection score at all 4. Its train-val gap is wider at
+  every epoch (0.45 / 0.71 / 1.10 / 0.90 against 1a's -0.08 / 0.39 / 0.54 / 0.75).
+  **Not a finding yet:** at idx 0 the runs were 0.02 dB apart on training and
+  0.51 apart on validation, so validation gaps this size are within what this set
+  does. Watch for the training lead growing while validation stays flat -- the
+  signature of the speaker vector fitting the training voices.
+
+### The silence bar was never derived. D20 opened
+
+- **`L_abs` already has a floor.** `tau_abs` 0.01 caps it at -20 dB; each further
+  dB of quieting is worth 91 % of full value at 10 dB down, 50 % at 20, 9 % at 30.
+  1a's training `L_abs` reached -18.0: near the floor, not pushing without bound.
+- **`select_abs_max: -10.0` has no derivation anywhere.** It arrived in `c8f2a81`
+  (2026-08-30) as a judgement call.
+- **dB is the wrong unit for silence.** The control at -11.0 dB on
+  `interferer_only` still hands the ASR 24.8 of 30.8 words (81 %), with words in
+  83 % of clips (`2026-09-21-case-suite-baseline-e6`). Quieter words are still
+  words. `decisions-pending.md` D20.
+
+---
+
+## 2026-09-23 — SELECTION MOVES TO WORD ERROR RATE. The signal score is not mis-weighted, it is measuring the wrong thing
+
+**DECIDED: LCF-WER is computed INSIDE the training loop and is what the learning
+rate scheduler, the best-checkpoint selector and the early stop read.**
+`present_branch` is demoted to a logged diagnostic and is no longer the
+authority on anything. `src/live_model_metric/content_probe.py`, wired through
+`train.py`; `scripts/select_by_wer.py` does the same job post-hoc for
+checkpoints that already exist.
+
+### What forced it
+
+Item 1a's kept epoch 9 is **worse than doing nothing** on content (ASR LCF-WER
+65.63 against a 65.22 floor). Epoch 15, rejected as overfitted, reads **52.77**
+on the same listener and **45.23** on the judge — the best content result the
+project has produced. The rule chose the one checkpoint of the run with no value.
+
+### Every repair inside the signal domain was tried, and none of them work
+
+`scripts/reselect_epochs.py`, all 13 runs with a `history.csv`, recombined from
+logged columns. No GPU, no inference, seconds.
+
+| rule | keeps, item 1a | reaches epoch 15? |
+|---|---|---|
+| `present_branch` (shipped) | 9 | no |
+| drop the volume term `L_gain` | 9 | no |
+| `separation`, `L_pres` alone | 9 | no |
+| `L_MR` alone | 15 | **yes, and it is unusable** |
+| any top-k shortlist | 9, 2, 4 | no — **epoch 15 ranks 10th of 14** |
+
+**`L_MR` alone is not the answer even though it picks the right epoch.** Muting
+improves `L_MR` (2026-08-28), so a rule that selects on it selects silence, and
+the silence bar does not catch it: `L_abs` constrains absent crops, and muting on
+*present* crops is what would win. One right answer from a rule that is wrong in
+general is a coincidence, not a criterion.
+
+**So this is not a weighting problem.** Dropping `L_gain` does change the kept
+epoch on 4 of 13 runs — `2026-08-29-e50-resume` 14→12, `2026-09-04-10000` 6→11,
+`2026-09-14-struct` 12→8, `2026-09-21-wesepref` 10→12 — so the volume term is
+load-bearing elsewhere. It just is not what went wrong here. The present branch
+as a family does not rank epochs the way content does.
+
+### The retention policy was the blocking bug, and it is fixed
+
+Epoch 15 survived only because `_last.pt` is written unconditionally. `keep_top_k:
+3` kept epochs 9, 2 and 4. **A 20-epoch run would have deleted the best
+checkpoint before anyone scored it**, and the only recovery would have been a
+re-run.
+
+`keep_stride` added to `train.py` (`checkpoints_to_drop`, unit-tested in
+`tests/test_checkpoint_retention.py`). It keeps every k-th epoch regardless of
+score, union'd with top-k, plus the last. A stride is the only cut that spans the
+run, because any score-ordered cut inherits the defect above. **Defaults to 0 —
+off** — so every config written before today keeps the disk footprint it ran
+with. Cost at `keep_stride: 3` over 16 epochs is ~6-8 checkpoints, about 600-700
+MB at 87 MB each; keeping every epoch would be 1.4 GB and is deliberately not
+offered.
+
+### Two rules that travel with the new criterion
+
+1. **Select on one split, report on another.** Taking the argmin over 16 epochs
+   on the same 103 trials that are then quoted is the winner's curse: at a ~8
+   point paired resolution the luckiest epoch wins and the headline is
+   optimistic. Select on `sir0_val`; report on `sir0_privval` or `eval_private`.
+   `select_by_wer.py` refuses `--split` on a holdout.
+2. **The silence bar stays.** WER is computed on target-present trials and says
+   nothing about a model that talks through silence, so eligibility is still
+   `L_abs <= -10`, read from each checkpoint's own stored row.
+
+### Why this is allowed now, and what it costs
+
+The family-separation rule was withdrawn 2026-09-15, so a listener may supervise
+development. Selection uses the **offline ASR**, not the judge: it is cheap,
+cached, and correlates r = 0.825 with the judge per trial
+(`2026-09-15-judge-predictability`). Measured cost (`run_times.md`, CPU,
+whole-clip): ~28 min to render 103 estimates plus ~6-8 min for the ASR pass, so
+~35 min per checkpoint. That is why the stride exists rather than scoring
+everything.
+
+### Consequence to carry
+
+Every arm selected before today was selected on a rule now known not to track
+content, and four of them change epoch under a trivial reweighting. **No
+conclusion that rests on "the best epoch of run X" is safe until that run is
+re-selected.** The 13-run table above is the list.
+
+
+### The probe, and why it is in the loop rather than after it
+
+A post-hoc selector fixes which checkpoint ships. It does not fix the two things
+that go wrong DURING a run, and both of them went wrong on item 1a:
+
+- **The learning rate halved on a number that does not track content.** `lr` fell
+  at idx 14 on `present_branch`, and content was still improving at idx 15.
+- **Nobody could tell the run had headroom.** 1a stopped at 16 epochs with its
+  content curve still falling. The only reason we know that is a post-hoc eval of
+  two epochs; the run itself had no idea.
+
+`content_probe` answers both. Each epoch it extracts a FIXED subset of whole
+validation clips, transcribes them with the same listener the harness uses
+(faster-whisper `small.en`, int8, greedy, `condition_on_previous_text=False`) and
+scores them with the same `count_errors`, then reports:
+
+    content: WER 52.77 (best 52.77, slope -1.41/epoch) STILL IMPROVING -- headroom, keep training
+
+**It reads the SMOOTHED value, and that is not a detail.** LCF-WER is not a
+smooth function of audio quality: the 2026-09-01 mix-back sweep moved the signal
+monotonically across five settings while WER went 65.2, 63.4, **69.6**, 67.2,
+59.1. A scheduler stepping on the raw number would cut the learning rate on a
+single bad epoch. The raw value is logged beside the EMA.
+
+**The judge cannot go in the loop** — rate limits, cost, and a measured
+test-retest band of ±4.16 points at k=1 on an n=103 aggregate
+(`2026-09-22-judge-retest`), which is wider than most epoch-to-epoch moves. The
+offline ASR correlates r = 0.825 per trial with the judge
+(`2026-09-15-judge-predictability`): enough to RANK epochs, not enough to
+calibrate them. The probe is a training signal; the reported number still comes
+from `scripts/evaluate.py`.
+
+### What it costs, measured
+
+~3 s per clip to transcribe on CPU, so 40 clips is ~2 min on top of a 2,356 s
+epoch — **under 6 %**. Extraction runs on the training GPU and is not the
+expensive half. On Kaggle the ASR runs on the otherwise-idle CPU while the GPU
+holds the model. `asr_device: cpu` keeps transcripts bit-identical to the
+reported instrument; `cuda` is faster and is a different instrument, so the
+device is recorded.
+
+### Guards
+
+- **`content_probe.split` refuses `sir0_privval` and `eval_private`.** Steering
+  training on the holdout would destroy the only clean number the project has.
+- **`select_on: content_wer` raises when no WER was computed**, rather than
+  silently falling back to the signal score. Selecting on something other than
+  what the config asked for is the bug this entry exists to remove.
+- **The silence bar stays.** WER is computed on target-present trials and says
+  nothing about a model that talks through silence, so `select_abs_max` still
+  gates eligibility.
+- **Defaults are all off.** `content_probe.enabled: false`, `keep_stride: 0`,
+  `select_on: present_branch`. Every config written before today runs unchanged.
+
+### Still open
+
+- **The probe subset is 40 of 103 trials.** Its own resolution has not been
+  measured, so a 1-2 point epoch-to-epoch move should not be read as real.
+  `n_trials` is the knob; measuring the probe's noise floor against the full
+  set is the obvious next free experiment.
+- **Selecting on the same split the headline is quoted from is the winner's
+  curse.** Select on `sir0_val`, report on `sir0_privval` or `eval_private`.
+  Unenforced in-loop; `select_by_wer.py` enforces it for post-hoc runs.
+- **NOT YET RUN.** Every number in this entry about 1a is from the logged
+  history and the existing evals. The probe itself has unit tests but has never
+  executed inside a real training run.
+
+---
+
+## 2026-09-23 — ITEM 1c BREAKS THE SAME-GENDER COIN FLIP, at the epoch its own selector threw away
+
+**The first checkpoint in this project that lands the requested speaker on
+same-gender pairs more often than chance.** `model_sir0_cuecontext-e12.pt`,
+13-epoch run `2026-09-23-train-sir0-cuecontext`, read on
+`2026-09-23-cue-directional-sir0-cuecontext-{e5,e12}`.
+
+Paired McNemar, exact two-sided, over the 154 decisions (77 two-voice crops x 2
+directions) common to all three runs. Every rate below is on the same crops.
+
+| lands on the requested voice | 1a e9 | 1c e5 (SELECTED) | 1c e12 (last) |
+|---|---|---|---|
+| all (154 decisions) | 69.5 % | 61.0 % | **76.0 %** |
+| **same-gender (76)** | 56.6 % | 53.9 % | **67.1 %** |
+| cross-gender (78) | 82.1 % | 67.9 % | **84.6 %** |
+| pull toward the target, `sel_t` | 8.98 dB | 4.82 dB | **11.42 dB** |
+| tracks the LOUDER voice | 63.6 % | 70.8 % | **61.0 %** |
+
+| 1c e12 against | all | same-gender | cross-gender |
+|---|---|---|---|
+| **1a e9** | +12/-2, **p = 0.013** | +8/-0, **p = 0.008** | +4/-2, p = 0.69 |
+| **1c e5**, its own selected epoch | +25/-2, **p < 0.0001** | +10/-0, **p = 0.002** | +15/-2, **p = 0.002** |
+
+**The bar this file set on 2026-09-23 was `>= 48 of 76`. 1c e12 lands 51.** The
+same-gender result is no longer indistinguishable from a coin, and the gain over
+1a is one-sided: eight decisions flipped to the right speaker and none flipped
+away.
+
+**Cross-gender is NOT where 1c helps.** +4/-2, p = 0.69 against 1a. 1a had
+already taken cross-gender from 71.8 % to 82.1 %; 1c adds nothing there and adds
+all of its value on the pairs 1a could not do. That is the registered prediction
+for 1c, and it held.
+
+**And the loudness default fell.** 70.8 % -> 61.0 % between 1c's own e5 and e12,
+below 1a's 63.6 %. The model is following the request more and the volume less.
+
+### THE SELECTOR THREW IT AWAY. Third instance, and the clearest
+
+`select_on: present_branch` kept **epoch 5**, which lands the requested voice
+61.0 % of the time -- *worse than the control's 62.3 %*. The epoch it rejected is
+the best result the arm produced, by 25 flips to 2. Same failure as 1a's epoch
+9-vs-15, on a different arm, in the same week.
+
+Only `_last.pt` saved e12, exactly as only `_last.pt` saved 1a's e15.
+
+### Consequences
+
+- **1c is the arm to continue.** It is the only intervention that has moved the
+  project's central failure mode.
+- **1c e12 has NEVER been content-scored.** No `eval-cuecontext-*` directory
+  exists; only e5 has estimates. Rendering and scoring e12 costs ~35 min of CPU
+  and no GPU, and it is the cheapest outstanding measurement in the project.
+  Do it before spending another 11 h of Kaggle on a rerun.
+- The directional numbers are SI-SDR-against-stems, not content. A model can
+  land on the right speaker and still be unintelligible; that is what the
+  content score is for.
+
+### CORRECTION, same day, later — the gain was TRAINING LENGTH, not the encoder
+
+The table above compares 1c e12 with 1a's SELECTED epoch 9, the checkpoint the
+same selector mis-picked. The like-for-like control, 1a's LAST epoch, was run
+afterwards: `2026-09-23-cue-directional-sir0-cueparts-e15`, same 154 decisions.
+
+| lands on the requested voice | 1a e15 (last) | 1c e12 (last) | 1c vs 1a, McNemar |
+|---|---|---|---|
+| same-gender (76) | **64.5 %** (49/76, p = 0.015 vs coin) | 67.1 % | +6/-4, p = 0.75 |
+| cross-gender (78) | 84.6 % | 84.6 % | +2/-2, p = 1.0 |
+| all (154) | 74.7 % | 76.0 % | +8/-6, p = 0.79 |
+| pull toward the target, `sel_t` | 11.31 dB | 11.42 dB | |
+| tracks the LOUDER voice | 59.7 % | 61.0 % | |
+
+- **1a e15 also clears the `>= 48 of 76` bar.** 1c e12 is not the first
+  checkpoint to break the coin flip, and its +8/-0 over 1a e9 measures the
+  selector's mistake, not the ECAPA anchor.
+- **Content agrees.** 1c e12 is now content-scored
+  (`2026-09-23-eval-cuecontext-e12-asr`, `2026-09-23-case-suite-cuecontext-e12`):
+  LCF-WER **54.63 vs 1a e15's 52.76** on the same 103 `both` trials, inside the
+  +-4.16 test-retest band. Target-only 8.13 vs 11.18; interferer-only 14.9 vs
+  14.7 words/trial. One e12 `both` clip (`sir0_val-42-000046`) is fully muted
+  (speech gate, 0.0 s).
+- **Not matched on training length** (13 vs 16 epochs, different lr paths). That
+  favours 1a slightly; it cannot hide a large encoder effect.
+- **So "1c is the arm to continue" does not follow.** The anchor buys nothing
+  measurable at +9.3 % per epoch. The rerun on Kaggle still answers the selector
+  question; it did not need to be 1c to do so.
+- **Probe cost, MEASURED on that rerun:** epochs 2-4 take 2,862-2,882 s against
+  2,562-2,576 s on the 13-epoch run, so **~300 s/epoch, about twice the ~160 s
+  budgeted below.** 14 epochs project to ~11.3 h (320 s start-up + 2,983 + 13 x
+  ~2,880), leaving ~40 min of the 12 h cap, not 1.4 h. A projection, not a
+  measurement.
+- **A free lower bound for J5.** Same config, same seed, first 4 epochs: training
+  separation agrees within 0.03 dB, validation separation differs by up to
+  0.41 dB (idx 1). GPU non-determinism alone moves the val number that much.
+
+### The 12 h session cap, and why 16 epochs was never going to fit
+
+**EPOCHS cut 16 -> 14 for the 1c rerun, and the 16 was calibrated on the wrong
+run.** It came from 2026-09-04 at 2,364 s/epoch. 1c MEASURED **2,575 s/epoch** —
+the ECAPA encoder costs ~9 % per epoch — so the old arithmetic understated the
+run by nearly an hour.
+
+Against Kaggle's 12 h cap, with the cpu probe at ~160 s/epoch (40 clips x ~4 s,
+measured 2026-09-23):
+
+| epochs | no probe | with the cpu probe |
+|---|---|---|
+| 13 | 9.30 h | 9.88 h |
+| **14** | 10.01 h | **10.64 h  <- chosen, ~1.4 h of margin** |
+| 15 | 10.73 h | 11.40 h |
+| 16 | 11.45 h | **12.16 h  OVER THE CAP** |
+
+**The probe is not what binds.** 16 epochs is 11.45 h before the probe runs at
+all, which leaves 33 minutes for unzipping a 30 GB dataset and downloading the
+ASR weights. The epoch time is the constraint; the probe costs 38 minutes of a
+1.4 h margin.
+
+### Going past 14 epochs means RESUMING, and the probe now survives it
+
+`--resume` already existed (`2026-08-29-train-sir0-e50-resume`). What did not
+exist is a probe that survives it: the EMA the scheduler reads and `trend()` are
+functions of every epoch so far, so a probe restarting cold at the session
+boundary hands `ReduceLROnPlateau` a step change that is an artefact of where
+the session ended, not of the model.
+
+Fixed: `content_wer_history` is written into both per-epoch checkpoints and
+`ContentProbe.warm_start()` rebuilds the EMA from it on resume. NaNs are dropped
+— an epoch where the probe did not run carries no information about the level.
+A checkpoint predating this prints a COLD PROBE warning rather than pretending.
+
+**And whether a second session is worth paying for is now a measured question.**
+Read the probe's verdict line on the last epoch: `STILL IMPROVING` means resume.
+1a stopped at 16 with its content still falling and nobody knew; that is the
+mistake this removes.
+
+### 1c e12 SCORED ON CONTENT: it picks the right speaker and that does NOT become words
+
+`2026-09-23-eval-cuecontext-e12-asr`, `sir0_val` `both`, n=103, faster-whisper
+`small.en`. Rendering took 1.3 h contended (`run_times.md`).
+
+| ASR LCF-WER, same 103 trials | lcf_wer | ICR@2 | mean leak | invented/trial |
+|---|---|---|---|---|
+| floor (do nothing) | 65.22 | 66.99 | 51.30 | 2.61 |
+| 1a e9 (was SELECTED) | 65.63 | — | — | — |
+| **1a e15** | **52.77** | 35.92 | 19.41 | 3.37 |
+| **1c e12** | **54.63** | 38.83 | 23.35 | 3.62 |
+| ceiling | 5.85 | 0.0 | 0.0 | 0.88 |
+
+Paired bootstrap over the 102 trials both systems scored, B=20,000, seed
+20260923, transcripts from the cache:
+
+**1c e12 minus 1a e15 = +1.85 LCF-WER, 95 % CI [-2.44, +6.26]. INDISTINGUISHABLE.**
+Per trial 1c is better on 35, worse on 45, tied on 22 — a coin flip.
+
+**THE FINDING, and it is not the one expected.** 1c decisively beats 1a at
+*landing on the requested speaker* — same-gender +8/-0, p = 0.008, the first
+checkpoint to clear the coin-flip bar — and that advantage **does not appear in
+the words recovered**. Selecting the right speaker is necessary and is not
+sufficient: the content is still destroyed by whatever destroys it, and fixing
+the cue did not fix that.
+
+**Two things point the same way.** 1c leaks MORE than 1a despite selecting
+better (mean leak 23.35 vs 19.41, ICR@2 38.8 vs 35.9) and invents slightly more
+(3.62 vs 3.37). A model that more often knows who to follow is not thereby
+quieter about the other speaker. That pairing is worth a look on its own.
+
+**Caveat that governs the comparison.** Both are LAST epochs of runs selected on
+`present_branch`, and neither was ever selected on content. This is a comparison
+of two arbitrary endpoints, not of two arms at their best. It is exactly the
+question the content probe exists to answer, and it is why the 1c rerun is still
+worth the session: *does better speaker selection convert into content when the
+run is steered by content?*
+
+**The gate fired once.** 1 of 103 `both` trials was blocked as speech-free on 1c
+e12's output. Every trial there is target-present, so per
+`metric-definitions.md` 3.1 that is a finding, not a measurement error: the
+system destroyed the speech on that trial. Report it with the number.
+
+## 2026-09-24 — The content_wer run's epoch 13 TIES 1a, the offline listener LOOPS, and 1a's word-error gain does not survive the private split
+
+`models/model_sir0_cuecontext-wer-e13.pt` (selected = last),
+`experiments/results/2026-09-24-train-sir0-cuecontext-wer/`, eval dirs
+`2026-09-24-*-cuecontext-wer-e13`. Judge: `gemini-3.7-flash`, audio-in /
+text-out, `judge_prompt.txt` (sha `d118b7d3bf30`), run 2026-09-24; controls
+judged 2026-09-06 / 09-23, cross-date comparison valid per `decisions-m4.md`
+2026-09-07.
+
+### The read, `sir0_val` `both`, 103 trials
+
+| | better | baseline | 1a e15 | 1c e12 | **wer e13** |
+|---|---|---|---|---|---|
+| judge LCF-WER | lower | 55.59 | 45.23 | 45.23 | **42.93** |
+| ASR LCF-WER, as reported | lower | 59.52 | **52.76** | 54.63 | 63.24 |
+| ASR, loop guard (below) | lower | 59.52 | **52.76** | 54.63 | 56.46 |
+| ASR, loop clips dropped for ALL systems (94) | lower | 57.09 | **50.81** | 52.76 | 51.28 |
+| ICR@2 | lower | 50.49 | 35.92 | 38.83 | **34.95** |
+| same-gender / cross-gender lands right | higher | 52.6 / 71.8 | 64.5 / 84.6 | 67.1 / 84.6 | 65.8 / **87.2** |
+
+- **No arm-level difference is established.** Judge: -2.3 vs 1a, inside the
+  +-4.16 test-retest band. Directional vs 1a e15: +3/-2 same-gender, McNemar
+  p = 1.0. On the offline ASR e13 is 0.5-3.7 points BEHIND 1a depending on how
+  loops are treated, and 10.5 behind as reported.
+- **What the run does show:** content-based selection kept the epoch the
+  listener liked (idx 13) rather than a loud one, and matched 1a's last epoch
+  in 14 epochs instead of 16. The content gain over the baseline is still 1a's.
+- e13 fully mutes 2 of the 103 `both` clips (speech gate, read as empty).
+
+### THE OFFLINE LISTENER LOOPS, and the probe inherited it
+
+On three e13 clips `small.en` transcribed the target, then repeated itself:
+`sir0_val-42-000098`, 166 words for a 55-word target, one clause repeated seven
+times; `000012` 167 words where both speakers said 39; `000109` 105 for 31.
+Words from NEITHER script, so a listener failure, not leakage; the judge did not
+do it. Every system has clips whose transcript runs past what was spoken; e13's
+run furthest.
+
+**The same checkpoint on the same 40 probe clips read 53.66 on Kaggle and 66.19
+locally.** Clip 12 looped here and, by the arithmetic, not there: extraction on
+the T4 vs the cpu differs numerically, and whether greedy decoding falls into
+the loop is not a smooth function of the audio. **One clip moved the 40-clip
+score ~12 points**, and that score now drives selection AND the lr schedule.
+
+**Corrected, same day:** the "e13 53.7, best of the three last epochs on the
+probe clips" reading compared Kaggle's number with local ones. Like for like
+(cpu, loop guard) e13 reads 56.11 on those 40 against 1a e15's 54.61.
+
+### The loop guard — `content_probe.cap_errors_at_spoken`
+
+Per clip, errors are capped at the words BOTH speakers said
+(`content_probe.clip_errors`). The error count is an edit distance, at most
+max(reference, transcript); the reference is part of what was spoken, so the cap
+never binds on a transcript no longer than everything said, however wrong,
+including one that is entirely the other speaker. **It binds only on words
+nobody said; leakage is still charged in full.**
+
+- **Validated:** unchanged for 1a e15 (54.61) and 1c e12 (55.95) on the 40; e13
+  66.19 -> 56.11, one clip capped. On the 103 it caps only e13's 3 loop clips.
+- **Off by default**, and absent from every config: a run keeps the rule its
+  history was scored under, and `comparable_config` refuses a resume across the
+  key. **The running resume uses the UNGUARDED probe**, so read a sudden probe
+  spike there as a possible loop; re-score its kept checkpoints with the guard
+  afterwards. Turn it on for the next FRESH run.
+- **The reported LCF-WER is unchanged** (`metric-definitions.md` 3.1). Whether
+  to report a guarded variant beside it is an M4 decision, not taken here.
+- Tests: `tests/test_content_probe_loop_guard.py`, 6 tests.
+
+### 1a e15 on `sir0_privval`, 1,421 trials: the leak cut is real, the WER gain is not
+
+`2026-09-23-eval-privval-cueparts-e15-asr`,
+`2026-09-23-leakage-share-privval-cueparts-e15/bootstrap_1a-e15_vs_baseline.txt`.
+Paired bootstrap against the baseline control:
+
+| | difference | 95 % interval | verdict |
+|---|---|---|---|
+| LCF-WER | **-1.51** | [-4.07, +1.04] | **inside the noise** |
+| mean leaked % | **-13.46** | [-15.01, -11.90] | outside the interval |
+
+Better on 569 trials, worse on 597, tied 255. **On `sir0_val` the same gap was
+-6.76**, on the split e15 was preferred on: the winner's curse
+`decisions-m2.md` 2026-09-23 warned of, now measured. 1a lets through 44 % fewer
+of the other speaker's words (5,093 -> 2,837) and gives back most of that gain
+in other errors. The defensible
+claim is **"1a halves leakage on two-speaker mixtures"**, not "1a lowers word
+error". The bootstrap had not run because `analyse_leakage_share.py` refused 18
+fully muted clips; the gate-aware read (c2a86d85, 2026-09-23) fixed it.
+
+**`sir0_privval` scoring was dropped later on 2026-09-24** (`decisions-m3.md`
+2026-09-24). The 1a e15 read above was rendered and transcribed before that; the
+bootstrap re-read its cached transcripts. No further privval runs.

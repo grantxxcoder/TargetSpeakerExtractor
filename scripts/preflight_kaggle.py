@@ -73,6 +73,35 @@ def main():
     for key in ("SPLIT", "EPOCHS", "BATCH_SIZE", "CONFIG"):
         print(f"    {key:<11}{knobs.get(key, '(not found)')}")
 
+    # THE CONTENT PROBE. Checked here because a run whose scheduler and
+    # selector read `content_wer` will die at the end of epoch 0 if the probe
+    # is off, and a run with the probe on but the old selector silently wastes
+    # the ASR time. decisions-m2.md 2026-09-23.
+    probe = (cfg.get("content_probe") or {})
+    train_cfg = cfg.get("training", {})
+    reads_wer = {train_cfg.get("select_on"), train_cfg.get("lr_schedule_on")} & {"content_wer"}
+    print("\n  THE CONTENT PROBE (validation WER in the loop):")
+    print(f"    enabled             {probe.get('enabled', False)}")
+    if probe.get("enabled"):
+        print(f"    split / n_trials    {probe.get('split')} / {probe.get('n_trials')}")
+        print(f"    every_n_epochs      {probe.get('every_n_epochs', 1)}")
+        print(f"    asr_device          {probe.get('asr_device', 'cpu')}")
+    print(f"    select_on           {train_cfg.get('select_on')}")
+    print(f"    lr_schedule_on      {train_cfg.get('lr_schedule_on')}")
+    print(f"    keep_stride         {train_cfg.get('keep_stride', 0)}"
+          f"   keep_top_k {train_cfg.get('keep_top_k')}")
+    if reads_wer and not probe.get("enabled"):
+        sys.exit("\n  THE SCHEDULER OR SELECTOR READS `content_wer` AND THE PROBE IS OFF.\n"
+                 "  train.py raises at the end of epoch 0. Set content_probe.enabled true.")
+    if reads_wer and int(probe.get("every_n_epochs", 1)) != 1:
+        sys.exit("\n  `content_wer` IS READ EVERY EPOCH BUT THE PROBE DOES NOT RUN EVERY EPOCH.\n"
+                 "  Set content_probe.every_n_epochs to 1.")
+    if probe.get("enabled") and probe.get("split") in ("sir0_privval", "eval_private"):
+        sys.exit(f"\n  THE PROBE WOULD STEER TRAINING ON {probe.get('split')}, A REPORTED HOLDOUT.")
+    if probe.get("enabled") and train_cfg.get("keep_stride", 0) in (0, None):
+        print("    NOTE keep_stride is 0, so only the top-k by score and _last.pt")
+        print("         survive. 1a's best content epoch ranked 10th of 14.")
+
     print(f"\n  THE ARM, read from the config INSIDE THE ZIP ({member}):")
     for key in ARM_KEYS:
         value = cfg["model"].get(key, "(absent)")
