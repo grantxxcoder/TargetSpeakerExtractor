@@ -1,3 +1,70 @@
+# ARM 1a: hand the network the speaker cue's PARTS, not their product.
+#
+# ONE KEY DIFFERS FROM bsrnn_baseline.yaml: model.tfmap_parts: true.
+# Everything else -- data, seed, schedule, loss weights, sizing -- is the
+# baseline verbatim, so this is a controlled ablation of the cue's
+# REPRESENTATION and of nothing else.
+#
+# THE OBSERVATION. The cue ends by projecting the UN-normalised mixture frame
+# onto the target's template direction:
+#
+#     matched_level = <x_t, direction_t> = ||x_t|| * cos(theta_t)
+#                                           ------   ------------
+#                                           loudness   identity
+#
+# One number, two causes, multiplied. MEASURED 2026-09-21:
+# corr(matched_level, frame loudness) = 0.990. That is ARITHMETIC, not a
+# training failure -- no change to the data distribution can move it, and
+# 2026-09-21 verified sir0_train SIR is symmetric (mean +0.08 dB), so the model
+# is not being handed a loudness shortcut by the data either.
+#
+# WHY IT MATTERS. The mask the model predicts is a RATIO -- keep this fraction
+# of this bin. matched_level is an ABSOLUTE quantity: "5 units of target here"
+# cannot say whether that is the whole frame or 70 % of it. An absolute
+# measurement was feeding an inherently relative decision.
+#
+# THE CHANGE. Hand over the exact orthogonal decomposition instead:
+#
+#     x = matched_level * direction + unmatched,  <direction, unmatched> = 0
+#
+#     direction        the template at unit length   loudness-free
+#     match_fraction   matched_level / ||x||         the RATIO, in [0,1]
+#     unmatched        x - matched_level*direction   what does NOT match
+#
+# Input width 3 -> 5 channels. +66,820 parameters (+0.93 %), MEASURED:
+# 7,189,644 -> 7,256,464. NOT parameter-matched to its control, and the
+# write-up must say so, exactly as tfmap_inject's arm does.
+#
+# THIS IS A REPRESENTATION CHANGE, NOT AN INFORMATION CHANGE. All five channels
+# are deterministic functions of the three the baseline already had (Re and Im
+# give ||x||). The claim is that the recovery is not CHEAPLY COMPUTABLE here: it
+# needs a sqrt of a sum of squares and a data-dependent division, which 1x1
+# convolutions cannot do, and SubbandNorm destroys the per-frame scale before
+# the first block. Say it that way in the report; an examiner will ask.
+#
+# ACCEPTANCE TEST, REGISTERED BEFORE THE RUN.
+#
+#   PRIMARY, and it needs NO TRAINING -- TFMap is parameter-free:
+#     corr(match_fraction, frame loudness) must fall well below the
+#     0.990 of matched_level. scripts/measure_cue_loudness.py.
+#     CAVEAT TO REPORT WITH IT: match_fraction is matched_level divided by the
+#     very quantity being correlated against, so a large drop is partly
+#     guaranteed by the algebra. The INFORMATIVE number is what SURVIVES.
+#
+#   SECONDARY, after training:
+#     same-gender "lands on the right voice" (diagnose_cue_directional.py),
+#     baseline 52.6 % against a 50 % coin flip, cross-gender 71.8 %.
+#     EXPECTED TO BARELY MOVE. 1a removes a confound so that 1c (the frozen
+#     speaker encoder) can be read cleanly; it adds no new identity
+#     information, so a large jump here would need explaining, not celebrating.
+#
+#   THEN the four-case eval suite. An arm scored only on `both` cannot tell
+#     leakage REMOVED from leakage MOVED (decisions-m3.md 2026-09-21).
+#
+# NOT COMBINABLE WITH tfmap_inject: the injector projects a 1-channel cue and
+# the constructor refuses both. Item 1b is ranked after this arm for that
+# reason. decisions-m2.md 2026-09-22, ranked-next-steps.md item 1a.
+
 seed: 42
 
 data:
@@ -75,6 +142,46 @@ model:
     hop: 128            # 8 ms
   lookahead_frames: 0   # 0-16. Each frame = one hop = 8 ms.
   tfmap_scale: 16.0      # scale factor for the attention logits in TFMap, see src/models/conditioning.py
+  tfmap_part_scales: [6.9402, 0.5073, 1.2803]
+                         # DERIVED 2026-09-22, scripts/derive_cue_scales.py over
+                         # 200 sir0_val crops, NOT chosen. Order: direction,
+                         # match_fraction, unmatched. Criterion: match each
+                         # channel's RMS to the RMS of the Re/Im channels it is
+                         # concatenated with, because ChannelWiseLayerNorm
+                         # standardises by a STANDARD DEVIATION, so a channel's
+                         # influence is governed by its spread.
+                         #
+                         # MEASURED EFFECT, the reason this is not cosmetic --
+                         # share of the separator's input each channel drives:
+                         #   direction        0.6 % ->  26.8 %
+                         #   match_fraction 134.9 % ->  98.0 %
+                         #   unmatched        4.4 % ->   8.8 %
+                         # against the OLD single cue's 50.9 %. Without this the
+                         # channel carrying the target's spectral shape is
+                         # effectively invisible to the separator.
+                         #
+                         # CHECKABLE, not merely plausible: `direction` is
+                         # unit-norm over F bins, so its per-bin RMS is exactly
+                         # 1/sqrt(257) = 0.0624, and the derivation measured
+                         # 0.0624.
+                         #
+                         # THE 2026-09-22 2-EPOCH PROBE RAN WITHOUT THIS KEY,
+                         # i.e. at all ones. Its archived config travels with its
+                         # results directory, so that run stays reproducible; do
+                         # NOT compare its curves to a scaled run's.
+                         #
+                         # RESIDUAL IMBALANCE IS EXPECTED AND NOT A BUG.
+                         # match_fraction is CONSTANT across bins within a frame
+                         # while Re/Im vary, and a constant shifts a
+                         # mean-subtracting normalisation more than a varying
+                         # channel of the same RMS does. Equal RMS therefore does
+                         # not mean equal share. Say that rather than tuning the
+                         # numbers until the shares match.
+  tfmap_parts: true      # ITEM 1a. The cue supplies 3 channels (direction,
+                         # match_fraction, unmatched) instead of 1, so the
+                         # network input is 5 wide, not 3. Absent or false
+                         # everywhere else, which is what every run up to
+                         # 2026-09-22 trained.
 
 loss:
   # M2 objective, decisions-m2.md 2026-08-20. Six deviations from CARTSE
@@ -229,6 +336,26 @@ training:
   #
   #   New arms should set `present_branch`, matching select_on so the schedule
   #   and the selector cannot drift apart again. decisions-m2.md 2026-09-21.
+  lr_schedule_on: present_branch
+                        # SET, 2026-09-22, because this file is a new arm and the
+                        # block above says new arms must. It was inherited
+                        # COMMENTED OUT from bsrnn_baseline.yaml on 2026-09-22
+                        # and the first Kaggle attempt therefore ran with the
+                        # schedule on `total` while select_on was already
+                        # `present_branch` -- the two watching different numbers,
+                        # which is the exact drift 31655e5 existed to end.
+                        #
+                        # CONSEQUENCE TO CARRY: the 2026-09-04 baseline of record
+                        # ran with the schedule on `total`, because the fix did
+                        # not exist yet. So this arm's lr TRAJECTORY may diverge
+                        # from its control's. That is accepted deliberately --
+                        # the alternative is knowingly scheduling on a number the
+                        # project has already shown cannot rank a model. State it
+                        # in the write-up rather than discovering it in a viva.
+                        #
+                        # It cannot affect a 2-epoch probe either way:
+                        # lr_patience is 3, so ReduceLROnPlateau cannot fire
+                        # inside two epochs whatever it is watching.
   lr_factor: 0.5        # ReduceLROnPlateau on val total
   lr_patience: 3        # must stay < patience or training stops before the
                         # lr ever drops
@@ -254,3 +381,28 @@ training:
                               # model_<split>_e{NNN}.pt. Insurance: the criterion
                               # is a judgement call, and re-scoring a run later
                               # needs the weights to still exist. 0 disables.
+
+# VALIDATION WORD ERROR RATE, IN THE LOOP. Added 2026-09-23.
+# OFF by default, so this block changes nothing until `enabled: true`.
+#
+# Why it exists: every signal-domain rule ranked this run's epoch 9 first, and
+# epoch 9 is worse than doing nothing on content (ASR LCF-WER 65.63 against a
+# 65.22 floor) while epoch 15 reads 52.77. Nothing in training could see that,
+# because nothing in training computed it. decisions-m2.md 2026-09-23.
+#
+# Turning it on: set enabled true, then point `training.select_on` and
+# `training.lr_schedule_on` at `content_wer`. Leave `every_n_epochs: 1` if the
+# scheduler reads it -- ReduceLROnPlateau needs a number every epoch.
+#
+# Cost: ~3 s per clip to transcribe on CPU, so 40 clips is ~2 min on top of a
+# 2,356 s epoch, under 6 %. Extraction runs on the training GPU and is not the
+# expensive half. `asr_device: cpu` keeps the transcripts bit-identical to the
+# reported instrument; cuda is faster and is a DIFFERENT instrument.
+content_probe:
+  enabled: false
+  split: sir0_val        # never a holdout -- train.py refuses those
+  condition: both
+  n_trials: 40           # the cost knob
+  every_n_epochs: 1
+  asr_device: cpu
+  ema_span: 3            # WER is not smooth; the scheduler reads the EMA

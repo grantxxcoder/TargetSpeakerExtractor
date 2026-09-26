@@ -67,9 +67,30 @@ actually taken go to the decision log of the milestone they belong to —
   starting point: a free local listener already explains 68 % of the judge's
   per-trial error (r^2 0.680) but is 21.7 points out on the level. See the
   2026-09-15 G1 section at the end of this file.
+- **O4 — OBLIGATION, raised 2026-09-21: we ARE the REAL-TSE Challenge baseline
+  (`BSRNN_TFMAP_CAUSAL`), and our three negative M5 results independently
+  reproduce that challenge's published consensus.** Must be reported as a
+  reproduction, not as project-specific failure. Includes the organisers'
+  mid-challenge metric-gaming incident, which is first-hand evidence for this
+  project's metric contribution. Four confounds in the WeSep comparison are
+  listed there and must travel with it. See the 2026-09-21 O4 section.
+- **D5 — REOPENED 2026-09-21, and the directional test RAN 2026-09-22.** Demoted
+  2026-08-30 on `rel_movement`, a magnitude-without-direction diagnostic that
+  cannot distinguish "moved toward the interferer" from "changed level". The
+  directional test has now been run and D5 survives it with a SHARPER
+  justification: the cue lands on the right voice 71.8 % of the time
+  cross-gender and **52.6 % same-gender, which is a coin flip** (n = 38 crops,
+  p = 0.73; the gender gap chi2 p = 0.022, and it widens inside the
+  balanced-SIR slice). A frozen ECAPA is trained to discriminate speakers WITHIN
+  gender, which is exactly the failure. **The registered acceptance test for 1c
+  is the same-gender rate, not an aggregate word error.** Item 1a is built and
+  its own acceptance test passed. Full entry: `decisions-m2.md` 2026-09-22.
+  Retire "the cue is a loudness meter" -- it is a PITCH detector with a loudness
+  default. See `ranked-next-steps.md` items 1-2.
 - **O1/O2/O3 — obligations, not options.** Score the struct control on
-  `sir0_privval` (1.2 h, its registered acceptance test is unrun), write D17 up,
-  and produce M6's stratified tables. See the 2026-09-15 menu.
+  `sir0_privval` (**done 2026-09-15**, 48.90; `sir0_privval` then dropped from
+  evaluation 2026-09-24, `decisions-m3.md`), write D17 up, and produce M6's
+  stratified tables. See the 2026-09-15 menu.
 
 - **A1 needs sign-off only, not a decision.** Reference is the full reverberant
   target: separate and denoise, do not dereverberate. Removing a 0.6 s tail inside
@@ -3318,6 +3339,23 @@ exposed, the free fallback is the mask implied by output/input magnitude.
 **Carry the caveat:** different data, different objective, different training
 budget. This diagnoses *our* model; it is not a comparison claim.
 
+### D20. Derive the silence bar from the listener, not from a dB number
+
+**Status: proposal, opened 2026-09-23 (`decisions-m2.md` 2026-09-23).**
+
+**Why.** `select_abs_max: -10.0` was never derived. Suppression in dB is not
+silence to the listener: the control at -11.0 dB on `interferer_only` still hands
+the ASR 81 % of the other speaker's words.
+
+**The measurement.** For each absent-target estimate: suppression (dB) against
+words the listener transcribes, using the speech gate's 0.10 s speech floor.
+Needs a small per-trial script -- `eval_by_case.py` writes only aggregates. No
+training run, no API if the ASR is the listener.
+
+- **A dB level where words reach ~0** => that is the bar, derived.
+- **No such level short of the -20 dB floor** => the silence term should target
+  content, not loudness, and `L_abs` is the wrong instrument for it.
+
 ### J5. Run-to-run training variance — the third noise source, still unmeasured
 
 **Status: proposal. This one is uncomfortable and it is load-bearing.**
@@ -3942,3 +3980,73 @@ them, and **verify the winners with real judge calls**.
 
 **This is the best fidelity-per-risk point on the page** and it was missing from
 the sequence above.
+
+---
+
+## 2026-09-21 — O4, OBLIGATION: we ARE the challenge baseline, and we reproduced its consensus independently
+
+**Report this. Our architecture is the SLT 2026 REAL-TSE Challenge baseline
+`BSRNN_TFMAP_CAUSAL`, and our three "negative" M5 results are that challenge's
+published consensus, arrived at without knowing it.** Writing them up as
+project-specific failures understates them; they are an independent
+reproduction, which is a stronger claim and costs nothing to make.
+
+### What we found on our own, and what the challenge found
+
+| our result | date | the consensus it reproduces |
+|---|---|---|
+| 14.73 M bought **exactly zero** separation gain (-2.9020 vs -2.9000) | 09-21 | top teams used *nearly the same extractor* and won on data, recipe and post-processing, not on size |
+| data scaling +0.32 dB/doubling with **no downstream conversion** | 09-04 | careful data simulation and real-data adaptation are the reported levers |
+| SI-SDR moves the wrong way against content fidelity | 09-04, 09-12 | non-intrusive metrics were **gamed** mid-challenge and the organisers now recommend banning them during development |
+
+**The third row is the one that matters for the thesis.** The organisers had to
+change their official perceptual metric mid-challenge after a team inflated
+SpkSim and DNSMOS with adversarial waveform perturbations without improving
+extraction. That is dated, attributable, first-hand evidence that a
+gaming-resistant content metric is a real contribution -- exactly what this
+project exists to build. Cite it in the metric chapter, not as a footnote.
+
+### VERIFIED LOCALLY on 2026-09-21 -- safe to report
+
+`../wesep_pretrained/tfmap_context_causal_100/`, read directly:
+
+- **Its speaker cue is `tfmap` + `context` (embed_dim 512, `fusion: multiply`),
+  fed by a pretrained `ECAPA_TDNN_GLOB_c512`.** `spkemb` and `usef` are both
+  disabled. **`src/models/conditioning.py` has only `TFMap` and
+  `TFMapInjector` -- no encoder, no contextual embedding, no identity path.**
+- **Parameters: `sep_model` 18.868 M + `spk_ft` 14.597 M = 33.465 M**, against
+  our 7.19 M. The separator *hyperparameters* match ours (`causal: true`,
+  `feature_dim: 128`, `num_repeat: 6`, `win: 512`, `stride: 128`) but the
+  realised separator is 2.7x ours, so **this is NOT a controlled ablation.**
+- **It trained clean:** `data/clean/train-100`, `noise_prob: 0`,
+  `noise_enroll_prob: 0`. No noise, no reverb, no low-SIR curriculum.
+
+### The comparison has FOUR confounds. State all of them or state none
+
+Ours 88.2 WER vs WeSep 49.4 at SIR < -5 differs in capacity (4.7x total),
+causality (it is **not streaming** -- global normalisation, ~6 orders of
+magnitude of future leakage, `decisions-m3.md` 2026-09-03), training data
+(clean vs our noise+reverb) and conditioning. **That comparison alone cannot
+establish that the cue is the bottleneck, and must never be written as if it
+does.**
+
+What survives as evidence for the cue hypothesis is narrower and stands on its
+own: (a) WeSep's *own* published cue ablation, which holds backbone, data and
+schedule fixed and varies only the cue; (b) our direct measurement of our cue
+(78 % rank-1, `corr(alpha_t, mixture loudness) = 0.990`, no negative evidence
+anywhere in the path); (c) the injector's per-band `LayerNorm(bw)` deleting
+`alpha_t`, which mechanically explains D4a's near-zero gates.
+
+### NOT YET VERIFIED -- do not put these in the report until checked
+
+Reported by a literature search on 2026-09-21, not read first-hand: the
+challenge overview (arXiv 2607.15198) and its verbatim conclusion; the baseline
+TER 0.808 on EVAL-2; the WeSep cue-ablation table (6.87 / 12.98 / 14.15 dB
+causal, accuracy 79.9 -> 95.9 %); the gaming incident's details. **Read the two
+papers before citing any of it.**
+
+### The standing rule still applies
+
+Different data, different metric, different protocol. Nothing of ours is
+comparable to a published REAL-TSE number. The claim licensed here is
+"we independently reproduced their conclusion", never "we match their results".

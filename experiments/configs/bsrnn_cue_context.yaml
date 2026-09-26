@@ -1,3 +1,76 @@
+# ARM 1c: a FROZEN SPEAKER ENCODER as an identity anchor, on top of item 1a.
+#
+# TWO KEYS differ from bsrnn_cue_parts.yaml: model.context_embedding and its
+# dimension. Everything else -- data, seed, schedule, loss weights, sizing,
+# tfmap_parts -- is verbatim, so this is a controlled ablation of the identity
+# anchor and of nothing else. ITS CONTROL IS bsrnn_cue_parts.yaml, NOT the
+# 2026-09-04 baseline: 1a is already a change, and comparing 1c to the baseline
+# would credit this arm with 1a's effect as well.
+#
+# THE OBSERVATION IT ANSWERS. MEASURED 2026-09-22, decisions-m2.md: the TF-Map
+# cue lands on the right voice 71.8 % of the time cross-gender and 52.6 %
+# same-gender -- a coin flip, n = 38 crops, p = 0.73. The gender gap is
+# significant (chi2 p = 0.022) and WIDENS inside the balanced-SIR slice, so it
+# is not a loudness artefact.
+#
+# WHY. The cue's template is a convex combination of the ENROLMENT'S OWN
+# SPECTRA, i.e. a spectral average. Two speakers with similar average spectra --
+# similar pitch, similar vocal tract length -- give similar templates, and no
+# amount of training fixes a representation that cannot express the difference.
+#
+# THE CHANGE. A frozen ECAPA-TDNN (Desplanques et al., Interspeech 2020),
+# trained on VoxCeleb with a speaker-discriminative objective, emits one 192-d
+# vector per enrolment. L2-normalised (only the DIRECTION carries identity,
+# which is why verification scores with cosine similarity), projected to 128,
+# and fused MULTIPLICATIVELY into the separator's features:
+#
+#     gamma = W e_hat + b
+#     z'    = z * (1 + gamma)        broadcast over every band and every frame
+#
+# Multiplicative adaptation follows Delcroix et al., ICASSP 2020 (time-domain
+# SpeakerBeam); same form as FiLM's gamma (Perez et al., AAAI 2018). BORROWED
+# METHOD -- our data, metric and protocol differ from all of them and nothing
+# here is comparable to a published number.
+#
+# gamma depends on the SPEAKER and on nothing else: not time, not frequency,
+# not the mixture. So it carries no per-frame loudness and cannot be confounded
+# by which speaker is louder -- the failure measured at SIR >= +5 dB, where the
+# cue tracks the louder voice 94.7 % of the time.
+#
+# COST. +24,704 trainable (+0.34 %). ECAPA is 20,767,552 frozen parameters and
+# lives OUTSIDE the model (src/models/context_encoder.py): absent from
+# state_dict, from the optimiser, and from DataParallel's per-forward
+# replication. AT INFERENCE IT RUNS ONCE, BEFORE THE STREAM, so the per-frame
+# cost is exactly ZERO and the latency budget is untouched. That is the claim
+# the design exists to make true, not a convenient story told afterwards.
+#
+# ZERO INIT. W and b start at zero, so gamma = 0 and z' == z EXACTLY: at
+# initialisation this model is bit-identical to its 1a control and the arm
+# cannot be credited with a different starting point.
+#
+# ACCEPTANCE TEST, REGISTERED BEFORE THE RUN.
+#
+#   PRIMARY: same-gender "lands on the right voice", currently 52.6 % against a
+#     50 % coin flip. scripts/diagnose_cue_directional.py. THIS IS THE NUMBER
+#     THE WHOLE ARM EXISTS TO MOVE.
+#
+#   Cross-gender (71.8 %) should HOLD or improve. If cross-gender improves while
+#     same-gender does not, the anchor is being used as a louder pitch detector
+#     and the arm has FAILED on its own terms -- say so rather than reporting
+#     the aggregate.
+#
+#   ||gamma|| after training. gamma staying near zero means the anchor is being
+#     ignored, and every other number is then about 1a, not 1c.
+#
+#   THEN the four-case eval suite. An arm scored only on `both` cannot tell
+#     leakage REMOVED from leakage MOVED (decisions-m3.md 2026-09-21).
+#
+# MEMORISATION IS NOT A RISK HERE, and the reason is worth stating rather than
+# rediscovering: the encoder is FROZEN and was trained on VoxCeleb, so it never
+# sees our speakers; our splits are speaker-disjoint by construction; and the
+# enrolment is dry while the mixture is reverberant, so channel matching is
+# actively unavailable and voice is what is left. decisions-pending.md D5.
+
 seed: 42
 
 data:
@@ -75,6 +148,66 @@ model:
     hop: 128            # 8 ms
   lookahead_frames: 0   # 0-16. Each frame = one hop = 8 ms.
   tfmap_scale: 16.0      # scale factor for the attention logits in TFMap, see src/models/conditioning.py
+  context_embedding: true    # ITEM 1c. Builds BSRNN_TFMAP_CONTEXT instead of
+                             # BSRNN_TFMAP. Its forward REQUIRES enrol_embedding,
+                             # so a script that has not been taught to supply one
+                             # gets a TypeError rather than silently running an
+                             # UNCONDITIONED model that still scores.
+                             # decisions-pending.md E8.
+  context_embedding_dim: 192 # asserted against the snapshot at startup, not
+                             # trusted: a different ECAPA would change it.
+  context_normalise: true    # L2-normalise before the projection. Only the
+                             # DIRECTION carries identity; the magnitude varies
+                             # with the enrolment's length and level. The
+                             # un-normalised form is a one-line ablation.
+  # ecapa_dir:               # absent => resolved automatically, trying the
+                             # configured path, then <repo>/ecapa_pretrained
+                             # (where the Kaggle bundle stages it), then the
+                             # sibling ../ecapa_pretrained (where it lives
+                             # locally). See resolve_ecapa_dir().
+  # ecapa_sha256:            # optional pin. The hashes are recorded in
+                             # meta.yaml on every run regardless, so a silent
+                             # weights change is detectable after the fact.
+  tfmap_part_scales: [6.9402, 0.5073, 1.2803]
+                         # DERIVED 2026-09-22, scripts/derive_cue_scales.py over
+                         # 200 sir0_val crops, NOT chosen. Order: direction,
+                         # match_fraction, unmatched. Criterion: match each
+                         # channel's RMS to the RMS of the Re/Im channels it is
+                         # concatenated with, because ChannelWiseLayerNorm
+                         # standardises by a STANDARD DEVIATION, so a channel's
+                         # influence is governed by its spread.
+                         #
+                         # MEASURED EFFECT, the reason this is not cosmetic --
+                         # share of the separator's input each channel drives:
+                         #   direction        0.6 % ->  26.8 %
+                         #   match_fraction 134.9 % ->  98.0 %
+                         #   unmatched        4.4 % ->   8.8 %
+                         # against the OLD single cue's 50.9 %. Without this the
+                         # channel carrying the target's spectral shape is
+                         # effectively invisible to the separator.
+                         #
+                         # CHECKABLE, not merely plausible: `direction` is
+                         # unit-norm over F bins, so its per-bin RMS is exactly
+                         # 1/sqrt(257) = 0.0624, and the derivation measured
+                         # 0.0624.
+                         #
+                         # THE 2026-09-22 2-EPOCH PROBE RAN WITHOUT THIS KEY,
+                         # i.e. at all ones. Its archived config travels with its
+                         # results directory, so that run stays reproducible; do
+                         # NOT compare its curves to a scaled run's.
+                         #
+                         # RESIDUAL IMBALANCE IS EXPECTED AND NOT A BUG.
+                         # match_fraction is CONSTANT across bins within a frame
+                         # while Re/Im vary, and a constant shifts a
+                         # mean-subtracting normalisation more than a varying
+                         # channel of the same RMS does. Equal RMS therefore does
+                         # not mean equal share. Say that rather than tuning the
+                         # numbers until the shares match.
+  tfmap_parts: true      # ITEM 1a. The cue supplies 3 channels (direction,
+                         # match_fraction, unmatched) instead of 1, so the
+                         # network input is 5 wide, not 3. Absent or false
+                         # everywhere else, which is what every run up to
+                         # 2026-09-22 trained.
 
 loss:
   # M2 objective, decisions-m2.md 2026-08-20. Six deviations from CARTSE
@@ -229,6 +362,28 @@ training:
   #
   #   New arms should set `present_branch`, matching select_on so the schedule
   #   and the selector cannot drift apart again. decisions-m2.md 2026-09-21.
+  lr_schedule_on: content_wer   # 2026-09-23: was present_branch. That number
+                                # kept 1a's epoch 9, which is worse than doing
+                                # nothing on content. decisions-m2.md.
+                        # SET, 2026-09-22, because this file is a new arm and the
+                        # block above says new arms must. It was inherited
+                        # COMMENTED OUT from bsrnn_baseline.yaml on 2026-09-22
+                        # and the first Kaggle attempt therefore ran with the
+                        # schedule on `total` while select_on was already
+                        # `present_branch` -- the two watching different numbers,
+                        # which is the exact drift 31655e5 existed to end.
+                        #
+                        # CONSEQUENCE TO CARRY: the 2026-09-04 baseline of record
+                        # ran with the schedule on `total`, because the fix did
+                        # not exist yet. So this arm's lr TRAJECTORY may diverge
+                        # from its control's. That is accepted deliberately --
+                        # the alternative is knowingly scheduling on a number the
+                        # project has already shown cannot rank a model. State it
+                        # in the write-up rather than discovering it in a viva.
+                        #
+                        # It cannot affect a 2-epoch probe either way:
+                        # lr_patience is 3, so ReduceLROnPlateau cannot fire
+                        # inside two epochs whatever it is watching.
   lr_factor: 0.5        # ReduceLROnPlateau on val total
   lr_patience: 3        # must stay < patience or training stops before the
                         # lr ever drops
@@ -239,7 +394,11 @@ training:
   # was never derived to rank finished models, and ranking with it kept a
   # checkpoint at 1.13 dB held-out separation when the same run reached 2.36 dB
   # (remix arm, 2026-08-30). decisions-m2.md 2026-08-30.
-  select_on: present_branch   # present_branch | total | separation.
+  select_on: content_wer      # content_wer | present_branch | total | separation.
+                              # 2026-09-23: was present_branch. 1c's own e5 was
+                              # selected by it and lands the requested speaker
+                              # 53.9 % of the time; e12, which it rejected,
+                              # reaches 67.1 %. Same failure as 1a.
                               # `total` = the pre-2026-08-30 behaviour, kept so
                               # the old runs remain reproducible.
                               # `separation` = L_pres alone; available and NOT
@@ -250,7 +409,29 @@ training:
                               # target-absent crops. A CONSTRAINT rather than a
                               # second weighting: "quiet enough, then the best
                               # separator". null disables it.
+  keep_stride: 3              # ALSO keep every 3rd epoch, and the last,
+                              # regardless of score. 1a's best content epoch
+                              # ranked 10th of 14, so a score-ordered cut
+                              # discards it. ~87 MB each.
   keep_top_k: 3               # Also keep the k best eligible epochs as
                               # model_<split>_e{NNN}.pt. Insurance: the criterion
                               # is a judgement call, and re-scoring a run later
                               # needs the weights to still exist. 0 disables.
+
+# VALIDATION WORD ERROR RATE, IN THE LOOP. Added 2026-09-23 for the 1c rerun.
+# The scheduler and the selector both read `content_wer` (see training:), so
+# every_n_epochs MUST stay 1 -- ReduceLROnPlateau needs a number every epoch.
+# Cost, MEASURED 2026-09-23 on this laptop: ~4 s/clip for the ASR on cpu, so
+# 40 clips is ~2.7 min. Extraction is the cheap half on a T4 (it is ~16 s/clip
+# on cpu, which is why this number is a Kaggle number, not a laptop one).
+# Against a 2,575 s epoch that is ~7 %, i.e. ~48 min on a 16-epoch run.
+# Halve it with n_trials: 24, or set asr_device: cuda -- much faster, but then
+# the transcripts are NOT the reported instrument's.
+content_probe:
+  enabled: true
+  split: sir0_val        # never a holdout -- train.py refuses those
+  condition: both
+  n_trials: 40
+  every_n_epochs: 1
+  asr_device: cpu        # cpu keeps it identical to the reported instrument
+  ema_span: 3

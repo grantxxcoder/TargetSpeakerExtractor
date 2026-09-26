@@ -1,0 +1,56 @@
+# Per-case evaluation suite. scripts/eval_by_case.py
+#
+# WHY A CONFIG FOR AN EVAL. Same reason as every other run: the numbers are
+# only readable next to the settings that produced them, and "which cases, on
+# which split, heard by whom" is exactly what makes two case-suite runs
+# comparable or not. CLAUDE.md, non-negotiable rules.
+#
+# THIS FILE DEFINES THE SUITE, NOT A MODEL. It carries no hyperparameters and
+# trains nothing. The checkpoint under test is named on the command line via
+# --est, because one suite definition is meant to score many systems.
+
+seed: 42                 # recorded for provenance; the suite is deterministic
+                         # (cache lookups + greedy ASR + jiwer alignment)
+
+split: sir0_val          # sir0_privval is the larger set. Its anchors are NOT
+                         # the sir0_val anchors -- floor 53.49 vs 65.22 --
+                         # so a number from one split may never be compared to
+                         # the other. decisions-m3.md 2026-09-13.
+
+cases:                   # all four. The `both` case was the only one ever
+  - target_only          # scored on content before 2026-09-21; the other three
+  - both                 # are ~48 % of the split and were unmeasured.
+  - interferer_only
+  - noise_only
+
+listener: asr            # faster-whisper small.en, int8, cpu, greedy.
+                         # A STAND-IN for the judge, never a live-model result.
+                         # Switch to `judge` only after the asr run has been
+                         # read -- it costs API calls and the cheap question
+                         # should be answered first. run_eval_suite.py's
+                         # staging argument applies here unchanged.
+
+sir_breakdown: true      # split `both` by SIR band. decisions-m3.md 2026-09-12
+                         # measured the two ends as different problems, so a
+                         # blended `both` number hides the finding. Never turn
+                         # this off for a reported run.
+
+limit: null              # per case, not in total. null = every trial.
+
+# Anchors are recomputed PER CASE inside the suite (floor = raw mixture,
+# ceiling = clean target). They are not transferable between cases:
+# `target_only` has no interferer, so its floor is far easier than `both`'s.
+# Reading a `both` anchor against a `target_only` result is a category error.
+
+# READING THE ABSENT CASES. `interferer_only` and `noise_only` have no target
+# script, so word error is undefined and is not computed. The three numbers
+# that matter there, with their directions:
+#   suppression_db            more negative is better (did we stay quiet)
+#   false_alarm_words_per_trial   zero is correct (words invented or leaked)
+#   non_response_rate_pct     HIGHER is better on an absent case, which is the
+#                             opposite of its reading on a present case
+#
+# THE SPEECH GATE CONFOUNDS `noise_only`. Silero fires on speech-free clips and
+# answers locally without calling the listener, so a clean `noise_only` score
+# may be the gate's work rather than the model's. Read the `gate_blocked` count
+# in results.json before crediting the model for it.
