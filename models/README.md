@@ -96,3 +96,12 @@ result is negative and is logged as such in decisions-m2.md 2026-08-30.
 | `model_sir0_cueparts-e15.pt` | 15 | the last epoch, best of ours on sir0_val word error (ASR 52.76, judge 45.23), reached by cutting harder. Clean speech: Whisper 11.2 % vs 5.3 %, but judge 2.86 % vs 4.00 %. Chosen post hoc. **sir0_privval (ASR): 47.38 vs baseline 48.90, inside the noise**; leakage halved. |
 | `model_sir0_cueparts-e2.pt`, `-e4.pt` | 2, 4 | weights only. The only other surviving epochs of a run whose selection misranked. |
 | `model_sir0_cueparts-probe-e1.pt` | 1 | the 2026-09-22 2-epoch probe, UNSCALED. The evidence for the LayerNorm-gain rebalancing measurement in decisions-m2.md 2026-09-22. Never compare with a scaled run. |
+
+## Item 1c-wer resume: 2026-09-24/25 (`experiments/results/2026-09-24-train-sir0-cuecontext-wer-resume/`)
+
+| file | epoch | why it is kept |
+|---|---|---|
+| `model_sir0_cuecontext-wer-e18.pt` | 18 | the epoch the in-loop Whisper probe selected. Full checkpoint, resumable. |
+| `model_sir0_cuecontext-wer-e27.pt` | 27 | last epoch. Full checkpoint. |
+| `model_sir0_cuecontext-wer-e15.pt` | 15 | weights only. Best held-out separation of the run (val L_pres -4.64). |
+| `model_sir0_cuecontext-wer-e17/-e21/-e24.pt` | 17, 21, 24 | weights only. The rest of the stride/top-k set, for re-scoring on the judge. |

@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live Speaker Extraction</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%234e7bff'/%3E%3Cpath d='M3 8h2M6 5v6M9 3v10M12 6v4' stroke='white' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #0c0e13; --panel: #141821; --panel-2: #1b202c; --line: #2a3142;
+  --text: #eceff5; --muted: #9aa3b7; --accent: #7ea6ff; --accent-2: #4e7bff;
+  --good: #43d193; --warn: #f4b849; --bad: #ff6f6f; --rec: #ff4d5e;
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif; }
+main { max-width: 1320px; margin: 0 auto; padding: 22px 16px 60px; }
+header { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: flex-end; }
+header h1 { font-size: 28px; margin: 0; letter-spacing: -0.015em; }
+header p { color: var(--muted); margin: 0; font-size: 14px; }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  padding: 18px 20px 20px; margin-top: 16px; }
+.step { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 14px; }
+.step .n { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--line);
+  background: var(--panel-2); display: grid; place-items: center; font-weight: 700;
+  color: var(--accent); flex: none; }
+.step h2 { font-size: 20px; margin: 0; }
+.step .hint { color: var(--muted); font-size: 14px; }
+.step .right { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 14px; }
+.card { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px;
+  padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.card.filled { border-color: #3a4868; }
+.card h3 { margin: 0; font-size: 16px; }
+.card .desc { color: var(--muted); font-size: 13px; margin: 0; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+button { font: inherit; font-size: 14px; border-radius: 10px; border: 1px solid var(--line);
+  background: #242b3c; color: var(--text); padding: 8px 14px; cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: .4; cursor: not-allowed; }
+button.primary { background: var(--accent-2); border-color: var(--accent-2); color: #fff; font-weight: 600; }
+button.big { font-size: 17px; padding: 11px 22px; }
+button.rec.on { background: var(--rec); border-color: var(--rec); color: #fff; }
+audio { width: 100%; height: 36px; }
+.label { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; min-height: 18px; }
+.controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px 22px; align-items: end; }
+.ctl { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.ctl b { color: var(--accent); font-weight: 600; }
+.ctl small { color: var(--muted); font-size: 12px; }
+input[type=range] { width: 100%; accent-color: var(--accent-2); }
+input[type=checkbox] { accent-color: var(--accent-2); width: 16px; height: 16px; vertical-align: -3px; }
+input[type=text] { font: inherit; font-size: 14px; flex: 1 1 320px; min-width: 0; padding: 9px 12px;
+  border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); }
+.mixout { margin-top: 14px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.chips { display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 0 14px; }
+.chip { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
+  padding: 7px 12px; display: flex; flex-direction: column; min-width: 120px; }
+.chip span { font-size: 12px; color: var(--muted); }
+.chip b { font-size: 20px; font-variant-numeric: tabular-nums; }
+.chip small { font-size: 11px; color: var(--muted); }
+.chip.ok b { color: var(--good); } .chip.warn b { color: var(--warn); } .chip.bad b { color: var(--bad); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; background: var(--panel-2); }
+.seg button.on { background: var(--accent-2); color: #fff; }
+.spec { position: relative; margin-top: 10px; }
+.spec-title { font-size: 13px; color: var(--muted); margin-bottom: 4px; display: flex; justify-content: space-between; }
+.spec-title b { color: var(--text); font-weight: 600; }
+.canvas-wrap { position: relative; border-radius: 8px; overflow: hidden; background: #000004;
+  border: 1px solid var(--line); }
+canvas.sg { display: block; width: 100%; height: 190px; image-rendering: auto; }
+.ph { position: absolute; top: 0; bottom: 0; width: 2px; background: rgba(255,255,255,.85);
+  left: 0; display: none; pointer-events: none; box-shadow: 0 0 6px rgba(255,255,255,.6); }
+.fticks { position: absolute; inset: 0; pointer-events: none; }
+.fticks div { position: absolute; left: 6px; font-size: 10px; color: rgba(255,255,255,.7);
+  transform: translateY(-50%); text-shadow: 0 0 3px #000; }
+.taxis { position: relative; height: 18px; font-size: 11px; color: var(--muted); }
+.taxis div { position: absolute; transform: translateX(-50%); }
+.replay { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 12px; }
+.replay .card { gap: 6px; }
+.note { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+.note b { color: var(--text); font-weight: 600; }
+.result-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.result.ours { border-color: var(--accent-2); box-shadow: 0 0 0 1px var(--accent-2) inset; }
+.wer { text-align: right; line-height: 1.1; }
+.wer b { font-size: 34px; font-variant-numeric: tabular-nums; }
+.wer span { display: block; font-size: 11px; color: var(--muted); }
+.transcript { margin: 0; font-size: 16px; line-height: 1.65; overflow-wrap: anywhere; }
+.transcript .sub { background: rgba(244,184,73,.2); color: var(--warn); border-radius: 4px; padding: 0 2px; }
+.transcript .ins { background: rgba(255,111,111,.2); color: var(--bad); border-radius: 4px; padding: 0 2px; }
+.transcript .del { color: #6d768c; text-decoration: line-through; }
+.legend { font-size: 12px; color: var(--muted); display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; }
+.legend span span { margin-right: 4px; }
+.badge { font-size: 12px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; color: var(--muted); }
+.ref { font-size: 13px; color: var(--muted); margin: 12px 0 0; overflow-wrap: anywhere; }
+.spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--muted);
+  border-top-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+#toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); max-width: min(90vw, 640px);
+  background: #3a1d23; border: 1px solid var(--bad); color: #ffd9d9; padding: 10px 16px; border-radius: 10px;
+  display: none; z-index: 10; font-size: 14px; }
+code { font-size: 12px; background: var(--panel-2); padding: 1px 5px; border-radius: 5px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Live target speaker extraction</h1>
+    <p id="sub">loading…</p>
+  </header>
+
+  <section>
+    <div class="step"><div class="n">1</div><h2>Voices</h2>
+      <span class="hint">Upload or record. Any format the browser can play.</span>
+      <div class="right"><button id="exampleBtn">Use example voices</button></div>
+    </div>
+    <div class="cards" id="sources"></div>
+  </section>
+
+  <section>
+    <div class="step"><div class="n">2</div><h2>Make the mixture</h2>
+      <span class="hint">Levelled and reverberated the way the training data was built.</span></div>
+    <div class="controls">
+      <label class="ctl"><span>Other speaker: <b id="sirVal"></b></span>
+        <input type="range" id="sir" min="-10" max="10" step="1">
+        <small>trained on ±10 dB</small></label>
+      <label class="ctl"><span><input type="checkbox" id="noiseOn"> Background noise: <b id="snrVal"></b></span>
+        <input type="range" id="snr" min="0" max="20" step="1">
+        <small>lower = noisier · trained on 8–20 dB</small></label>
+      <label class="ctl"><span><input type="checkbox" id="reverb"> Room reverb</span>
+        <small id="reverbHint">every training mixture was recorded in a simulated room</small></label>
+      <div class="row"><button id="mixBtn" class="primary big" disabled>Build mixture</button></div>
+    </div>
+    <div class="mixout" id="mixOut" hidden>
+      <audio id="mixAudio" controls></audio>
+      <div class="label" id="mixMeta"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="step"><div class="n">3</div><h2>Live extraction</h2>
+      <span class="hint">The mixture is fed to the extractor 80 ms at a time, as a microphone would.</span>
+      <div class="right">
+        <div class="seg" id="monitor"><button data-mon="mix" class="on">Hear mixture</button><button data-mon="est">Hear extracted</button></div>
+        <button id="liveBtn" class="primary big" disabled>▶ Go live</button>
+      </div>
+    </div>
+    <div class="chips">
+      <div class="chip"><span>Chunk</span><b id="stChunk">–</b><small>audio per step</small></div>
+      <div class="chip" id="chComp"><span>Compute per chunk</span><b id="stComp">–</b><small id="stCompSub">mean</small></div>
+      <div class="chip" id="chRtf"><span>Real-time factor</span><b id="stRtf">–</b><small>below 1 = keeps up</small></div>
+      <div class="chip"><span>Latency</span><b id="stLat">–</b><small id="stLatSub">chunk + framing + compute</small></div>
+      <div class="chip" id="chLate"><span>Late chunks</span><b id="stLate">–</b><small>missed playback slot</small></div>
+    </div>
+    <div class="spec">
+      <div class="spec-title"><b>What the microphone hears</b><span>mixture</span></div>
+      <div class="canvas-wrap"><canvas class="sg" id="sgMix" width="10" height="190"></canvas>
+        <div class="fticks"></div><div class="ph"></div></div>
+    </div>
+    <div class="spec">
+      <div class="spec-title"><b>What our model lets through</b><span>streamed output audio</span></div>
+      <div class="canvas-wrap"><canvas class="sg" id="sgEst" width="10" height="190"></canvas>
+        <div class="fticks"></div><div class="ph"></div></div>
+      <div class="taxis" id="taxis"></div>
+    </div>
+    <div class="replay" id="replay" hidden>
+      <div class="card"><h3>Mixture</h3><audio id="replayMix" controls></audio></div>
+      <div class="card"><h3>Extracted</h3><audio id="replayEst" controls></audio></div>
+    </div>
+    <p class="note" id="checkNote"></p>
+  </section>
+
+  <section>
+    <div class="step"><div class="n">4</div><h2>What did Gemini hear?</h2>
+      <span class="hint" id="gemHint">Each clip is sent to Gemini with the benchmark's transcription prompt.</span></div>
+    <div class="row">
+      <input type="text" id="refText" placeholder="What the target actually says (optional; otherwise Gemini's transcript of the clean voice is the reference)">
+      <button id="gemBtn" class="primary big" disabled>Send to Gemini</button>
+    </div>
+    <div class="cards" id="gemResults" style="margin-top:14px"></div>
+    <div class="legend" id="legend" hidden>
+      <span><span class="transcript"><span class="sub">word</span></span>misheard</span>
+      <span><span class="transcript"><span class="ins">word</span></span>added (not said)</span>
+      <span><span class="transcript"><span class="del">word</span></span>missed</span>
+    </div>
+    <p class="ref" id="refLine"></p>
+    <p class="note" id="benchNote"></p>
+    <p class="note" id="gemMeta"></p>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const SR = 16000;
+const SG_H = 190;
+let CFG = null, actx = null, mixGain = null, estGain = null, monitor = "mix";
+let mixBuffer = null, mixUrl = null, L = null, recorder = null;
+
+// ---- helpers -------------------------------------------------------------
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => (t.style.display = "none"), 7000);
+}
+async function api(path, opts = {}) {
+  const r = await fetch(path, opts);
+  const j = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
+  if (!r.ok || j.error) throw new Error(j.error || `HTTP ${r.status}`);
+  return j;
+}
+const postJSON = (path, body) => api(path, { method: "POST",
+  headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+function busy(btn, on, text) {
+  if (on) { btn.dataset.label = btn.innerHTML; btn.innerHTML = `<span class="spinner"></span> ${text}`; btn.disabled = true; }
+  else { btn.innerHTML = btn.dataset.label || btn.innerHTML; btn.disabled = false; }
+}
+function ctx() {
+  if (!actx) {
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    mixGain = actx.createGain(); estGain = actx.createGain();
+    mixGain.connect(actx.destination); estGain.connect(actx.destination);
+    setMonitor(monitor);
+  }
+  return actx;
+}
+function b64bytes(s) {
+  const bin = atob(s), u = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  return u;
+}
+const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+async function decodeTo16k(arrayBuffer) {
+  const buf = await ctx().decodeAudioData(arrayBuffer);
+  const off = new OfflineAudioContext(1, Math.max(1, Math.ceil(buf.duration * SR)), SR);
+  const src = off.createBufferSource(); src.buffer = buf; src.connect(off.destination); src.start();
+  return (await off.startRendering()).getChannelData(0);
+}
+
+// ---- step 1: sources -------------------------------------------------------
+const ROLES = [
+  { role: "target", title: "Target voice", desc: "What the target says. The audience hears this buried in the mixture." },
+  { role: "enrollment", title: "Enrolment", desc: "A different recording of the same person. This is all the model knows about who to follow." },
+  { role: "interferer", title: "Other speaker (optional)", desc: "The voice to remove. Left empty, one is picked from LibriSpeech's public test speakers." },
+];
+const have = {};
+
+function buildSourceCards() {
+  const host = $("sources");
+  for (const r of ROLES) {
+    const card = document.createElement("div");
+    card.className = "card"; card.id = `card-${r.role}`;
+    card.innerHTML = `<h3>${r.title}</h3><p class="desc">${r.desc}</p>
+      <div class="row">
+        <button data-act="upload">Upload</button>
+        <button data-act="record" class="rec">● Record</button>
+        ${r.role === "interferer" ? '<button data-act="clear">Clear</button>' : ""}
+        <input type="file" accept="audio/*,video/*" hidden>
+      </div>
+      <audio controls hidden></audio><div class="label"></div>`;
+    const file = card.querySelector("input[type=file]");
+    card.querySelector('[data-act="upload"]').onclick = () => file.click();
+    file.onchange = async () => {
+      if (!file.files[0]) return;
+      try { await sendSource(r.role, await file.files[0].arrayBuffer()); }
+      catch (e) { toast(`${r.title}: ${e.message}`); }
+      file.value = "";
+    };
+    card.querySelector('[data-act="record"]').onclick = (ev) => toggleRecord(r.role, ev.currentTarget);
+    const clear = card.querySelector('[data-act="clear"]');
+    if (clear) clear.onclick = async () => {
+      await postJSON("/api/clear/interferer"); delete have.interferer;
+      card.classList.remove("filled"); card.querySelector("audio").hidden = true;
+      card.querySelector(".label").textContent = ""; invalidateMix();
+    };
+    host.appendChild(card);
+  }
+}
+
+async function sendSource(role, arrayBuffer) {
+  const pcm = await decodeTo16k(arrayBuffer);
+  const v = await api(`/api/source/${role}`, { method: "POST", body: pcm });
+  showSource(v);
+  if (role === "target") $("refText").value = "";
+}
+
+function showSource(v) {
+  const card = $(`card-${v.role}`);
+  const a = card.querySelector("audio");
+  a.src = v.url; a.hidden = false;
+  card.querySelector(".label").textContent = `${v.seconds.toFixed(1)} s · ${v.label}`;
+  card.classList.add("filled");
+  have[v.role] = true;
+  invalidateMix();
+}
+
+async function toggleRecord(role, btn) {
+  if (recorder) {
+    if (recorder.role === role) recorder.stop();
+    return;
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio:
+      { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+  } catch (e) { return toast(`Microphone: ${e.message}`); }
+  const rec = new MediaRecorder(stream), parts = [], t0 = Date.now();
+  rec.role = role; recorder = rec;
+  rec.ondataavailable = (e) => e.data.size && parts.push(e.data);
+  const timer = setInterval(() => (btn.textContent = `■ Stop ${Math.floor((Date.now() - t0) / 1000)} s`), 250);
+  rec.onstop = async () => {
+    clearInterval(timer); stream.getTracks().forEach((t) => t.stop());
+    btn.classList.remove("on"); btn.textContent = "● Record"; recorder = null;
+    try { await sendSource(role, await new Blob(parts, { type: rec.mimeType }).arrayBuffer()); }
+    catch (e) { toast(`Recording: ${e.message}`); }
+  };
+  rec.start(); btn.classList.add("on"); btn.textContent = "■ Stop 0 s";
+}
+
+$("exampleBtn").onclick = async (ev) => {
+  const btn = ev.currentTarget; busy(btn, true, "Picking…");
+  try {
+    const res = await api("/api/example", { method: "POST" });
+    res.sources.forEach(showSource);
+    $("refText").value = res.reference_text || "";
+  } catch (e) { toast(e.message); }
+  busy(btn, false);
+};
+
+// ---- step 2: mixture -------------------------------------------------------
+function sirLabel() {
+  const v = Number($("sir").value);   // other speaker's level relative to the target
+  $("sirVal").textContent = v === 0 ? "as loud as the target"
+    : `${Math.abs(v)} dB ${v > 0 ? "louder" : "quieter"} than the target`;
+}
+function snrLabel() {
+  $("snrVal").textContent = $("noiseOn").checked ? `${$("snr").value} dB below the voice` : "off";
+  $("snr").disabled = !$("noiseOn").checked;
+}
+function reverbHint() {
+  $("reverbHint").textContent = $("reverb").checked
+    ? "every training mixture was recorded in a simulated room"
+    : "dry: outside the conditions the model was trained on";
+}
+$("sir").oninput = sirLabel; $("snr").oninput = snrLabel; $("noiseOn").onchange = snrLabel;
+$("reverb").onchange = reverbHint;
+
+function invalidateMix() {
+  $("mixBtn").disabled = !(have.target && have.enrollment);
+  $("liveBtn").disabled = true; $("gemBtn").disabled = true;
+  mixBuffer = null;
+}
+
+$("mixBtn").onclick = async (ev) => {
+  const btn = ev.currentTarget; busy(btn, true, "Mixing…");
+  try {
+    const res = await postJSON("/api/mix", {
+      sir_db: -Number($("sir").value),
+      snr_db: $("noiseOn").checked ? Number($("snr").value) : null,
+      reverb: $("reverb").checked });
+    mixUrl = res.url;
+    $("mixAudio").src = res.url; $("mixOut").hidden = false;
+    const m = res.meta, bits = [`${res.seconds.toFixed(1)} s`];
+    bits.push(m.reverb ? `room ${m.room.dims_m.map((d) => d.toFixed(1)).join(" × ")} m, reverb time ${m.room.t60_s.toFixed(2)} s` : "no room");
+    bits.push(m.snr_db == null ? "no noise" : "WHAM! noise");
+    bits.push(`saved to ${res.run_dir}`);
+    $("mixMeta").textContent = bits.join(" · ");
+    if (res.interferer) showSource(res.interferer);
+    $("mixBtn").disabled = false;
+    mixBuffer = await ctx().decodeAudioData(await (await fetch(res.url)).arrayBuffer());
+    $("liveBtn").disabled = false; $("gemBtn").disabled = true;
+    resetLive(); $("gemResults").innerHTML = ""; $("legend").hidden = true;
+    $("refLine").textContent = ""; $("gemMeta").textContent = "";
+  } catch (e) { toast(e.message); }
+  busy(btn, false);
+  $("liveBtn").disabled = !mixBuffer;
+};
+
+// ---- step 3: live ----------------------------------------------------------
+// matplotlib's magma, sampled at nine points and interpolated.
+const MAGMA = ["#000004", "#1c1044", "#4f127b", "#812581", "#b5367a", "#e55064", "#fb8761", "#fec287", "#fcfdbf"]
+  .map((h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)));
+const LUT = Array.from({ length: 256 }, (_, v) => {
+  const x = (v / 255) * (MAGMA.length - 1), i = Math.min(MAGMA.length - 2, Math.floor(x)), f = x - i;
+  return MAGMA[i].map((c, k) => Math.round(c + f * (MAGMA[i + 1][k] - c)));
+});
+const mel = (f) => 2595 * Math.log10(1 + f / 700);
+let ROWBIN = null;
+
+function setupCanvases(nFrames, bins) {
+  const top = mel(SR / 2);
+  ROWBIN = Array.from({ length: SG_H }, (_, y) =>
+    Math.min(bins - 1, Math.round((700 * (10 ** ((top * (1 - y / (SG_H - 1))) / 2595) - 1)) / (SR / 2) * (bins - 1))));
+  for (const id of ["sgMix", "sgEst"]) {
+    const c = $(id); c.width = nFrames; c.height = SG_H;
+    const g = c.getContext("2d"); g.fillStyle = "#000004"; g.fillRect(0, 0, nFrames, SG_H);
+  }
+  document.querySelectorAll(".fticks").forEach((el) => {
+    el.innerHTML = [500, 1000, 2000, 4000, 7000].map((f) =>
+      `<div style="top:${(1 - mel(f) / top) * 100}%">${f >= 1000 ? f / 1000 + " kHz" : f + " Hz"}</div>`).join("");
+  });
+}
+
+function drawColumns(id, bytes, frame0, m, bins) {
+  const g = $(id).getContext("2d"), img = g.createImageData(m, SG_H), d = img.data;
+  for (let j = 0; j < m; j++) {
+    const base = j * bins;
+    for (let y = 0; y < SG_H; y++) {
+      const c = LUT[bytes[base + ROWBIN[y]]], p = (y * m + j) * 4;
+      d[p] = c[0]; d[p + 1] = c[1]; d[p + 2] = c[2]; d[p + 3] = 255;
+    }
+  }
+  g.putImageData(img, frame0, 0);
+}
+
+function drawTimeAxis(seconds) {
+  const step = seconds > 20 ? 5 : seconds > 8 ? 2 : 1, out = [];
+  for (let t = 0; t <= seconds; t += step) out.push(`<div style="left:${(t / seconds) * 100}%">${t} s</div>`);
+  $("taxis").innerHTML = out.join("");
+}
+
+function resetLive() {
+  if (L && L.src) try { L.src.stop(); } catch (e) { /* already stopped */ }
+  L = null;
+  ["stComp", "stRtf", "stLat", "stLate"].forEach((id) => ($(id).textContent = "–"));
+  ["chComp", "chRtf", "chLate"].forEach((id) => $(id).classList.remove("ok", "warn", "bad"));
+  $("replay").hidden = true; $("checkNote").textContent = "";
+  document.querySelectorAll(".ph").forEach((p) => (p.style.display = "none"));
+}
+
+function setMonitor(which) {
+  monitor = which;
+  document.querySelectorAll("#monitor button").forEach((b) => b.classList.toggle("on", b.dataset.mon === which));
+  if (!actx) return;
+  const now = actx.currentTime;
+  mixGain.gain.setTargetAtTime(which === "mix" ? 1 : 0, now, 0.03);
+  estGain.gain.setTargetAtTime(which === "est" ? 1 : 0, now, 0.03);
+}
+document.querySelectorAll("#monitor button").forEach((b) => (b.onclick = () => setMonitor(b.dataset.mon)));
+
+$("liveBtn").onclick = async (ev) => {
+  const btn = ev.currentTarget;
+  if (!mixBuffer) return;
+  const ac = ctx(); await ac.resume();
+  document.querySelectorAll("audio").forEach((a) => a.pause());
+  resetLive(); busy(btn, true, "Live…");
+  $("gemBtn").disabled = true;
+  try {
+    const res = await fetch("/api/live", { method: "POST" });
+    if (!res.ok || !res.body) throw new Error(`live: HTTP ${res.status}`);
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 1);
+        if (line.trim()) onLive(JSON.parse(line));
+      }
+    }
+  } catch (e) { toast(e.message); }
+  busy(btn, false);
+};
+
+function onLive(ev) {
+  if (ev.type === "start") return liveStart(ev);
+  if (ev.type === "chunk") return liveChunk(ev);
+  if (ev.type === "done") return liveDone(ev);
+  if (ev.type === "error") toast(ev.error);
+}
+
+function liveStart(ev) {
+  const ac = ctx();
+  setupCanvases(ev.n_frames, ev.bins);
+  drawTimeAxis(ev.n_samples / ev.sr);
+  const src = ac.createBufferSource(); src.buffer = mixBuffer; src.connect(mixGain);
+  const playStart = ac.currentTime + ev.lead_ms / 1000;
+  src.start(playStart);
+  L = { ev, src, playStart, comp: [], late: 0, lateLog: [], running: true, dur: ev.n_samples / ev.sr,
+        wall0: performance.now(), audio0: ac.currentTime };
+  src.onended = () => { if (L) L.running = false; };
+  $("stChunk").textContent = `${Math.round((ev.chunk / ev.sr) * 1000)} ms`;
+  $("stLatSub").textContent = `chunk + ${Math.round(ev.lookahead_ms)} ms framing + compute`;
+  $("stLate").textContent = "0";
+  document.querySelectorAll(".ph").forEach((p) => (p.style.display = "block"));
+}
+
+function liveChunk(ev) {
+  const bins = L.ev.bins;
+  drawColumns("sgMix", b64bytes(ev.mix), ev.frame, ev.frames, bins);
+  if (ev.est_frames) drawColumns("sgEst", b64bytes(ev.est), ev.est_frame, ev.est_frames, bins);
+  const pcm = new Float32Array(b64bytes(ev.pcm).buffer);
+  if (pcm.length) {
+    const ac = ctx(), b = ac.createBuffer(1, pcm.length, SR);
+    b.copyToChannel(pcm, 0);
+    const s = ac.createBufferSource(); s.buffer = b; s.connect(estGain);
+    const when = L.playStart + ev.pcm_start / SR + L.ev.playout_delay_ms / 1000;
+    if (when < ac.currentTime) {       // arrived after its slot: play what is left
+      L.late++;
+      const skip = ac.currentTime - when;
+      L.lateLog.push({ frame: ev.frame, late_ms: Math.round(skip * 1000), lag_ms: Math.round(ev.lag_ms) });
+      if (skip < b.duration) s.start(ac.currentTime, skip);
+    } else s.start(when);
+  }
+  L.comp.push(ev.compute_ms);
+  const chunkMs = (L.ev.chunk / L.ev.sr) * 1000;
+  const mean = L.comp.reduce((a, b) => a + b, 0) / L.comp.length;
+  $("stComp").textContent = `${Math.round(ev.compute_ms)} ms`;
+  $("stCompSub").textContent = `mean ${mean.toFixed(0)} ms`;
+  $("stRtf").textContent = (mean / chunkMs).toFixed(2);
+  $("stLat").textContent = `${Math.round(chunkMs + L.ev.lookahead_ms + mean)} ms`;
+  $("stLate").textContent = String(L.late);
+  grade("chRtf", mean / chunkMs, 0.8, 1.0);
+  grade("chComp", mean / chunkMs, 0.8, 1.0);
+  grade("chLate", L.late, 0.5, 3);
+}
+function grade(id, v, warn, bad) {
+  const el = $(id); el.classList.remove("ok", "warn", "bad");
+  el.classList.add(v >= bad ? "bad" : v >= warn ? "warn" : "ok");
+}
+
+function liveDone(ev) {
+  $("stComp").textContent = `${ev.compute_mean_ms.toFixed(0)} ms`;
+  $("stCompSub").textContent = `mean · p95 ${ev.compute_p95_ms.toFixed(0)} ms`;
+  $("stRtf").textContent = ev.rtf.toFixed(2);
+  $("stLat").textContent = `${Math.round(ev.latency_mean_ms)} ms`;
+  grade("chComp", ev.rtf, 0.8, 1.0); grade("chRtf", ev.rtf, 0.8, 1.0);
+  $("replayMix").src = mixUrl; $("replayEst").src = ev.url; $("replay").hidden = false;
+  $("gemBtn").disabled = false;
+  pollCheck(0);
+}
+
+async function pollCheck(n) {
+  const s = await api("/api/status").catch(() => ({}));
+  const c = s.whole_clip_check;
+  if (c) {
+    $("checkNote").innerHTML = `Streamed output vs. the same model run on the whole clip at once: largest difference
+      <b>${c.max_abs_diff.toExponential(1)}</b> (loudest sample ${c.peak.toFixed(2)}). The live path is the evaluated model.`;
+  } else if (n < 40) setTimeout(() => pollCheck(n + 1), 1500);
+}
+
+// Playhead: follows the live run, or whichever replay player is playing.
+function tick() {
+  let t = null, dur = L ? L.dur : null;
+  if (L && L.running && actx) t = actx.currentTime - L.playStart;
+  for (const id of ["replayMix", "replayEst"]) {
+    const a = $(id);
+    if (!a.paused && a.duration) { t = a.currentTime; dur = a.duration; }
+  }
+  if (t !== null && dur) {
+    const pct = Math.max(0, Math.min(1, t / dur)) * 100;
+    document.querySelectorAll(".ph").forEach((p) => { p.style.display = "block"; p.style.left = `${pct}%`; });
+  }
+  requestAnimationFrame(tick);
+}
+
+// ---- step 4: Gemini --------------------------------------------------------
+$("gemBtn").onclick = async (ev) => {
+  const btn = ev.currentTarget; busy(btn, true, "Asking Gemini…");
+  $("gemResults").innerHTML = "";
+  try {
+    const res = await postJSON("/api/gemini", { reference_text: $("refText").value });
+    renderGemini(res);
+  } catch (e) { toast(`Gemini: ${e.message}`); }
+  busy(btn, false);
+};
+
+function renderGemini(res) {
+  const host = $("gemResults"), refIsGemini = res.reference.source === "gemini:target";
+  host.innerHTML = "";
+  for (const name of ["mixture", "extracted", "target"]) {
+    const r = res.results[name];
+    const card = document.createElement("div");
+    card.className = `card result${name === "extracted" ? " ours" : ""}`;
+    const isRef = refIsGemini && name === "target";
+    const score = isRef ? '<span class="badge">used as reference</span>'
+      : r.wer == null ? "" : `<b>${Math.round(r.wer * 100)}%</b><span>word error · ${r.errors} errors / ${r.reference_words} words</span>`;
+    const words = r.tokens.length
+      ? r.tokens.map((t) => {
+          const w = escapeHtml(t.w);
+          if (t.op === "sub") return `<span class="sub" title="said: ${escapeHtml(t.ref)}">${w}</span>`;
+          if (t.op === "ins") return `<span class="ins">${w}</span>`;
+          if (t.op === "del") return `<span class="del">${w}</span>`;
+          return w;
+        }).join(" ")
+      : `<span class="badge">Gemini: ${escapeHtml(r.status.replace("_", " "))}</span>`;
+    card.innerHTML = `<div class="result-head"><h3>${escapeHtml(r.label)}</h3><div class="wer">${score}</div></div>
+      <audio controls src="${r.url}"></audio>
+      <p class="transcript">${words}</p>`;
+    host.appendChild(card);
+  }
+  $("legend").hidden = false;
+  $("refLine").innerHTML = `Reference (${refIsGemini ? "Gemini's transcript of the target alone" : "what was actually said"}):
+    ${escapeHtml(res.reference.text)}`;
+  const j = res.judge;
+  $("gemMeta").innerHTML = `Gemini <code>${escapeHtml(j.model_id)}</code> · audio in, text out · ${j.run_date}
+    · prompt <code>${j.prompt_sha256_12}</code>: “${escapeHtml(j.prompt.trim().replace(/\s+/g, " "))}”
+    · words wrong = misheard + added + missed, over the reference's words, after Whisper's English normaliser (the benchmark's scoring).`;
+}
+
+// ---- boot ------------------------------------------------------------------
+(async function boot() {
+  buildSourceCards();
+  try {
+    CFG = await api("/api/config");
+    const ck = CFG.checkpoint;
+    $("sub").textContent = `${ck.path.split("/").pop()} (${ck.class}, epoch ${ck.epoch}) · ${CFG.chunk_ms} ms chunks · ${CFG.threads} CPU threads · judge ${CFG.judge.model_id}`;
+    $("sir").value = -CFG.defaults.sir_db;
+    $("noiseOn").checked = CFG.defaults.snr_db != null;
+    $("snr").value = CFG.defaults.snr_db ?? 12;
+    $("reverb").checked = !!CFG.defaults.reverb;
+    $("stChunk").textContent = `${CFG.chunk_ms} ms`;
+    $("benchNote").textContent = CFG.benchmark_note || "";
+  } catch (e) { toast(`Server: ${e.message}`); }
+  sirLabel(); snrLabel(); reverbHint();
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>

@@ -20,9 +20,23 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
+| 2026-09-24 | `pytest tests/ -q -x` | full suite | >10 min **(killed by a 10 min timeout, not completed)** | suite took 11 min on 2026-09-21; new `tests/test_streaming.py` alone: 8 passed, 6 s |
 | 2026-09-23 | `content_probe.score()` end-to-end smoke, 3 clips | 3 clips, sir0_val, untrained 1c model, cpu extraction + faster-whisper small.en int8 cpu | 3.1 min | ~16 s/clip extraction on cpu, ~4 s/clip ASR, plus ~1 min of model loading. The Kaggle figure differs: extraction moves to the T4, so the ASR sets the per-epoch cost at ~4 s/clip. Added by hand. |
 | 2026-09-21 | `pytest tests/ -q` | 515 tests | 11 min | full suite after adding eval_by_case.py. Added by hand: pytest does not use run_log.timed |
 <!-- rows appended below by src/run_log.py -->
+| 2026-09-25 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-25-est-cuecontext-wer-e27 --metrics content --out experiments/results/2026-09-25-eval-cuecontext-wer-e27-asr | 7 min |  |
+| 2026-09-25 | WeSep future-leak probe with margins (temp script `/tmp/wesep_probe/probe_margin.py`, wesep_venv) | `tfmap_context_causal_100`, 8 s noise clip, 3 cuts + determinism pass, cpu 4 threads | 1.8 min | ~27 s per forward pass. Added by hand. |
+| 2026-09-25 | `scripts/diagnose_cue_directional.py` | 200 trials x 2 directions, sir0 | 18 min | cpu, batch 4 trials |
+| 2026-09-25 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-25-est-cuecontext-wer-e27 --metrics signal,perceptual --out experiments/results/2026-09-25-eval-cuecontext-wer-e27-signal | 15 min |  |
+| 2026-09-25 | `scripts/measure_rtf.py` | --checkpoint models/model_sir0_cuecontext-wer-e27.pt --config experiments/configs/bsrnn_cue_context.yaml --chunk-ms 80 --threads 4 --device cpu --out /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-25-rtf-cuecontext-wer-e27 | 2 min |  |
+| 2026-09-25 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-25-est-cuecontext-wer-e27 --metrics content --listener judge --judge-rpm 10 --out experiments/results/2026-09-25-eval-cuecontext-wer-e27-judge | 13 min |  |
+| 2026-09-25 | `scripts/make_estimates.py` | 103 trials rendered, sir0 | 15 min | cpu, whole-clip |
+| 2026-09-25 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-25-est-cuecontext-wer-e21 --metrics content --listener judge --judge-rpm 10 --out experiments/results/2026-09-25-eval-cuecontext-wer-e21-judge | 14 min |  |
+| 2026-09-25 | `scripts/make_estimates.py` | 103 trials rendered, sir0 | 15 min | cpu, whole-clip |
+| 2026-09-25 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-25-est-cuecontext-wer-e18 --metrics content --listener judge --judge-rpm 10 --out experiments/results/2026-09-25-eval-cuecontext-wer-e18-judge | 13 min |  |
+| 2026-09-25 | `scripts/make_estimates.py` | 103 trials rendered, sir0 | 15 min | cpu, whole-clip |
+| 2026-09-25 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-25-est-cuecontext-wer-e15 --metrics content --listener judge --judge-rpm 10 --out experiments/results/2026-09-25-eval-cuecontext-wer-e15-judge | 14 min |  |
+| 2026-09-25 | `scripts/make_estimates.py` | 103 trials rendered, sir0 | 20 min | cpu, whole-clip |
 | 2026-09-24 | `scripts/make_estimates.py` | 0 trials rendered, sir0ext **(failed)** | 48 min | cpu, whole-clip |
 | 2026-09-24 | `scripts/evaluate.py` | --split sir0_val --condition both --est /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-24-est-cuecontext-wer-e13 --metrics content --listener judge --judge-rpm 10 --out /home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/experiments/results/2026-09-24-eval-cuecontext-wer-e13-judge | 16 min |  |
 | 2026-09-24 | `scripts/diagnose_cue_directional.py` | 200 trials x 2 directions, sir0 | 16 min | cpu, batch 4 trials |
