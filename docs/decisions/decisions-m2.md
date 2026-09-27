@@ -3790,3 +3790,31 @@ of draws; the interval now touches zero. WER still ties (+0.36 [−3.00, +3.78])
 **The selection is not changed by this entry**: e21 is still level or ahead on every
 judge measure and has fewer artefacts (`decisions-m3.md` 2026-09-26). Do not describe it as clearly
 better than e27 on invented words. e27 has one run; repeats on e27 would settle it.
+
+## 2026-09-27 — The report's baseline is baseline 10000-e6; its extension is e21
+
+**Decision (Grant):** the report compares one baseline and one extension.
+Baseline: baseline 10000-e6 (`2026-09-04-train-sir0-10000`, 9,955 trials, epoch 6
+of 16). Extension: e21 (`models/model_sir0_cuecontext-wer-e21.pt`). e21 replaces
+struct-e12 ("Extension (mask structure)") in the results tables. No processing and
+Target alone stay as reference conditions; WeSep as the external reference (cannot stream).
+
+Evidence: `experiments/results/2026-09-27-arms-vs-baseline/`. Judge LCF-WER minus
+baseline, `sir0_val` `both`, paired, one run each:
+
+| system | difference | beyond noise |
+|---|---|---|
+| struct-e12 | −0.23 [−6.96, +6.21] | no |
+| 1a e15 (2026-09-23) | −10.36 [−17.64, −3.23] | **yes, first** |
+| **e21** | **−16.36 [−23.83, −9.18]** | **yes, largest** |
+
+- **e21 is the best streaming model, not the first to beat the baseline beyond the
+  noise.** Word every claim that way.
+- **The extension is three changes, not separable:** cue parts + context embedding
+  (items 1a + 1c, +0.09 M parameters); checkpoint selection and lr schedule on the
+  in-loop content WER; training length (epoch 21 of 28 against 6 of 16). 2026-09-23
+  found the conditioning alone bought little. Do not credit the gain to it.
+- e21 was selected on `sir0_val`: optimistic. The selection-free figure comes from
+  `eval_public`.
+- Recommended, not decided: report the other arms (struct, state, 1a, 1c, other
+  1c-wer epochs, wesepref) as variants tried, one run each.

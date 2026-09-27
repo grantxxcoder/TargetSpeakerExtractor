@@ -901,3 +901,30 @@ clips answered on every run.
 - **Report**: per clip, the judge's answer changes on almost every call; the
   corpus score over 103 clips moves under 1 point. Per-clip judge numbers are not
   usable alone (as 2026-09-22); the aggregate is.
+
+## 2026-09-27 — Table 5.1 ± is the plain SD of the 3 run scores
+
+**Decision (Grant):** every row of the report's judge table (Table 5.1) now
+has 3 runs on the same 103 clips, and its ± is the plain SD (ddof=1) of the
+three published whole-run scores. The clip-by-clip SD moves to a companion table
+(`tab:judge_runs`, LCF-WER only) next to each run's score and the spread.
+Supersedes "report the per-clip figure" (2026-09-26) for this table.
+
+- **Why:** the clip-by-clip SD assumes clips vary independently. Baseline broke it:
+  its 2026-09-27 runs differ by 6.4 LCF-WER points (paired sign-flip p < 0.01,
+  below 0.05/3; 0.004–0.005 across Monte-Carlo draws), a whole-run shift. Clip-by-clip gave ±1.66; the runs spread
+  ±3.22. The plain SD shows what happened; clip-by-clip cannot see a run shift.
+- **Cost, stated:** 3 values give an unstable SD (2 df). Floor reads ±0.37
+  against clip-by-clip 1.58, and Extension ±0.34 against 1.24: the plain SD can
+  understate by luck, so the companion table carries both.
+- **Anchors now repeated** (reverses "anchors not repeated" above):
+  `--judge-repeat-anchors`, 2026-09-27. Run 0 rebuilt from cache rows dated
+  ≤ 2026-09-02 because `judge.py` `load_once_index` serves the LAST row per
+  run-once clip whatever its repeat (open bug: a plain `evaluate.py` run now
+  scores floor 62.98 / ceiling 1.14).
+- Shifts tested (sign-flip, LCF-WER, each pair of runs): only Baseline r1–r2
+  significant. Floor, ceiling, Extension (e21), WeSep: none (lowest p 0.06).
+  `2026-09-27-judge-plain-sd/run_shift.txt`.
+- `gemini-3.7-flash`, aistudio, audio-in / text-out, prompt sha `d118b7d3bf30`.
+  Run dates and dirs: `experiments/results/2026-09-27-judge-plain-sd/` and the
+  `2026-09-27-judge-repeats-{anchors,wesep,baseline}` records.

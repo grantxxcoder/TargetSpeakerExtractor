@@ -63,6 +63,7 @@
 \usepackage{booktabs}
 \usepackage{tabularx}
 \usepackage{multirow}
+\usepackage{float}  % [H]: place a table exactly where it is written
 \newcommand{\mytable}{
     \centering
     \small
@@ -71,6 +72,8 @@
 \renewcommand{\tabularxcolumn}[1]{m{#1}}
 \newcolumntype{C}{>{\centering\arraybackslash}X}
 \newcolumntype{L}{>{\raggedright\arraybackslash}X}
+\newcommand{\lowerbetter}{\ensuremath{\downarrow}}   % table header: lower is better
+\newcommand{\higherbetter}{\ensuremath{\uparrow}}    % table header: higher is better
 
 % Header and footer
 \usepackage{fancyhdr}
