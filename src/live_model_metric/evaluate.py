@@ -362,6 +362,11 @@ def evaluate(split="sir0_val", condition="both", estimate_directory=None,
             "judge_modality": "audio-in / text-out",
             "judge_prompt_file": str(prompt_file),
             "judge_prompt_sha256_12": prompt_sha(kw.get("prompt_file")),
+            # Which run of the same audio this is. Estimates only: anchors are
+            # run-once and always serve their single cached answer.
+            "judge_repeat": kw.get("repeat", 0),
+            # True only in the spread study: anchors keyed by repeat, judged again.
+            "judge_repeat_anchors": bool(kw.get("repeat_run_once", False)),
         })
 
     for system in systems:

@@ -1446,3 +1446,37 @@ The wer e13 render (`2026-09-24-est-privval-cuecontext-wer-e13`) is abandoned
 at 215 of 1,421 trials. It is resumable (2026-09-15 entry) and is not to be
 scored. On disk: rendered split 5.4 GB, estimate dirs 3.4 GB + 247 MB partial.
 Delete only on request.
+
+## 2026-09-26 — e21 through the conventional suite, next to e27
+
+Same four checks and flags as e27 (2026-09-25), `sir0_val` `both`, n=103 unless
+stated. Run one at a time, latency first on an idle machine. Dirs
+`2026-09-26-*-cuecontext-wer-e21`; e27 in `2026-09-25-*-cuecontext-wer-e27`.
+
+| | better | No processing | e21 | e27 |
+|---|---|---|---|---|
+| SI-SDR (dB) | higher | −1.12 | 2.29 | 2.29 |
+| SIR, other speaker removed (dB) | higher | −1.12 | 9.17 | 10.21 |
+| SAR, artefacts (dB) | higher | 30.00 | 6.28 | 5.44 |
+| DNSMOS overall | higher | 2.50 | 2.31 | 2.34 |
+| DNSMOS speech (SIG) | higher | 4.09 | 2.96 | 2.91 |
+| DNSMOS background (BAK) | higher | 2.03 | 3.05 | 3.22 |
+| latency mean / slowest 1 % (ms) | lower | – | 162.9 / 180.1 | 173.6 / 197.3 |
+| real-time factor, slowest 1 % | < 1 | – | 0.75 | 0.97 |
+| Whisper LCF-WER (stand-in, not the verdict) | lower | 65.22 | 56.72 | 53.64 |
+| right voice, same / cross gender (76 / 78 decisions) | higher | – | 72.4 / 89.7 % | 75.0 / 91.0 % |
+
+- **e21 has fewer artefacts than e27** (SAR +0.84 dB) and removes slightly less
+  of the other speaker (SIR −1.04 dB). Consistent with e27 cutting harder.
+- **Both score below No processing on DNSMOS overall.** Background much cleaner,
+  target speech more distorted. Not optimised for; report it as the cost of
+  suppression. No interval computed, so the 0.03 overall gap is not claimed.
+- **The latency gap is NOT a model difference.** Same architecture, same compute.
+  43 vs 54 ms per chunk is the run-to-run spread of `measure_rtf.py`, which labels
+  itself an estimate (chunks processed independently, no state carried, 10–20 %
+  error). Report the range across runs, never one value as the model's latency.
+  e27's 0.97 is within that error of 1.
+- **Whisper prefers e27 by 3.1 points; the judge ties them.** Whisper is the
+  stand-in; the selection stands on the judge (`decisions-m2.md` 2026-09-26).
+- **Right voice: e27 ahead by 2 of 76 same-gender and 1 of 78 cross-gender
+  decisions.** Not a difference; no test run.

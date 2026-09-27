@@ -66,6 +66,16 @@ def main():
                              "OF THE INSTRUMENT: a different file has its own "
                              "cache and cannot reuse another prompt's answers.")
     parser.add_argument("--judge-rpm", type=int, default=10)
+    parser.add_argument("--judge-repeat", type=int, default=0,
+                        help="repeat index for estimate.wav. 0 is the scored "
+                             "run; 1, 2, ... buy fresh answers to the SAME audio "
+                             "to measure the judge's run-to-run spread. Anchors "
+                             "are run-once and ignore it (served from cache).")
+    parser.add_argument("--judge-repeat-anchors", action="store_true",
+                        help="SPREAD STUDY ONLY: also key floor/ceiling by "
+                             "--judge-repeat, so the anchors are judged again. "
+                             "Without it a repeat run serves the anchors' single "
+                             "cached answer and reports zero spread for them.")
     parser.add_argument("--judge-max-new-calls", type=int, default=600,
                         help="hard cap on NEW judge calls. Refuses rather than "
                              "truncating; cached work is kept and a re-run "
@@ -105,6 +115,8 @@ def main():
             "prompt_file": args.judge_prompt,
             "requests_per_minute": args.judge_rpm,
             "max_new_calls": args.judge_max_new_calls,
+            "repeat": args.judge_repeat,
+            "repeat_run_once": True if args.judge_repeat_anchors else None,
         }.items() if v is not None} if args.listener == JUDGE else None),
     )
 

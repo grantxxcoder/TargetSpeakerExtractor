@@ -833,3 +833,71 @@ row rather than add one.
   run cannot be made against the unused prompt by copy-paste.
 - The appendix reproduces `judge_prompt.txt` verbatim **with its hash**, which is
   the machine-checkable form of CLAUDE.md's "record the exact prompt".
+
+## 2026-09-26 — Judge repeats: e21 judged 3 times on the same 103 clips
+
+**Decision (Grant):** e21's `sir0_val` `both` estimates get repeats 1 and 2
+(repeat 0 is 2026-09-25), so every clip has 3 judge answers. Purpose: report how
+much the judge's score on the SAME clip changes across identical calls, on our
+model's output.
+
+- **103 × 3, not 50 × 6.** Same cost (309 vs 300 calls). Judge noise shrinks with
+  total calls either way; clip-difficulty noise only with more clips; 103 keeps
+  it comparable with every existing row.
+- **k=3, extendable.** 1 → 3 cuts the judge-only band on one aggregate from
+  ±2.94 to ±1.70 points (2026-09-22 retest SEM 1.50, divided by √k). Repeats
+  3–4 can be added later without re-buying 0–2.
+- **Anchors not repeated.** Run-once: floor and ceiling serve their cached answer
+  at any repeat index.
+- **Settings unchanged**: server-default temperature, same model, prompt and
+  backend. The cache key excludes generation config, so a change mid-study would
+  mix two instruments silently.
+- **Interval method:** resample clips carrying all 3 answers. Not mean ± t·SD over
+  3 run totals (t = 4.30 at 2 df, and a 3-value SD is unstable).
+- **Code:** `scripts/evaluate.py --judge-repeat N`; `judge_repeat` recorded in
+  `results.json` provenance. Partly closes weak-point A4.
+- Dirs `2026-09-26-eval-cuecontext-wer-e21-judge-r1` / `-r2`. `gemini-3.7-flash`,
+  aistudio, audio-in / text-out, prompt sha `d118b7d3bf30`, run 2026-09-26.
+
+**An inference, not a measurement.** The single-answer bootstrap on
+between-epoch gaps (±4.2–4.5 points, `decisions-m2.md` 2026-09-26) is about the
+size of the judge-only band on a paired difference (±4.16, 2026-09-22). So most
+of that spread is probably the judge, not clip choice. Caveat: the retest was on
+mixtures, where the judge is likely noisier than on estimates. The repeats test it.
+
+### Results, 2026-09-27
+
+`experiments/results/2026-09-27-judge-repeats-e21/`. Runs: repeat 0 on
+2026-09-25, repeats 1–2 on 2026-09-26. No re-run needed: 102 of 102 judged
+clips answered on every run.
+
+| lower is better | run 1 | run 2 | run 3 | mean | range |
+|---|---|---|---|---|---|
+| LCF-WER | 39.23 | 39.64 | 39.90 | **39.59** | 0.67 |
+| ICR@2 | 33.01 | 32.04 | 35.92 | 33.66 | 3.88 |
+| FR@2 | 45.10 | 46.53 | 49.02 | 46.88 | 3.92 |
+
+- **The overall score is stable; single clips are not.** The total moved 0.67
+  points across 3 runs. Per clip: 2 of 102 answers word-for-word identical,
+  46 of 102 (45 %) moved by more than 10 points, 5 by more than 50, max 100.
+  Yes/no verdicts changed on 15 of 102 clips (ICR@2) and 27 of 102 (FR@2).
+- **The judge is steadier on our output than on raw mixtures**: pooled
+  within-clip SD 12.85 vs 17.03 (2026-09-22 retest, both unbiased); judge-only
+  SEM of one run 1.24 vs 1.50 points. Confirms the caveat above.
+- **Repeats barely narrow e21's own interval**: 39.59 [33.10, 46.67], width
+  13.6, against 13.9 from one run. For one system's absolute score the width is
+  which clips, not judge noise. For a paired gap between two systems clip
+  difficulty cancels, which is where repeats pay.
+- One repeat-1 clip was refused by the safety filter on both retries and scored
+  empty (`filter_blocked` 1). Kept: part of the instrument's run-to-run behaviour.
+- **Against No processing (anchors one run so far), paired:** words wrong
+  −22.87 [−31.10, −14.98]; 2+ other-speaker words through −41.10 [−50.81, −31.72];
+  **invented 2+ words +13.87 [+3.56, +24.14], WORSE, and outside the noise.** Gap
+  closed 37.2 % [26.6, 47.0].
+- **Run-to-run SD of one run, from per-clip variation:** LCF-WER 1.24, ICR@2 2.17,
+  FR@2 2.91 points. The SD of the 3 totals (0.34 / 2.02 / 1.98) has 2 df; report
+  the per-clip figure. Speaker-block bootstrap (38 target speakers, Liu & Peng
+  2020) gives LCF-WER [33.3, 46.0] against plain [33.10, 46.67]: no understatement.
+- **Report**: per clip, the judge's answer changes on almost every call; the
+  corpus score over 103 clips moves under 1 point. Per-clip judge numbers are not
+  usable alone (as 2026-09-22); the aggregate is.

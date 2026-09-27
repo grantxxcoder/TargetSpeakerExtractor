@@ -3741,3 +3741,52 @@ fully muted clips; the gate-aware read (c2a86d85, 2026-09-23) fixed it.
 **`sir0_privval` scoring was dropped later on 2026-09-24** (`decisions-m3.md`
 2026-09-24). The 1a e15 read above was rendered and transcribed before that; the
 bootstrap re-read its cached transcripts. No further privval runs.
+
+## 2026-09-26 — e21 SELECTED as the project's best model, on the judge; the in-loop pick (e18) overruled
+
+`models/model_sir0_cuecontext-wer-e21.pt` (weights only, not resumable), run
+`2026-09-24-train-sir0-cuecontext-wer-resume`. Judge: `gemini-3.7-flash`,
+audio-in / text-out, `judge_prompt.txt` (sha `d118b7d3bf30`), run 2026-09-25
+(e13: 2026-09-24). Evidence: `experiments/results/2026-09-26-epoch-bootstrap-cuecontext-wer/`.
+
+**Decision (Grant): e21 is the best model.** Taken on the judge alone, before
+e21's conventional checks returned (`decisions-m3.md` 2026-09-26). Those are for
+reporting, not selection.
+
+| `sir0_val` `both`, n=103, lower is better | e13 | e15 | e18 (probe pick) | **e21** | e27 (last) |
+|---|---|---|---|---|---|
+| judge LCF-WER | 42.93 | 47.29 | 41.07 | **39.23** | 39.23 |
+| ICR@2 | 43.69 | 52.43 | 37.86 | 33.01 | 32.04 |
+| FR@2 | 49.00 | 46.08 | 53.92 | **45.10** | 55.45 |
+| in-loop probe (Whisper, 40 clips, raw) | 53.66 | 54.29 | **53.11** | 55.00 | 61.07 |
+
+Paired bootstrap over clips, 10,000 draws, seed 42, one judge answer per clip:
+
+- **e21 vs e27:** WER +0.00 [−4.18, +4.27]. FR@2 e27 worse by **+10.35 [+0.97, +20.01]**,
+  the only late-epoch difference outside the noise. This decides it.
+- **e21 vs e18:** WER −1.83 [−6.62, +2.72], not established. FR@2 −8.82 [−17.82, 0.00], borderline.
+- **e27 vs e15:** WER −8.06 [−13.95, −2.31]. Training past e15 helped.
+
+### Why
+
+- Ties e27 on word error and invents less. e27's lower error than e18 comes from
+  cutting harder: deletions 7.25 → 9.43, silent clips 1 → 2.
+- The probe does not rank late epochs like the judge: e27 is second-worst on the
+  probe, joint best on the judge. Confirms 2026-09-24: the in-loop pick is a shortlist.
+
+### Consequences to carry
+
+- **39.23 is selection-biased**: picked on these 103 clips. The selection-free
+  number must come from `eval_public`, per SIR band (`sir0_privval` dropped,
+  `decisions-m3.md` 2026-09-24).
+- e21 is weights only: fine-tuning from it restarts the optimiser.
+- Only e21 gets judge repeats (`decisions-m4.md` 2026-09-26). The e21-vs-e27
+  FR@2 gap stays a single-answer comparison.
+
+**Update 2026-09-27: the deciding gap is now BORDERLINE.** With e21 judged 3 times
+(`decisions-m4.md` 2026-09-26 results), e21's FR@2 is 46.88 (runs 45.10 / 46.53 /
+49.02). Against e27's single run: **−8.56 [−16.83, 0.00]**, e21 better in 97.4 %
+of draws; the interval now touches zero. WER still ties (+0.36 [−3.00, +3.78]).
+**The selection is not changed by this entry**: e21 is still level or ahead on every
+judge measure and has fewer artefacts (`decisions-m3.md` 2026-09-26). Do not describe it as clearly
+better than e27 on invented words. e27 has one run; repeats on e27 would settle it.

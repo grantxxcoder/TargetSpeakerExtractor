@@ -104,4 +104,5 @@ result is negative and is logged as such in decisions-m2.md 2026-08-30.
 | `model_sir0_cuecontext-wer-e18.pt` | 18 | the epoch the in-loop Whisper probe selected. Full checkpoint, resumable. |
 | `model_sir0_cuecontext-wer-e27.pt` | 27 | last epoch. Full checkpoint. |
 | `model_sir0_cuecontext-wer-e15.pt` | 15 | weights only. Best held-out separation of the run (val L_pres -4.64). |
-| `model_sir0_cuecontext-wer-e17/-e21/-e24.pt` | 17, 21, 24 | weights only. The rest of the stride/top-k set, for re-scoring on the judge. |
+| `model_sir0_cuecontext-wer-e21.pt` | 21 | weights only. **Selected 2026-09-26 as the project's best model**, on the judge: ties e27 on word error (39.23), fewer invented words (FR@2 45.1 vs 55.4). decisions-m2.md 2026-09-26. |
+| `model_sir0_cuecontext-wer-e17/-e24.pt` | 17, 24 | weights only. The rest of the stride/top-k set, for re-scoring on the judge. |
