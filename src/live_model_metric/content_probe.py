@@ -14,6 +14,8 @@ transcribed by the SAME listener the evaluation harness uses -- faster-whisper
 the SAME `count_errors` as `metric-definitions.md` 3.1. Default device is cpu,
 which makes the probe byte-identical to the reported instrument. Moving it to
 cuda is faster and is NOT the same instrument, so the device is recorded.
+Since 2026-09-28 the REPORT's tables use large-v3-turbo instead, so this probe
+is no longer the reported instrument, only its default (decisions-m3.md).
 
 WHAT IT IS NOT.
 

@@ -22,7 +22,7 @@ During the course of experiments, the following setup was used to ensure reprodu
 
 \paragraph{Offline ASR model}
 \label{sec:offline_asr}
-The offline transcriber is the \texttt{faster-whisper} implementation \cite{faster_whisper} of the Whisper \cite{radford2023whisper} model. Of the available options, it was run using the \texttt{small.en} package size as this was found to be the best configuration for quick but balanced transcription performance. The model was set to a sampling temperature of zero to ensure deterministic output, and the language was fixed to English.
+The offline transcriber is the \texttt{faster-whisper} implementation \cite{faster_whisper} of the Whisper \cite{radford2023whisper} model, run with the \texttt{large-v3-turbo} checkpoint. This is Whisper large-v3 with its decoder pruned from 32 layers to 4 and then fine-tuned, giving 809\,M parameters against the 1{,}550\,M of large-v3 \cite{whisper_turbo}. The large Whisper variants are a common choice for scoring how intelligible generated and extracted speech is \cite{anastassiou2024seedtts,wang2025solospeech}. Decoding was greedy, with a single sampling temperature of zero and no conditioning on previously decoded text, so the same audio always produces the same transcript, and the language was fixed to English. The smaller \texttt{small.en} checkpoint (244\,M parameters) is used only inside the training loop, where it transcribes a validation sample every epoch to shortlist checkpoints and schedule the learning rate. Scoring the results with a different checkpoint means the extension is not judged by the same listener it was tuned against.
 
 
 \paragraph{Live judge}

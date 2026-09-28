@@ -1,0 +1,30 @@
+# Offline ASR for the REPORT's tables: faster-whisper large-v3-turbo.
+# scripts/evaluate.py --config experiments/configs/eval_offline_asr_turbo.yaml
+#
+# WHY NOT small.en. small.en (244 M) was pinned 2026-08-28 for CPU cost, not
+# accuracy: medium.en was better on both anchors in that test. Published
+# extraction work scores with the large models (SoloSpeech: large-v3-turbo).
+# And the extension's in-loop selection and lr schedule were tuned against
+# small.en (content_probe.py), so small.en is not an independent listener for
+# it. decisions-m3.md 2026-09-28.
+#
+# large-v3-turbo: large-v3 with the decoder pruned 32 -> 4 layers and
+# fine-tuned; 809 M parameters against large-v3's 1,550 M (OpenAI model card).
+# Multilingual, so language is fixed to English in transcribe().
+#
+# THE MODEL UNDER TEST IS NOT HERE. The estimate directory goes on the command
+# line (--est), one run per system; the anchors come from the cache after the
+# first run.
+#
+# NEVER COMPARE a number from this listener to a small.en number. Different
+# instrument. Signal and perceptual rows do not depend on the listener.
+
+seed: 42                    # provenance only; scoring is deterministic
+split: sir0_val             # the report's tables: 103 `both` trials
+condition: both
+metrics: content            # WER, S/D/I, ICR@2, mean leak, invented, FR@2
+listener: asr               # a STAND-IN for the judge, never a live-model result
+asr_model: large-v3-turbo   # faster-whisper 1.2.1 alias ->
+                            # mobiuslabsgmbh/faster-whisper-large-v3-turbo
+                            # int8, cpu, greedy, temperature 0.0 single value,
+                            # condition_on_previous_text false (evaluate.py)

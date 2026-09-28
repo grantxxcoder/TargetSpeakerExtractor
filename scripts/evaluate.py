@@ -29,14 +29,21 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.live_model_metric.evaluate import (ALL_LISTENERS, ALL_METRICS,  # noqa: E402
-                                            ALL_SYSTEMS, ASR, JUDGE,
-                                            TRANSCRIPT_CACHE, evaluate)
+                                            ALL_SYSTEMS, ASR, ASR_MODEL_SIZE,
+                                            JUDGE, TRANSCRIPT_CACHE, evaluate)
 from src.run_log import timed  # noqa: E402
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--config", default=None,
+                        help="YAML whose keys are this script's flag names "
+                             "(underscored); sets their defaults, and a flag on "
+                             "the command line still wins")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="recorded for provenance only: scoring draws no "
+                             "random numbers (cache lookups, greedy ASR, jiwer)")
     parser.add_argument("--split", default="sir0_val")
     parser.add_argument("--condition", default="both",
                         help="'both' is the only row that has an interferer to remove; "
@@ -54,11 +61,15 @@ def main():
                         help="refuse to run the ASR; error instead of a silent "
                              "10-minute transcription pass")
     parser.add_argument("--listener", default=ASR, choices=list(ALL_LISTENERS),
-                        help="asr = faster-whisper small.en, the STAND-IN. "
+                        help="asr = faster-whisper (--asr-model), the STAND-IN. "
                              "judge = the live model, i.e. an actual LCF result. "
                              "Anchors are cached and never re-bought (run-once "
                              "rule); estimates are keyed by content so a new "
                              "checkpoint is judged fresh.")
+    parser.add_argument("--asr-model", default=ASR_MODEL_SIZE,
+                        help="faster-whisper model name. Part of the instrument: "
+                             "each name has its own transcript cache entries, "
+                             "and numbers from two names are not comparable.")
     parser.add_argument("--judge-model", default=None,
                         help="override the judge model id")
     parser.add_argument("--judge-prompt", default=None,
@@ -86,6 +97,15 @@ def main():
                              "(metric-definitions.md 3.3) -- never for scoring a "
                              "system.")
     parser.add_argument("--out", default=None)
+    known, _ = parser.parse_known_args()
+    if known.config:
+        import yaml
+        config = yaml.safe_load(Path(known.config).read_text()) or {}
+        flags = {action.dest for action in parser._actions}
+        unknown = sorted(set(config) - flags)
+        if unknown:
+            raise SystemExit(f"{known.config}: unknown key(s) {unknown}")
+        parser.set_defaults(**config)
     args = parser.parse_args()
 
     systems = tuple(s.strip() for s in args.systems.split(",") if s.strip())
@@ -110,6 +130,7 @@ def main():
         allow_new_transcripts=not args.cached_only,
         listener=args.listener,
         speech_gate=not args.no_gate,
+        asr_model=args.asr_model,
         judge_kwargs=({k: v for k, v in {
             "model_id": args.judge_model,
             "prompt_file": args.judge_prompt,
@@ -119,6 +140,8 @@ def main():
             "repeat_run_once": True if args.judge_repeat_anchors else None,
         }.items() if v is not None} if args.listener == JUDGE else None),
     )
+
+    results.provenance.update(seed=args.seed, config=args.config)
 
     print(f"\n{args.split}  condition={args.condition or 'all'}  n={results.n_trials}\n")
     print(results.table())

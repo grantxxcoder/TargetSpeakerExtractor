@@ -20,11 +20,16 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
+| 2026-09-28 | inline faster-whisper large-v3-turbo timing | first load (incl. 1.6 GB download) + 5 sir0_val mixtures, int8 cpu greedy | 5.8 min | load 273 s; 9.2-12.2 s/clip, mean 10.3 s/clip (small.en ~3 s). Added by hand. |
+| 2026-09-28 | `pytest tests/test_estimates.py tests/test_speech_gate.py -q` | 45 tests | 1.8 min | after adding --asr-model / --config to evaluate.py. Added by hand. |
 | 2026-09-28 | inline faster-whisper determinism check | 6 sir0_val mixtures x 4 fresh loads (default x2, cpu_threads 1, 8), small.en int8 cpu | 2.8 min | ~7 s/clip incl. 4 model loads; 24/24 transcripts identical. Added by hand. |
 | 2026-09-24 | `pytest tests/ -q -x` | full suite | >10 min **(killed by a 10 min timeout, not completed)** | suite took 11 min on 2026-09-21; new `tests/test_streaming.py` alone: 8 passed, 6 s |
 | 2026-09-23 | `content_probe.score()` end-to-end smoke, 3 clips | 3 clips, sir0_val, untrained 1c model, cpu extraction + faster-whisper small.en int8 cpu | 3.1 min | ~16 s/clip extraction on cpu, ~4 s/clip ASR, plus ~1 min of model loading. The Kaggle figure differs: extraction moves to the T4, so the ASR sets the per-epoch cost at ~4 s/clip. Added by hand. |
 | 2026-09-21 | `pytest tests/ -q` | 515 tests | 11 min | full suite after adding eval_by_case.py. Added by hand: pytest does not use run_log.timed |
 <!-- rows appended below by src/run_log.py -->
+| 2026-09-28 | `scripts/evaluate.py` | --config experiments/configs/eval_offline_asr_turbo.yaml --systems estimate --est experiments/results/2026-09-03-est-wesep-tfmap-causal --out experiments/results/2026-09-28-eval-asr-turbo-wesep | 20 min |  |
+| 2026-09-28 | `scripts/evaluate.py` | --config experiments/configs/eval_offline_asr_turbo.yaml --systems estimate --est experiments/results/2026-09-25-est-cuecontext-wer-e21 --out experiments/results/2026-09-28-eval-asr-turbo-e21 | 19 min |  |
+| 2026-09-28 | `scripts/evaluate.py` | --config experiments/configs/eval_offline_asr_turbo.yaml --systems floor,estimate,ceiling --est experiments/results/2026-09-04-train-sir0-10000/ --out experiments/results/2026-09-28-eval-asr-turbo-baseline | 1.1 h |  |
 | 2026-09-27 | `scripts/evaluate.py` | --split sir0_val --condition both --systems estimate --est experiments/results/2026-09-04-train-sir0-10000/ --metrics content --listener judge --judge-rpm 10 --judge-repeat 2 --out experiments/results/2026-09-27-eval-baseline-judge-r2 | 16 min |  |
 | 2026-09-27 | `scripts/evaluate.py` | --split sir0_val --condition both --systems estimate --est experiments/results/2026-09-04-train-sir0-10000/ --metrics content --listener judge --judge-rpm 10 --judge-repeat 1 --out experiments/results/2026-09-27-eval-baseline-judge-r1 | 14 min |  |
 | 2026-09-27 | `scripts/evaluate.py` | --split sir0_val --condition both --systems estimate --est experiments/results/2026-09-03-est-wesep-tfmap-causal --metrics content --listener judge --judge-rpm 10 --judge-repeat 2 --out experiments/results/2026-09-27-eval-wesep-judge-r2 | 12 min |  |
