@@ -146,8 +146,8 @@ def pick_example(rng, root, split_ids, target_seconds, enrollment_s):
     speaker for enrolment, and an opposite-sex speaker as interferer.
 
     Opposite sex because the demo should show the mechanism, not the hardest
-    case; same-sex is harder (decisions-m2.md, "lands right" row: 65.8 %
-    same-gender vs 87.2 % cross-gender for this checkpoint).
+    case; same-sex is harder (decisions-m3.md 2026-09-26, right voice for e21:
+    72.4 % same-gender vs 89.7 % cross-gender).
     """
     speakers = _speakers(root, split_ids)
     order = list(speakers)

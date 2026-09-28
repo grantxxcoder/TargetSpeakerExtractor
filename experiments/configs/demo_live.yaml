@@ -10,11 +10,12 @@ server:
   port: 8765
 
 model:
-  # Item 1c, epoch chosen by content WER (decisions-m2.md 2026-09-24).
+  # The report's extension: e21, selected on the judge (decisions-m2.md
+  # 2026-09-26, 2026-09-27). Weights only; loads the same as e13.
   # models/model_sir0_cueparts-e15.pt (1a) also loads, and needs no ECAPA.
-  checkpoint: models/model_sir0_cuecontext-wer-e13.pt
+  checkpoint: models/model_sir0_cuecontext-wer-e21.pt
   device: cpu
-  # MEASURED 2026-09-24, i5-1135G7, 80 ms chunks, stateful streaming:
+  # MEASURED 2026-09-24 on e13 (same network as e21), i5-1135G7, 80 ms chunks, stateful streaming:
   # RTF 0.47 at 4 threads, 0.59 at 2, 0.77 at 8.
   threads: 4
 
@@ -69,6 +70,7 @@ output_dir: experiments/results/demo-live
 
 display:                  # shown under the Gemini results; update with the checkpoint
   benchmark_note: >-
-    Across 103 validation clips (sir0_val, Gemini judge, 2026-09-24):
-    No processing 62.5 %, After our model 42.9 %, Target alone 1.1 % words wrong.
+    Across 103 validation clips (sir0_val, Gemini judge, mean of 3 runs, 2026-09-25 to 27):
+    No processing 62.9 %, After our model 39.6 %, Target alone 1.2 % words wrong.
+    The model was picked on these clips, so its figure is optimistic.
     One clip here is an illustration, not evidence.
