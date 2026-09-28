@@ -178,7 +178,8 @@ def main():
     ap.add_argument("--manifest-dir", default="data/manifests")
     ap.add_argument("--data-root", default="data")
     ap.add_argument("--condition", default=None,
-                    help="render only this condition, e.g. 'both'. Must MATCH what "
+                    help="render only this condition, e.g. 'both', or a comma-separated "
+                         "list. Must MATCH what "
                          "scripts/make_estimates.py was run with -- two systems "
                          "rendered on different subsets are not comparable.")
     ap.add_argument("--limit", type=int, default=None, help="first N trials only")

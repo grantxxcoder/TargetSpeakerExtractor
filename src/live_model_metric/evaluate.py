@@ -263,15 +263,17 @@ def _listen(paths, listener, split, manifest_dir, repo_root, cache_path,
     passing = [i for i, d in enumerate(decisions) if not d.fired]
 
     if listener == JUDGE:
-        from .judge import Judge, NewCallLimitReached, QuotaExhausted
+        from .judge import (Judge, MissingCredentials, NewCallLimitReached,
+                            QuotaExhausted)
         judge = Judge(verbose=verbose, **(judge_kwargs or {}))
         judge.failures = []
         for count, i in enumerate(passing, 1):
             try:
                 responses[i] = judge(paths[i])
-            except (QuotaExhausted, NewCallLimitReached):
-                # Budget, not breakage. Everything bought is on disk; stop
-                # cleanly and let a re-run resume rather than half-score.
+            except (QuotaExhausted, NewCallLimitReached, MissingCredentials):
+                # Budget or credentials, not one bad clip. Everything bought is
+                # on disk; stop cleanly and let a re-run resume rather than
+                # half-score.
                 raise
             except Exception as exc:                       # noqa: BLE001
                 # ONE CLIP MUST NEVER KILL THE RUN. Observed 2026-09-02: a

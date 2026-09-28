@@ -42,6 +42,122 @@
   doi       = {10.21437/Interspeech.2023-1433}
 }
 
+% ---------------------------------------------------------------------------
+% Target speaker extraction: survey, origins, conditioning
+% ---------------------------------------------------------------------------
+
+@article{zmolikova2023overview,
+  author  = {{\v{Z}}mol{\'\i}kov{\'a}, Kate{\v{r}}ina and Delcroix, Marc and
+             Ochiai, Tsubasa and Kinoshita, Keisuke and {\v{C}}ernock{\'y}, Jan
+             and Yu, Dong},
+  title   = {Neural Target Speech Extraction: An Overview},
+  journal = {IEEE Signal Processing Magazine},
+  volume  = {40},
+  number  = {3},
+  pages   = {8--29},
+  year    = {2023},
+  doi     = {10.1109/MSP.2023.3240008},
+  note    = {Also arXiv:2301.13341}
+}
+
+% Coined "the cocktail party problem". Verified on Crossref 2026-09-28.
+@article{cherry1953cocktail,
+  author  = {Cherry, E. Colin},
+  title   = {Some Experiments on the Recognition of Speech, with One and with
+             Two Ears},
+  journal = {The Journal of the Acoustical Society of America},
+  volume  = {25},
+  number  = {5},
+  pages   = {975--979},
+  year    = {1953},
+  doi     = {10.1121/1.1907229}
+}
+
+% The four origin entries below are taken from the reference list of
+% zmolikova2023overview, which names them as the lineage of TSE.
+@article{flanagan1985arrays,
+  author  = {Flanagan, J. L. and Johnston, J. D. and Zahn, R. and Elko, G. W.},
+  title   = {Computer-steered Microphone Arrays for Sound Transduction in Large
+             Rooms},
+  journal = {The Journal of the Acoustical Society of America},
+  volume  = {78},
+  number  = {5},
+  pages   = {1508--1518},
+  year    = {1985}
+}
+
+@inproceedings{du2014target,
+  author    = {Du, Jun and Tu, Yanhui and Xu, Yong and Dai, Lirong and Lee, Chin-Hui},
+  title     = {Speech Separation of a Target Speaker Based on Deep Neural Networks},
+  booktitle = {Proc. 12th International Conference on Signal Processing (ICSP)},
+  pages     = {473--477},
+  year      = {2014}
+}
+
+@article{zmolikova2019speakerbeam,
+  author  = {{\v{Z}}mol{\'\i}kov{\'a}, Kate{\v{r}}ina and Delcroix, Marc and
+             Kinoshita, Keisuke and Ochiai, Tsubasa and Nakatani, Tomohiro and
+             Burget, Luk{\'a}{\v{s}} and {\v{C}}ernock{\'y}, Jan},
+  title   = {{SpeakerBeam}: Speaker Aware Neural Network for Target Speaker
+             Extraction in Speech Mixtures},
+  journal = {IEEE Journal of Selected Topics in Signal Processing},
+  volume  = {13},
+  number  = {4},
+  pages   = {800--814},
+  year    = {2019}
+}
+
+@inproceedings{wang2019voicefilter,
+  author    = {Wang, Quan and Muckenhirn, Hannah and Wilson, Kevin and Sridhar,
+               Prashant and Wu, Zelin and Hershey, John R. and Saurous, Rif A.
+               and Weiss, Ron J. and Jia, Ye and Moreno, Ignacio Lopez},
+  title     = {{VoiceFilter}: Targeted Voice Separation by Speaker-Conditioned
+               Spectrogram Masking},
+  booktitle = {Proc. Interspeech 2019},
+  pages     = {2728--2732},
+  year      = {2019}
+}
+
+% The speaker encoder behind the extension's context embedding (item 1c).
+@inproceedings{desplanques2020ecapa,
+  author    = {Desplanques, Brecht and Thienpondt, Jenthe and Demuynck, Kris},
+  title     = {{ECAPA-TDNN}: Emphasized Channel Attention, Propagation and
+               Aggregation in {TDNN} Based Speaker Verification},
+  booktitle = {Proc. Interspeech 2020},
+  year      = {2020},
+  note      = {Also arXiv:2005.07143}
+}
+
+% The implementation the pretrained ECAPA checkpoint is loaded through
+% (src/models/context_encoder.py).
+@misc{ravanelli2021speechbrain,
+  author       = {Ravanelli, Mirco and Parcollet, Titouan and Plantinga, Peter
+                  and Rouhe, Aku and Cornell, Samuele and others},
+  title        = {{SpeechBrain}: A General-Purpose Speech Toolkit},
+  year         = {2021},
+  howpublished = {arXiv:2106.04624}
+}
+
+@inproceedings{xu2025noisyenrol,
+  author    = {Xu, Shitong and Yang, Yiyuan and Trigoni, Niki and Markham, Andrew},
+  title     = {Target Speaker Extraction through Comparing Noisy Positive and
+               Negative Audio Enrollments},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2025},
+  note      = {Also arXiv:2502.16611}
+}
+
+% TODO shen2025lext: volume and pages -- not on the arXiv page; take them from
+% IEEE Xplore.
+@article{shen2025lext,
+  author  = {Shen, Pengjie and Chen, Kangrui and He, Shulin and Chen, Pengru and
+             Yuan, Shuqi and Kong, He and Zhang, Xueliang and Wang, Zhong-Qiu},
+  title   = {Listen to Extract: Onset-Prompted Target Speaker Extraction},
+  journal = {IEEE Transactions on Audio, Speech and Language Processing},
+  year    = {2025},
+  note    = {Also arXiv:2505.05114}
+}
+
 % TODO zhang2025multi: page range -- not listed on OpenAIRE; take it from IEEE Xplore.
 @inproceedings{zhang2025multi,
   author    = {Zhang, Ke and Li, Junjie and Wang, Shuai and Wei, Yangjie and Wang, Yi

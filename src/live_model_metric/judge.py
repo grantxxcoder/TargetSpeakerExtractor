@@ -75,6 +75,12 @@ class QuotaExhausted(RuntimeError):
     """The daily free-tier cap is spent. Not a failure -- resume tomorrow."""
 
 
+class MissingCredentials(RuntimeError):
+    """No key or project, so NO call can succeed. Aborts the run: scored as
+    per-clip failures it turns every clip into an empty answer, which on a
+    target-absent case reads as perfect silence. Observed 2026-09-28."""
+
+
 class NewCallLimitReached(RuntimeError):
     """max_new_calls was hit. A guard against an accidental large spend, not an
     error: everything already answered is on disk and a re-run resumes."""
@@ -422,12 +428,12 @@ class Judge:
         if self.backend == "vertex":
             project = self.project or os.environ.get("GOOGLE_CLOUD_PROJECT")
             if not project:
-                raise RuntimeError(
+                raise MissingCredentials(
                     "backend='vertex' needs a GCP project: pass project=, or set "
                     "GOOGLE_CLOUD_PROJECT. Auth is Application Default "
                     "Credentials -- run `gcloud auth application-default login`.")
         elif not os.environ.get("GEMINI_API_KEY"):
-            raise RuntimeError(
+            raise MissingCredentials(
                 "GEMINI_API_KEY is not set. Put it in .env (gitignored) and "
                 "export it, or run with GEMINI_API_KEY=... ")
 

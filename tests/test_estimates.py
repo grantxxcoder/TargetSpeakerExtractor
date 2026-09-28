@@ -80,6 +80,12 @@ def test_read_trials_condition_filter(split):
     assert [t.trial_id for t in trials] == ["t-003", "t-001", "t-002", "t-006"]
 
 
+def test_read_trials_accepts_a_comma_separated_condition_list(split):
+    manifest, audio_root, _ = split
+    trials = read_trials(manifest, audio_root, condition="noise_only, target_absent")
+    assert [t.trial_id for t in trials] == ["t-005", "t-004"]
+
+
 def test_read_trials_limit_applies_after_the_filter(split):
     manifest, audio_root, _ = split
     trials = read_trials(manifest, audio_root, condition="both", limit=2)
