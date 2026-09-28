@@ -5,80 +5,69 @@
 % systems but fail by opposite mechanisms. See the error composition below.
 
 [TODO:] Highlight that the model still has capacity to learn more with more training data and more parameters. Just that we needed a proof of concept. Also need to maybe put CARTSE's results in here for reference on another dataset.
+
+In the results section, all reference to the "floor" and "ceiling" systems are related to passing the full mixture audio and the clean target audio respectively to the listener. This means that for the floor system, the listener is hearing the unprocessed mixture of the target and interferer and simulates what a listener would hear if the system did nothing. The ceiling system is the best possible outcome, where there is perfect separation and the listener hears only the target audio. The floor and ceiling systems are not real systems, but rather reference points for the listener to compare against. 
 \section{Content fidelity}
 \label{sec:results_content}
+The main metrics to consider for this project is the performance of our extractor system with respect to the content fidelity on a live system. The content fidelity metrics are used to measure how the live artificial intelligence system is able to interpret the audio after the extraction process. The end goal is for the extractor to isolate and process the target speaker's audio in such a way for there to be minimal loss of content fidelity. Secondly, since the live system is a black box, non-deterministic system, the stability of the interpretation of the audio is also important to consider. 
+The sections to follow consider the content fidelity for both a live judge and an offline transcriber.
 
 \subsection{The live judge - Gemini Live}
 \label{sec:results_content_judge}
-
-\begin{table}[htbp]
+The live judge results are shown in \autoref{tab:content_judge}. These results are most indicative of the overall performance of the extractor system as the live judge is the end user of the extraction process. To better understand the variability of the live judge on the same audio, \autoref{fig:judge_runs} shows how the different systems changed in the LCF-WER metric across three independent runs.
+\begin{table}[H]
 \centering
-\caption{Content recovered Gemini Live. \texttt{gemini-3.7-flash}, audio in
-/ text out}
+\caption{Content recovered by Gemini Live. \texttt{gemini-3.7-flash}, audio in and text out. Each value is the average of 3 runs on the same 103 trials, and $\pm$ is the standard deviation of those three run scores. \autoref{fig:judge_runs} shows how much the runs differ. Lower is better in every column.}
 \label{tab:content_judge}
 \small
 \begin{tabular}{@{}lccccc@{}}
 \toprule
- & LCF-WER & ICR@2 & mean leak & invented & FR@2 \\
+ & LCF-WER \lowerbetter & ICR@2 \lowerbetter & mean leak \lowerbetter & invented \lowerbetter & FR@2 \lowerbetter \\
 system & (\%) & (\%) & (\%) & /trial & (\%) \\
 \midrule
-Floor (do nothing)  & 63.27 & 75.73 & 63.33 & 1.24 & 32.0 \\
-Ours (4{,}976 trials) & 56.72 & 62.14 & 50.15 & 1.83 & 41.7 \\
-Ours (9{,}955 trials) & 55.59 & 61.17 & 48.32 & 2.01 & 43.7 \\
-Extension (mask structure) & 55.36 & 65.05 & 47.98 & 2.28 & 48.04 \\
-WeSep    & \textbf{26.40} & \textbf{25.24} & \textbf{12.92} & \textbf{1.80} & \textbf{38.8} \\
-Ceiling (clean)     & 1.05 & 0.00 & 0.00 & 0.20 & 1.0 \\
+Floor  & 62.94\,$\pm$\,0.37 & 75.73\,$\pm$\,0.00 & 63.90\,$\pm$\,0.65 & 1.27\,$\pm$\,0.03 & 30.7\,$\pm$\,3.1 \\
+Baseline & 55.18\,$\pm$\,3.22 & 61.49\,$\pm$\,4.38 & 48.62\,$\pm$\,3.27 & 1.91\,$\pm$\,0.13 & 41.7\,$\pm$\,3.4 \\
+Extension & 39.59\,$\pm$\,0.34 & 33.66\,$\pm$\,2.02 & 23.08\,$\pm$\,0.97 & 2.20\,$\pm$\,0.11 & 46.9\,$\pm$\,2.0 \\
+WeSep & \textbf{25.80}\,$\pm$\,0.56 & \textbf{25.24}\,$\pm$\,0.97 & \textbf{13.04}\,$\pm$\,0.32 & \textbf{1.80}\,$\pm$\,0.02 & \textbf{38.6}\,$\pm$\,2.3 \\
+Ceiling & 1.19\,$\pm$\,0.18 & 0.00\,$\pm$\,0.00 & 0.00\,$\pm$\,0.00 & 0.22\,$\pm$\,0.03 & 0.3\,$\pm$\,0.6 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figures/judge_run_variation.pdf}
+\caption{How much Gemini Live's LCF-WER changed across the three runs in \autoref{tab:content_judge}, where change is the highest of the three run scores minus the lowest. (a) Is the box plot showing how the change varies per clip over the averaged runs. A clip's score can pass 100\,\% and can occur when Gemini adds words through hallucination or including interfering speech. (b) Change in the overall score over all 103 clips. Floor and ceiling (grey) are reference points.}
+\label{fig:judge_runs}
+\end{figure}
+
+The first comparison to be made is between the baseline and the floor. The baseline improves the LCF-WER by 7.76 points, which is a 12.3\,\% relative improvement over the floor. However, the baseline system evidently has extreme variation across the average performance over the three runs. The standard deviation of the LCF-WER is 3.22 points. There is a decisive improvement however in the baseline model's performance over the floor with regard to including an interfering speaker's content, as the average percentage of interfering words included in the output is 14.24 points lower than the floor. However, this came at a trade-off with the number of hallucinated words. Compared against the floor, the baseline system has fabricated/invented more words on average per trial as seen in the table. Finally, the baseline system also more frequently fabricates indicated by FR@2. Therefore, not only is the baseline system resulting in more words in a trial being fabricated (which is indicative of high degrees of artefacts), but it is also more likely on a random trial to fabricate words than the just passing the raw mixture audio. 
+
+Overall, the baseline system is a clear improvement over the floor, which is indicative that the extractor has begun to find a signal in the mixture that is associated with the target speaker. The encouraging results can be seen when comparing the extension against the baseline and WeSep. WeSep acts as a benchmark for the best case scenario of what the BSRNN architecture can achieve from an extraction point of view although the WeSep model is both non-causal and cannot be used in a live system if there are latency concerns. For the extension, the inclusion of the pretrained ECAPA speaker encoder and passing the enrolment audio in parts instead of a single embedding has markedly improved the performance of the extractor. The LCF-WER has improved by 15.59 points over the baseline, which is a 28.3\,\% relative improvement. However, the most encouraging part of the results is how the extension has both reduced the number of leaked words per trial and the frequency of leakge by substantial amounts. The improvement can be attributed to the speaker specific information being passed to the extractor through the ECAPA speaker encoder. An interesting trade-off however is that the extension has increased the number of invented words per trial and the frequency of invention. This is indicative of the highly aggressive nature of the extractor, which was designed to mask out the interfering speaker's content however as a result, the masking can leave gaps or artefacts in the output which the live judge then interprets as words. 
+
+To get a better idea of how stable the live judge is on the same audio, \autoref{fig:judge_runs} demonstrates how the LCF-WER changed across the three independent runs but measured per clip instead of the overall average. The idea is to gain a better understanding of how the standard deviation of the LCF-WER is distributed across the clips. The first observation is the confirmation of the extreme variability of the live judge when passed extracted audio by the baseline. In fact, the baseline has worse variability than the floor and the highest average in change of performance between the three runs. A very encouraging result is that the extension seems to have the best stability even when compared to WeSep. On single clips, there are outlier performance changes of up to 100 points (when one run results in 100 more errors than another run), these outliers could be incredibly difficult cases that are not indicative of the overall performance of the system. However, as seen in the bar plot, the extension on average has the smallest changes in overall performance across the three runs.
 \subsection{The offline transcriber}
 \label{sec:results_content_asr}
-
-\begin{table}[htbp]
+The offline transcriber serves to demonstrate how the extractor system performs on a standard transcription tool. The results are shown in \autoref{tab:content_asr}. The offline transcription system seems like a natural alternative to the live system whilst building the architecture as the live systems make use of paid APIs and are not open source. 
+\begin{table}[H]
 \centering
 \caption{Content recovered by the offline transcriber,
-\texttt{faster-whisper small.en}. Lower is better in every column.}
+\texttt{faster-whisper large-v3-turbo}. Lower is better in every column.}
 \label{tab:content_asr}
 \begin{tabular}{@{}lccccc@{}}
 \toprule
- & WER & ICR@2 & mean leak & invented & FR@2 \\
+ & WER \lowerbetter & ICR@2 \lowerbetter & mean leak \lowerbetter & invented \lowerbetter & FR@2 \lowerbetter \\
 system & (\%) & (\%) & (\%) & /trial & (\%) \\
 \midrule
-Floor (do nothing)    & 65.22 & 66.99 & 51.30 & 2.61 & 57.28 \\
-Ours (4{,}976 trials) & 59.05 & 54.37 & 39.13 & \textbf{2.73} & \textbf{60.61} \\
-Ours (9{,}955 trials) & 59.52 & 50.49 & 34.58 & 3.08 & 68.00 \\
-Extension (mask structure) & 56.58 & 49.51 & 31.63 & 3.45 & 70.59 \\
-WeSep    & \textbf{34.60} & \textbf{15.53} & \textbf{9.02} & 3.03 & 73.79 \\
-Ceiling (clean)       & 5.85 & 0.00 & 0.00 & 0.88 & 19.42 \\
+Floor & 63.04 & 76.70 & 62.78 & 1.59 & 38.83 \\
+Baseline & 52.71 & 62.14 & 45.73 & 1.96 & 49.02 \\
+Extension & 41.01 & 36.89 & 19.55 & 2.46 & 57.43 \\
+WeSep    & \textbf{29.13} & \textbf{22.33} & \textbf{12.46} & 2.02 & 54.37 \\
+Ceiling  & 1.98 & 0.00 & 0.00 & 0.45 & 8.74 \\
 \bottomrule
 \end{tabular}
 \end{table}
-
-\subsection{Headroom captured}
-\label{sec:results_content_headroom}
-
-\begin{table}[htbp]
-\centering
-\caption{Headroom captured: the fraction of the floor-to-ceiling gap each
-system closes, derived from \autoref{tab:content_judge} and
-\autoref{tab:content_asr}. Higher is better.}
-\label{tab:headroom}
-\begin{tabular}{@{}llccc@{}}
-\toprule
-system & listener & LCF-WER (\%) & ICR@2 (\%) & mean leak (\%) \\
-\midrule
-Ours (4{,}976) & Gemini Live & 10.5 & 17.9 & 20.8 \\
-Ours (9{,}955) & Gemini Live & 12.3 & 19.2 & 23.7 \\
-WeSep          & Gemini Live & \textbf{59.3} & \textbf{66.7} & \textbf{79.6} \\
-\midrule
-Ours (4{,}976) & ASR   & 10.4 & 18.8 & 23.7 \\
-Ours (9{,}955) & ASR   & 9.6  & 24.6 & 32.6 \\
-WeSep          & ASR   & \textbf{51.6} & \textbf{76.8} & \textbf{82.4} \\
-\bottomrule
-\end{tabular}
-
-\end{table}
+The offline transcriber results produce the same conclusions as the live judge, however are obtained differently. The offline transcriber seems to suffer more with fabrication and performs worse across both the invented words per trial and the frequency of invention in comparison to the live judge. However, with respect to the interfering speaker's content, the offline transcriber seems to be more susceptible in a trial to include interfering speech, however, the actual amount of interfering speech included in the output is lower than the live judge. Therefore the trade-off is that the offline transcriber will more likely make a mistake on a trial, but the mistakes it makes are less severe than the live judge. Overall, the finding still holds that the extension has improved the content fidelity of the target speaker's audio over the baseline and is approaching the performance of WeSep. The offline transcriber however suggests that the gap between the extension and WeSep is smaller than what the live judge suggests, as the offline transcriber has an 11.88 point gap in LCF-WER between the two systems, whereas the live judge has a 13.79 point gap.
 
 % CLAIMS THIS SECTION MUST SUPPORT:
 %  (a) The offline ASR deletes MORE on the baseline's audio while the judge
@@ -93,8 +82,8 @@ WeSep          & ASR   & \textbf{51.6} & \textbf{76.8} & \textbf{82.4} \\
 %      while halving the score. State this wherever LCF-WER is quoted.
 \section{Error composition}
 \label{sec:results_errors}
-
-\begin{table}[htbp]
+The LCF-WER metric is a combination of three different types of errors to form the word error rate: substitution, deletion and insertion. The metric is useful for breaking down the weaknesses of the extractor system and to better understand how the system is introducing error. For example, a system with high deletions is indicative of over suppression of the target speaker's content, a system with high insertions is indicative of hallucination or leakage, and finally a system with high substitutions is indicative of misinterpretation of the target speaker's content. The error composition for both the live judge and the offline transcriber are shown in \autoref{tab:error_split}.
+\begin{table}[H]
 \centering
 \caption{Substitution (S), deletion (D) and insertion (I) rates for each listener. Lower is better.}
 \label{tab:error_split}
@@ -102,17 +91,19 @@ WeSep          & ASR   & \textbf{51.6} & \textbf{76.8} & \textbf{82.4} \\
 \toprule
 & \multicolumn{3}{c}{Gemini Live} & \multicolumn{3}{c}{Offline ASR} \\
 \cmidrule(lr){2-4}\cmidrule(lr){5-7}
-system & $S$ & $D$ & $I$ & $S$ & $D$ & $I$ \\
+system & $S$ \lowerbetter & $D$ \lowerbetter & $I$ \lowerbetter & $S$ \lowerbetter & $D$ \lowerbetter & $I$ \lowerbetter \\
 \midrule
-Floor    & 29.22 & 5.97 & 28.08 & 32.89 & 9.28  & 23.05 \\
-Ours (4{,}976) & 27.07 & 3.43 & 26.22 & 28.06 & 12.60 & 18.39 \\
-Ours (9{,}955) & 25.64 & 3.00 & 26.95 & 28.20 & 11.79 & 19.53 \\
-Extension (mask structure) & 22.18 & 5.09 & 28.08 & 27.27 & 8.76 & 20.55 \\
-WeSep    & 10.62 & 6.78 & 8.99  & 18.51 & 8.91  & 7.19 \\
-Ceiling  & 0.87  & 0.15 & 0.03  & 3.43  & 0.67  & 1.75 \\
+Floor    & 29.22 & 5.97 & 28.08 & 33.41 & 6.93  & 22.70 \\
+Baseline & 25.64 & 3.00 & 26.95 & 27.24 & 5.70  & 19.76 \\
+Extension & 16.96 & 9.44 & 13.19 & 19.24 & 12.28 & 9.49 \\
+WeSep    & 10.62 & 6.78 & 8.99  & 13.45 & 5.91  & 9.78 \\
+Ceiling  & 0.87  & 0.15 & 0.03  & 1.60  & 0.15  & 0.23 \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+The first observation is related to the live judge and how it performs when given a raw mixture. As expected, the floor system has a high insertion rate of 28.08\,\% which is indicative of the interfering speaker's content being included in the output and then a high substitution rate of 29.22\,\% which is indicative of the live judge misinterpreting the target speaker's content. The deletion rate is comparatively much lower at 5.97\,\% but not 0\,\%. This means that even with no masking, the live system can miss some of the target speaker's content. 
+
 
 % CLAIMS THIS SECTION MUST SUPPORT:
 %  (a) No signal-domain measure predicts what the listener recovered: SI-SDR
@@ -125,24 +116,24 @@ Ceiling  & 0.87  & 0.15 & 0.03  & 3.43  & 0.67  & 1.75 \\
 %      of +10.34 dB means roughly 9 % of the output energy was invented.
 \section{Signal-domain separation}
 \label{sec:results_signal}
-
-\begin{table}[htbp]
+A key part of the training process is to introduce the idea of separation. The three kinds considered in this project is separation of the target from the background noise (distortion), interference from other speakers (interference) and finally from artefacts introduced by the extractor system (artefact). The signal-domain separation results are shown in \autoref{tab:signal}. These metrics highlight what the extractor system is doing in the signal domain and can best be used to understand the trade-offs between the different types of separation. A note about the values in the table: SAR for the floor and ceiling are both at +30 dB, as since these systems do not contain a model there can be no artefacts introduced. 
+\begin{table}[H]
 \centering
-\caption{Signal-domain decomposition, in \si{\decibel}; higher is better. The ceiling reaches \SI{+30}{\decibel} by construction, being the cap imposed by the denominator floor $\tau = 10^{-3}$, and is not a measurement.}
+\caption{Signal-domain decomposition, in \si{\decibel}; higher is better. The ceiling reaches \SI{+30}{\decibel} by construction, where the cap created by the denominator floor $\tau = 10^{-3}$, and is not a measurement. Reference Section~\ref{sec:results_errors} for more details.}
 \label{tab:signal}
 \begin{tabular}{@{}lccc@{}}
 \toprule
-system & SDR & SIR & SAR \\
+system & SDR \higherbetter & SIR \higherbetter & SAR \higherbetter \\
 \midrule
-Floor (do nothing)  & $-1.12$ & $-1.12$ & $+30.00$ \\
-Ours (4{,}976 trials)     & $+0.86$ & $+3.21$ & $+10.34$ \\
-Ours (9{,}955 trials)     & $+1.29$ & $+3.66$ & $\mathbf{+11.11}$ \\
-Extension (mask structure) & $+2.29$ & $+5.33$ & $+9.96$ \\
-WeSep   & $\mathbf{+4.68}$ & $\mathbf{+10.34}$ & $+8.26$ \\
-Ceiling (clean)     & $+30.00$ & $+30.00$ & $+30.00$ \\
+Floor & $-1.12$ & $-1.12$ & $+30.00$ \\
+Baseline & $+1.29$ & $+3.66$ & $+11.11$ \\
+Extension & $+2.29$ & $+9.17$ & $+6.28$ \\
+WeSep   & $+4.68$ & $+10.34$ & $+8.26$ \\
+Ceiling  & $+30.00$ & $+30.00$ & $+30.00$ \\
 \bottomrule
 \end{tabular}
 \end{table}
+The most noticeable observation is that the extension has significantly improved the SIR metric over the baseline, and is comparable to the WeSep model. The gap in performance between the extension and WeSep therefore seems to lie in the SAR and SDR metric. Therefore when considering how to improve the extension, the next iteration should potentially target mechanisms that reduce the artefacts introduced by the extractor system. Interestingly, the baseline has a highest model SAR metric. However this should not be attributed to the model being better at reducing artefacts, but rather due to the simplistic nature of the model design. The baseline model is not as aggressive in masking out the interfering speaker's content, and therefore does not introduce as many artefacts into the output. 
 
 % CLAIMS THIS SECTION MUST SUPPORT:
 %  (a) THE DIVERGENCE. The baseline improved content by 6.1 points while OVRL
@@ -157,24 +148,25 @@ Ceiling (clean)     & $+30.00$ & $+30.00$ & $+30.00$ \\
 %      moves.
 \section{Perceptual quality}
 \label{sec:results_perceptual}
-
-\begin{table}[htbp]
+The perceptual quality metrics are used to indicate that extraction audio that sounds good to a proxy of a human listener does not necessarily translate to better content fidelity. The perceptual quality metrics are shown in \autoref{tab:dnsmos}. 
+\begin{table}[H]
 \centering
 \caption{DNSMOS, personalised model. All scores are between 1 and 5 where the higher the score, the better.}
 \label{tab:dnsmos}
 \begin{tabular}{@{}lcccc@{}}
 \toprule
-system & P808 & SIG & BAK & OVRL \\
+system & P808 \higherbetter & SIG \higherbetter & BAK \higherbetter & OVRL \higherbetter \\
 \midrule
-Floor (do nothing)  & 2.913 & 4.090 & 2.031 & 2.497 \\
-Ours (4{,}976 trials)     & 2.937 & 3.366 & 2.266 & 2.237 \\
-Ours (9{,}955 trials)     & 2.955 & 3.233 & 2.286 & 2.183 \\
-Extension (mask structure) & 2.996 & 3.375 & 2.498 & 2.347 \\
-WeSep   & \textbf{3.010} & \textbf{3.450} & \textbf{2.640} & \textbf{2.510} \\
-Ceiling (clean)     & 3.550 & 4.175 & 3.592 & 3.429 \\
+Floor & 2.913 & 4.090 & 2.031 & 2.497 \\
+Baseline  & 2.955 & 3.233 & 2.286 & 2.183 \\
+Extension & \textbf{3.030} & 2.957 & \textbf{3.045} & 2.306 \\
+WeSep   & 3.010 & \textbf{3.450} & 2.640 & \textbf{2.510} \\
+Ceiling  & 3.550 & 4.175 & 3.592 & 3.429 \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+First considering P808 in isolation, the extension seemingly has a similar, if not slightly better, overall quality score than WeSep. Therefore by the one perceptual quality metric our extension produces audio that is more pleasing to a human listener (by the P808 model standards) than the WeSep model. However, when considering the other three metrics that form part of the second perceptual quality metric, the WeSep model has a better SIG and OVRL score than the extension. However, something fascinating to note is how the extension scores lower than the floor for both the SIG and OVRL metrics, and yet as seen in the content fidelity results, the extension has improved the content fidelity over the floor by a significant margin. This is an interesting observation as it demonstrates that the perceptual quality metrics are not good indicators for the purposes of this research project, which is to improve the content fidelity of the target speaker's audio. The metric in itself is subjective to the actual perceptual system and does not provide indication that what sounds good to a human listener is necessarily better for the content fidelity of the target speaker's audio.
 
 % CLAIMS THIS SECTION MUST SUPPORT:
 %  (a) The causality probe must be reported BEFORE the timings are interpreted.
@@ -194,37 +186,26 @@ Ceiling (clean)     & 3.550 & 4.175 & 3.592 & 3.429 \\
 \section{Latency and throughput}
 \label{sec:results_latency}
 
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
-\caption{Latency and throughput over 2{,}250 chunks of \SI{80}{\milli\second} on CPU (i5-1135G7, 4 threads), except where marked. The requirement is $\textup{RTF} < 1$ \emph{and} latency within \SI{200}{}--\SI{300}{\milli\second}; the first is the binding constraint, because a chunk that finishes inside its own duration meets the latency budget automatically. Every figure is an \emph{estimate}, not a streaming measurement: chunks are processed independently with no carried state, which is worth 10--20\,\% either way.}
+\caption{Latency and throughput over 2{,}250 chunks of \SI{80}{\milli\second} on CPU (i5-1135G7, 4 threads), except where marked. Baseline and extension figures are the median of three runs each, alternated in one session on an otherwise idle machine, with the range in brackets; WeSep is a single earlier run. The requirement is $\textup{RTF} < 1$ \emph{and} latency within \SI{200}{}--\SI{300}{\milli\second}; the first is the binding constraint, because a chunk that finishes inside its own duration meets the latency budget automatically. Every figure is an \emph{estimate} and not a streaming measurement: chunks are processed independently.}
 \label{tab:latency}
 \small
 \begin{tabular}{@{}lccccc@{}}
 \toprule
- & \multicolumn{2}{c}{RTF} & \multicolumn{2}{c}{latency (\si{\milli\second})} & meets \\
+ & \multicolumn{2}{c}{RTF \lowerbetter} & \multicolumn{2}{c}{latency (\si{\milli\second}) \lowerbetter} & meets \\
 \cmidrule(lr){2-3}\cmidrule(lr){4-5}
 system & mean & p99 & mean & p99 & budget \\
 \midrule
-Ours (4{,}976 trials)$^\dagger$ & \textbf{0.528} & \textbf{0.706} & \textbf{162.2} & \textbf{176.5} & yes$^\dagger$ \\
-Ours (9{,}955 trials)      & 0.783 & 1.095 & 182.6 & 207.6 & mean only \\
-Extension (gate)           & --- & --- & --- & --- & --- \\
-Extension (mask structure) & 0.839 & 1.278 & 187.1 & 222.2 & mean only \\
+Baseline      & 0.68 (0.66--0.70) & 0.79 (0.79--0.86) & 175 (173--176) & 183 (183--189) & yes \\
+Extension & 0.69 (0.68--0.71) & 0.78 (0.77--0.82) & 175 (175--177) & 182 (182--185) & yes \\
 WeSep & 2.854 & 5.300 & 348.3 & 544.0 & no$^\ddagger$ \\
 \bottomrule
 \end{tabular}
 
-\vspace{0.5em}
-{\footnotesize $^\dagger$ Timed over 500 chunks, where every other row uses 2{,}250. The shorter run reads systematically faster, so this row is \emph{not} comparable with the rest of the table and its apparent win is an artefact of the protocol. Re-timing it is outstanding.\\
-$^\ddagger$ And cannot stream at all, independently of its throughput. See the causality result above.}
 \end{table}
 
-The extension needs about \SI{67}{\milli\second} to process each \SI{80}{\milli\second} of audio, so on a typical chunk it finishes with roughly \SI{13}{\milli\second} to spare and holds pace with a live stream. The delay a listener would experience averages \SI{187}{\milli\second}: the \SI{80}{\milli\second} of audio that must arrive before the chunk can be processed, the \SI{40}{\milli\second} of lookahead the architecture requires, and the compute itself. The slowest one percent of chunks reach \SI{222}{\milli\second}. Both figures sit inside the \SI{200}{}--\SI{300}{\milli\second} budget.
-
-The worst chunks, however, do not keep up, and that is the constraint that binds. The slowest one percent take \SI{102}{\milli\second} to process \SI{80}{\milli\second} of audio, so during those chunks work arrives faster than it is cleared and a backlog forms. The delays quoted above assume no queue; under a burst of slow chunks the true delay exceeds them by whatever backlog has built up, which means \SI{222}{\milli\second} is a floor rather than a worst case. The 9{,}955-trial model behaves the same way (p99 1.095). Only the 4{,}976-trial row clears the deadline at the 99th percentile, and that row was timed under a protocol which flatters it.
-
-The extension is not slower than the model it extends. Compared like for like at 2{,}250 chunks it costs 7\,\% more compute per chunk (0.783 against 0.839) and \SI{4.5}{\milli\second} more delay, but the two share an architecture and a parameter count of 7{,}189{,}644: the mask-structure term acts on the training objective and leaves the network untouched, so the true difference is zero by construction and the gap measures run-to-run variation on a laptop CPU. It must not be read as a cost of the extension.
-
-All of these timings come from a four-thread laptop CPU of 2021 vintage, whereas the deployment assumption is server-class hardware. They are therefore a conservative bound and not a projection of deployed performance; a GPU timing remains outstanding.
+The latency and throughput results are shown in \autoref{tab:latency}. The baseline and the extension model is able to meet the real-time factor and latency requirements for a live system. The WeSep model is not able to meet the requirements and therefore cannot be used in a live system. Overall, the extension is comfortably within the latency requirements and is able to process the audio in real-time. Furthermore, in the experimentation, the extension model did not miss any chunks and the worse case delay was 196 milliseconds, which is well within the 200--300 millisecond requirement. 
 
 
 % TODO: write out as prose. The four that must appear:

@@ -1315,3 +1315,258 @@ rendered, so a resumed pass cannot log a per-trial rate for trials it skipped.
 
 **Changes no number.** A full render with no prior output behaves exactly as
 before, bit for bit.
+
+---
+
+## 2026-09-21 — THE OTHER HALF OF THE DATA, scored for the first time
+
+`scripts/eval_by_case.py`, `experiments/results/2026-09-21-case-suite-baseline-e6`,
+`sir0_val`, baseline `model_sir0_10000-e6.pt`, faster-whisper `small.en`
+STAND-IN (not a live-model result), 8 min.
+
+**Every content number this project had reported was on `both`, which is 51.5 %
+of the split. The other 48.5 % had never been scored. Here it is.**
+
+| case | n | floor | ours | ceiling | reading |
+|---|---|---|---|---|---|
+| `target_only` | 47 | 4.00 | **5.34** | 2.80 | we make easy speech *worse* |
+| `both` | 103 | 65.22 | 59.52 | 5.85 | reproduces the known numbers exactly |
+
+Absent cases, where word error is undefined (words emitted per trial; zero is
+correct):
+
+| case | n | floor | ours | median suppression |
+|---|---|---|---|---|
+| `interferer_only` | 42 | 30.81 | **24.81** | **-6.14 dB** |
+| `noise_only` | 8 | 0.00 | 0.00 | -26.33 dB |
+
+### The finding: we pass a whole stranger through as if it were the target
+
+**On the 42 trials where the target never spoke and another person did, our
+output still yields 1,042 transcribable words against the raw mixture's 1,294.
+We remove 19 % of a stranger's speech.** 83 % of those clips still produce
+words that a downstream consumer would attribute to the target. Median
+suppression is **-6.14 dB** -- the mean of -10.97 is carried by a few clips and
+is the wrong statistic to quote.
+
+**And the model produced no clean silences of its own.** Non-response was 16.7 %
+(7 of 42) and the speech gate blocked exactly 7 -- so every correct silence on
+this case came from Silero, not from the extractor.
+
+**`noise_only` says nothing about the model.** The gate blocked 8/8 clips for
+*both* the mixture and our output. Only its -26.33 dB suppression is the
+model's own, and that is a signal-domain number with no listener in it.
+
+### We damage speech that needed no separation
+
+On `target_only` the mixture is already nearly intelligible (4.00) and we move
+it to 5.34. **+1.33 is BELOW the 1.57-point irrelevance floor, so "worse" is
+NOT established** -- report it as unchanged-to-worse, never as a loss.
+Fabrication is the larger move and is not bounded by that floor: FR@2 goes
+21.28 -> **29.78**, invented words per trial 0.85 -> 1.06, against a ceiling of
+14.89. Substitutions do the work (3.18 -> 4.26).
+
+**The same pattern is on `both`, where it was never reported: FR@2 57.28 ->
+68.00.** We reduce word error by 5.70 points and raise fabrication by 10.7. A
+headline improving while a disjoint failure mode grows.
+
+### `both` by SIR band — read as headroom captured, not as WER
+
+| SIR band | n | floor | ours | ceiling | **headroom captured** |
+|---|---|---|---|---|---|
+| < -5 | 33 | 80.29 | 76.94 | 3.27 | **4.4 %** |
+| -5..0 | 23 | 79.05 | 72.55 | 6.10 | **8.9 %** |
+| 0..+5 | 24 | 58.92 | 49.12 | 9.42 | 19.8 % |
+| >= +5 | 23 | 33.56 | 29.42 | 5.80 | 14.9 % |
+
+**Where the interferer is louder we capture under 9 % of the available
+headroom; where it is not, 15-20 %.** That is the collapse, stated in the one
+unit that is comparable across bands with different amounts of room to win.
+
+**NOT COMPARABLE TO THE 2026-09-12 TABLE.** That one averaged per-trial WER;
+this aggregates corpus-wide. Same trials, different question (89.5/88.2 there
+against 80.29/76.94 here). Never quote one against the other.
+
+### Consequences
+
+1. **Leakage on target-absent trials is now a measured headline, not an
+   inference.** It is the purest available instrument for the conditioning
+   question: there is no target to extract, so anything transcribable is the
+   model failing to reject a non-target speaker.
+2. **Every future arm must be scored on all four cases.** An arm that improves
+   `both` while worsening `interferer_only` has moved leakage around, not
+   removed it, and the old protocol could not see that.
+3. **`noise_only` needs the gate disabled** (`--no-gate`) to say anything about
+   the model, or a larger n. 8 trials is too few either way.
+
+---
+
+## 2026-09-24 — `sir0_privval` DROPPED from evaluation
+
+**Decision (Grant): no further estimates or scoring on `sir0_privval`.**
+Development numbers come from `sir0_val` through the judge; the only
+selection-free check left is `eval_public`.
+
+**Why.** The split's only listener was the offline ASR, which does not track
+the judge across our arms, and one system costs 3.6 h of CPU to render
+(`run_times.md` 2026-09-14) for a number no decision rests on.
+
+**Measured, and it travels with the reason.** Rank agreement between the ASR
+and the judge over our 8 judged arms (`sir0_val` `both`, n=103):
+
+| ASR scoring | Spearman | p |
+|---|---|---|
+| as reported | 0.16 | 0.71 |
+| loop guard on (`content_probe.cap_errors_at_spoken`) | 0.75 | 0.03 |
+
+Most of the disagreement is Whisper looping on 3 clips of the WER-selected e13
+(ASR 63.24, last; judge 42.93, first), not the ASR hearing the audio
+differently. Per-trial r = 0.825 (`2026-09-15-judge-predictability`).
+
+### Consequences to carry
+
+- **No selection-free number exists for any current checkpoint.** 1a e15 and
+  1c e12 were picked after seeing `sir0_val`; wer e13 was picked by the in-loop
+  probe on `sir0_val` clips. The one time this was measured, the bias was most
+  of the effect: 1a e15 vs baseline **−6.76** on `sir0_val`, **−1.51
+  [−4.07, +1.04]** on `sir0_privval` (`decisions-m2.md` 2026-09-24).
+- **That check now has to come from `eval_public`**, which is easier than
+  training (SIR +4.76 dB, 75.1 % target-louder; weak-point B1). Report it per
+  SIR band.
+- **CLAUDE.md limit (a) is unchanged.** `sir0_privval` is still never scored,
+  filtered or selected on during training.
+
+### Kept, not deleted
+
+Recorded `sir0_privval` results stand and stay citable: baseline 48.90,
+struct e8 46.99 / e12 47.37, 1a e15 47.38. 1a e15's leakage cut, **−13.46
+[−15.01, −11.90]**, is the only selection-free finding the split produced.
+
+The wer e13 render (`2026-09-24-est-privval-cuecontext-wer-e13`) is abandoned
+at 215 of 1,421 trials. It is resumable (2026-09-15 entry) and is not to be
+scored. On disk: rendered split 5.4 GB, estimate dirs 3.4 GB + 247 MB partial.
+Delete only on request.
+
+## 2026-09-26 — e21 through the conventional suite, next to e27
+
+Same four checks and flags as e27 (2026-09-25), `sir0_val` `both`, n=103 unless
+stated. Run one at a time, latency first on an idle machine. Dirs
+`2026-09-26-*-cuecontext-wer-e21`; e27 in `2026-09-25-*-cuecontext-wer-e27`.
+
+| | better | No processing | e21 | e27 |
+|---|---|---|---|---|
+| SI-SDR (dB) | higher | −1.12 | 2.29 | 2.29 |
+| SIR, other speaker removed (dB) | higher | −1.12 | 9.17 | 10.21 |
+| SAR, artefacts (dB) | higher | 30.00 | 6.28 | 5.44 |
+| DNSMOS overall | higher | 2.50 | 2.31 | 2.34 |
+| DNSMOS speech (SIG) | higher | 4.09 | 2.96 | 2.91 |
+| DNSMOS background (BAK) | higher | 2.03 | 3.05 | 3.22 |
+| latency mean / slowest 1 % (ms) | lower | – | 162.9 / 180.1 | 173.6 / 197.3 |
+| real-time factor, slowest 1 % | < 1 | – | 0.75 | 0.97 |
+| Whisper LCF-WER (stand-in, not the verdict) | lower | 65.22 | 56.72 | 53.64 |
+| right voice, same / cross gender (76 / 78 decisions) | higher | – | 72.4 / 89.7 % | 75.0 / 91.0 % |
+
+- **e21 has fewer artefacts than e27** (SAR +0.84 dB) and removes slightly less
+  of the other speaker (SIR −1.04 dB). Consistent with e27 cutting harder.
+- **Both score below No processing on DNSMOS overall.** Background much cleaner,
+  target speech more distorted. Not optimised for; report it as the cost of
+  suppression. No interval computed, so the 0.03 overall gap is not claimed.
+- **The latency gap is NOT a model difference.** Same architecture, same compute.
+  43 vs 54 ms per chunk is the run-to-run spread of `measure_rtf.py`, which labels
+  itself an estimate (chunks processed independently, no state carried, 10–20 %
+  error). Report the range across runs, never one value as the model's latency.
+  e27's 0.97 is within that error of 1.
+- **Whisper prefers e27 by 3.1 points; the judge ties them.** Whisper is the
+  stand-in; the selection stands on the judge (`decisions-m2.md` 2026-09-26).
+- **Right voice: e27 ahead by 2 of 76 same-gender and 1 of 78 cross-gender
+  decisions.** Not a difference; no test run.
+
+## 2026-09-28 — Report's offline ASR is `large-v3-turbo`; `small.en` stays in the training loop
+
+**Decision (Grant):** every offline-ASR figure in the report comes from
+`faster-whisper==1.2.1:large-v3-turbo:int8:cpu:greedy` (CTranslate2 build
+`mobiuslabsgmbh/faster-whisper-large-v3-turbo`, snapshot `0a363e9161cb`). The
+in-loop probe (`content_probe.py`) and the `evaluate.py` default stay `small.en`.
+Config `experiments/configs/eval_offline_asr_turbo.yaml`, seed 42. Evidence:
+`experiments/results/2026-09-28-eval-asr-turbo-{baseline,e21,wesep}/`, `sir0_val`
+`both`, n=103, commit `7afbd610f358-dirty` (the `--asr-model` change, committed
+in `f54d2bd`).
+
+**Why:**
+- `small.en` was pinned 2026-08-28 for CPU cost, not accuracy; `medium.en` was
+  better on both anchors then. "Doesn't change any ranking" was asserted, never run.
+- e21's lr schedule and checkpoint shortlist were tuned against `small.en`, so it
+  is not an independent listener for the extension.
+- Published extraction work scores with a large Whisper (SoloSpeech:
+  `large-v3-turbo`). REAL-TSE itself uses Zipformer, so this is not its standard.
+
+**Result, words wrong (LCF-WER, lower is better):**
+
+| | small.en | large-v3-turbo | judge (3-run mean) |
+|---|---|---|---|
+| No processing | 65.22 | 63.04 | — |
+| Baseline | 59.52 | 52.71 | — |
+| Extension (e21) | 56.72 | 41.01 | — |
+| WeSep | 34.60 | 29.13 | — |
+| Target alone | 5.85 | 1.98 | 1.19 |
+| Baseline → e21 | −2.80 | **−11.70** | −15.59 |
+
+- **Ranking unchanged** (WeSep < e21 < baseline < floor), but turbo sees 4x the
+  extension's gain `small.en` did, closer to the judge.
+- **Turbo hears the other speaker more:** floor mean leak 51.30 → 62.78, ICR@2
+  66.99 → 76.70. It invents less: floor 2.61 → 1.59 words/trial.
+- **REVERSES a claim:** `small.en` deleted MORE on the baseline than the floor
+  (9.28 → 11.79); turbo deletes LESS (6.93 → 5.70), like the judge (5.97 → 3.00).
+  "The ASR is the brittle listener" (`results.tex` comment, claim a) was a
+  property of `small.en`. Do not write it.
+- Repeatable: 6/6 fresh re-transcriptions (2 trials x mixture, baseline, e21)
+  identical to the run's cached text. ~14 s/clip on this CPU, against ~3.
+
+**Consequences to carry:**
+- No `small.en` number may be compared with a turbo number. Every figure logged
+  before today is `small.en`, including the 1.57-point irrelevance floor
+  (2026-09-12) and the 57.4 / 6.1 `eval_public` anchors.
+- The irrelevance floor has not been re-measured for turbo.
+- Signal, perceptual and latency rows do not depend on the listener.
+
+## 2026-09-28 — Latency re-timed: baseline and extension are indistinguishable
+
+`measure_rtf.py`, 80 ms chunks, 4 threads, CPU, 2,250 chunks per run; baseline
+(`model_sir0_10000-e6.pt`) and e21 alternated, 3 runs each, one session.
+`experiments/results/2026-09-28-rtf-{baseline,e21}-r{1,2,3}/`, commit `f54d2bd-dirty`.
+
+| | RTF mean | RTF p99 | latency mean (ms) | latency p99 (ms) |
+|---|---|---|---|---|
+| baseline | 0.79–0.98 | 1.38–1.70 | 183–198 | 230–256 |
+| e21 | 0.64–0.89 | 0.72–1.73 | 172–191 | 178–259 |
+
+- **The ranges overlap on every column.** One model's own spread (e21 mean RTF
+  0.64–0.89) exceeds any gap between the models. The report's earlier 0.783 vs
+  0.536 was a 20-day-apart comparison, and was drift.
+- **Both keep pace on average** (mean RTF < 1 in 6/6 runs). **The slowest 1 % do
+  not** in 5/6 runs (only e21 r3 < 1), so a backlog can form under bursts.
+- **Machine was not fully idle:** `report.pdf` was rebuilt at 15:17, inside
+  baseline r3. Tails (p99 ~2x mean in 5/6 runs, 1.1x in e21 r3) point to
+  background load. The ranges are an upper bound on the real spread, not a clean
+  p99. WeSep not re-run: its 2.85 is far outside this drift.
+- **Report:** replaces the extension's "yes" with "mean only". Claim only that
+  the two are within run-to-run variation; e21 adds 0.09 M parameters.
+
+**Update, same day — idle re-run SUPERSEDES the table above.** Same command,
+nothing else open, `powerprofilesctl set performance`, 60 s settle.
+`experiments/results/2026-09-28-rtf-idle-{baseline,e21}-r{1,2,3}/`. All six clean
+(p99 / mean 1.13–1.30, against ~2x in the first set). Median (range):
+
+| | RTF mean | RTF p99 | latency mean (ms) | latency p99 (ms) |
+|---|---|---|---|---|
+| baseline | 0.69 (0.66–0.70) | 0.79 (0.79–0.86) | 175 (173–176) | 183 (183–189) |
+| e21 | 0.69 (0.68–0.71) | 0.78 (0.77–0.82) | 175 (175–177) | 182 (182–185) |
+
+- **Identical speed:** medians 0.692 vs 0.687, inside each other's range. As
+  predicted by +1.3 % parameters.
+- **Both keep up at p99 in 6/6 runs** and stay under 200 ms delay. The earlier
+  "p99 > 1" was background load and the balanced profile, not the models.
+- **Margin at p99 is 14–23 %**, about the method's own stated 10–20 % error.
+  Claim "keeps up on an idle CPU", not "with room to spare". A loaded machine
+  breaks it (first set: 5/6 runs over real time at p99).
+- Report table: median (range), "meets budget" yes for both.

@@ -95,10 +95,41 @@ def spearman(xs, ys):
     return num / den if den else float("nan")
 
 
+def _cached_or_gated(paths):
+    """Cached transcripts, with a gate-blocked estimate read as "".
+
+    evaluate.py's speech gate answers a speech-free estimate locally, so that
+    clip is never transcribed and has no cache row -- and evaluate.py scores it
+    as the empty hypothesis (metric-definitions.md 3.1). Reading it as "" here
+    keeps this script on the SAME hypothesis as the reported LCF-WER;
+    transcribing it would score audio the headline never listened to. Added
+    2026-09-23: 1a e15 on sir0_privval gated 18 clips and this script raised.
+
+    Only UNCACHED clips are re-gated, with the same `decide` and VAD, so the
+    model loads only when needed. A clip the gate would pass still raises.
+    """
+    from src.live_model_metric.evaluate import (ASR_MODEL_SIZE, TRANSCRIPT_CACHE,
+                                                _cache_key, _load_cache, _resolve)
+    from src.live_model_metric.speech_gate import decide, vad_seconds_fn
+
+    cache = _load_cache(_resolve(TRANSCRIPT_CACHE))
+    missing = [p for p in paths if p is not None and Path(p).exists()
+               and _cache_key(p, ASR_MODEL_SIZE) not in cache]
+    blocked = set()
+    if missing:
+        vad = vad_seconds_fn()
+        blocked = {str(p) for p in missing if not decide(p, vad_detect=vad).has_speech}
+        print(f"  {len(blocked)} uncached clip(s) gate-blocked, read as \"\"")
+    texts = transcribe([None if p is not None and str(p) in blocked else p
+                        for p in paths], allow_new=False, verbose=False)
+    return ["" if p is not None and str(p) in blocked else t
+            for p, t in zip(paths, texts)]
+
+
 def per_trial(trials, audio_for):
     """One row per trial: its error counts and what leaked into it."""
     paths = [audio_for(t) for t in trials]
-    hypotheses = transcribe(paths, allow_new=False, verbose=False)
+    hypotheses = _cached_or_gated(paths)
 
     rows = []
     for trial, hypothesis in zip(trials, hypotheses):

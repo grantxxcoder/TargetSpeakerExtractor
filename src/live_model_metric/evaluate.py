@@ -31,6 +31,9 @@ ALL_METRICS = (CONTENT, SIGNAL, PERCEPTUAL)
 ALL_SYSTEMS = ("floor", "estimate", "ceiling")
 
 TRANSCRIPT_CACHE = Path("experiments/results/transcripts.csv")
+# The default, and the in-loop probe's listener (content_probe.py), so every
+# number logged before 2026-09-28 is small.en. Report tables use large-v3-turbo
+# via experiments/configs/eval_offline_asr_turbo.yaml. decisions-m3.md 2026-09-28.
 ASR_MODEL_SIZE = "small.en"
 
 # This file lives at <repo>/src/live_model_metric/evaluate.py, so the repo root is
@@ -149,12 +152,12 @@ def transcribe(audio_paths, cache_path=TRANSCRIPT_CACHE, model_size=ASR_MODEL_SI
         raise RuntimeError(
             f"{len(missing)} clips are not transcribed and allow_new=False. "
             f"First: {missing[0][1]}. Re-run with allow_new=True to transcribe "
-            f"them (~3 s per clip on CPU).")
+            f"them (small.en ~3 s per clip on CPU; larger models are slower).")
 
     from faster_whisper import WhisperModel
     if verbose:
-        print(f"  transcribing {len(missing)} clips not in cache "
-              f"(~{len(missing) * 3 / 60:.0f} min)", flush=True)
+        print(f"  transcribing {len(missing)} clips not in cache with {model_size}",
+              flush=True)
     model = WhisperModel(model_size, device="cpu", compute_type="int8")
     new_rows = []
     for count, (index, path, key) in enumerate(missing, 1):
@@ -222,7 +225,7 @@ ALL_LISTENERS = (ASR, JUDGE)
 
 
 def _listen(paths, listener, split, manifest_dir, repo_root, cache_path,
-            allow_new, use_gate, judge_kwargs, verbose):
+            allow_new, use_gate, judge_kwargs, verbose, asr_model=ASR_MODEL_SIZE):
     """Turn audio paths into response texts, through the chosen listener.
 
     THE SPEECH GATE IS APPLIED HERE, ONCE, FOR WHICHEVER LISTENER IS CHOSEN.
@@ -291,7 +294,7 @@ def _listen(paths, listener, split, manifest_dir, repo_root, cache_path,
                   f"non-responses -- see judge_failures in the results", flush=True)
         return responses, decisions, judge
 
-    got = transcribe([paths[i] for i in passing], cache_path,
+    got = transcribe([paths[i] for i in passing], cache_path, model_size=asr_model,
                      allow_new=allow_new, verbose=verbose, repo_root=repo_root)
     for i, text in zip(passing, got):
         responses[i] = text
@@ -303,7 +306,8 @@ def evaluate(split="sir0_val", condition="both", estimate_directory=None,
              data_root="data", manifest_dir="data/manifests",
              cache_path=TRANSCRIPT_CACHE, allow_new_transcripts=True,
              verbose=True, repo_root=None,
-             listener=ASR, speech_gate=True, judge_kwargs=None):
+             listener=ASR, speech_gate=True, judge_kwargs=None,
+             asr_model=ASR_MODEL_SIZE):
     """Score `systems` on `metrics` for one split. Returns `Results`.
 
     Relative paths resolve against the repo root, which is derived from this
@@ -345,8 +349,10 @@ def evaluate(split="sir0_val", condition="both", estimate_directory=None,
         "speech_gate": "on" if speech_gate else "OFF",
     }
     if listener == ASR:
+        from importlib.metadata import version
         results.provenance.update({
-            "listener": f"faster-whisper {ASR_MODEL_SIZE} int8 cpu greedy",
+            "listener": f"faster-whisper=={version('faster-whisper')} "
+                        f"{asr_model} int8 cpu greedy",
             "listener_role": "STAND-IN for the judge, NOT a live-model result",
         })
     else:
@@ -362,6 +368,11 @@ def evaluate(split="sir0_val", condition="both", estimate_directory=None,
             "judge_modality": "audio-in / text-out",
             "judge_prompt_file": str(prompt_file),
             "judge_prompt_sha256_12": prompt_sha(kw.get("prompt_file")),
+            # Which run of the same audio this is. Estimates only: anchors are
+            # run-once and always serve their single cached answer.
+            "judge_repeat": kw.get("repeat", 0),
+            # True only in the spread study: anchors keyed by repeat, judged again.
+            "judge_repeat_anchors": bool(kw.get("repeat_run_once", False)),
         })
 
     for system in systems:
@@ -376,7 +387,8 @@ def evaluate(split="sir0_val", condition="both", estimate_directory=None,
             from .icr import compute_icr
             responses, gate_decisions, used_judge = _listen(
                 paths, listener, split, manifest_dir, repo_root, cache_path,
-                allow_new_transcripts, speech_gate, judge_kwargs, verbose)
+                allow_new_transcripts, speech_gate, judge_kwargs, verbose,
+                asr_model)
             scores["gate_blocked"] = sum(1 for d in gate_decisions if d.fired)
             if used_judge is not None:
                 scores["judge_calls"] = used_judge.calls_made

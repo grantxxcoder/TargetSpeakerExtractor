@@ -1,0 +1,74 @@
+# Live presentation demo -- scripts/demo_live.py.
+#
+# NOT AN EXPERIMENT: nothing here trains, selects or is reported as a result.
+# Its Gemini calls are still logged with model ID, exact prompt, modality and
+# date (CLAUDE.md), one folder per run under output_dir.
+seed: 42                  # example-voice, room and noise draws; logged per run
+
+server:
+  host: 127.0.0.1
+  port: 8765
+
+model:
+  # Item 1c, epoch chosen by content WER (decisions-m2.md 2026-09-24).
+  # models/model_sir0_cueparts-e15.pt (1a) also loads, and needs no ECAPA.
+  checkpoint: models/model_sir0_cuecontext-wer-e13.pt
+  device: cpu
+  # MEASURED 2026-09-24, i5-1135G7, 80 ms chunks, stateful streaming:
+  # RTF 0.47 at 4 threads, 0.59 at 2, 0.77 at 8.
+  threads: 4
+
+stream:
+  chunk_ms: 80            # same chunk as scripts/measure_rtf.py
+  # How far behind the room the audience hears the live extractor. Must cover
+  # chunk + compute + jitter, or chunks arrive after their slot (counted as
+  # late). A chunk misses its slot once the server's lag exceeds
+  # playout - chunk + 24 ms. MEASURED 2026-09-24 with Chrome on the same CPU:
+  # worst lag 271 ms on a second back-to-back run (throttling), so 300 ms
+  # dropped 4 chunks. This is a jitter buffer for the audience only; the
+  # model's latency is reported separately (chunk + 40 ms framing + compute).
+  playout_delay_ms: 400
+  max_seconds: 30         # uploads are cut to this
+  # The server's clock starts this long after it tells the browser to begin
+  # playing, so the extractor never sees a chunk before the audience hears it.
+  start_lead_ms: 150
+  # After each live run, re-run the whole clip offline and log the max
+  # difference: evidence the live path is the evaluated model.
+  verify_whole_clip: true
+
+mixture:                  # ranges: generator.yaml, sir0 regime
+  sample_rate: 16000
+  target_lufs: -29.0      # middle of -33..-25
+  sir_db: 0.0             # UI default; trained on -10..+10
+  snr_db: 12.0            # UI default; trained on 8..20. null = no noise
+  reverb: true            # every training trial is reverberant
+  interferer_offset_s: 0.0
+  enrollment_max_s: 5.0   # enrollment_length_s
+  peak: 0.95              # A6 clip guard
+  t60_s: [0.25, 0.5]
+  room_length_m: [5.0, 10.0]
+  room_width_m: [5.0, 10.0]
+  room_height_m: [3.0, 4.0]
+  source_distance_m: [0.1, 2.0]
+  source_height_m: [0.9, 1.8]
+  mic_height_m: [0.9, 1.8]
+  wall_margin_m: 0.5      # demo only: keeps sampled sources inside the room
+  noise_dir: data/wham_noise_16k/tt
+
+examples:                 # "Use example voices"
+  librispeech_dir: data/librispeech/LibriSpeech/test-clean
+  split: eval_public      # speakers from splits.yaml; never eval_private
+  target_seconds: [8.0, 14.0]
+
+judge:                    # = judge.py defaults used for every reported result
+  model_id: gemini-3.7-flash
+  prompt_file: src/live_model_metric/judge_prompt.txt
+  backend: aistudio
+
+output_dir: experiments/results/demo-live
+
+display:                  # shown under the Gemini results; update with the checkpoint
+  benchmark_note: >-
+    Across 103 validation clips (sir0_val, Gemini judge, 2026-09-24):
+    No processing 62.5 %, After our model 42.9 %, Target alone 1.1 % words wrong.
+    One clip here is an illustration, not evidence.

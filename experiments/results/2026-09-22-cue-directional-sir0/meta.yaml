@@ -1,0 +1,133 @@
+date: '2026-09-22'
+git_commit: 3584cae821644e8668decd6643bf570b488018c3-dirty
+seed: 42
+split: sir0
+manifest: sir0_val
+checkpoint: models/model_sir0_10000-e6.pt
+checkpoint_epoch: 6
+config: experiments/configs/bsrnn_baseline.yaml
+n_trials: 200
+si_sdr: Le Roux et al. ICASSP 2019, unfloored, higher is better
+rates_computed_over: crops with two live voices (n_both_live)
+summary:
+  all:
+    n: 200
+    n_both_live: 77
+    sel_t_db: 5.9707148099767755
+    sel_i_db: 5.51197891258474
+    sel_mean_db: 5.741346861280758
+    follows_request: 0.6233766233766234
+    tracks_louder: 0.6818181818181818
+    rel_movement_pct: 1421.0323224385065
+    level_yt_db: -8.258047467470169
+    level_yi_db: -9.030081784725189
+  sir < -5:
+    n: 33
+    n_both_live: 21
+    sel_t_db: 3.7871355587436306
+    sel_i_db: 4.743266085567682
+    sel_mean_db: 4.2652008221556565
+    follows_request: 0.5952380952380952
+    tracks_louder: 0.7142857142857143
+    rel_movement_pct: 191.092501577893
+    level_yt_db: -5.899030324184533
+    level_yi_db: -5.9162093075838955
+  sir -5..0:
+    n: 23
+    n_both_live: 16
+    sel_t_db: 7.1029627582301265
+    sel_i_db: 6.936898671090603
+    sel_mean_db: 7.019930714660365
+    follows_request: 0.65625
+    tracks_louder: 0.65625
+    rel_movement_pct: 2209.8479699019504
+    level_yt_db: -8.414806376332821
+    level_yi_db: -8.2752104634824
+  sir 0..+5:
+    n: 24
+    n_both_live: 21
+    sel_t_db: 6.41924811899662
+    sel_i_db: 5.113170666354043
+    sel_mean_db: 5.766209392675332
+    follows_request: 0.6904761904761905
+    tracks_louder: 0.42857142857142855
+    rel_movement_pct: 102.38688595515366
+    level_yt_db: -5.341153422991435
+    level_yi_db: -7.888755530118942
+  sir >= +5:
+    n: 120
+    n_both_live: 19
+    sel_t_db: 6.4316768183637025
+    sel_i_db: 5.570133413587298
+    sel_mean_db: 6.000905115975501
+    follows_request: 0.5526315789473685
+    tracks_louder: 0.9473684210526315
+    rel_movement_pct: 1871.8051947080191
+    level_yt_db: -9.460110533237458
+    level_yi_db: -10.259345636765163
+  same_gender:
+    n: 76
+    n_both_live: 38
+    sel_t_db: 3.6889962925101227
+    sel_i_db: 2.711124853541454
+    sel_mean_db: 3.2000605730257883
+    follows_request: 0.5263157894736842
+    tracks_louder: 0.7105263157894737
+    rel_movement_pct: 734.6610731797563
+    level_yt_db: -5.58988493680954
+    level_yi_db: -5.6416776211638195
+  cross_gender:
+    n: 124
+    n_both_live: 39
+    sel_t_db: 7.285183086343434
+    sel_i_db: 8.512893975845405
+    sel_mean_db: 7.899038531094419
+    follows_request: 0.717948717948718
+    tracks_louder: 0.6538461538461539
+    rel_movement_pct: 1841.7114752099988
+    level_yt_db: -9.893372889487974
+    level_yi_db: -11.106845626907964
+  cond both:
+    n: 103
+    n_both_live: 77
+    sel_t_db: 5.482344586070221
+    sel_i_db: 4.899247203635264
+    sel_mean_db: 5.190795894852743
+    follows_request: 0.6233766233766234
+    tracks_louder: 0.6818181818181818
+    rel_movement_pct: 585.0032624166947
+    level_yt_db: -5.877813579966721
+    level_yi_db: -7.091568419076864
+  cond interferer_only:
+    n: 42
+    n_both_live: 0
+    sel_t_db: .nan
+    sel_i_db: 6.820243912774163
+    sel_mean_db: 6.820243912774163
+    follows_request: .nan
+    tracks_louder: .nan
+    rel_movement_pct: 5249.850033095018
+    level_yt_db: -13.244657465389796
+    level_yi_db: -7.288406355040414
+  cond noise_only:
+    n: 8
+    n_both_live: 0
+    sel_t_db: .nan
+    sel_i_db: .nan
+    sel_mean_db: .nan
+    follows_request: .nan
+    tracks_louder: .nan
+    rel_movement_pct: 212.17883485369384
+    level_yt_db: -23.227550268173218
+    level_yi_db: -24.252160668373108
+  cond target_only:
+    n: 47
+    n_both_live: 0
+    sel_t_db: 7.0917464603077285
+    sel_i_db: .nan
+    sel_mean_db: 7.0917464603077285
+    follows_request: .nan
+    tracks_louder: .nan
+    rel_movement_pct: 37.44673170130749
+    level_yt_db: -6.470184660972433
+    level_yi_db: -12.243711862158268

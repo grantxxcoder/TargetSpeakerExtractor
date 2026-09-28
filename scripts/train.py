@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import argparse
 import contextlib
+import copy
 import math
 import yaml
 import hashlib
@@ -24,7 +25,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 # `python scripts/train.py` puts scripts/ on sys.path, not the repo root.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.data.dataset_loader import TrialDataset, collate_pairs  # noqa: E402
-from src.models.bsrnn import BSRNN_TFMAP  # noqa: E402
+from src.models.bsrnn import BSRNN_TFMAP, BSRNN_TFMAP_CONTEXT  # noqa: E402
 from src.models.losses import LossBSRNN  # noqa: E402
 from src.run_log import timed  # noqa: E402
 
@@ -234,7 +235,12 @@ HISTORY_FIELDS = ["total", "L_pres", "L_MR", "L_gain", "L_abs", "L_state", "L_st
 # pres_abs_gap_db says whether the correction was SELECTIVE. Fixing level by
 # turning everything up scores well on L_gain and leaves this flat -- that is a
 # pass-through, not an extractor.
-VAL_DIAGNOSTICS = ["enrol_sens_db", "pres_abs_gap_db"]
+# `content_wer` is the in-loop validation WORD ERROR RATE and `content_wer_ema`
+# its smoothed twin. NaN on runs and epochs where the probe did not run, which
+# is every run before 2026-09-23 -- history_row uses .get, so old histories and
+# hand-built val rows keep working. src/live_model_metric/content_probe.py.
+VAL_DIAGNOSTICS = ["enrol_sens_db", "pres_abs_gap_db",
+                   "content_wer", "content_wer_ema"]
 
 
 def history_header():
@@ -312,8 +318,52 @@ def format_epoch_breakdown(epoch, num_epochs, tr, va, epoch_seconds, w_trained):
     return "\n".join(lines)
 
 
+def build_context_encoder(config, device="cpu"):
+    """The frozen speaker encoder item 1c needs, or None for every other arm.
+
+    ONE constructor, used by training AND by every evaluation script, so an eval
+    cannot silently differ from the run it is scoring -- a different L2-norm
+    setting or a different snapshot would change the embedding and therefore the
+    output, with nothing appearing in a diff.
+
+    Pair it with `context_kwargs()`:
+
+        encoder = build_context_encoder(ckpt["config"], device)
+        y = model(mixture, enrollment, **context_kwargs(encoder, enrollment))
+
+    which is a no-op on the baseline and 1a paths.
+    """
+    if not bool(config["model"].get("context_embedding", False)):
+        return None
+    from src.models.context_encoder import ContextEncoder
+    encoder = ContextEncoder(
+        ecapa_dir=config["model"].get("ecapa_dir", "../ecapa_pretrained"),
+        device=device,
+        expected_hashes=config["model"].get("ecapa_sha256"),
+        normalise=bool(config["model"].get("context_normalise", True)))
+    want = int(config["model"].get("context_embedding_dim", 192))
+    if encoder.embedding_dim != want:
+        raise ValueError(
+            f"the snapshot emits {encoder.embedding_dim}-d embeddings but the "
+            f"model was built for {want}. Set model.context_embedding_dim.")
+    return encoder
+
+
+def context_kwargs(encoder, enrollment):
+    """`enrol_embedding=...` for item 1c, or nothing at all.
+
+    ONE place decides, so the training forward, the validation forward and the
+    swap diagnostic cannot disagree about whether the arm is on. `encoder` is
+    None for every other arm and this returns {}, leaving those call sites
+    byte-identical to their pre-2026-09-22 form.
+    """
+    if encoder is None:
+        return {}
+    return {"enrol_embedding": encoder.embed(enrollment)}
+
+
 def diagnostic_accumulate(diag, model, mixture, enrollment, s_output, crop_absent,
-                          amp=False):
+                          amp=False, enrol_embedding=None):
     """Accumulate the two leading indicators over one val batch.
 
     Costs one extra val forward per epoch. Rolls within the batch rather than
@@ -324,8 +374,18 @@ def diagnostic_accumulate(diag, model, mixture, enrollment, s_output, crop_absen
         # Forward in fp16 when training does, but .float() IMMEDIATELY: the sums
         # below are sums of squares over 64k samples and would overflow fp16's
         # 65504 ceiling, silently turning the diagnostic into inf.
+        # ITEM 1c: ROLL THE EMBEDDING TOO. The enrolment feeds the model twice --
+        # the TF-Map cue and the identity anchor -- and rolling only the
+        # waveform would swap half the conditioning while leaving the anchor
+        # pointing at the original speaker. The diagnostic would then read as
+        # "the model barely responds to the enrolment" for a model that
+        # responds correctly to the half it was actually given. Rolling the
+        # precomputed embedding is exactly equivalent to re-embedding the
+        # rolled enrolment, because the embedding is per-example.
+        swapped = ({} if enrol_embedding is None
+                   else {"enrol_embedding": enrol_embedding.roll(1, 0)})
         with amp_ctx(amp):
-            y_swapped = model(mixture, enrollment.roll(1, 0))
+            y_swapped = model(mixture, enrollment.roll(1, 0), **swapped)
         y_swapped = y_swapped.float()
         diag["swap_num"] += float((s_output - y_swapped).pow(2).sum())
         diag["swap_den"] += float(s_output.pow(2).sum())
@@ -364,14 +424,38 @@ def total_loss_floor(config):
     return ((1 - w) * 10 * np.log10(tau_pres) + w * 10 * np.log10(tau_abs))
 
 
+def unwrap(model):
+    """The real module behind a possible `nn.DataParallel` wrapper.
+
+    `DataParallel` forwards `__call__` but NOT attribute access, and it prefixes
+    every `state_dict()` key with `module.`. So anything that touches the model
+    as an object rather than as a function -- `model.stft`, `model.band_widths`,
+    saving and loading weights -- must go through here. A checkpoint written
+    from the wrapper would not load into an unwrapped model, which would break
+    `--resume`, `make_estimates.py` and every checkpoint already on disk.
+    decisions-pending.md E7.
+    """
+    return model.module if isinstance(model, nn.DataParallel) else model
+
+
 def build_model(config):
     """Config -> BSRNN_TFMAP. Every ctor argument comes from the yaml.
 
     Separate from main() so measure_train_cost.py measures the model that
-    actually trains. Two keys deliberately not passed: separator.norm (implied
-    by causal=True) and n_hidden (ctor default 1). Both belong in the yaml.
+    actually trains. One key deliberately not passed: separator.norm (implied
+    by causal=True). It belongs in the yaml.
     """
-    return BSRNN_TFMAP(
+    # ITEM 1c. Absent key => the parent class, i.e. every run up to 2026-09-22.
+    # The subclass's forward REQUIRES enrol_embedding, so a config that turns
+    # this on cannot be run by a script that has not been taught to supply one:
+    # it is a TypeError, not a silently unconditioned model. decisions-m2.md
+    # 2026-09-22, decisions-pending.md E8.
+    cls = (BSRNN_TFMAP_CONTEXT if bool(config["model"].get("context_embedding", False))
+           else BSRNN_TFMAP)
+    extra = ({"embedding_dim": int(config["model"].get("context_embedding_dim", 192))}
+             if cls is BSRNN_TFMAP_CONTEXT else {})
+    return cls(
+        **extra,
         sample_rate=config["data"]["sample_rate"],
         n_fft=config["model"]["stft"]["n_fft"],
         hop=config["model"]["stft"]["hop"],
@@ -381,6 +465,14 @@ def build_model(config):
         num_repeat=config["model"]["separator"]["num_repeat"],
         causal=config["model"]["separator"]["causal"],
         mlp_hidden=config["model"]["mask"]["mlp_hidden"],
+        # Estimator DEPTH. Absent key => 1, the architecture every run up to
+        # 2026-09-21 trained -- so no existing config or checkpoint changes
+        # meaning. It was hardcoded at the ctor default until now, which made
+        # `n_hidden` one of the two sizing knobs the yaml could not reach
+        # (decisions-m1.md 2026-08-19 records 1 as a deliberate deviation from
+        # the wesep reference's 2, chosen because the paper specifies the
+        # estimator's WIDTH but not its depth).
+        n_hidden=int(config["model"]["mask"].get("n_hidden", 1)),
         residual_branch=config["model"]["mask"]["residual_branch"],
         lookahead_frames=config["model"]["lookahead_frames"],
         # Without this the config key is dead: BSRNN_TFMAP's own default (16.0)
@@ -407,6 +499,18 @@ def build_model(config):
         # to its control and the write-up has to say so.
         tfmap_inject=bool(config["model"].get("tfmap_inject", False)),
         tfmap_gate_init=float(config["model"].get("tfmap_gate_init", 0.0)),
+        # ITEM 1a, ranked-next-steps.md. Absent key => False, the 1-channel
+        # product cue every run up to 2026-09-22 trained on. True hands the
+        # network the cue's PARTS instead (direction, normalised similarity,
+        # unexplained residual), widening the input 3 -> 5 channels and
+        # SubbandNorm by +66,820 parameters (+0.93 %), MEASURED at the shipped
+        # width -- 128*257*2 of conv weight plus 2*257*2 of LayerNorm gain and
+        # bias, the second term easy to forget. Like tfmap_inject this
+        # is NOT parameter-matched to its control and the write-up must say so.
+        tfmap_parts=bool(config["model"].get("tfmap_parts", False)),
+        # DERIVED by scripts/derive_cue_scales.py. Absent => all ones, which is
+        # the un-scaled form the first 1a probe trained, kept reproducible.
+        tfmap_part_scales=config["model"].get("tfmap_part_scales"),
     )
 
 
@@ -552,6 +656,40 @@ def epoch_report(sums, counts, w, wm, wg):
     }
 
 
+def lr_schedule_metric(val_loss, config):
+    """The number `ReduceLROnPlateau` watches. Config key `lr_schedule_on`.
+
+    WHY THIS EXISTS. Until 2026-09-21 the scheduler stepped on
+    `val_loss["total"]` directly, which is the quantity `selection_score`'s own
+    docstring spends two paragraphs explaining is unfit for ranking models --
+    `total` contains `L_abs`, `L_abs` rewards silence, so it keeps falling as
+    the model goes quiet long after separation has stopped improving. Selection
+    was fixed on 2026-08-30; the schedule was not, so the two disagreed for
+    three weeks. MEASURED CONSEQUENCE: the 14.73 M run halved its lr at epoch
+    idx 13 (`2026-09-21-train-sir0-wesepref/history.csv`) on a number a model
+    can improve by muting itself.
+
+    DEFAULTS TO `total`, deliberately. Changing the schedule changes training
+    dynamics, so every config written before 2026-09-21 must keep the behaviour
+    it actually ran under or its curves stop being comparable. New arms opt in
+    with `lr_schedule_on: present_branch`.
+
+    NOT `separation` (L_pres alone), even though it is available and sounds like
+    the obvious choice. `selection_score` records it being measured on
+    2026-08-30 and rejected: computed only on target-present crops, it leaves
+    absent behaviour unconstrained and picks epochs that are loud on crops where
+    the target never speaks. The same objection applies here -- a schedule that
+    only sees separation would hold the lr up while the model learns to shout
+    through silence.
+
+    The modes and their arithmetic are `selection_score`'s, reused rather than
+    re-derived, so the schedule and the selector cannot drift apart again.
+    """
+    mode = str(config["training"].get("lr_schedule_on", "total"))
+    shim = {**config, "training": {**config["training"], "select_on": mode}}
+    return selection_score(val_loss, shim)
+
+
 def selection_score(val_loss, config):
     """The number that decides which epoch's weights we KEEP. Not a loss.
 
@@ -590,6 +728,32 @@ def selection_score(val_loss, config):
     the same breath as any result. decisions-pending.md D14.
     """
     mode = str(config["training"].get("select_on", "present_branch"))
+    if mode == "content_wer":
+        # THE ONLY MODE THAT WATCHES WHAT THE PROJECT MEASURES. Every
+        # signal-domain mode below ranked item 1a's epoch 9 first, and epoch 9
+        # is worse than doing nothing on content (ASR LCF-WER 65.63 against a
+        # 65.22 floor) while epoch 15, tenth of fourteen on `present_branch`,
+        # reads 52.77. No reweighting of the present branch reaches 15;
+        # scripts/reselect_epochs.py checks all of them. decisions-m2.md
+        # 2026-09-23.
+        #
+        # Reads the SMOOTHED value, and that is not a detail. LCF-WER is not a
+        # smooth function of audio quality -- the 2026-09-01 mix-back sweep
+        # moved the signal monotonically while WER went 65.2, 63.4, 69.6, 67.2,
+        # 59.1 -- so a raw per-epoch WER would plateau-trigger the scheduler on
+        # noise. The raw number is logged beside it.
+        #
+        # Raises rather than falling back when the probe is off: silently
+        # selecting on something other than what the config asked for is the
+        # class of bug this whole entry is about.
+        value = val_loss.get("content_wer_ema", val_loss.get("content_wer"))
+        if value is None or value != value:
+            raise ValueError(
+                "select_on/lr_schedule_on is `content_wer` but no validation "
+                "WER was computed this epoch. Enable the probe with a "
+                "`content_probe:` block, and set `every_n_epochs: 1` -- the "
+                "scheduler needs a number every epoch.")
+        return float(value)
     if mode == "total":
         return float(val_loss["total"])          # pre-2026-08-30 behaviour
     if mode == "present_branch":
@@ -606,7 +770,7 @@ def selection_score(val_loss, config):
         # no target at all.
         return float(val_loss["L_pres"])
     raise ValueError(f"training.select_on: unknown mode {mode!r}. "
-                     "Known: present_branch, total, separation.")
+                     "Known: content_wer, present_branch, total, separation.")
 
 
 def selection_eligible(val_loss, config):
@@ -620,13 +784,144 @@ def selection_eligible(val_loss, config):
     return True if bar is None else float(val_loss["L_abs"]) <= float(bar)
 
 
-def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_debug=False, save_path=None, config=None, scheduler=None, start_epoch=0, best_val=float("inf"), best_row=None, start_step=0):
+HOLDOUT_SPLITS = frozenset({"sir0_privval", "eval_private"})
+
+# Where the probe's data is MOUNTED, filled from --data-root / --manifest-dir by
+# main(). A location, not a training setting -- --data-root itself is not in the
+# config -- so it must never decide whether two configs are the same run.
+PROBE_PATH_KEYS = ("data_root", "manifest_dir")
+
+
+def comparable_config(config):
+    """The config minus run-time data locations, for "is this the same run?".
+
+    Every checkpoint since 2026-09-23 stores the Kaggle mount paths inside
+    `content_probe`, and the config FILE does not, so a plain != refused the
+    first resume of the content_wer run. The notebook's pre-check mirrors this.
+    """
+    out = copy.deepcopy(config or {})
+    probe = out.get("content_probe")
+    if isinstance(probe, dict):
+        for key in PROBE_PATH_KEYS:
+            probe.pop(key, None)
+    return out
+
+
+def build_content_probe(config, verbose=True):
+    """The in-loop validation WER probe, or None when the run does not want one.
+
+    Config, all optional inside `content_probe:`:
+
+        content_probe:
+          enabled: true
+          split: sir0_val      # NEVER a holdout -- refused below
+          n_trials: 40         # the cost knob
+          every_n_epochs: 1    # 1 if the scheduler steps on it
+          asr_device: cpu      # cpu keeps it identical to the reported instrument
+          ema_span: 3
+          cap_errors_at_spoken: true   # loop guard; see content_probe.clip_errors.
+                                       # Absent = false. Set it on a FRESH run only:
+                                       # a resume refuses the change, by design.
+
+    COST, and it is the reason for `n_trials`. MEASURED 2026-09-23 end to end:
+    ~4 s per clip for the ASR on cpu, ~16 s per clip for extraction on cpu. On
+    Kaggle extraction runs on the T4 and is the cheap half, so the ASR sets the
+    cost: 40 clips is ~2.7 min per epoch, about 7 % of a 2,575 s epoch, or ~48
+    min over a 16-epoch run. `asr_device: cuda` is far faster, but the
+    transcripts are then not bit-identical to the reported instrument, which is
+    why cpu is the default and the device is recorded.
+    """
+    block = (config.get("content_probe") or {})
+    if not block.get("enabled", False):
+        return None
+    from src.live_model_metric.content_probe import ContentProbe, load_probe_trials
+
+    split = str(block.get("split", "sir0_val"))
+    if split in HOLDOUT_SPLITS:
+        raise ValueError(
+            f"content_probe.split={split!r} is a reported holdout. Steering "
+            f"training on it would destroy the only clean number the project "
+            f"has. CLAUDE.md; decisions-m4.md 2026-09-15.")
+    data_root = Path(block.get("data_root", "data"))
+    trials = load_probe_trials(
+        Path(block.get("manifest_dir", "data/manifests")) / f"{split}.csv",
+        data_root / "rendered" / split,
+        limit=int(block.get("n_trials", 40)),
+        condition=str(block.get("condition", "both")))
+    probe = ContentProbe(trials,
+                         device=str(block.get("asr_device", "cpu")),
+                         ema_span=int(block.get("ema_span", 3)),
+                         # 2026-09-24 loop guard. Absent = off, so a run begun
+                         # without it resumes under the rule it was scored by.
+                         cap_errors_at_spoken=bool(block.get("cap_errors_at_spoken", False)))
+    if verbose:
+        print(f"  content probe ON: {probe.describe()}, split {split}, "
+              f"every {int(block.get('every_n_epochs', 1))} epoch(s)")
+    return probe
+
+
+def live_extractor(model, context_encoder, device):
+    """runner.py's Extractor contract over the model currently being trained.
+
+    Whole clip, one forward pass, no chunking -- the same path
+    scripts/make_estimates.py:build_extractor uses, so the probe scores the
+    audio the evaluation harness would score rather than a training crop. The
+    caller is responsible for model.eval() and torch.no_grad().
+    """
+    def extract(mixture, enrollment, sample_rate):    # noqa: ARG001
+        enrol = torch.from_numpy(enrollment).unsqueeze(0).to(device)
+        estimate = model(torch.from_numpy(mixture).unsqueeze(0).to(device), enrol,
+                         **context_kwargs(context_encoder, enrol))
+        return estimate.squeeze(0).float().cpu().numpy()
+    return extract
+
+
+def checkpoints_to_drop(kept, keep_top_k, keep_stride=0, last_epoch=None):
+    """Which epochs' weights may be deleted. `kept` is a sorted (score, epoch) list.
+
+    A PURE FUNCTION so the retention policy can be tested without a training
+    run. The failure it guards against is unrecoverable: once the weights are
+    gone, re-scoring an epoch means training again.
+
+    TWO KINDS OF INSURANCE, AND THEY COVER DIFFERENT RISKS.
+
+    `keep_top_k` keeps the best few BY THE SIGNAL SCORE. It covers "the exchange
+    rate between the terms was slightly wrong".
+
+    `keep_stride` keeps every k-th epoch regardless of score, plus the last. It
+    covers the larger risk, which is that the signal score does not rank epochs
+    the way CONTENT does at all. Measured 2026-09-23: item 1a's best content
+    epoch (15, ASR LCF-WER 52.77 against a 65.22 floor) sits TENTH OF FOURTEEN
+    eligible epochs on `present_branch`, so no top-k cut reaches it and no
+    reweighting of the present branch reaches it either. Only a cut that ignores
+    the score entirely -- a stride -- is guaranteed to span the run.
+
+    Cost, so the trade is explicit: ~87 MB per checkpoint. Over a 16-epoch run,
+    `keep_stride: 3` retains 6 by stride, union'd with top-k, and lands near
+    600-700 MB. Keeping every epoch would be 1.4 GB, which is why this is a
+    stride and not a flag.
+    """
+    survivors = set()
+    if keep_top_k > 0:
+        survivors |= {epoch for _, epoch in kept[:keep_top_k]}
+    if keep_stride and keep_stride > 0:
+        survivors |= {epoch for _, epoch in kept if epoch % keep_stride == 0}
+        if last_epoch is not None:
+            survivors.add(last_epoch)
+    return sorted({epoch for _, epoch in kept} - survivors)
+
+
+def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_debug=False, save_path=None, config=None, scheduler=None, start_epoch=0, best_val=float("inf"), best_row=None, start_step=0, context_encoder=None, resumed_wer_history=None):
     model.to(device)
+    # Weights are saved and the STFT grid is read from the REAL module, never
+    # from a DataParallel wrapper. See unwrap().
+    core = unwrap(model)
     val_loss_history = []
     train_loss_history = []
 
     if config is None:
         raise ValueError("Config must be provided to build the loss function.")
+    resumed_wer_history = list(resumed_wer_history or [])
 
     loss_fn = build_loss_fn(config)
     # D17. `log_struct` computes and LOGS L_struct while leaving it out of the
@@ -639,11 +934,25 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
     grad_clip = float(config["training"]["grad_clip"])
     patience = int(config["training"]["patience"])
     keep_top_k = int(config["training"].get("keep_top_k", 3))
+    # Defaults 0 (off) so every config written before 2026-09-23 keeps the disk
+    # footprint it ran with. New arms that will be selected on content opt in
+    # with `keep_stride: 3`.
+    keep_stride = int(config["training"].get("keep_stride", 0))
     kept = []          # (score, epoch) for the top-k checkpoints still on disk
     print(f"  selecting on `{config['training'].get('select_on', 'present_branch')}`"
           f", silence bar L_abs <= {config['training'].get('select_abs_max', 'none')}"
           f", keeping top {keep_top_k}")
     epochs_since_best = 0
+    content_probe = build_content_probe(config)
+    probe_every = int((config.get("content_probe") or {}).get("every_n_epochs", 1))
+    if content_probe is not None and resumed_wer_history:
+        content_probe.warm_start(resumed_wer_history)
+        print(f"  content probe warm-started from {len(resumed_wer_history)} "
+              f"earlier epochs; EMA resumes at {content_probe.smoothed[-1]:.2f}")
+    elif content_probe is not None and start_epoch > 0:
+        print("  WARNING: resuming with a COLD content probe -- this checkpoint "
+              "predates content_wer_history, so the EMA and the trend restart. "
+              "The first epoch or two after the resume will read low-confidence.")
     # Fixed for the whole run. Every `total` reported anywhere uses this, so the
     # curve is one objective even while the schedule moves the training w.
     w_report = float(config["loss"]["w"])
@@ -713,6 +1022,11 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
             if hasattr(loss_fn, "enrolment_embedding"):
                 loss_fn.enrolment_embedding = loss_fn.teacher.embed_enrolment(enrollment)
 
+            # ITEM 1c. {} for every other arm, so this line is a no-op on the
+            # baseline and 1a paths. Computed ONCE per batch: the enrolment does
+            # not change within a step, and the encoder is the larger forward.
+            ctx = context_kwargs(context_encoder, enrollment)
+
             optimizer.zero_grad()
             # D17: only ask for the mask when the term is configured. The flag
             # retains a (B, F, T) tensor in the graph, so a run that does not use
@@ -720,10 +1034,10 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
             want_mask = getattr(loss_fn, "w_struct", 0.0) > 0.0 or log_struct
             with amp_ctx(use_amp):
                 if want_mask:
-                    s_output, mask = model(mixture, enrollment, return_mask=True)
+                    s_output, mask = model(mixture, enrollment, return_mask=True, **ctx)
                 else:
-                    s_output, mask = model(mixture, enrollment), None
-            oracle, mix_mag = (oracle_mask_and_mag(model, target, mixture)
+                    s_output, mask = model(mixture, enrollment, **ctx), None
+            oracle, mix_mag = (oracle_mask_and_mag(core, target, mixture)
                                if want_mask else (None, None))
             # arg order is (reference, output, mixture, mask) -- reference
             # FIRST, the reverse of the usual (pred, target). See LossBSRNN.
@@ -773,26 +1087,39 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
                 if hasattr(loss_fn, "enrolment_embedding"):
                     loss_fn.enrolment_embedding = loss_fn.teacher.embed_enrolment(enrollment)
 
+                ctx = context_kwargs(context_encoder, enrollment)
+
                 # Val runs in the same precision as training on purpose: a
                 # metric measured in a precision the model was not trained in
                 # describes a model that does not exist. The loss is still fp32.
                 with amp_ctx(use_amp):
                     if want_mask_val:
-                        s_output, mask = model(mixture, enrollment, return_mask=True)
+                        s_output, mask = model(mixture, enrollment, return_mask=True, **ctx)
                     else:
-                        s_output, mask = model(mixture, enrollment), None
+                        s_output, mask = model(mixture, enrollment, **ctx), None
                 s_output = s_output.float()
-                oracle, mix_mag = (oracle_mask_and_mag(model, target, mixture)
+                oracle, mix_mag = (oracle_mask_and_mag(core, target, mixture)
                                    if want_mask_val else (None, None))
                 _, parts = loss_fn(target, s_output, mixture, crop_absent,
                                    mask=None if mask is None else mask.float(),
                                    oracle_mask=oracle, mixture_mag=mix_mag)
                 add_parts(val_sums, val_counts, parts)
                 diagnostic_accumulate(diag, model, mixture, enrollment,
-                                      s_output, crop_absent, amp=use_amp)
+                                      s_output, crop_absent, amp=use_amp,
+                                      enrol_embedding=ctx.get("enrol_embedding"))
 
         val_loss = epoch_report(val_sums, val_counts, w_report, loss_fn.wm, loss_fn.wg)
         val_loss.update(diagnostic_report(diag))
+        # THE CONTENT PROBE. Still inside model.eval(); torch.no_grad() is the
+        # probe's own business because it calls the model itself. Whole clips,
+        # so this is a second pass over a small fixed subset rather than a
+        # re-read of the 4 s validation crops -- LCF-WER needs a whole utterance
+        # and its reference text, and a crop has neither.
+        if content_probe is not None and epoch % probe_every == 0:
+            with torch.no_grad():
+                val_loss["content_wer"] = content_probe.score(
+                    live_extractor(core, context_encoder, device))
+            val_loss["content_wer_ema"] = content_probe.smoothed[-1]
         val_loss["epoch"] = epoch
         val_loss["lr"] = optimizer.param_groups[0]["lr"]
         # the w that TRAINED this epoch, not w_report -- see history_header()
@@ -815,8 +1142,17 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
                                      time.time() - epoch_start, w_trained),
               file=sys.stderr, flush=True)
 
+        # "Is this run worth continuing?" -- the question item 1a could not
+        # answer, because its content was still improving at the last epoch and
+        # nothing in the loop was watching.
+        if content_probe is not None and content_probe.history:
+            print("  " + content_probe.verdict(), file=sys.stderr, flush=True)
+
         if scheduler is not None:
-            scheduler.step(val_loss["total"])
+            # NOT val_loss["total"] -- see lr_schedule_metric(). Defaults to
+            # `total`, so this is a no-op for every config written before
+            # 2026-09-21.
+            scheduler.step(lr_schedule_metric(val_loss, config))
 
         # A SECOND checkpoint, written every epoch regardless of improvement.
         #
@@ -832,13 +1168,22 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
         if save_path:
             last_path = Path(save_path).with_name(Path(save_path).stem + "_last.pt")
             torch.save({
-                "model": model.state_dict(),
+                "model": core.state_dict(),
                 "optimizer": optimizer.state_dict(),
                 "scheduler": scheduler.state_dict() if scheduler else None,
                 "epoch": epoch,
                 # Where the w schedule had got to. Without it a resume restarts
                 # the warmup. See w_at_step().
                 "global_step": global_step,
+                # THE PROBE'S HISTORY MUST SURVIVE A RESUME. The EMA the
+                # scheduler reads, and trend(), are functions of every epoch
+                # so far. A 12 h Kaggle session caps this run at ~16 epochs
+                # (2,575 s/epoch measured), so going further MEANS resuming,
+                # and a resumed probe that restarts its EMA hands
+                # ReduceLROnPlateau a step change that is an artefact of the
+                # session boundary. decisions-m2.md 2026-09-23.
+                "content_wer_history": (content_probe.history
+                                        if content_probe is not None else []),
                 "best_val": best_val,
                 "best_row": best_row,
                 "config": config,
@@ -855,7 +1200,18 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
         # Before 2026-08-30 just best-and-last were kept, so when the criterion
         # turned out to be wrong the good checkpoints were already gone and the
         # only recovery was a re-run. 87 MB each; keep a few.
-        if save_path and keep_top_k > 0:
+        #
+        # 2026-09-23: TOP-K IS NOT ENOUGH INSURANCE, MEASURED. Item 1a's epoch
+        # 15 is the best content result the project has produced (ASR LCF-WER
+        # 52.77 against a 65.22 floor) and it ranks TENTH OF FOURTEEN eligible
+        # epochs on `present_branch` (4.319 at the kept epoch 9, 6.443 at 15).
+        # No top-k shortlist reaches it and no reweighting of the present branch
+        # reaches it either -- dropping L_gain still keeps 9. It survived only
+        # because `_last.pt` is written unconditionally, which is luck, not
+        # policy: a 20-epoch run would have deleted it unscored.
+        # `keep_stride` is what makes post-hoc selection on content possible
+        # at all. See scripts/select_by_wer.py and decisions-m2.md 2026-09-23.
+        if save_path and (keep_top_k > 0 or keep_stride > 0):
             # Deliberately NOT gated on `eligible`: on a run too short to ever
             # clear the silence bar these are the only weights that survive, and
             # the flag below is what tells you which ones cleared it.
@@ -863,14 +1219,15 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
             kept.sort()
             rank_path = Path(save_path).with_name(
                 f"{Path(save_path).stem}_e{epoch:03d}.pt")
-            torch.save({"model": model.state_dict(), "epoch": epoch,
+            torch.save({"model": core.state_dict(), "epoch": epoch,
                         "score": score, "eligible": eligible, "row": val_loss,
                         "config": config, "seed": config["seed"]}, rank_path)
-            for _, dropped in kept[keep_top_k:]:
+            for dropped in checkpoints_to_drop(kept, keep_top_k, keep_stride,
+                                               last_epoch=epoch):
                 stale = Path(save_path).with_name(
                     f"{Path(save_path).stem}_e{dropped:03d}.pt")
                 stale.unlink(missing_ok=True)
-            del kept[keep_top_k:]
+                kept[:] = [(sc, ep) for sc, ep in kept if ep != dropped]
 
         if eligible and score < best_val:
             best_val = score
@@ -878,11 +1235,20 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
             epochs_since_best = 0
             if save_path:
                 torch.save({
-                    "model": model.state_dict(),
+                    "model": core.state_dict(),
                     "optimizer": optimizer.state_dict(),
                     "scheduler": scheduler.state_dict() if scheduler else None,
                     "epoch": epoch,
                     "global_step": global_step,
+                # THE PROBE'S HISTORY MUST SURVIVE A RESUME. The EMA the
+                # scheduler reads, and trend(), are functions of every epoch
+                # so far. A 12 h Kaggle session caps this run at ~16 epochs
+                # (2,575 s/epoch measured), so going further MEANS resuming,
+                # and a resumed probe that restarts its EMA hands
+                # ReduceLROnPlateau a step change that is an artefact of the
+                # session boundary. decisions-m2.md 2026-09-23.
+                "content_wer_history": (content_probe.history
+                                        if content_probe is not None else []),
                     "best_val": best_val,
                     "best_row": best_row,
                     "config": config,
@@ -1101,10 +1467,13 @@ def log_results(out_dir, config, config_path, args, model, device, manifest_csv,
             "manifest_config_md5": manifest_meta.get("config_md5"),
             "device": str(device),
             "resumed": bool(args.resume),
+            # unwrap(): with DataParallel on, `type(model).__name__` would
+            # record "DataParallel" and the meta.yaml would no longer say which
+            # architecture ran. band_widths is not forwarded at all.
             "model": {
-                "class": type(model).__name__,
-                "n_parameters": sum(p.numel() for p in model.parameters()),
-                "n_bands": len(model.band_widths),
+                "class": type(unwrap(model)).__name__,
+                "n_parameters": sum(p.numel() for p in unwrap(model).parameters()),
+                "n_bands": len(unwrap(model).band_widths),
             },
             "epochs_requested": num_epochs,
             "epochs_run": epochs_run,
@@ -1218,6 +1587,14 @@ def main():
     config = yaml.safe_load(config_path.read_text())
     data_path_root = Path(args.data_root)
     csv_path = Path(args.manifest_dir)
+    # The content probe reads the SAME data as the val loader, so it takes the
+    # CLI's --data-root / --manifest-dir unless its config block names its own.
+    # Without this it fell back to "data/manifests", which does not exist on
+    # Kaggle: 2026-09-23 run died at startup, "no manifest at
+    # data/manifests/sir0_val.csv".
+    if (config.get("content_probe") or {}).get("enabled", False):
+        config["content_probe"].setdefault("data_root", str(data_path_root))
+        config["content_probe"].setdefault("manifest_dir", str(csv_path))
 
     if args.split not in SPLIT_MANIFESTS:
         raise ValueError(f"Unknown split: {args.split}")
@@ -1237,8 +1614,48 @@ def main():
     model = build_model(config)
     model.to(device)
 
+    # ITEM 1c. Built BESIDE the model, never inside it: it is frozen, it is not
+    # optimised, it must not be replicated per card by DataParallel, and it must
+    # not bloat every saved checkpoint by ~83 MB. src/models/context_encoder.py
+    # gives the full reasoning. None for every other arm, and `context_kwargs`
+    # then returns {} so those paths are byte-identical.
+    context_encoder = build_context_encoder(config, device)
+    if context_encoder is not None:
+        print(f"  context encoder: {context_encoder.describe()}", flush=True)
+
+    # BOTH T4s. decisions-pending.md E7: Kaggle's "GPU T4 x2" gives two cards and
+    # every run before 2026-09-21 used one, because `torch.device("cuda")` is
+    # cuda:0 and nothing here asked for more.
+    #
+    # DataParallel scatters the BATCH across the cards, runs the forward on
+    # each, and gathers the outputs back to cuda:0. So `LossBSRNN` still sees
+    # the whole batch on one device, which matters: the loss means over SUBSETS
+    # (n_present, n_absent) and a per-device reduction would silently reweight
+    # them. It does not break the direction pairing either -- `collate_pairs`
+    # puts both directions of a trial in one batch and splitting that batch does
+    # separate some pairs in the forward, but the model is per-example
+    # independent and the contrast lives in the loss, which sees the gathered
+    # batch.
+    #
+    # WHAT IT DOES NOT DO: it replicates the model on both cards, so it buys
+    # BATCH headroom, not room for a wider model. Per-card activation memory is
+    # unchanged, and the measured ceiling (0.12 GB fixed + 2.15 GB per trial
+    # against 14.56 GiB, E3b-E3f) still applies PER CARD.
+    #
+    # Default OFF so every existing run reproduces exactly.
+    n_gpu = torch.cuda.device_count()
+    use_dp = bool(config["training"].get("data_parallel", False)) and n_gpu > 1
+    if use_dp:
+        model = nn.DataParallel(model)
+        print(f"DataParallel across {n_gpu} GPUs, "
+              f"batch {config['data']['batch_size']} split {config['data']['batch_size'] // n_gpu} per card")
+    elif bool(config["training"].get("data_parallel", False)):
+        print(f"WARNING: data_parallel requested but device_count() == {n_gpu}; "
+              "running on one device", file=sys.stderr)
+    core = unwrap(model)
+
     # optimiser
-    optimizer = torch.optim.AdamW(model.parameters(),
+    optimizer = torch.optim.AdamW(core.parameters(),
                                   lr=float(config["training"]["lr"]),
                                   weight_decay=float(config["training"]["weight_decay"]))
 
@@ -1251,13 +1668,19 @@ def main():
     save_path.parent.mkdir(parents=True, exist_ok=True)
 
     start_epoch, best_val, best_row, start_step = 0, float("inf"), None, 0
+    # Empty on a fresh run; the resume branch below replaces it. Declared here
+    # so the train() call is valid on both paths.
+    resumed_wer_history = []
     if args.resume:
         if not save_path.exists():
             raise FileNotFoundError(f"--resume but no checkpoint at {save_path}")
         # weights_only=False: the checkpoint carries the config dict, not just
         # tensors. Safe because we wrote it; never point this at a file you did not.
         ckpt = torch.load(save_path, map_location=device, weights_only=False)
-        model.load_state_dict(ckpt["model"])
+        # `core`, not `model`: checkpoints are written unwrapped (see unwrap()),
+        # so a DataParallel run resumes from an ordinary checkpoint and the
+        # files stay interchangeable between the two modes.
+        core.load_state_dict(ckpt["model"])
         optimizer.load_state_dict(ckpt["optimizer"])
         if ckpt.get("scheduler"):
             scheduler.load_state_dict(ckpt["scheduler"])
@@ -1272,8 +1695,12 @@ def main():
         # .get, not [...]: checkpoints written before best_row existed have no
         # such key, and a missing best row is not a reason to refuse a resume.
         best_row = ckpt.get("best_row")
+        # .get with a default: only runs from 2026-09-23 onward carry it, and a
+        # missing probe history is not a reason to refuse a resume -- it just
+        # means the EMA starts cold, which the warning below makes visible.
+        resumed_wer_history = list(ckpt.get("content_wer_history") or [])
         # A resume across a config change is two experiments in one curve.
-        if ckpt.get("config") != config:
+        if comparable_config(ckpt.get("config")) != comparable_config(config):
             raise ValueError(f"{save_path} was trained under a different config, start a fresh run or pass a matching --config")
         print(f"resumed {save_path} at epoch {start_epoch}, step {start_step}, "
               f"best_val {best_val:.4f}")
@@ -1286,7 +1713,8 @@ def main():
     with timed(f"scripts/train.py --split {args.split}",
                scope=lambda: f"{len(train_loader.dataset):,} trials x "
                              f"{ran['epochs']} epochs, {args.split}",
-               rate=lambda: f"batch {config['data']['batch_size']}, {device}, "
+               rate=lambda: f"batch {config['data']['batch_size']}, {device}"
+                            f"{f' x{n_gpu} (DataParallel)' if use_dp else ''}, "
                             f"{(time.time() - t0) / max(ran['epochs'], 1):.0f} s/epoch"):
         train_loss_history, val_loss_history, best_row = train(
             model,
@@ -1299,10 +1727,12 @@ def main():
             save_path=save_path,
             config=config,
             scheduler=scheduler,
+            context_encoder=context_encoder,
             start_epoch=start_epoch,
             best_val=best_val,
             best_row=best_row,
             start_step=start_step,
+            resumed_wer_history=resumed_wer_history,
         )
         ran["epochs"] = len(train_loss_history)
     wall_s = time.time() - t0

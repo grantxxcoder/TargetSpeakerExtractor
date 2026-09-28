@@ -27,7 +27,8 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.estimates.runner import read_trials, write_estimates  # noqa: E402
 from src.run_log import timed  # noqa: E402
-from train import SPLIT_MANIFESTS, build_model  # noqa: E402
+from train import (SPLIT_MANIFESTS, build_context_encoder,  # noqa: E402
+                   build_model, context_kwargs)
 
 
 def resolve_checkpoint(given, split):
@@ -78,6 +79,11 @@ def build_extractor(checkpoint_path, config, device, mask_floor=0.0,
         model.estimator.residual_scale = float(residual_scale)
     model.to(device).eval()
 
+    # ITEM 1c. Built from the CHECKPOINT's config, like the model itself, so an
+    # eval cannot silently use different encoder settings from the run it is
+    # scoring. None for every other arm, and context_kwargs() is then a no-op.
+    encoder = build_context_encoder(ckpt["config"], device)
+
     # Report model-config drift rather than refusing: it does not stop the
     # weights loading, but it does change what they MEAN.
     drift = {k: (ckpt["config"].get("model", {}).get(k), v)
@@ -86,8 +92,11 @@ def build_extractor(checkpoint_path, config, device, mask_floor=0.0,
 
     def extract(mixture, enrollment, sample_rate):    # noqa: ARG001
         with torch.no_grad():
-            est = model(torch.from_numpy(mixture).unsqueeze(0).to(device),
-                        torch.from_numpy(enrollment).unsqueeze(0).to(device))
+            enrol = torch.from_numpy(enrollment).unsqueeze(0).to(device)
+            # ONE forward per clip here -- runner.py is whole-clip, not chunked --
+            # so the encoder runs once per trial and costs nothing per frame.
+            est = model(torch.from_numpy(mixture).unsqueeze(0).to(device), enrol,
+                        **context_kwargs(encoder, enrol))
         return est.squeeze(0).cpu().numpy()
 
     return extract, ckpt, drift

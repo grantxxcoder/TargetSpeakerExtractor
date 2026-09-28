@@ -139,6 +139,41 @@
   howpublished = {\url{https://github.com/SYSTRAN/faster-whisper}}
 }
 
+% The checkpoint behind the report's offline tables. No paper: OpenAI released
+% it with a model card only, which asks for radford2023whisper to be cited. The
+% CTranslate2 conversion is mobiuslabsgmbh/faster-whisper-large-v3-turbo, the
+% target of faster-whisper 1.2.1's "large-v3-turbo" alias.
+@misc{whisper_turbo,
+  author       = {{OpenAI}},
+  title        = {whisper-large-v3-turbo},
+  year         = {2024},
+  note         = {Model card. Accessed: 2026-09-28},
+  howpublished = {\url{https://huggingface.co/openai/whisper-large-v3-turbo}}
+}
+
+% Usage evidence only: both score word error with a large Whisper.
+@misc{anastassiou2024seedtts,
+  author       = {Anastassiou, Philip and others},
+  title        = {Seed-{TTS}: A Family of High-Quality Versatile Speech
+                  Generation Models},
+  year         = {2024},
+  howpublished = {arXiv:2406.02430},
+  note         = {Its Seed-TTS-eval benchmark scores English word error with
+                  Whisper large-v3}
+}
+
+@misc{wang2025solospeech,
+  author       = {Wang, Helin and Hai, Jiarui and Yang, Dongchao and Chen, Chen
+                  and Li, Kai and Peng, Junyi and Thebaud, Thomas and
+                  Moro-Vel{\'a}zquez, Laureano and Villalba, Jes{\'u}s and
+                  Dehak, Najim},
+  title        = {{SoloSpeech}: Enhancing Intelligibility and Quality in Target
+                  Speech Extraction through a Cascaded Generative Pipeline},
+  year         = {2025},
+  howpublished = {arXiv:2505.19314},
+  note         = {Scores word error with Whisper large-v3-turbo}
+}
+
 % The normaliser is Whisper's, packaged for standalone use. Cite
 % radford2023whisper for the algorithm and this for the pinned build.
 % TODO: confirm the author line before submission.
