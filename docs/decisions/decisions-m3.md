@@ -1480,3 +1480,93 @@ stated. Run one at a time, latency first on an idle machine. Dirs
   stand-in; the selection stands on the judge (`decisions-m2.md` 2026-09-26).
 - **Right voice: e27 ahead by 2 of 76 same-gender and 1 of 78 cross-gender
   decisions.** Not a difference; no test run.
+
+## 2026-09-28 — Report's offline ASR is `large-v3-turbo`; `small.en` stays in the training loop
+
+**Decision (Grant):** every offline-ASR figure in the report comes from
+`faster-whisper==1.2.1:large-v3-turbo:int8:cpu:greedy` (CTranslate2 build
+`mobiuslabsgmbh/faster-whisper-large-v3-turbo`, snapshot `0a363e9161cb`). The
+in-loop probe (`content_probe.py`) and the `evaluate.py` default stay `small.en`.
+Config `experiments/configs/eval_offline_asr_turbo.yaml`, seed 42. Evidence:
+`experiments/results/2026-09-28-eval-asr-turbo-{baseline,e21,wesep}/`, `sir0_val`
+`both`, n=103, commit `7afbd610f358-dirty` (the `--asr-model` change, committed
+in `f54d2bd`).
+
+**Why:**
+- `small.en` was pinned 2026-08-28 for CPU cost, not accuracy; `medium.en` was
+  better on both anchors then. "Doesn't change any ranking" was asserted, never run.
+- e21's lr schedule and checkpoint shortlist were tuned against `small.en`, so it
+  is not an independent listener for the extension.
+- Published extraction work scores with a large Whisper (SoloSpeech:
+  `large-v3-turbo`). REAL-TSE itself uses Zipformer, so this is not its standard.
+
+**Result, words wrong (LCF-WER, lower is better):**
+
+| | small.en | large-v3-turbo | judge (3-run mean) |
+|---|---|---|---|
+| No processing | 65.22 | 63.04 | — |
+| Baseline | 59.52 | 52.71 | — |
+| Extension (e21) | 56.72 | 41.01 | — |
+| WeSep | 34.60 | 29.13 | — |
+| Target alone | 5.85 | 1.98 | 1.19 |
+| Baseline → e21 | −2.80 | **−11.70** | −15.59 |
+
+- **Ranking unchanged** (WeSep < e21 < baseline < floor), but turbo sees 4x the
+  extension's gain `small.en` did, closer to the judge.
+- **Turbo hears the other speaker more:** floor mean leak 51.30 → 62.78, ICR@2
+  66.99 → 76.70. It invents less: floor 2.61 → 1.59 words/trial.
+- **REVERSES a claim:** `small.en` deleted MORE on the baseline than the floor
+  (9.28 → 11.79); turbo deletes LESS (6.93 → 5.70), like the judge (5.97 → 3.00).
+  "The ASR is the brittle listener" (`results.tex` comment, claim a) was a
+  property of `small.en`. Do not write it.
+- Repeatable: 6/6 fresh re-transcriptions (2 trials x mixture, baseline, e21)
+  identical to the run's cached text. ~14 s/clip on this CPU, against ~3.
+
+**Consequences to carry:**
+- No `small.en` number may be compared with a turbo number. Every figure logged
+  before today is `small.en`, including the 1.57-point irrelevance floor
+  (2026-09-12) and the 57.4 / 6.1 `eval_public` anchors.
+- The irrelevance floor has not been re-measured for turbo.
+- Signal, perceptual and latency rows do not depend on the listener.
+
+## 2026-09-28 — Latency re-timed: baseline and extension are indistinguishable
+
+`measure_rtf.py`, 80 ms chunks, 4 threads, CPU, 2,250 chunks per run; baseline
+(`model_sir0_10000-e6.pt`) and e21 alternated, 3 runs each, one session.
+`experiments/results/2026-09-28-rtf-{baseline,e21}-r{1,2,3}/`, commit `f54d2bd-dirty`.
+
+| | RTF mean | RTF p99 | latency mean (ms) | latency p99 (ms) |
+|---|---|---|---|---|
+| baseline | 0.79–0.98 | 1.38–1.70 | 183–198 | 230–256 |
+| e21 | 0.64–0.89 | 0.72–1.73 | 172–191 | 178–259 |
+
+- **The ranges overlap on every column.** One model's own spread (e21 mean RTF
+  0.64–0.89) exceeds any gap between the models. The report's earlier 0.783 vs
+  0.536 was a 20-day-apart comparison, and was drift.
+- **Both keep pace on average** (mean RTF < 1 in 6/6 runs). **The slowest 1 % do
+  not** in 5/6 runs (only e21 r3 < 1), so a backlog can form under bursts.
+- **Machine was not fully idle:** `report.pdf` was rebuilt at 15:17, inside
+  baseline r3. Tails (p99 ~2x mean in 5/6 runs, 1.1x in e21 r3) point to
+  background load. The ranges are an upper bound on the real spread, not a clean
+  p99. WeSep not re-run: its 2.85 is far outside this drift.
+- **Report:** replaces the extension's "yes" with "mean only". Claim only that
+  the two are within run-to-run variation; e21 adds 0.09 M parameters.
+
+**Update, same day — idle re-run SUPERSEDES the table above.** Same command,
+nothing else open, `powerprofilesctl set performance`, 60 s settle.
+`experiments/results/2026-09-28-rtf-idle-{baseline,e21}-r{1,2,3}/`. All six clean
+(p99 / mean 1.13–1.30, against ~2x in the first set). Median (range):
+
+| | RTF mean | RTF p99 | latency mean (ms) | latency p99 (ms) |
+|---|---|---|---|---|
+| baseline | 0.69 (0.66–0.70) | 0.79 (0.79–0.86) | 175 (173–176) | 183 (183–189) |
+| e21 | 0.69 (0.68–0.71) | 0.78 (0.77–0.82) | 175 (175–177) | 182 (182–185) |
+
+- **Identical speed:** medians 0.692 vs 0.687, inside each other's range. As
+  predicted by +1.3 % parameters.
+- **Both keep up at p99 in 6/6 runs** and stay under 200 ms delay. The earlier
+  "p99 > 1" was background load and the balanced profile, not the models.
+- **Margin at p99 is 14–23 %**, about the method's own stated 10–20 % error.
+  Claim "keeps up on an idle CPU", not "with room to spare". A loaded machine
+  breaks it (first set: 5/6 runs over real time at p99).
+- Report table: median (range), "meets budget" yes for both.
