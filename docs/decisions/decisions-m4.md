@@ -957,3 +957,31 @@ e21 and WeSep renders `2026-09-28-est-*-cases`. `judge_failed` 0 in every row.
   record failures, so it read as perfect silence. Now `MissingCredentials`
   aborts the run (`judge.py`, `evaluate._listen`), absent rows record
   `judge_failed`, and `results.txt` warns on any failure. Tests added.
+
+## 2026-09-29 — Case 3 on `eval_public`: e21 beats WeSep, selection-free
+
+Judge `gemini-3.7-flash`, audio-in / text-out, prompt sha `d118b7d3bf30`, run
+2026-09-29, one run. `eval_public` `interferer_only`, n=123. Renders via the new
+render-only split `sir0pub` (`scripts/train.py` refuses to train on it).
+`experiments/results/2026-09-29-{est-public-*-case3,case-suite-judge-public-*}/`.
+
+| | words/trial | stranger's words passed | silenced (of 123) |
+|---|---|---|---|
+| No processing | 27.97 | 100 % | 0 |
+| Baseline | 25.63 | 92 % | 10 |
+| e21 | 15.91 | 57 % | 56 |
+| WeSep | 19.55 | 70 % | 11 |
+
+Paired bootstrap over clips, 10,000 draws, seed 42:
+- **e21 − WeSep −3.64 [−5.67, −1.65]**, beyond noise. `sir0_val`'s −1.45
+  [−7.05, +4.10] was the same effect, under-powered at n=42.
+- e21 − baseline −9.80 [−12.25, −7.41]; WeSep − baseline −6.24 [−8.45, −4.10]
+  (n=122: baseline clip `eval_public-42-000149` got a 400 invalid-argument,
+  audio normal; excluded, not scored as silence).
+- Silenced: 47 e21-only vs 2 WeSep-only, exact McNemar p = 4e-12. Deterministic
+  (VAD), needs no repeats.
+
+- **First selection-free result for e21.** Word it that way.
+- **Still all-or-nothing:** unsilenced e21 clips carry 29.2 words vs the
+  floor's 28.0. The gain is silencing more often, not partial suppression.
+- **`eval_public` is now seen.** Nothing may be selected or tuned on it.

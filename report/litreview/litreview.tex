@@ -25,22 +25,15 @@ A concern about streaming is that it makes it harder to identify the target spea
 
 \section{How extraction is evaluated}
 \label{sec:evaluation}
+When making use of signal based metrics, practitioners are often required to use simulated data. This is because a clean reference signal is required for comparison against the model output. By nature it is quite difficult to obtain perfectly clean speech in a real-world scenario. Popular resources to use for simulated mixtures include Libri2Mix \cite{cosentino2020librimix} and WSJ0-2mix \cite{hershey2016deep}. Thus the first issue related to evaluation is the translation of performance on simulated data to real-world data. Zhang et al. \cite{zhang2021closing} show that there is not necessarily a direct translation in performance: in multi-channel speech enhancement, the model with the best signal-to-distortion ratio (SDR) on simulated data more than doubled its word error rate (WER) compared of the unprocessed input on real recordings from 19.5\,\% to 41.5\,\%. Signal scores also fail in the following manner for TSE: \textit{(i)} extracting a wrong speaker can still yield a low signal score due to similarities in speech, and \textit{(ii)} a silent target leaves the score undefined.
+
+A natural guess to evaluate the performance of a TSE system is to suggest using perceptual metrics. These metrics are designed to mimic what a human listener would perceive when listening to the audio, for example DNSMOS \cite{reddy2021dnsmos}. However, as found by Wang et al. \cite{wang2026realtse}, these metrics can be gamed by adding adverserial pertubations to the waveform to inflate it. In other words, an extractor can be trained to maximise the perceptual metric without it improving the actual quality of the audio. Secondly, these perceptual metrics still fail in TSE as they do not identify if the wrong person is speaking.
+
+The next progression would be to transcribe the audio and compare it against a ground truth transcription. The standard approach is to use the simple word error rate (WER) metric. However, this metric hides nuance in the failure of an extractor when considering that the end user is not human, but rather a LAM. One main concern is identifying if an error came from an invented word, or if it stemmed from an interfering speaker.
 
 \section{Speech LLMs as listeners and judges}
 \label{sec:llms}
 It is not a novel idea to make use of large language models (LLMs) to evaluate the quality of speech. In fact, Manakul et al. \cite{manakul2026audiojudge} found that large audio models (LAMs), which are LLMs that accept audio as input, are able to rank speech systems similarly to human raters. However, for tasks related to measuring speaking rate or speaker identity tasks, the performance of these models is poor and often are close to random chance. The authors also found that these established LAMs that they tested are robust against noise and are more reliable on lexical content as opposed to non-lexical content.
 
 In Manakul et al. the study uses the model as a rater. The LAM is prompted for a verdict, such as preference over audio samples, and the final decision becomes the score. This work uses the model differently. The live model is only asked to write down what it heard and the score is computed by comparing the transcription to a ground truth text (Section~\ref{sec:lcfwer}). Each clip that is presented to the LLM is on its own, which mitigates positional bias that was found by Manakul et al. Their noise robustness was also only tested using white noise and did not explore competing speakers. Using the model as a listener rather than a rater is less common. The closest work reviewed here, Fela and Mowlaee \cite{fela2026perceptually}, found that standard audio-quality metrics fail to predict how often speech enhancement changes an LLM's downstream output. This is a third reason for the revised evaluation suite as discussed in the Section~\ref{sec:tse} and Section~\ref{sec:evaluation}.
-
-
-
-  - Target speaker extraction: Conditioning on a voice sample makes extraction possible for unseen speakers, but systems can still extract the 
-    wrong speaker and are rarely trained to fall silent when the target is inactive \cite{zmolikova2023overview}. This work conditions on both a 
-    spectral cue and a speaker embedding, trains on target-absent trials, and measures wrong-speaker output separately (Sections X, Y).
-  - Streaming separation: Online systems are verified against a latency limit \cite{wang2026realtse}, but their output is judged on signal and 
-    perceptual metrics and a single offline recogniser, not on what a downstream live model understands. This work builds a causal extractor 
-    within a 200–300 ms budget and judges it by the live model (Section Z).
-  - How extraction is evaluated: Signal metrics do not track recognition, perceptual metrics have been gamed \cite{wang2026realtse}, and no 
-    standard metric separates a damaged target from a wrongly chosen one \cite{zmolikova2023overview}. This work defines three content scores that
-    do (Section M), and reports the conventional metrics beside them to show where they disagree.
 

@@ -415,6 +415,78 @@
 }
 
 % ---------------------------------------------------------------------------
+% How extraction is evaluated (lit review, sec:evaluation).
+% Verified 2026-09-29; venue and pages from Crossref. Sources and findings:
+% literature/evaluation-sources.md
+% ---------------------------------------------------------------------------
+
+% Multi-channel speech enhancement (CHiME-4, noise only), not TSE. Best
+% simulated SDR, yet real-recording WER 41.5 % vs 19.5 % unprocessed (Table 1).
+@inproceedings{zhang2021closing,
+  author    = {Zhang, Wangyou and Shi, Jing and Li, Chenda and Watanabe, Shinji
+               and Qian, Yanmin},
+  title     = {Closing the Gap Between Time-Domain Multi-Channel Speech
+               Enhancement on Real and Simulation Conditions},
+  booktitle = {Proceedings of the {IEEE} Workshop on Applications of Signal
+               Processing to Audio and Acoustics ({WASPAA})},
+  pages     = {146--150},
+  year      = {2021},
+  doi       = {10.1109/WASPAA52581.2021.9632720},
+  note      = {Also arXiv:2110.14139}
+}
+
+% Origin of WSJ0-2mix: two WSJ0 utterances summed digitally, no noise or reverb.
+@inproceedings{hershey2016deep,
+  author    = {Hershey, John R. and Chen, Zhuo and Le Roux, Jonathan and
+               Watanabe, Shinji},
+  title     = {Deep Clustering: Discriminative Embeddings for Segmentation and
+               Separation},
+  booktitle = {Proceedings of the {IEEE} International Conference on Acoustics,
+               Speech and Signal Processing ({ICASSP})},
+  pages     = {31--35},
+  year      = {2016},
+  doi       = {10.1109/ICASSP.2016.7471631}
+}
+
+% TSE (SpeakerBeam). CER cut 49--90 % at SIR 0 dB, raised 6--75 % at SIR 20 dB
+% (Table 1).
+@inproceedings{sato2021separate,
+  author    = {Sato, Hiroshi and Ochiai, Tsubasa and Delcroix, Marc and
+               Kinoshita, Keisuke and Moriya, Takafumi and Kamo, Naoyuki},
+  title     = {Should We Always Separate?: Switching Between Enhanced and
+               Observed Signals for Overlapping Speech Recognition},
+  booktitle = {Proceedings of Interspeech},
+  pages     = {1149--1153},
+  year      = {2021},
+  doi       = {10.21437/Interspeech.2021-2253}
+}
+
+% Wrong-speaker rate = share of trials with SI-SDRi < 0 dB; 9.2 % against
+% 9.5 % rated by listeners.
+@inproceedings{zhang2020xtasnet,
+  author    = {Zhang, Zining and He, Bingsheng and Zhang, Zhenjie},
+  title     = {{X-TaSNet}: Robust and Accurate Time-Domain Speaker Extraction
+               Network},
+  booktitle = {Proceedings of Interspeech},
+  pages     = {1421--1425},
+  year      = {2020},
+  doi       = {10.21437/Interspeech.2020-1706}
+}
+
+% SNR losses "ill-defined when the reference signal is zero"; baseline always
+% outputs sound when the target is absent.
+@inproceedings{delcroix2022listen,
+  author    = {Delcroix, Marc and Kinoshita, Keisuke and Ochiai, Tsubasa and
+               Zmolikova, Katerina and Sato, Hiroshi and Nakatani, Tomohiro},
+  title     = {Listen Only to Me! {H}ow Well Can Target Speech Extraction
+               Handle False Alarms?},
+  booktitle = {Proceedings of Interspeech},
+  pages     = {216--220},
+  year      = {2022},
+  doi       = {10.21437/Interspeech.2022-11252}
+}
+
+% ---------------------------------------------------------------------------
 % Conventional metrics reported alongside, for the divergence comparison
 % ---------------------------------------------------------------------------
 
