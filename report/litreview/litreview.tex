@@ -5,8 +5,22 @@
 \section{Target speaker extraction}
 \label{sec:tse}
 
+Target speech extraction (TSE) is already a well establish task in the speech processing literature. With the introduction of listening devices such as meeting transcription systems, hearing aids, and smart speakers, these devices benefit from the ability for more robust speech recognition in the presence of background noise and competing speakers. The main idea behind the task is best described by Cherry's cocktail party problem \cite{cherry1953cocktail}. Human's have the inate ability to focus on a single speaker in noisy environments, and using various indicators such as visual, spatial, and acoustic cues, human's can understand the speech of a target speaker while ignoring other speakers. The survey done by \v{Z}mol\'{i}kov\'{a} et al. \cite{zmolikova2023overview} provides a comprehensive overview of the task, differentiating between three main tasks: target speaker extraction, blind source separation, and noise suppression. In this work, the focus is on target speaker extraction using only voice samples as an acoustic cue.
+
+%  paragraph 2
+
+% paragraph 3
+
+% paragraph 4
+The intention behind the TSE task is to be able to deploy a system into a real-world scenario. However due to the variability in the scenarios that a TSE system may be deployed in, a system must not necessarily be trained to only extract a speaker from among a noisy environment of other speakers. The survey by \v{Z}mol\'{i}kov\'{a} et al. \cite{zmolikova2023overview} in 2023 highlights the gap that many TSE systems are not trained to go silent when the target speaker is not present, which is a seperate task to extraction. The systems have thus assumed to always have a target present in the mixture, which confounds the model to assume that the target speaker is present whenever the mixture is processed. Another issue raised by \v{Z}mol\'{i}kov\'{a} et al. \cite{zmolikova2023overview} is that the use of signal level metrics such as signal-to-distortion ratio (SDR) are indicative of the ability of the model to extract speech, but \textit{(i)} it does not correlate with audible quality from the perspective of a human listener, and \textit{(ii)} it does not reflect the ability of the model to select or identify a target speaker as an evaluation metric. Among other issues, the a final point to raise that is included in the survey is that TSE systems are being moved to low latency streaming setups. Thus it is important to consider lightweight architectures that can be deployed in real-time scenarios. 
+
 \section{Streaming separation}
 \label{sec:streaming}
+Separation models work with either a raw waveform or on a spectrogram. Some architectures such as Conv-TasNet \cite{luo2019convtasnet} favoured for waveform with the reasoning that calculating a spectrogram contributes to the latency of the system. However, Yu et al. adapted a Band-Split RNN (BSRNN) architecture originally designed for music as an offline model \cite{luo2023music} to speech enhancement tasks with an online configuration \cite{yu2023high} which \v{Z}mol\'{i}kov\'{a} et al. \cite{zmolikova2023overview} list as another name for TSE. Yu et al. found that their online implementation ran faster than real-time on an Intel i5 CPU.
+
+TSE systems must work frame by frame, or chunk by chunk. The REAL-TSE challenge set a benchmark to say that a system must run with an algorithmic latency of \SI{100}{\milli\second} or less \cite{wang2026realtse}. Algorithmic latency is the delay built in the model. In other words, how long the system has to wait for audio before it can produce an output. Secondly, the architectures need to be constructed in a causal manner. For the REAL-TSE this included swapping bidirectional LSTMs for unidirectional LSTMs in the time domain, and secondly changing the normalisation strategies to work over a single frame or chunk rather than over the entire sequence \cite{wang2026realtse}. A key finding from the REAL-TSE challenge is that a claimed and measured latency often disagreed. For true transparency on the latency of a system the recommendation is to have a component breakdown of the algorithmic latency. This work does this and furthermore highlights the processing time measured by real-time factor (RTF).
+
+A concern about streaming is that it makes it harder to identify the target speaker. As found in the survey by \v{Z}mol\'{i}kov\'{a} et al. \cite{zmolikova2023overview}, typical TSE systems use the entire context of an audio clip to identify the target speaker. However, in a streaming scenario, the system must identify quite quickly speaker identity. Finally in this work, the assumption that a \SIrange{200}{300}{\milli\second} budget is sufficient that reflects a conversational use case. 
 
 
 \section{How extraction is evaluated}
@@ -14,6 +28,11 @@
 
 \section{Speech LLMs as listeners and judges}
 \label{sec:llms}
+It is not a novel idea to make use of large language models (LLMs) to evaluate the quality of speech. In fact, Manakul et al. \cite{manakul2026audiojudge} found that large audio models (LAMs), which are LLMs that accept audio as input, are able to rank speech systems similarly to human raters. However, for tasks related to measuring speaking rate or speaker identity tasks, the performance of these models is poor and often are close to random chance. The authors also found that these established LAMs that they tested are robust against noise and are more reliable on lexical content as opposed to non-lexical content.
+
+In Manakul et al. the study uses the model as a rater. The LAM is prompted for a verdict, such as preference over audio samples, and the final decision becomes the score. This work uses the model differently. The live model is only asked to write down what it heard and the score is computed by comparing the transcription to a ground truth text (Section~\ref{sec:lcfwer}). Each clip that is presented to the LLM is on its own, which mitigates positional bias that was found by Manakul et al. Their noise robustness was also only tested using white noise and did not explore competing speakers. Using the model as a listener rather than a rater is less common. The closest work reviewed here, Fela and Mowlaee \cite{fela2026perceptually}, found that standard audio-quality metrics fail to predict how often speech enhancement changes an LLM's downstream output. This is a third reason for the revised evaluation suite as discussed in the Section~\ref{sec:tse} and Section~\ref{sec:evaluation}.
+
+
 
   - Target speaker extraction: Conditioning on a voice sample makes extraction possible for unseen speakers, but systems can still extract the 
     wrong speaker and are rarely trained to fall silent when the target is inactive \cite{zmolikova2023overview}. This work conditions on both a 
@@ -24,6 +43,4 @@
   - How extraction is evaluated: Signal metrics do not track recognition, perceptual metrics have been gamed \cite{wang2026realtse}, and no 
     standard metric separates a damaged target from a wrongly chosen one \cite{zmolikova2023overview}. This work defines three content scores that
     do (Section M), and reports the conventional metrics beside them to show where they disagree.
-  - Speech LLMs as listeners and judges: Language models have been studied as judges of quality, but not as the listener that decides whether a 
-    front-end preserved what was said. This work uses a live speech model as that listener and measures how much its answers vary between runs 
-    (Section J). Every result is therefore specific to Gemini.
+

@@ -342,6 +342,79 @@
 }
 
 % ---------------------------------------------------------------------------
+% Speech LLMs as listeners and judges (lit review, sec:llms).
+% Verified 2026-09-29 against the arXiv API; venue and pages from Crossref.
+% ---------------------------------------------------------------------------
+
+@inproceedings{zheng2023judging,
+  author    = {Zheng, Lianmin and Chiang, Wei-Lin and Sheng, Ying and Zhuang,
+               Siyuan and Wu, Zhanghao and Zhuang, Yonghao and Lin, Zi and Li,
+               Zhuohan and Li, Dacheng and Xing, Eric P. and Zhang, Hao and
+               Gonzalez, Joseph E. and Stoica, Ion},
+  title     = {Judging {LLM}-as-a-Judge with {MT-Bench} and {Chatbot Arena}},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS),
+               Datasets and Benchmarks Track},
+  volume    = {36},
+  pages     = {46595--46623},
+  year      = {2023},
+  note      = {Also arXiv:2306.05685}
+}
+
+@inproceedings{yang2024airbench,
+  author    = {Yang, Qian and Xu, Jin and Liu, Wenrui and Chu, Yunfei and Jiang,
+               Ziyue and Zhou, Xiaohuan and Leng, Yichong and Lv, Yuanjun and
+               Zhao, Zhou and Zhou, Chang and Zhou, Jingren},
+  title     = {{AIR-Bench}: Benchmarking Large Audio-Language Models via
+               Generative Comprehension},
+  booktitle = {Proceedings of the 62nd Annual Meeting of the Association for
+               Computational Linguistics (Volume 1: Long Papers)},
+  pages     = {1979--1998},
+  year      = {2024},
+  publisher = {Association for Computational Linguistics},
+  doi       = {10.18653/v1/2024.acl-long.109},
+  note      = {Also arXiv:2402.07729}
+}
+
+% Closest prior art to LCF: an audio-in LLM used as the scorer.
+@inproceedings{manakul2026audiojudge,
+  author    = {Manakul, Potsawee and Gan, Woody Haosheng and Ryan, Michael J.
+               and Khan, Ali Sartaz and Sirichotedumrong, Warit and
+               Pipatanakul, Kunat and Held, William and Yang, Diyi},
+  title     = {{AudioJudge}: Understanding What Works in Large Audio Model Based
+               Speech Evaluation},
+  booktitle = {Proceedings of the 19th Conference of the European Chapter of the
+               Association for Computational Linguistics (Volume 1: Long
+               Papers)},
+  pages     = {3644--3663},
+  year      = {2026},
+  publisher = {Association for Computational Linguistics},
+  doi       = {10.18653/v1/2026.eacl-long.168},
+  note      = {Also arXiv:2507.12705 (2025)}
+}
+
+@misc{foo2026glitters,
+  author       = {Foo, Leonardo Haw-Yang and Yang, Chih-Kai and Li, Chen-An and
+                  Lu, Ke-Han and Lee, Hung-yi},
+  title        = {All That Glitters Is Not Audio: Rethinking Text Priors and
+                  Audio Reliance in Audio-Language Evaluation},
+  year         = {2026},
+  howpublished = {arXiv:2604.24401},
+  note         = {Preprint}
+}
+
+% The project's premise, independently published. Cite and differentiate.
+% TODO before submission: replace with the EMNLP 2026 proceedings entry
+% (pages, DOI) once it is out.
+@misc{fela2026perceptually,
+  author       = {Fela, Randy Frans and Mowlaee, Pejman},
+  title        = {Perceptually Better, Semantically Worse: Measuring Speech
+                  Enhancement Impact on {LLM}-Based Voice Systems},
+  year         = {2026},
+  howpublished = {arXiv:2608.30348},
+  note         = {Accepted at EMNLP 2026}
+}
+
+% ---------------------------------------------------------------------------
 % Conventional metrics reported alongside, for the divergence comparison
 % ---------------------------------------------------------------------------
 

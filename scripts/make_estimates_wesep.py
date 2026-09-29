@@ -71,6 +71,8 @@ VAL_SPLITS = {
     # The expanded dev split added 2026-09-13, so WeSep can be scored on the
     # same wider set as our own model. decisions-m3.md 2026-09-13.
     "sir0ext": ("sir0_privval", "sir0_privval"),
+    # Public test split, rendering only (scripts/train.py RENDER_ONLY_SPLITS).
+    "sir0pub": ("eval_public", "eval_public"),
     "full":  ("val",       "val"),
 }
 

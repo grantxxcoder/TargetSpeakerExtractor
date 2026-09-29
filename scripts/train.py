@@ -1311,8 +1311,13 @@ SPLIT_MANIFESTS = {
     # a SUPERSET, reported per SIR band, never as one blended mean.
     # decisions-m3.md 2026-09-13.
     "sir0ext": (("sir0_train", "sir0_train"), ("sir0_privval", "sir0_privval")),
+    # sir0pub: RENDERING ONLY. The public test split, so a checkpoint can be
+    # scored where nothing was selected. get_data_loaders refuses it: validating
+    # on it in training would make it a selection set. decisions-m3.md 2026-09-24.
+    "sir0pub": (("sir0_train", "sir0_train"), ("eval_public", "eval_public")),
     "full":  (("train",       "train"),       ("val",       "val")),
 }
+RENDER_ONLY_SPLITS = frozenset({"sir0pub"})
 
 
 def get_data_loaders(split, csv_path, data_path, config):
@@ -1322,6 +1327,9 @@ def get_data_loaders(split, csv_path, data_path, config):
     # the manifest name so a subset split can point at already-rendered audio.
     if split not in SPLIT_MANIFESTS:
         raise ValueError(f"Unknown split: {split}. Known: {sorted(SPLIT_MANIFESTS)}")
+    if split in RENDER_ONLY_SPLITS:
+        raise ValueError(f"split {split!r} is for rendering estimates only; "
+                         f"training on it would select checkpoints on eval_public.")
     (train_manifest, train_audio), (val_manifest, val_audio) = SPLIT_MANIFESTS[split]
     # Every trial trained twice, once per speaker. Config-driven so the arm is
     # recorded with the run; absent key = the old single-direction behaviour, so

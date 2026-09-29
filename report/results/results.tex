@@ -46,6 +46,27 @@ The first comparison to be made is between the baseline and the floor. The basel
 Overall, the baseline system is a clear improvement over the floor, which is indicative that the extractor has begun to find a signal in the mixture that is associated with the target speaker. The encouraging results can be seen when comparing the extension against the baseline and WeSep. WeSep acts as a benchmark for the best case scenario of what the BSRNN architecture can achieve from an extraction point of view although the WeSep model is both non-causal and cannot be used in a live system if there are latency concerns. For the extension, the inclusion of the pretrained ECAPA speaker encoder and passing the enrolment audio in parts instead of a single embedding has markedly improved the performance of the extractor. The LCF-WER has improved by 15.59 points over the baseline, which is a 28.3\,\% relative improvement. However, the most encouraging part of the results is how the extension has both reduced the number of leaked words per trial and the frequency of leakge by substantial amounts. The improvement can be attributed to the speaker specific information being passed to the extractor through the ECAPA speaker encoder. An interesting trade-off however is that the extension has increased the number of invented words per trial and the frequency of invention. This is indicative of the highly aggressive nature of the extractor, which was designed to mask out the interfering speaker's content however as a result, the masking can leave gaps or artefacts in the output which the live judge then interprets as words. 
 
 To get a better idea of how stable the live judge is on the same audio, \autoref{fig:judge_runs} demonstrates how the LCF-WER changed across the three independent runs but measured per clip instead of the overall average. The idea is to gain a better understanding of how the standard deviation of the LCF-WER is distributed across the clips. The first observation is the confirmation of the extreme variability of the live judge when passed extracted audio by the baseline. In fact, the baseline has worse variability than the floor and the highest average in change of performance between the three runs. A very encouraging result is that the extension seems to have the best stability even when compared to WeSep. On single clips, there are outlier performance changes of up to 100 points (when one run results in 100 more errors than another run), these outliers could be incredibly difficult cases that are not indicative of the overall performance of the system. However, as seen in the bar plot, the extension on average has the smallest changes in overall performance across the three runs.
+\begin{table}[H]
+\centering
+\caption{Gemini Live's response in each trial case of \autoref{sec:metrics}. Cases 1 and 2, where the target spoke, report LCF-WER. Case 3, where only the other speaker spoke, reports the words Gemini output per trial, where 0 is correct, and how many outputs were silenced. Case 4 (noise only, $n = 8$) is omitted: no system produced a word, and every output was below the speech gate. The speech gate is part of the evaluation and is applied identically to every system: a clip with under \SI{0.1}{\second} of detected speech is not sent to Gemini and is scored as an empty response, and ``silenced'' counts those clips. Case 1 is the 3-run mean of \autoref{tab:content_judge}; Cases 2 and 3 are one run each. Target alone is silent in Case 3 by construction.}
+\label{tab:content_cases}
+\small
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+ & Case 1: both & Case 2: target only & \multicolumn{2}{c}{Case 3: other speaker only} \\
+\cmidrule(lr){2-2}\cmidrule(lr){3-3}\cmidrule(lr){4-5}
+ & LCF-WER \lowerbetter & LCF-WER \lowerbetter & words/trial \lowerbetter & silenced \higherbetter \\
+system & (\%, $n = 103$) & (\%, $n = 47$) & ($n = 42$) & (of 42) \\
+\midrule
+Floor     & 62.94 & 1.65 & 30.69 & 0 \\
+Baseline  & 55.18 & 4.00 & 25.26 & 7 \\
+Extension & 39.59 & 3.56 & \textbf{16.50} & \textbf{18} \\
+WeSep     & \textbf{25.80} & 5.40 & 17.95 & 7 \\
+Ceiling   & 1.19  & 1.46 & ---   & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \subsection{The offline transcriber}
 \label{sec:results_content_asr}
 The offline transcriber serves to demonstrate how the extractor system performs on a standard transcription tool. The results are shown in \autoref{tab:content_asr}. The offline transcription system seems like a natural alternative to the live system whilst building the architecture as the live systems make use of paid APIs and are not open source. 

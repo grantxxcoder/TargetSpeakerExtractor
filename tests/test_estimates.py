@@ -363,3 +363,13 @@ def test_the_ledger_is_removed_once_the_pass_completes(split, tmp_path):
     write_estimates(_passthrough, trials, out, SAMPLE_RATE, {"system": "test"})
     assert not (out / RESUME_LEDGER).exists()
     assert (out / "meta.yaml").exists()
+
+
+def test_the_public_test_split_can_be_rendered_but_never_trained_on():
+    """sir0pub exists so eval_public can be scored where nothing was selected.
+    Training on it would validate, and so select, on eval_public."""
+    from train import RENDER_ONLY_SPLITS, SPLIT_MANIFESTS, get_data_loaders
+    assert SPLIT_MANIFESTS["sir0pub"][1] == ("eval_public", "eval_public")
+    assert "sir0pub" in RENDER_ONLY_SPLITS
+    with pytest.raises(ValueError, match="rendering estimates only"):
+        get_data_loaders("sir0pub", None, None, None)
