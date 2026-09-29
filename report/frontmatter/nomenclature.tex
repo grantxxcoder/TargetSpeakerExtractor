@@ -3,7 +3,7 @@
 
 % Abbreviations used in the text. Add rows as they are introduced.
 \section*{Abbreviations}
-\begin{tabular}{@{}ll@{}}
+\begin{longtable}[l]{@{}ll@{}}
 AMI & Augmented multi-party interaction \\
 ASR  & Automatic speech recognition \\
 BAK & Background intrusiveness (DNSMOS P.835 sub-score) \\
@@ -15,6 +15,7 @@ GLU & Gated linear unit \\
 ICR   & Interferer content rate \\
 IHM & Individual headset microphone \\
 ITU-T & ITU Telecommunication Standardization Sector \\
+LAM & Large audio model \\
 LCF-WER & Live-model content fidelity word error rate \\
 LSTM  & Long short-term memory \\
 LUFS & Loudness units relative to full scale \\
@@ -35,7 +36,7 @@ TF Map & Time-frequency map \\
 TSE   & Target speaker extraction \\
 VAD & Voice activity detection \\
 WER   & Word error rate \\
-\end{tabular}
+\end{longtable}
 
 % TODO: CARTSE is used in the text but its expansion is not given in the source
 % paper (Li and Seki, 2026, CyberAgent system description). Either confirm the
@@ -44,12 +45,12 @@ WER   & Word error rate \\
 \section*{Symbols}
 
 \subsection*{Signals and transcriptions}
-\begin{tabular}{@{}ll@{}}
+\begin{longtable}[l]{@{}ll@{}}
 $x$ & Mixture signal \\
 $s$ & Target reference signal \\
 $\hat{s}$ & Model output, the estimated target \\
 $d$ & Interfering speech signal \\
 $y_{(\cdot)}$ & Transcription of the subscripted signal \\
 $y^\star_s$ & Ground-truth LibriSpeech transcription of the target \\
-\end{tabular}
+\end{longtable}
 

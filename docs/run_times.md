@@ -28,6 +28,20 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | 2026-09-23 | `content_probe.score()` end-to-end smoke, 3 clips | 3 clips, sir0_val, untrained 1c model, cpu extraction + faster-whisper small.en int8 cpu | 3.1 min | ~16 s/clip extraction on cpu, ~4 s/clip ASR, plus ~1 min of model loading. The Kaggle figure differs: extraction moves to the T4, so the ASR sets the per-epoch cost at ~4 s/clip. Added by hand. |
 | 2026-09-21 | `pytest tests/ -q` | 515 tests | 11 min | full suite after adding eval_by_case.py. Added by hand: pytest does not use run_log.timed |
 <!-- rows appended below by src/run_log.py -->
+| 2026-09-29 | `scripts/eval_by_case.py --split eval_public --cases interferer_only --listener judge` | 1 cases, eval_public, listener judge | 14 min |  |
+| 2026-09-29 | `scripts/eval_by_case.py --split eval_public --cases interferer_only --listener judge` | 1 cases, eval_public, listener judge | 8 min |  |
+| 2026-09-29 | `scripts/eval_by_case.py --split eval_public --cases interferer_only --listener judge` | 1 cases, eval_public, listener judge | 26 min |  |
+| 2026-09-29 | `scripts/make_estimates_wesep.py` | 123 trials rendered, sir0pub, tfmap_context_causal_100 | 41 min | cpu, whole-clip |
+| 2026-09-29 | `scripts/make_estimates.py` | 123 trials rendered, sir0pub | 14 min | cpu, whole-clip |
+| 2026-09-29 | `scripts/make_estimates.py` | 123 trials rendered, sir0pub | 14 min | cpu, whole-clip |
+| 2026-09-28 | `scripts/eval_by_case.py --split sir0_val --cases target_only,interferer_only,noise_only --listener judge` | 3 cases, sir0_val, listener judge | 11 min |  |
+| 2026-09-28 | `scripts/eval_by_case.py --split sir0_val --cases target_only,interferer_only,noise_only --listener judge` | 3 cases, sir0_val, listener judge | 9 min |  |
+| 2026-09-28 | `scripts/eval_by_case.py --split sir0_val --cases target_only,interferer_only,noise_only --listener judge` | 3 cases, sir0_val, listener judge | 9 min |  |
+| 2026-09-28 | `scripts/eval_by_case.py --split sir0_val --cases target_only,interferer_only,noise_only --listener judge` | 3 cases, sir0_val, listener judge | **(FAILED: GEMINI_API_KEY unset, 0 calls made; time is the rate limiter pacing failed attempts)** 12 min |  |
+| 2026-09-28 | `scripts/eval_by_case.py --split sir0_val --cases target_only,interferer_only,noise_only --listener judge` | 3 cases, sir0_val, listener judge | **(FAILED: GEMINI_API_KEY unset, 0 calls made; time is the rate limiter pacing failed attempts)** 11 min |  |
+| 2026-09-28 | `scripts/eval_by_case.py --split sir0_val --cases target_only,interferer_only,noise_only --listener judge` | 3 cases, sir0_val, listener judge | **(FAILED: GEMINI_API_KEY unset, 0 calls made; time is the rate limiter pacing failed attempts)** 8 min |  |
+| 2026-09-28 | `scripts/make_estimates_wesep.py` | 97 trials rendered, sir0, tfmap_context_causal_100 | 33 min | cpu, whole-clip |
+| 2026-09-28 | `scripts/make_estimates.py` | 97 trials rendered, sir0 | 14 min | cpu, whole-clip |
 | 2026-09-28 | `scripts/measure_rtf.py` | --checkpoint models/model_sir0_cuecontext-wer-e21.pt --config experiments/configs/bsrnn_cue_context.yaml --chunk-ms 80 --threads 4 --device cpu --out experiments/results/2026-09-28-rtf-idle-e21-r3 | 2 min |  |
 | 2026-09-28 | `scripts/measure_rtf.py` | --checkpoint models/model_sir0_10000-e6.pt --config experiments/configs/bsrnn_baseline.yaml --chunk-ms 80 --threads 4 --device cpu --out experiments/results/2026-09-28-rtf-idle-baseline-r3 | 2 min |  |
 | 2026-09-28 | `scripts/measure_rtf.py` | --checkpoint models/model_sir0_cuecontext-wer-e21.pt --config experiments/configs/bsrnn_cue_context.yaml --chunk-ms 80 --threads 4 --device cpu --out experiments/results/2026-09-28-rtf-idle-e21-r2 | 2 min |  |

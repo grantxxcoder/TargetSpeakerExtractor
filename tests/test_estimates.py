@@ -80,6 +80,12 @@ def test_read_trials_condition_filter(split):
     assert [t.trial_id for t in trials] == ["t-003", "t-001", "t-002", "t-006"]
 
 
+def test_read_trials_accepts_a_comma_separated_condition_list(split):
+    manifest, audio_root, _ = split
+    trials = read_trials(manifest, audio_root, condition="noise_only, target_absent")
+    assert [t.trial_id for t in trials] == ["t-005", "t-004"]
+
+
 def test_read_trials_limit_applies_after_the_filter(split):
     manifest, audio_root, _ = split
     trials = read_trials(manifest, audio_root, condition="both", limit=2)
@@ -357,3 +363,13 @@ def test_the_ledger_is_removed_once_the_pass_completes(split, tmp_path):
     write_estimates(_passthrough, trials, out, SAMPLE_RATE, {"system": "test"})
     assert not (out / RESUME_LEDGER).exists()
     assert (out / "meta.yaml").exists()
+
+
+def test_the_public_test_split_can_be_rendered_but_never_trained_on():
+    """sir0pub exists so eval_public can be scored where nothing was selected.
+    Training on it would validate, and so select, on eval_public."""
+    from train import RENDER_ONLY_SPLITS, SPLIT_MANIFESTS, get_data_loaders
+    assert SPLIT_MANIFESTS["sir0pub"][1] == ("eval_public", "eval_public")
+    assert "sir0pub" in RENDER_ONLY_SPLITS
+    with pytest.raises(ValueError, match="rendering estimates only"):
+        get_data_loaders("sir0pub", None, None, None)

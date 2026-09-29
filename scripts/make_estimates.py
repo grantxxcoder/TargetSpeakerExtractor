@@ -115,7 +115,8 @@ def main():
     ap.add_argument("--manifest-dir", default="data/manifests")
     ap.add_argument("--data-root", default="data")   # audio lives under rendered/
     ap.add_argument("--condition", default=None,
-                    help="render only this condition, e.g. 'both'. Default: every "
+                    help="render only this condition, e.g. 'both', or a comma-separated "
+                         "list. Default: every "
                          "trial in the manifest, which is what earlier runs did. "
                          "Whatever you choose, choose the SAME for every system "
                          "being compared -- a system rendered on a different "

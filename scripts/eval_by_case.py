@@ -212,6 +212,12 @@ def score_absent_case(case, split, estimate_directory, listener, limit,
         if used_judge is not None:
             rows[system]["judge_calls"] = used_judge.calls_made
             rows[system]["judge_cache_hits"] = used_judge.cache_hits
+            # A failed clip is scored "", which here reads as a CORRECT zero.
+            # Record it, or failures pass for perfect silence (2026-09-28).
+            failures = getattr(used_judge, "failures", [])
+            rows[system]["judge_failed"] = len(failures)
+            rows[system]["judge_failures"] = [
+                {"clip": c, "error": e[:200]} for c, e in failures]
     return rows
 
 
@@ -316,6 +322,14 @@ def render(payload):
                 f"{_fmt((row.get('floor') or {}).get('lcf_wer')):>10}"
                 f"{_fmt((row.get('estimate') or {}).get('lcf_wer')):>10}"
                 f"{_fmt((row.get('ceiling') or {}).get('lcf_wer')):>10}")
+    failed = sum((sc.get("judge_failed") or 0)
+                 for block in payload["cases"].values() if isinstance(block, dict)
+                 for sc in (block.get("scores") or block).values()
+                 if isinstance(sc, dict))
+    if failed:
+        add("")
+        add(f"  WARNING: {failed} listener call(s) FAILED and were scored as empty.")
+        add("  On an absent case that reads as perfect silence. Do not report.")
     add("")
     add("  Anchors are per-case and NOT transferable between cases.")
     add("  Nothing here is comparable to a published REAL-TSE number.")

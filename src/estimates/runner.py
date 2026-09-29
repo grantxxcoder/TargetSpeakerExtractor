@@ -84,6 +84,9 @@ def git_commit() -> str:
 def read_trials(manifest_csv, audio_root, limit=None, condition=None) -> list[Trial]:
     """Trials in manifest order, optionally filtered by condition.
 
+    `condition` may be a comma-separated list ("target_only,noise_only"), so the
+    cases a directory is missing can be rendered without re-rendering the rest.
+
     Read with the stdlib csv module rather than pandas, both to stay
     venv-neutral and because nothing here needs a dataframe. Order and count
     match src.data.dataset_loader.TrialDataset, which does a bare read_csv and
@@ -101,11 +104,12 @@ def read_trials(manifest_csv, audio_root, limit=None, condition=None) -> list[Tr
         raise SystemExit(f"{manifest_csv} has no trial_id column; "
                          f"columns are {sorted(rows[0])}")
 
+    wanted = None if condition is None else {c.strip() for c in condition.split(",")}
     trials = [Trial(trial_id=str(r["trial_id"]),
                     directory=audio_root / str(r["trial_id"]),
                     condition=str(r.get("condition", "")))
               for r in rows
-              if condition is None or str(r.get("condition", "")) == condition]
+              if wanted is None or str(r.get("condition", "")) in wanted]
     if condition is not None and not trials:
         seen = sorted({str(r.get("condition", "")) for r in rows})
         raise SystemExit(f"no trials with condition={condition!r} in "

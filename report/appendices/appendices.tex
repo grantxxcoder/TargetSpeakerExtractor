@@ -78,12 +78,27 @@ speech signals arrive with different but consistent room responses.
 
 Every parameter below is drawn independently per trial from the stated distribution, except where a regime overrides it. Ranges written $[a, b]$ are sampled uniformly on that interval.
 
-\begin{table}[H]
-  \mytable
-  \begin{tabularx}{\textwidth}{@{}llL@{}}
+% xltabular, not table + tabularx: a float cannot break across pages, and this
+% table is taller than one. The header repeats on every page it spans.
+\begingroup
+  \small
+  \renewcommand{\arraystretch}{1.2}
+  \begin{xltabular}{\textwidth}{@{}llL@{}}
     \toprule
     Parameter & Distribution & Meaning \\
     \midrule
+    \endfirsthead
+    \toprule
+    Parameter & Distribution & Meaning \\
+    \midrule
+    \endhead
+    \midrule
+    \multicolumn{3}{r@{}}{\emph{Continued on the next page}} \\
+    \endfoot
+    \bottomrule
+    \caption{Construction parameters and their sampling distributions.}
+    \label{tab:params}
+    \endlastfoot
     \multicolumn{3}{@{}l}{\emph{Trial layout}} \\
     Mixture length        & $[15.0, 20.0]$ s   & Duration of the rendered trial \\
     Overlap ratio         & $[0.0, 0.7]$       & Fraction of target speech with the interferer also talking \\
@@ -127,9 +142,6 @@ Every parameter below is drawn independently per trial from the stated distribut
     \texttt{base} SNR     & $[8.0, 20.0]$ dB   & Regime override \\
     \texttt{base} activity & $[0.45, 0.78]$    & Regime override \\
     \texttt{base} $T_{60}$ & $[0.25, 0.5]$ s   & Regime override \\
-    \bottomrule
-  \end{tabularx}
-  \caption{Construction parameters and their sampling distributions.}
-  \label{tab:params}
-\end{table}
+  \end{xltabular}
+\endgroup
 

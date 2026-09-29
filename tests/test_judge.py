@@ -12,6 +12,7 @@ import pytest
 from pathlib import Path
 
 from src.live_model_metric.judge import (CACHE_FIELDS, Judge,
+                                         MissingCredentials,
                                          NewCallLimitReached, QuotaExhausted,
                                          _is_quota_error, cache_key,
                                          load_cache, load_once_index,
@@ -119,6 +120,19 @@ def test_cached_key_is_served_without_a_client(tmp_path):
     assert judge.judge(audio) == ("speech", "cached answer")
     assert judge.calls_made == 0
     assert judge.cache_hits == 1
+
+
+def test_missing_key_is_its_own_error(tmp_path, monkeypatch):
+    """2026-09-28: an unset key was scored as per-clip failures, i.e. empty
+    answers, which on a target-absent case read as perfect silence. It must be
+    a distinct error so the listening loop can abort on it."""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    audio = tmp_path / "t1" / "estimate.wav"
+    audio.parent.mkdir()
+    audio.write_bytes(b"x" * 16)
+    judge = Judge(model_id="m", cache_path=tmp_path / "judge.csv")
+    with pytest.raises(MissingCredentials):
+        judge.judge(audio)
 
 
 def test_allow_new_false_refuses_to_spend_a_call(tmp_path):

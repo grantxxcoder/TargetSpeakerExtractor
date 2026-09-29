@@ -226,3 +226,23 @@ def test_listen_with_the_gate_off_asks_about_everything(tmp_path, monkeypatch):
         True, False, None, False)
     assert responses == ["x"]
     assert decisions[0].reason == "gate-disabled"
+
+
+def test_listen_aborts_on_missing_credentials_instead_of_scoring_empty(tmp_path, monkeypatch):
+    """One bad clip is skipped; a missing key fails EVERY clip, so it must stop
+    the run. Scored as empty it passes for silence (2026-09-28)."""
+    import pytest
+    from src.live_model_metric import evaluate as ev
+    from src.live_model_metric import judge as judge_module
+
+    def no_key(self, path):
+        raise judge_module.MissingCredentials("GEMINI_API_KEY is not set")
+
+    monkeypatch.setattr(judge_module.Judge, "__call__", no_key)
+    p = tmp_path / "t1" / "estimate.wav"
+    p.parent.mkdir()
+    p.write_bytes(b"x")
+    with pytest.raises(judge_module.MissingCredentials):
+        ev._listen([p], ev.JUDGE, "sir0_val", "data/manifests", None,
+                   tmp_path / "c.csv", True, False,
+                   {"cache_path": tmp_path / "j.csv"}, False)

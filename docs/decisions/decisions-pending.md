@@ -4050,3 +4050,40 @@ papers before citing any of it.**
 Different data, different metric, different protocol. Nothing of ours is
 comparable to a published REAL-TSE number. The claim licensed here is
 "we independently reproduced their conclusion", never "we match their results".
+
+## 2026-09-29 — IDEA, not decided: smart glasses as the deployment to compare against
+
+Raised by Grant. **Not in scope** (CLAUDE.md: server-class compute assumed,
+on-device out of scope). Kept for the discussion/future-work section and as a
+comparison point for the introduction.
+
+### Meta "Conversation Focus" (Ray-Ban Meta / Oakley Meta HSTN, Dec 2025) vs ours
+
+| | Conversation Focus | Our system (e21) |
+|---|---|---|
+| Clue | direction: face the person, ≤ 6 ft | voice sample (enrolment) |
+| Listener | the wearer's ears (open-ear speakers) | a live AI model (Gemini) |
+| Delay need | near-zero: played alongside the direct sound | ~175 ms is fine for a live model |
+| Target absent | not documented | falls silent on 46 % of stranger-only clips (`eval_public`, 2026-09-29) |
+| Hardware | Snapdragon AR1 Gen 1; AI mostly on the paired phone | 7.28 M per chunk; ECAPA (20.8 M) only at enrolment, precomputable |
+| Evidence | product docs only; no published metric | LCF-WER / ICR / FR on constructed two-speaker trials |
+
+Sources: Meta newsroom 2025-12
+(about.fb.com/news/2025/12/updates-to-meta-ai-glasses-conversation-focus-spotify-integration/),
+Meta help (meta.com/help/ai-glasses/1660846264628288/), Qualcomm AR1 Gen 1 page.
+**Unverified:** AR1+ Gen 1 running Llama 3.2 1B on-glass (third-party blog;
+check Qualcomm's own announcement before citing).
+
+### What it would take to test, if ever taken up
+
+1. Precompute the enrolment spectrogram as well as the ECAPA embedding
+   (`bsrnn.py:195` re-runs `self.stft(enrollment)` every chunk today).
+2. Export 8-bit, time it on a phone CPU/NPU; the LSTMs may not map well to an
+   NPU (TF-MLPNet, Itani et al. 2025, replaced sequential RNNs for that reason).
+3. Measure compute (MACs) and power, which this project has never measured.
+
+### Wording limits
+
+- Never "runs on glasses". Nothing is measured on that hardware.
+- Conversation Focus is a product, not a benchmark: compare purpose and clue
+  type, never quality.
