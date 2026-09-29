@@ -414,6 +414,52 @@
   note         = {Accepted at EMNLP 2026}
 }
 
+% Invented text in recogniser output (lit review, sec:llms).
+% ~1 % of transcripts contained invented phrases; 38 % of those were harmful.
+@inproceedings{koenecke2024careless,
+  author    = {Koenecke, Allison and Choi, Anna Seo Gyeong and Mei, Katelyn X.
+               and Schellmann, Hilke and Sloane, Mona},
+  title     = {Careless {Whisper}: Speech-to-Text Hallucination Harms},
+  booktitle = {Proceedings of the 2024 {ACM} Conference on Fairness,
+               Accountability, and Transparency ({FAccT})},
+  pages     = {1672--1681},
+  year      = {2024},
+  publisher = {ACM},
+  doi       = {10.1145/3630106.3658996},
+  note      = {Also arXiv:2402.08021}
+}
+
+% A low WER can hide hallucinated text.
+@inproceedings{atwany2025lost,
+  author    = {Atwany, Hanin and Waheed, Abdul and Singh, Rita and Choudhury,
+               Monojit and Raj, Bhiksha},
+  title     = {Lost in Transcription, Found in Distribution Shift: Demystifying
+               Hallucination in Speech Foundation Models},
+  booktitle = {Findings of the Association for Computational Linguistics: ACL
+               2025},
+  pages     = {23181--23203},
+  year      = {2025},
+  publisher = {Association for Computational Linguistics},
+  doi       = {10.18653/v1/2025.findings-acl.1190},
+  note      = {Also arXiv:2502.12414}
+}
+
+% Technical report. MetricGAN+ denoising raised semantic WER for Whisper,
+% Parakeet, Gemini Flash 2.0 and Parrotlet in all 40 configurations. Noise only,
+% medical speech; the denoiser is itself tuned to a quality score.
+@techreport{chondhekar2025denoising,
+  author      = {Chondhekar, Sujal and Murukuri, Vasanth and Vasani, Rushabh and
+                 Goyal, Sanika and Badami, Rajshree and Rana, Anushree and
+                 SN, Sanjana and Pandia, Karthik and Katiyar, Sulabh and
+                 Jagadeesh, Neha and Gulati, Sankalp},
+  title       = {When De-noising Hurts: A Systematic Study of Speech Enhancement
+                 Effects on Modern Medical {ASR} Systems},
+  institution = {arXiv},
+  number      = {arXiv:2512.17562},
+  year        = {2025},
+  note        = {Technical report}
+}
+
 % ---------------------------------------------------------------------------
 % How extraction is evaluated (lit review, sec:evaluation).
 % Verified 2026-09-29; venue and pages from Crossref. Sources and findings:
@@ -484,6 +530,30 @@
   pages     = {216--220},
   year      = {2022},
   doi       = {10.21437/Interspeech.2022-11252}
+}
+
+% Artefacts, not residual noise, drive the WER damage from enhancement.
+@inproceedings{iwamoto2022bad,
+  author    = {Iwamoto, Kazuma and Ochiai, Tsubasa and Delcroix, Marc and
+               Ikeshita, Rintaro and Sato, Hiroshi and Araki, Shoko and
+               Katagiri, Shigeru},
+  title     = {How Bad Are Artifacts?: Analyzing the Impact of Speech
+               Enhancement Errors on {ASR}},
+  booktitle = {Proceedings of Interspeech},
+  pages     = {5418--5422},
+  year      = {2022},
+  doi       = {10.21437/Interspeech.2022-318}
+}
+
+% Preprint. Recogniser choice changes how well WER ranks enhancement systems
+% (rank agreement with human WER 0.43 for a weak recogniser, 1.00 for strong).
+@misc{deoliveira2026toogood,
+  author       = {de Oliveira, Danilo and Peer, Tal and Gerkmann, Timo},
+  title        = {Too Good to Be True: A Study on Modern Automatic Speech
+                  Recognition for the Evaluation of Speech Enhancement},
+  year         = {2026},
+  howpublished = {arXiv:2605.12107},
+  note         = {Preprint}
 }
 
 % ---------------------------------------------------------------------------
@@ -568,16 +638,23 @@
                {OVRL} is the score the {REAL-TSE} Challenge saw over-optimised}
 }
 
-% TODO: confirm the author list -- cited from the arXiv identifier recorded in
-% src/live_model_metric/speech_gate.py, which names the paper but not its authors.
-@misc{whisper_hallucination_2025,
-  title        = {Investigation of {Whisper} {ASR} Hallucinations Induced by
-                  Non-Speech Audio},
-  howpublished = {arXiv:2501.11378},
-  year         = {2025},
-  note         = {Evaluates {VAD} gating against confidence thresholding and
-                  pattern matching; finds both give meaningful reductions and
-                  that no single method eliminates the problem}
+% Authors and venue verified 2026-09-29 (arXiv API + Crossref). Whisper large-v3
+% emitted text on 40.3 % of 301,317 non-speech clips.
+@inproceedings{whisper_hallucination_2025,
+  author    = {Bara{\'n}ski, Mateusz and Jasi{\'n}ski, Jan and Bartolewska,
+               Julitta and Kacprzak, Stanis{\l}aw and Witkowski, Marcin and
+               Kowalczyk, Konrad},
+  title     = {Investigation of {Whisper} {ASR} Hallucinations Induced by
+               Non-Speech Audio},
+  booktitle = {Proceedings of the {IEEE} International Conference on Acoustics,
+               Speech and Signal Processing ({ICASSP})},
+  pages     = {1--5},
+  year      = {2025},
+  doi       = {10.1109/ICASSP49660.2025.10890105},
+  note      = {Evaluates {VAD} gating against confidence thresholding and
+               pattern matching; finds both give meaningful reductions and
+               that no single method eliminates the problem. Also
+               arXiv:2501.11378}
 }
 
 % ---------------------------------------------------------------------------
