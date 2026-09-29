@@ -1,337 +1,257 @@
 # TargetSpeakerExtractor
 
-Stellenbosch University Machine Learning and AI masters project focusing on
-live target speaker extraction modelling.
+Stellenbosch University Machine Learning and AI masters project: a **streaming
+target speaker extractor** built so that a live speech-to-speech model (Gemini)
+hears what the target speaker said, and not the other speaker.
 
-## What this project is
+It is optimised for how much of the target's *content* Gemini recovers, not for
+how good the audio sounds. The primary contribution is the metric for that
+(`docs/data/metric-definitions.md`) and the harness that computes it.
 
-A streaming target speaker extraction (TSE) model, optimised for how
-accurately a **live speech-to-speech model** recovers what the target speaker
-said — not for the signal or perceptual quality of the separated audio. The
-primary contribution is a defined, gaming-resistant metric for that
-(`docs/data/metric-definitions.md`) plus the harness that computes it.
+**Scope, on every claim:** *optimised for Gemini* (`gemini-3.7-flash`), on
+*two-speaker mixtures* (target + at most one other speaker + noise). Our numbers
+are **not comparable to published REAL-TSE results**: different data, metric and
+protocol.
 
-The extractor outputs **audio**. The live model also accepts text, and that
-path is measured as a benchmark reference condition, but it is not the build
-target — see `docs/decisions/decisions-m0.md`.
+Start with `docs/decisions/specification.md` (the brief), then
+`docs/decisions/milestones.md`.
 
-Start with `docs/decisions/specification.md` (the brief), then `docs/decisions/research-plan.md`.
+## Where it stands — 2026-09-29
 
-## Where it stands
+Milestone 5. Experiment freeze 2026-10-14, submission 2026-11-05. The thesis is
+in `report/` (`report/report.pdf`).
 
-**The data exists. The model does not.** As of 2026-08-17 all 21,208 trials are
-rendered to disk — 63,624 files, 27 GB, 105.4 h of audio, 0 render failures — and
-40 sampled trials have been checked by ear.
+**In plain words.** With no processing, Gemini gets 63 % of the target's words
+wrong on overlapping two-speaker clips. After our best streaming model it gets
+40 % wrong. That closes **37 %** of the gap to hearing the target alone (1 %).
+The model runs in real time on a laptop CPU. An off-the-shelf model (WeSep)
+does better, at 26 %, but it cannot stream: it needs the whole clip and runs
+2.9× slower than real time.
 
-`src/models/`, `src/eval/` and `src/live_model_metric/` are still empty
-directories. Neither the extractor nor the metric that is the primary
-contribution has been implemented; those are two separate build efforts and
-neither has begun.
+**Words Gemini got wrong** (LCF-WER). Lower is better. `sir0_val`, clips where
+both people speak, n = 103, 3 judge runs each.
 
-Outstanding on M0: floor and ceiling WER calibration (the blocker, and what C2
-needs), the per-parameter EDA, and revising the exploratory notebook. Full status,
-including the per-decision detail: `docs/reports/m0-status.html`; the checklist
-itself is `docs/decisions/milestones.md`.
+| system | words wrong (%) | ± SD (pts) | other speaker's words let through (%) | invented words per clip | can stream? |
+|---|---|---|---|---|---|
+| No processing | 62.94 | 0.37 | 63.90 | 1.27 | — |
+| Baseline | 55.18 | 3.22 | 48.62 | 1.91 | yes |
+| **Extension (our best)** | **39.59** | 0.34 | 23.08 | 2.20 | **yes** |
+| WeSep (borrowed, reference) | 25.80 | 0.56 | 13.04 | 1.80 | **no** |
+| Target alone (perfect) | 1.19 | 0.18 | 0.00 | 0.22 | — |
 
-## External dependencies
+One row: "after the extension, Gemini got 39.59 % of the target's words wrong,
+averaged over 3 runs; the 3 run scores differ by an SD of 0.34 points."
+± is the SD of the 3 whole-run scores. Judge `gemini-3.7-flash`, audio in /
+text out, prompt `src/live_model_metric/judge_prompt.txt` (sha256[:12]
+`d118b7d3bf30`), runs 2026-09-25 to 2026-09-27 (`decisions-m4.md` 2026-09-27).
 
-Corpora are downloaded, not vendored. Each row below is pinned as it is actually
-brought in; the unpinned rows are the intended set, not choices already made.
+**Read these three caveats with the table:**
 
-| Purpose | Source | Status |
+- **The extension invents more words than doing nothing.** 2.20 invented words
+  per clip against 1.27. Part of the gain comes from cutting hard, and Gemini
+  hears some of the cuts as words. Clips with 2+ invented words: 46.9 % against
+  30.7 %. A paired test puts that gap outside the noise (`decisions-m4.md`
+  2026-09-27).
+- **39.59 % is optimistic.** The extension's epoch was picked on these same 103
+  clips. The first selection-free result is on `eval_public`, clips where only
+  the other speaker talks (n = 123). There the extension lets through 57 % of
+  the stranger's words, against WeSep's 70 % and the baseline's 92 %. The gap
+  to WeSep is outside the noise. But the extension is **all-or-nothing**: it
+  goes fully silent on 56 of 123 clips, and on the rest Gemini hears nearly
+  everything the other speaker said (`decisions-m4.md` 2026-09-29).
+- **The extension is three changes at once.** They cannot be separated: a
+  richer voice cue, a frozen speaker encoder, and picking checkpoints by word
+  error rate plus longer training (`decisions-m2.md` 2026-09-27).
+
+**Speed** (`decisions-m3.md` 2026-09-28, idle re-run). Both our models process
+80 ms of audio in about 55 ms (real-time factor 0.68–0.69; below 1 keeps up).
+Mean delay is 175 ms, inside the 200–300 ms budget. Each figure is the median
+of 3 runs on an i5-1135G7, 4 threads. The two models cannot be told apart on
+speed.
+
+### The systems
+
+| name in the report | checkpoint (`models/`, gitignored) | what it is |
 |---|---|---|
-| Constructed trial + training data | LibriSpeech, WHAM! noise, RIRs simulated with `pyroomacoustics` (WHAMR!-style, not WHAMR!'s files) | **built — 21,208 trials, 27 GB** |
-| Real-audio transfer set | AMI corpus (CC BY 4.0, direct download) | not yet built |
-| Voice-activity detection | Silero VAD (MIT), `silero-vad` 6.2.1 from PyPI | **pinned, in use** |
-| Conventional metrics | SI-SDR, DNSMOS-P808, an offline ASR for WER | not yet pinned |
-| Judge (primary) | a closed live speech-to-speech API — exact model ID pinned per run | not yet chosen |
-| Judge (reproducibility anchor) | an open-weight speech-to-speech model | not yet chosen |
-| Front-end ASR, text reference condition | an off-the-shelf streaming ASR | not yet chosen |
+| Baseline | `model_sir0_10000-e6.pt` | Causal band-split RNN (Luo & Yu 2023) with a spectral voice cue from the enrolment (TF-Map, Zhang et al. 2025). 7.19 M parameters, 9,955 training trials, epoch 6 of 16 |
+| Extension | `model_sir0_cuecontext-wer-e21.pt` | Baseline + the cue split into parts (item 1a) + a frozen ECAPA speaker embedding (Desplanques et al. 2020) fused into the separator (item 1c). 7.28 M trainable. ECAPA runs once before the stream, so it adds no per-chunk cost. Config `experiments/configs/bsrnn_cue_context.yaml` |
+| WeSep | `../wesep_pretrained/tfmap_context_causal_100` | Borrowed pretrained model (Wang et al. 2024). An outside reference only. Not causal, so it cannot run live |
 
-The REAL-TSE Challenge is cited as the anchor benchmark for real
-conversational TSE, and we borrow its data-construction methods and its
-lessons about metric gaming — but we replicate neither its baselines nor its
-eval pipeline, so our numbers are never comparable to published REAL-TSE
-results. See `docs/decisions/decisions-m0.md`.
+`models/README.md` says why each checkpoint is kept. The selection of e21 is
+recorded in `decisions-m2.md` 2026-09-26.
 
-## The data pipeline, file by file
+## Repo map
 
-Run in this order. Each step caches its output, so re-running is cheap.
+| path | what it holds |
+|---|---|
+| `src/data/` | Trial sampling, voice-activity detection, rendering, per-frame speaker-state labels |
+| `src/models/` | The extractor (`bsrnn.py`), voice cue (`conditioning.py`), speaker encoder (`context_encoder.py`), losses, stateful streaming (`streaming.py`) |
+| `src/live_model_metric/` | **The metric.** Words wrong, other-speaker leakage (ICR), invented words (FR), the Gemini judge, speech gate, SDR/SIR/SAR, DNSMOS |
+| `src/estimates/` | The shared runner that writes `estimate.wav` for any system, ours or WeSep |
+| `src/demo/` | The live demo: server, mixer, web page |
+| `scripts/` | Every runnable step. The main ones are listed below |
+| `experiments/configs/` | Every YAML config. No hyperparameter lives in source |
+| `experiments/results/` | One directory per run. Mostly gitignored, so **the decision logs are the tracked record** |
+| `docs/decisions/` | Spec, milestones, one decision log per milestone (`decisions-m0.md` … `-m4.md`), `decisions-pending.md` |
+| `docs/data/` | Data construction, metric definitions, glossary |
+| `docs/run_times.md` | Measured wall time of every job over a minute. Check it before planning a run |
+| `docs/weak-points-register.md` | The standing audit. Read it before reopening evaluation or the objective |
+| `report/`, `presentations/` | Thesis LaTeX and slides |
+| `tests/` | pytest suite: 515 tests, 11 min on the laptop (2026-09-21) |
 
-| # | Command | Reads | Writes | Cost |
-|---|---|---|---|---|
-| 1 | `scripts/make_splits.py` | LibriSpeech `SPEAKERS.TXT` | `experiments/configs/splits.yaml` | seconds |
-| 2 | `scripts/build_vad_index.py` | LibriSpeech audio | `data/index/vad_segments.csv` | **~2.2 h, once** |
-| 3 | `scripts/screen_noise_speech.py` | WHAM! noise | `data/index/noise_speech_{tr,cv,tt}.csv` | ~25 min, once |
-| 4 | `scripts/build_manifest.py --split X` | the indexes above | `data/manifests/X.csv` | ~1 min per split |
-| 5 | `scripts/render_trials.py --split X` | manifest + corpora | `data/rendered/X/` | **3.2 h for all six splits** |
+## Setup
 
-Step 4 requests a trial count and may deliver fewer: a draw whose constraints
-cannot be satisfied is dropped after 20 attempts. `train` is **19,938 of the
-20,000 requested**, and the 62 shortfalls are named in `data/manifests/train.failed.txt`.
-That file records *manifest* failures, not render failures — every rendered split
-reports `n_failed: 0`.
-
-Step 5 writes one directory per trial, holding three stems and the render record:
-
-```
-data/rendered/X/<trial_id>/
-    mixture.wav      what the model hears
-    target.wav       the reference: the target through its own room, alone (A1)
-    enrollment.wav   who to listen for -- dry, no room (A4)
-    meta.json        gains, clip guard, RIR lengths, both transcripts
-data/rendered/X/render.meta.yaml            the split's render record
-```
-
-`meta.json` records what the renderer *did*; the manifest row records what was
-*asked for* (SIR, SNR, room, positions, overlap, condition, regime). Per-condition
-analysis needs both, joined on `trial_id`.
-
-Each stage is a **separate script** on purpose: they have wildly different costs
-(seconds, hours, minutes, minutes, hours) and different failure modes, and you
-re-run them at different times. Nothing is chained automatically.
-
-`data/` is not in git (`.gitignore:/data/`), so every generated file carries a
-`.meta.yaml` sidecar recording the config, its md5, the git commit, the seed and
-the date. **Those sidecars are the only travelling record of how the data was
-made** — when reproducing a result, check them first.
-
-### Which stage invalidates which
-
-Each stage depends on the one above it. **Changing a stage invalidates everything
-below it**, and nothing warns you automatically — the sidecars are what let you
-check.
-
-```
-splits.yaml            change it -> rebuild the VAD index (new speakers), manifests, audio
-   |
-vad_segments.csv       change the vad: config -> rebuild every manifest, re-render all audio
-   |
-manifests/X.csv        rebuild it -> RE-RENDER THAT SPLIT'S AUDIO. Always.
-   |
-rendered/X/            the training and eval data
-```
-
-**A manifest rebuild always means re-rendering that split's audio.** The manifest
-decides who speaks, when, how loud and in what room; the audio is that decision
-made real. Rebuild one without the other and your audio no longer matches its own
-labels, and *every downstream number is quietly wrong* — nothing crashes.
-
-This is why the render step goes **last, and only once the manifests are settled**.
-Rendering 21,208 trials is a multi-hour job; doing it before a known-pending
-rebuild throws that time away. B2's rebuild was one such, and it will not be the
-last.
-
-Held to in practice: the render ran on 2026-08-16/17, *after* B2's rebuild, and
-took **3.2 h** — against ~83 min projected from a 100-trial sample, so treat that
-sample as too small to extrapolate from rather than as a measurement. The cost of
-getting the ordering wrong is now concrete: any change that invalidates the
-manifests buys a 3.2 h re-render and 27 GB rewritten.
-
-**How to tell if your audio is stale.** The renderer copies its source manifest's
-identity into its own sidecar precisely so this is checkable rather than assumed.
-Note the field names differ across the two files — the rendered side prefixes them
-`manifest_`, because it also records its *own* config and commit:
-
-| Rendered: `data/rendered/X/render.meta.yaml` | must equal | Manifest: `data/manifests/X.meta.yaml` |
-|---|---|---|
-| `manifest_config_md5` | = | `config_md5` |
-| `manifest_git_commit` | = | `git_commit` |
-
-If they differ, the audio was rendered from a different manifest than the one now
-on disk, and every downstream number is quietly wrong. All six splits:
+Virtualenvs and model snapshots sit **beside** the repo, not inside it.
 
 ```bash
-for s in train val eval_public eval_private smoke_train smoke_val; do
+python3 -m venv ../tse_venv
+../tse_venv/bin/pip install -r requirements.txt
+# judge and demo; installed, not yet pinned in requirements.txt
+../tse_venv/bin/pip install google-genai==2.21.0 python-dotenv==1.2.3
+```
+
+| sibling path | needed for |
+|---|---|
+| `../tse_venv/` | everything |
+| `../ecapa_pretrained/` | the extension. SpeechBrain ECAPA VoxCeleb snapshot, hashes recorded per run |
+| `../wesep_venv/`, `../wesep_pretrained/` | WeSep estimates only. WeSep needs torch 2.7.1 / numpy 1.26.4, so it cannot share our venv |
+
+Put `GEMINI_API_KEY` in `.env` (gitignored). A judge run aborts if it is
+missing, instead of scoring silence.
+
+Versions are pinned exactly because some of them *define* the data. The VAD
+weights decide what "overlap" means, and `pyroomacoustics`/`pyloudnorm` decide
+what the audio is.
+
+## Running it
+
+All commands run from the repo root with `../tse_venv/bin/python`. Times are
+measured (`docs/run_times.md`), on the laptop unless stated.
+
+### 1. Data
+
+Each step caches its output. Nothing is chained automatically.
+
+| # | command | writes | measured |
+|---|---|---|---|
+| 1 | `scripts/make_splits.py` | `experiments/configs/splits.yaml` | seconds |
+| 2 | `scripts/build_vad_index.py` | `data/index/vad_segments.csv` | 2.2 h, once |
+| 3 | `scripts/screen_noise_speech.py` | `data/index/noise_speech_{tr,cv,tt}.csv` | 25 min, once |
+| 4 | `scripts/build_manifest.py --split X` | `data/manifests/X.csv` | ~1 min per split |
+| 5 | `scripts/render_trials.py --split X` | `data/rendered/X/<trial_id>/` | 1.1 h for 4,979 `sir0_train` trials |
+
+Each trial directory holds `mixture.wav` (what the model hears), `target.wav`
+(the target alone, in its room), `enrollment.wav` (a dry sample of the target's
+voice) and `meta.json`. The models are trained and scored on the `sir0_*` splits,
+where both voices are equally loud on average.
+
+**Rebuilding a manifest means re-rendering that split's audio. Always.**
+Otherwise the audio no longer matches its labels and every number downstream is
+quietly wrong. `data/` is not in git, so the `.meta.yaml` sidecar beside each
+file is the only record of how it was made. Check for stale audio:
+
+```bash
+for s in $(ls data/rendered); do
   m=$(awk '/^config_md5:/{print $2}' "data/manifests/$s.meta.yaml")
   r=$(awk '/^manifest_config_md5:/{print $2}' "data/rendered/$s/render.meta.yaml")
   [ "$m" = "$r" ] && echo "$s  ok" || echo "$s  STALE  manifest=$m rendered=$r"
 done
 ```
 
-Also worth checking in the same sidecar: `partial: true` means the render was
-interrupted, and `n_skipped` counts trials already on disk that were left
-untouched — a resumed run reports `n_rendered: 0` with everything skipped, which
-is success, not a no-op failure.
+Recipes for changing the data: `docs/data/changing-the-data.md`.
 
-### What each source file is for
+### 2. Train (Kaggle GPU)
 
-| File | What it does |
-|---|---|
-| `src/data/sampling.py` | Every random draw for a trial: the two difficulty regimes, the distribution shapes, which parameters a regime may narrow (B12) |
-| `src/data/vad.py` | Where speech actually is inside a recording, and the interval arithmetic built on that — overlap, activity, interruption (B2) |
-| `src/data/render.py` | One manifest row to three stems: room simulation, the level chain (A3), the clip guard (A6), the enrollment EQ. Pure — no disk writes, no RNG beyond the trial-seeded EQ |
-| `scripts/make_splits.py` | Speaker-disjoint train/val/eval splits, stratified by sex and enrollment-guard tier (B10) |
-| `scripts/build_vad_index.py` | One cached pass of the detector over all 137,876 indexed utterances |
-| `scripts/build_manifest.py` | One row per trial: who speaks, when, how loud, in what room. Reads file headers only, never audio |
-| `scripts/render_trials.py` | Drives `render.py` across a split in parallel. Resumable, writes atomically via a temp dir, and `--trials <ids>` renders named cases for listening |
-| `scripts/check_manifest_parity.py` | Proves a refactor changed no draw, by rebuilding and diffing against the previous manifest |
-| `scripts/screen_noise_speech.py` | Detects speech hiding in the WHAM! noise beds and measures what rejecting it would cost. Measures only — the rule is chosen from its report |
-| `scripts/measure_vad_impact.py` | The measurement behind the B2 decision — re-runnable, writes to `experiments/results/` |
-| `src/run_log.py` | Appends each slow job's wall time to `docs/run_times.md` |
-
-### Why there is a voice-activity pass at all
-
-A LibriSpeech utterance is someone reading a sentence, and the file is trimmed
-loosely around them: **86 % of a file is speech**, with a near-constant 0.331 s of
-silence before the first word and 0.129 s after the last.
-
-The generator used to treat each file as speech end to end, because the duration
-was all it had. That overstated overlap by **~25 %**, and by a different amount in
-every trial (mean 0.071, max 0.274) — so it could not be corrected with a
-multiplier, and it sorted trials into the wrong overlap buckets. Those buckets are
-the per-condition results table (B13), which is the thesis's central artefact.
-
-Step 2 fixes the measurement. **It does not change the audio** — mixtures still
-contain the pauses, because that is what speech sounds like. Full evidence,
-including the settings sweep that chose 250 ms, is in
-`experiments/results/2026-08-15-vad-impact/` and `docs/decisions/decisions-m0.md`
-(2026-08-15).
-
-### Running any of it
-
-The environment is a virtualenv beside the repo, not inside it:
+The laptop has no usable GPU, and 15.7 GB RAM is not enough for a full run. Train on Kaggle:
 
 ```bash
-python3 -m venv ../tse_venv
-../tse_venv/bin/pip install -r requirements.txt
+scripts/make_kaggle_bundle.py --split sir0 --code-only   # code zip; drop --code-only to rebuild the data zip
+scripts/make_kaggle_notebook.py                          # writes notebooks/kaggle_train_mid.ipynb
+scripts/preflight_kaggle.py                              # which config the uploaded bundle will ACTUALLY train
+```
 
-../tse_venv/bin/python scripts/build_vad_index.py
+What the notebook runs:
+
+```bash
+scripts/train.py --split sir0 --config experiments/configs/bsrnn_cue_context.yaml
+```
+
+The extension took two 14-epoch sessions of 11.2 h each on a Tesla T4. All
+hyperparameters come from the config. `--resume` continues a run, and refuses
+if the config changed. `train.py` refuses to point its in-loop word-error probe,
+which picks checkpoints, at `sir0_privval` or `eval_private`.
+
+### 3. Evaluate
+
+```bash
+# one checkpoint -> estimate.wav per trial (14 min for 123 trials)
+scripts/make_estimates.py --split sir0 --condition both \
+    --checkpoint models/model_sir0_cuecontext-wer-e21.pt \
+    --config experiments/configs/bsrnn_cue_context.yaml --out experiments/results/<date>-est-<tag>
+
+# score it: Gemini judge (primary), then the offline ASR used in the report
+scripts/evaluate.py --split sir0_val --est <est dir> --metrics content --listener judge
+scripts/evaluate.py --config experiments/configs/eval_offline_asr_turbo.yaml --split sir0_val --est <est dir>
+
+# every trial case separately (both / target only / other speaker only / noise only)
+scripts/eval_by_case.py --est <est dir> --split sir0_val --listener judge
+
+# the whole battery in the right order; --dry-run first
+scripts/run_eval_suite.py --tag e21 --checkpoint models/model_sir0_cuecontext-wer-e21.pt \
+    --config experiments/configs/bsrnn_cue_context.yaml --dry-run
+
+# speed: 80 ms chunks, CPU
+scripts/measure_rtf.py --checkpoint models/model_sir0_cuecontext-wer-e21.pt \
+    --config experiments/configs/bsrnn_cue_context.yaml --chunk-ms 80 --threads 4 --device cpu
+```
+
+WeSep estimates: run `scripts/make_estimates_wesep.py` under `../wesep_venv`.
+For listening to one trial, use `scripts/pass_a_test_case_through.py`.
+
+**Rules the results depend on:**
+
+- Every judge result records model ID, exact prompt, modality and date.
+  Training-time Gemini calls do the same.
+- `sir0_privval` and `eval_private` are never scored, filtered or selected on
+  during training. `eval_public` has now been looked at, so nothing may be tuned
+  on it.
+- The report's offline ASR is `faster-whisper large-v3-turbo`. The in-loop probe
+  and the `evaluate.py` default are `small.en`. Never compare numbers from the
+  two.
+
+### 4. Live demo
+
+```bash
+scripts/demo_live.py        # then open the printed URL (127.0.0.1:8765)
+```
+
+You record or upload a target voice, an enrolment and optionally another
+speaker. The demo builds a mixture the way trials are built and streams it
+through the extractor 80 ms at a time. It then sends the mixture, the extracted
+audio and the clean target to Gemini with the benchmark prompt. Settings are in
+`experiments/configs/demo_live.yaml`; the checkpoint is set there (currently
+`cuecontext-wer-e13`). Each run is logged to `experiments/results/demo-live/`.
+
+### Tests
+
+```bash
 ../tse_venv/bin/python -m pytest tests/ -q
-
-# render: --limit N to time it first, --trials <ids> for single cases to listen to
-../tse_venv/bin/python scripts/render_trials.py --split smoke_val
-../tse_venv/bin/python scripts/render_trials.py --split train --workers 8
 ```
 
-### Training
+## External dependencies
 
-Run from the repo root. `epochs`, `patience`, `lr` and the loss weights all come
-from the config — no training hyperparameter is a command-line flag.
+| purpose | source |
+|---|---|
+| Speech | LibriSpeech |
+| Noise | WHAM! noise, screened for hidden speech |
+| Rooms | Simulated with `pyroomacoustics` (WHAMR!-style, not WHAMR!'s files) |
+| Voice activity | Silero VAD 6.2.1 |
+| Speaker encoder | SpeechBrain ECAPA-TDNN, VoxCeleb, frozen |
+| Judge | `gemini-3.7-flash`, audio in / text out |
+| Offline ASR | `faster-whisper` 1.2.1: `large-v3-turbo` (report), `small.en` (training loop) |
+| Perceptual quality | DNSMOS, ONNX snapshot in `src/live_model_metric/dnsmos_onnx/` |
+| External reference model | WeSep `tfmap_context_causal_100` |
 
-```bash
-# smoke first: 50 train / 20 val trials, proves the wiring before the real run
-../tse_venv/bin/python scripts/train.py --split smoke --epochs 5
-
-# the real run
-../tse_venv/bin/python scripts/train.py --split full
-
-# continue a stopped run; refuses if the checkpoint's config differs
-../tse_venv/bin/python scripts/train.py --split full --resume
-```
-
-Writes three things: `models/model_<split>.pt` (best validation epoch only, with
-the optimiser and scheduler state so `--resume` continues rather than restarts),
-a wall-time row in `docs/run_times.md`, and
-`experiments/results/<date>-train-<split>/{meta.yaml,history.csv}`.
-
-**Not on this laptop for `--split full`.** 15.7 GB RAM with VSCode open is not
-enough — `systemd-oomd` killed the editor and a terminal on 2026-08-24, before
-training had even been started. Close VSCode, or use server-class compute
-(`docs/decisions/specification.md`). `requirements.txt` pins a CPU torch and
-`docs/run_times.md` records no usable GPU here. The measured rows are all CPU
-and smoke-sized — best figure 277 s/epoch at batch 3 over 50 trials, from the
-30-epoch run (2.3 h); the 243 s/epoch row is a single epoch and includes
-startup. Wiring timings, not a basis for projecting the full split.
-
-**Judging the first curve.** The do-nothing anchor — emitting the mixture
-unchanged — scores `total = -2.24` at the config's `w` and `w_m`
-(`experiments/results/2026-08-20-loss-anchor/`). A model that settles above that
-is losing to a passthrough, which is a wiring or learning-rate problem, not a
-slow start.
-
-### Listening to one example
-
-What the model actually did to a single validation trial. A listening check, not
-a measurement — interpretability metrics are a later, separate script.
-
-```bash
-# first val trial, against models/model_smoke.pt
-../tse_venv/bin/python scripts/pass_a_test_case_through.py --split smoke --index 0
-
-# a named trial, and a checkpoint that is not the default
-../tse_venv/bin/python scripts/pass_a_test_case_through.py --split smoke \
-    --trial-id smoke_val-42-000013 --checkpoint models/model_full.pt
-```
-
-`--index` and `--trial-id` are mutually exclusive; the checkpoint defaults to
-`models/model_<split>.pt` and is required — an untrained forward pass tells you
-nothing. Writes one directory per trial under
-`experiments/results/<date>-passthrough-<split>/<trial_id>/`, holding **two files**:
-
-```
-estimate.wav     what came out — the whole clip, the only signal that exists nowhere else
-meta.yaml        which trial, which 4 s window the loss covers, checkpoint epoch,
-                 the trial's SIR/SNR/overlap/regime, peak and RMS dBFS, both loss dicts
-```
-
-**No chunking and no stitching.** Rendered clips are 15.7–20.4 s; the estimate is
-the whole one, from a single forward pass. The model is causal
-(`causal: true`, `lookahead_frames: 0`), so appending later audio cannot change
-earlier output — which makes one full-length pass exactly what streaming emits.
-Measured on `smoke_val-42-000000`:
-
-| | max abs diff | |
-|---|---|---|
-| full 17.7 s pass vs a 4 s pass, both from sample 0 | `1.68e-08` | causality holds |
-| 4 independent 4 s chunks concatenated vs one full pass | `4.37e-03`, rel L2 `1.04e-02` | one seam artefact per join |
-
-Stitching is not merely unnecessary but harmful: each seam reinjects the
-incomplete-overlap-add tail, the last `n_fft - hop` = 384 samples (23.4 ms).
-`--crop-only` writes just the 4 s crop if you want the smaller file.
-
-**Causal is not context-free**, and this is the trap. A crop taken from mid-clip
-starts the LSTM and cLN state *cold*; the same window inside a full pass has state
-warmed by everything before it. For the crop at sample 19611 (1.23 s in) those
-differ by `5.60e-03` max, rel L2 `3.06e-01` — 14 % of the estimate's peak. So the
-audio written here is the **warm-state** version, i.e. what deployment produces,
-*not* the cold-start crop the trainer saw. The loss is still reported on the
-cold-start crop, because that is the only number comparable to `history.csv`;
-over the same window the two score `-2.4197` (cold) against `-2.4150` (warm), so
-quoting one beside the other is safe by measurement rather than by the causality
-argument.
-
-**The mixture, target and enrollment are deliberately not copied.** They are
-already in `data/rendered/<split>/<trial_id>/`, so copying them would add
-812 KiB per inspected trial against a 27 GB dataset and go stale the moment a
-manifest is rebuilt. The meta records `source_dir` and `crop_window_s` instead —
-listen to the stems in place, at the window the estimate corresponds to:
-
-```
-source_dir: data/rendered/smoke_val/smoke_val-42-000000
-crop_window_s: [1.226, 5.226]
-```
-
-`estimate.wav` is **float32 and unnormalised**, 256 KiB for a 4 s crop.
-Normalising would hide the gain error `L_MR` exists to catch, since `L_pres` is
-scale-invariant and cannot see it; `PCM_16` would clip an estimate above 1.0 and
-make a gain bug sound like a model artefact. The peak is reported instead,
-flagged `<-- CLIPS` past 1.0.
-
-The terminal prints the loss terms beside the **pass-through anchor for that same
-crop**, because a single crop's loss alone does not say whether the model did
-anything:
-
-```
-  crop branch : PRESENT
-  term             model    pass-through     delta
-  L_pres         -6.3977         -6.9036   +0.5058
-  L_MR            0.2010          0.1947   +0.0063
-  L_abs             n/a             n/a        n/a
-  total          -2.4197         -2.7266   +0.3069
-
-  WORSE than emitting the mixture unchanged, by 0.3069
-```
-
-Two traps in reading that. **The single-crop `total` is not comparable to
-`val_total` in `history.csv`**: the objective is
-`(1-w)*mean_present[...] + w*mean_absent[...]`, and one crop is either present or
-absent, so the other half contributes 0 instead of its mean — hence the `n/a`
-row. And **this anchor is for this crop only**, not the 300-crop median of
-`-2.24` above; a single crop's anchor moves by many dB with SIR and target
-activity.
-
-Versions in `requirements.txt` are pinned exactly, because several of them
-define the data rather than merely produce it — the VAD weights decide what
-"overlap" means, and `pyroomacoustics` and `pyloudnorm` decide what the rendered
-audio is. A silent minor bump would move results without appearing in any diff.
+The REAL-TSE Challenge is the anchor benchmark for real conversational TSE. We
+borrow its data-construction methods and its lessons about metric gaming. We
+replicate neither its baselines nor its eval pipeline.
