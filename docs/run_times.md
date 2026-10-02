@@ -28,6 +28,7 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | 2026-09-23 | `content_probe.score()` end-to-end smoke, 3 clips | 3 clips, sir0_val, untrained 1c model, cpu extraction + faster-whisper small.en int8 cpu | 3.1 min | ~16 s/clip extraction on cpu, ~4 s/clip ASR, plus ~1 min of model loading. The Kaggle figure differs: extraction moves to the T4, so the ASR sets the per-epoch cost at ~4 s/clip. Added by hand. |
 | 2026-09-21 | `pytest tests/ -q` | 515 tests | 11 min | full suite after adding eval_by_case.py. Added by hand: pytest does not use run_log.timed |
 <!-- rows appended below by src/run_log.py -->
+| 2026-09-30 | `experiments/results/2026-09-30-bootstrap-holes-trade/bootstrap_holes.py` | 2 systems x 3 arms x 2 listeners x 103 clips rebuilt from caches (no API calls), 10,000 paired draws | 5.0 min | cpu; includes VAD load for the speech gate. Added by hand: not a `run_log.py` script |
 | 2026-09-29 | `scripts/eval_by_case.py --split eval_public --cases interferer_only --listener judge` | 1 cases, eval_public, listener judge | 14 min |  |
 | 2026-09-29 | `scripts/eval_by_case.py --split eval_public --cases interferer_only --listener judge` | 1 cases, eval_public, listener judge | 8 min |  |
 | 2026-09-29 | `scripts/eval_by_case.py --split eval_public --cases interferer_only --listener judge` | 1 cases, eval_public, listener judge | 26 min |  |

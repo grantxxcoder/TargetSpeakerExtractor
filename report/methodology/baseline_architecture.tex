@@ -163,20 +163,18 @@ M_t = \sum_{j=1}^{T_e} H_{t,j}\, \tilde{e}_j,
 following \cite{zhang2025multi}. The softmax runs along the enrollment index $j$, so each row of $H$ sums to one and describes how to blend the enrollment frames for one instant of the mixture. $M_t$ is a guessed spectrum: for each mixture frame, a weighted average of all the enrollment frames, with the weights given by $H$. It is a rough estimate of the shape of the target speaker's spectrum at that instant.
 
 $M_t$ describes only that shape. It is built entirely from enrollment frames but on its own it says nothing about whether the target is speaking. Note also that the mixture's magnitude has not been used at any point so far: \eqref{eq:tfmap-unit} removed it before the comparison in \eqref{eq:tfmap-cos} was made. The final step is to address the energy component. The estimate is scaled to unit length and the mixture's spectrum is projected onto it which measures how much of the mixture's actual energy lies in the pattern the enrollment predicted:
-\begin{equation}
-f_t = \big\langle\, |X_t|,\ u_t \,\big\rangle\, u_t,
-\qquad
-u_t = \frac{M_t}{\lVert M_t \rVert},
-\label{eq:tfmap-energy}
-\end{equation}
-The feature therefore points in the direction the enrollment predicts and has the magnitude of however much of the mixture actually lies in that direction. Where the mixture at that instant looks like the target, it is large otherwise small. It is this that the model learns to use to identify which parts of the mixture belong to the target speaker.
+  \begin{equation}
+  u_t = \frac{M_t}{\lVert M_t \rVert},
+  \qquad
+  m_t = \big\langle\, |X_t|,\ u_t \,\big\rangle,
+  \qquad
+  f_t = m_t\, u_t .
+  \label{eq:tfmap-energy}
+  \end{equation}
+Where $m_t$ is the scalar projection of the mixture frame onto the template of the target speaker and describes with a single number per frame how much of the frame's energy lies in the direction of the enrollment. $f_t$ is the final feature, which is the template scaled by that projection. 
 
 \paragraph{Where it enters and what it costs.}
 The result is a quantity of the same shape as the spectrogram itself, one value per frequency bin per frame. It is therefore attached as a third input channel alongside the real and imaginary parts, before the band split, so that it is divided into bands and projected by the same machinery as the rest of the input. Nothing else in the architecture changes. Because the extra channel only widens the input of the per-band projections, the entire conditioning path costs roughly \num{33000} parameters, under half a percent of the model, and it adds no learned parameters of its own at all: \eqref{eq:tfmap-unit} through \eqref{eq:tfmap-energy} contain nothing to train.
-
-
-
-
 
 
 \subsection{Objective function} [TODO UPDATE WITH NEW LOSS FUNCTION]

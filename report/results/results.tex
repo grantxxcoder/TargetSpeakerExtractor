@@ -67,7 +67,10 @@ Ceiling   & 1.19  & 1.46 & ---   & --- \\
 \end{tabular}
 \end{table}
 
-On a larger set ($n = 123$), the extension passed 57\,\% of the other speaker's words to Gemini against WeSep's 70\,\% (a difference of $-3.6$ words per trial), and fell fully silent on 56 clips against WeSep's 11.
+
+
+
+Table \ref{tab:content_cases} highlights where the extension shines. For the cases where the extractor needs to either suppress only background noise surrounding a target or only interfering speech, the extension performs better than WeSep. Secondly, if the extractor needs to suppress background noise such that a voice activity detector (VAD) does not detect any speech, the extension is able to do this more often than WeSep getting 18 noisy clips suppressed as compared against WeSep's 7. On a larger set ($n = 123$), the extension passed 57\,\% of the other speaker's words to Gemini against WeSep's 70\,\% (a difference of $-3.6$ words per trial), and fell fully silent on 56 clips against WeSep's 11. The improvement in the extension's performance can be attributed to the diversity of training examples that include those specific cases. Interestingly, all the models perform worse on the target only case than just leaving the target unprocessed. This is likely due to the robustness of Gemini to background noise, leaving the extractor model to introduce artefacts that are misinterpreted by Gemini. Overall, the extension has shown improvement over WeSep in different acoustic scenarios, although still falls short when considering pure speech extraction with multiple speakers. 
 
 \subsection{The offline transcriber}
 \label{sec:results_content_asr}
