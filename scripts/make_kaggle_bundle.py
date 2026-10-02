@@ -122,6 +122,12 @@ CODE = [
     "src/live_model_metric/lcf_wer.py",   # content_probe scores with count_errors
     "src/estimates/__init__.py",
     "src/estimates/runner.py",            # read_trials + the Extractor contract
+    # 2026-10-02, D10. The interference-weighted objective, fine-tuned from e21,
+    # and its w_interf = 1.0 control. No new source file: the change is inside
+    # losses.py, dataset_loader.py and train.py. The e21 weights they start from
+    # are staged by stage_init_weights(). decisions-m2.md 2026-10-02.
+    "experiments/configs/bsrnn_interf_ft.yaml",
+    "experiments/configs/bsrnn_interf_ft_control.yaml",
     "docs/run_times.md",   # src.run_log appends here; give it a real file
 ]
 
@@ -195,6 +201,34 @@ def stage_code(out: Path) -> None:
     (out / "docs").mkdir(parents=True, exist_ok=True)
     (out / "docs/bundle_commit.txt").write_text(git_commit() + "\n")
     print(f"  code: {len(CODE)} files, stamped commit {git_commit()[:12]}")
+
+
+def stage_init_weights(out: Path) -> None:
+    """Stage every checkpoint a bundled config starts from (training.init_weights).
+
+    D10, 2026-10-02. A fine-tune names its starting weights by a repo-relative
+    path, and models/ is not in CODE, so without this the run would stop at
+    startup on Kaggle with "no file at ...". Copied to the SAME relative path, so
+    the config needs no Kaggle-specific edit, and md5-checked after the copy.
+    """
+    import yaml
+    staged = set()
+    for rel in CODE:
+        if not rel.endswith(".yaml"):
+            continue
+        weights = ((yaml.safe_load((REPO / rel).read_text()) or {})
+                   .get("training", {}) or {}).get("init_weights")
+        if not weights or weights in staged:
+            continue
+        src, dst = REPO / weights, out / weights
+        if not src.exists():
+            sys.exit(f"{rel} starts from {weights}, which does not exist")
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+        md5 = hashlib.md5(dst.read_bytes()).hexdigest()
+        assert md5 == hashlib.md5(src.read_bytes()).hexdigest(), f"{weights} copy differs"
+        staged.add(weights)
+        print(f"  init weights: {weights} ({dst.stat().st_size / 2**20:.0f} MB, md5 {md5})")
 
 
 def stage_ecapa_only(out: Path, ecapa_dir: Path) -> None:
@@ -377,7 +411,8 @@ def verify(code_dir: Path, data_dir: Path, split: str, man_dir: Path = None,
 import sys, yaml, torch
 from pathlib import Path
 sys.path.insert(0, ".")
-from scripts.train import get_data_loaders, build_loss_fn, build_model, unpack
+from scripts.train import (get_data_loaders, build_loss_fn, build_model, unpack,
+                           other_kwargs, init_weights_record)
 cfg = yaml.safe_load(open("{config}"))
 
 # SEEDED once at the top: random init + shuffle=True made this number swing
@@ -389,6 +424,16 @@ mans = Path(r"{(man_dir or (data_dir / 'data' / 'manifests')).resolve()}")
 tr, va = get_data_loaders("{split}", mans, data, cfg)
 assert len(tr.dataset) and len(va.dataset), "empty dataset"
 L, m = build_loss_fn(cfg), build_model(cfg); m.eval()
+
+# D10. A fine-tune's starting weights must be STAGED and LOADABLE into this
+# config's model, from the bundle's own copy. Checked here, before the upload,
+# rather than at startup on Kaggle.
+_init = init_weights_record(cfg)
+if _init:
+    _src = torch.load(_init["path"], map_location="cpu", weights_only=False)
+    assert (_src.get("config") or {{}}).get("model") == cfg["model"], "init_weights: model block differs"
+    m.load_state_dict(_src["model"])
+    print(f"  init weights loaded: {{_init['path']}} md5 {{_init['md5']}}")
 
 # ITEM 1c. The verifier is a CALL SITE like any other, and on 2026-09-22 it was
 # the first one the required-keyword design caught -- locally, before an upload,
@@ -418,7 +463,8 @@ with torch.no_grad():
         x, s, e, a = unpack(b, "cpu")
         if bool(cfg["model"].get("context_embedding", False)):
             ctx = {{"enrol_embedding": _enc.embed(e)}}
-        loss, parts = L(s, m(x, e, **ctx), x, a)
+        # D10: the other speaker's stem, which a w_interf != 1 loss requires.
+        loss, parts = L(s, m(x, e, **ctx), x, a, **other_kwargs(L, b, "cpu"))
         seen["present"] += parts["n_present"]; seen["absent"] += parts["n_absent"]
         shown.append((i, float(loss), parts))
         if seen["present"] and seen["absent"]:
@@ -499,6 +545,7 @@ def main() -> None:
     print(f"bundling split '{args.split}'")
     print(f"staging code -> {code_dir}")
     stage_code(code_dir)
+    stage_init_weights(code_dir)
     if not args.no_teacher:
         stage_teacher(code_dir, args.teacher, Path(args.ecapa_dir))
     elif any("context_embedding" in Path(c).read_text()

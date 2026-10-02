@@ -3818,3 +3818,77 @@ baseline, `sir0_val` `both`, paired, one run each:
   `eval_public`.
 - Recommended, not decided: report the other arms (struct, state, 1a, 1c, other
   1c-wer epochs, wesepref) as variants tried, one run each.
+
+## 2026-10-02 — ITEM 1c ADDS NOTHING OVER 1a on 1,079 unseen two-voice crops, and steers LESS
+
+`diagnose_cue_directional.py` on all 1,421 `sir0_privval` `both` trials (1,079
+crops with two live voices, 537 same-gender), 1a e15 vs 1c e12, same crops.
+`experiments/results/2026-10-02-cue-directional-privval-1a-vs-1c/`, compared with
+`scripts/compare_directional.py` (crop-level bootstrap and sign-flip permutation,
+10,000 draws, seed 42; McNemar kept for comparability with 2026-09-23).
+Exception to `decisions-m3.md` 2026-09-24, taken by Grant for this test only:
+SI-SDR, no listener, no selection.
+
+| lands on the requested voice | 1a e15 | 1c e12 | 1c − 1a, pp [95 % CI] | p (crops) | McNemar |
+|---|---|---|---|---|---|
+| all (1,079) | 71.2 % | 70.8 % | −0.5 [−1.6, +0.7] | 0.49 | +83/−93 |
+| **same-gender (537)** | 60.1 % | 58.6 % | **−1.6 [−3.4, +0.2]** | 0.10 | +38/−55 |
+| cross-gender (542) | 82.2 % | 82.8 % | +0.7 [−0.9, +2.3] | 0.49 | +45/−38 |
+
+| selectivity, dB (higher better) | 1a e15 | 1c e12 | 1c − 1a [95 % CI] | p |
+|---|---|---|---|---|
+| all | 10.75 | 10.08 | **−0.67 [−1.04, −0.28]** | 0.0005 |
+| same-gender | 4.87 | 3.92 | **−0.96 [−1.46, −0.45]** | 0.0002 |
+| cross-gender | 16.57 | 16.19 | −0.38 [−0.93, +0.16] | 0.17 |
+
+- **The same-gender rate does not move.** Any 1c gain is at most +0.2 pp; the
+  registered acceptance test for 1c fails on 7x the crops of 2026-09-23.
+- **1c steers less**, by ~1 dB on same-gender pairs, beyond the noise.
+- **`sir0_val` was optimistic for both:** same-gender 64.5 / 67.1 % there, 60.1 /
+  58.6 % here. Quote the larger set.
+- **Holds when resampling SPEAKERS, not crops.** The split has 40 speakers (20 as
+  targets), none in training. Target-speaker bootstrap, 10,000 draws: same-gender
+  rate −1.58 [−3.70, +0.45] pp; selectivity −0.96 [−1.41, −0.48] dB.
+- **USED, NOT IGNORED.** ||gamma|| 3.08 (bias alone 0.71); 87.9 % of gamma's variance is
+  between speakers, mean cosine between enrollments 0.23 (60 enrollments, 20
+  speakers; `gamma_probe.yaml`). The model modulates per speaker; the modulation
+  does not help it pick the requested voice.
+- **Not a verdict on the method.** One training run per arm, and 1c had 13 epochs
+  against 1a's 16. Claim: *this 1c checkpoint is no better than this 1a
+  checkpoint at following the request*, not "ECAPA cannot help".
+- `results.tex` crediting the extension's gain to ECAPA is now contradicted twice.
+
+## 2026-10-02 — D10 REGISTERED before running: the interference-weighted fine-tune and its control
+
+**What.** `L_pres` counts the part of its error that the OTHER speaker's clean stem
+explains `w_interf` times (`src/models/losses.py::_interference_part`, the BSS_EVAL
+interference term, Vincent et al. 2006; AB-SDR, Ochiai et al. 2024, weights the
+artefact term instead). `w_interf = 1.0` is e21's objective exactly (tested).
+
+**Runs.** Both start from e21 (`models/model_sir0_cuecontext-wer-e21.pt`, md5
+`1dfca8f492d9c4aac86c11ebf8723ee9`), fresh optimiser, lr 1.25e-4, 6 epochs, seed 42,
+batch 3, `w_schedule` removed (it would hold w = 0 for 6,632 steps).
+`bsrnn_interf_ft.yaml` (w_interf 2.0) vs `bsrnn_interf_ft_control.yaml` (1.0); the
+configs differ in that key only. Notebooks `kaggle_train_interf_ft{,_control}.ipynb`.
+~4.8 h each at e21's 2,886 s/epoch (projected).
+
+**Compare the arm with the control only, never with e21** (e21 was overfitting
+after epoch 15; extra epochs alone can move every number).
+
+**Prediction, on `sir0_val` `both` (judge) and the case suite, arm vs control:**
+- leaked words per trial and ICR@2 fall;
+- LCF-WER falls, or holds;
+- `interf_share` (logged every epoch, both runs) is lower in the arm.
+
+**Failure signs, watched not assumed:** more silenced clips, more deletions, more
+invented words. Silence resembles neither speaker, so the term can be gamed by
+cutting; `L_gain` is meant to block that.
+
+**Scope stated now, so it is not reinterpreted later.** The term acts only on crops
+where the target speaks AND the other speaker is audible in the crop (on the
+pre-flight batches, 4 of 13 present crops). Target-absent crops train on `L_abs`,
+which already counts every sound, so the other-speaker-only case (e21 passes 54 %
+of those words) is NOT predicted to improve.
+
+**AI assistance:** the term, configs and code were built with Claude; the idea is
+D10 (2026-08-30) and Ochiai et al.'s decomposition. Declare on the SU form.

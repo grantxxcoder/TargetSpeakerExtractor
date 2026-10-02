@@ -10,9 +10,18 @@ class LossBSRNN:
     (pred, target) convention, so keep it consistent. The reference is the
     target for the present term and the mixture for the absent one.
     """
+    # Whether __call__ takes `s_other`. The state-loss subclasses have their own
+    # __call__ signatures and set this False, so train.py asks rather than guesses.
+    ACCEPTS_OTHER = True
+
     def __init__(self, wm, w, p=0.3, tau_pres=0.001, tau_abs=0.01, windows=(8, 16, 32, 64),
                  sample_rate=16000, wg=0.0, gain_delta_db=3.0,
-                 w_struct=0.0, struct_floor_db=-40.0):
+                 w_struct=0.0, struct_floor_db=-40.0, w_interf=1.0):
+        # D10, the interference weight. How much MORE an error that sounds like
+        # the other speaker costs than any other error in L_pres. DEFAULTS TO
+        # 1.0 = L_pres exactly as before, so every existing config reproduces its
+        # old numbers byte for byte. decisions-m2.md 2026-10-02.
+        self.w_interf = w_interf
         self.tau_pres = tau_pres
         self.tau_abs = tau_abs
         self.wm = wm            # weight on L_MR, inside the present branch
@@ -39,12 +48,20 @@ class LossBSRNN:
         # sum of squared samples, per example. (B, T) -> (B,)
         return x.pow(2).sum(dim=-1)
 
-    def _loss_target_present(self, s_target, s_output, tau_pres=0.001):
+    def _loss_target_present(self, s_target, s_output, tau_pres=0.001,
+                             s_other=None, w_interf=1.0):
         """L_pres, floored SI-SDR. CARTSE eq (1). (B, T) -> (B,)
 
         Lower is better. Range [-30, inf): -30 when s_output == s_target.
         MUST be masked to crops where the target speaks -- when s_target is all
         zero, alpha is 0/0 and the NaN destroys every weight in the model.
+
+        With `s_other` and `w_interf != 1`, the part of the error that sounds
+        like the OTHER speaker is counted w_interf times instead of once (D10):
+
+            denominator = ||error||^2 + (w_interf - 1) * ||e_interf||^2
+
+        At w_interf = 1 (or no s_other) the arithmetic is unchanged.
         """
         # alpha: the one volume knob that best explains the output as "the
         # target, turned up or down". keepdim so it broadcasts back over T.
@@ -55,9 +72,58 @@ class LossBSRNN:
         # scale-invariant, so amplifying paid without bound (g=100 -> -70 dB).
         # Flooring on ||s_proj||^2 makes numerator and floor scale together.
         numerator = self.energy(s_projected)
-        denominator = self.energy(s_output - s_projected) + tau_pres * numerator
+        error_energy = self.energy(s_output - s_projected)
+        if s_other is not None and w_interf != 1.0:
+            # Never below zero: ||e_interf||^2 is an exact share of error_energy
+            # (see _interference_part), so the sum is >= w_interf * ||e_interf||^2.
+            error_energy = error_energy + (w_interf - 1.0) * self.energy(
+                self._interference_part(s_target, s_output, s_other))
+        denominator = error_energy + tau_pres * numerator
 
         return -10 * torch.log10((numerator + 1e-12) / (denominator + 1e-12))
+
+    def _interference_part(self, s_target, s_output, s_other, eps=1e-12):
+        """e_interf: the part of the output that the OTHER speaker explains and
+        the target does not. (B, T) -> (B, T). decisions-m2.md 2026-10-02, D10.
+
+        The interference term of the BSS_EVAL decomposition (Vincent, Gribonval
+        & Fevotte, IEEE TASLP 14(4), 2006), which is what AB-SDR re-weights
+        (Ochiai et al., IEEE/ACM TASLP 32, 2024). BORROWED WITH A DIFFERENCE:
+        AB-SDR boosts the ARTEFACT term; here the INTERFERENCE term is boosted,
+        because for a live listener the other speaker's words are the worst
+        error -- they are transcribed as if the target said them. The noise
+        stem is not needed: only the interference part is weighted.
+
+        Gram-Schmidt rather than a least-squares solve. Take the target's
+        direction out of the other stem, then project the output onto what is
+        left. That remainder is orthogonal to the target, so
+
+            s_output - P_target(s_output) = e_interf + rest,  <e_interf, rest> = 0
+
+        and ||e_interf||^2 is an exact share of L_pres's error energy.
+
+        A silent other stem (target_only trials, a phantom interferer, a crop
+        where the other speaker is quiet) gives e_interf = 0 exactly: every dot
+        product is 0 and eps keeps the division finite.
+        """
+        target_energy = self.energy(s_target).unsqueeze(-1)
+        other_perp = s_other - ((s_other * s_target).sum(dim=-1, keepdim=True)
+                                / (target_energy + eps)) * s_target
+        coef = ((s_output * other_perp).sum(dim=-1, keepdim=True)
+                / (self.energy(other_perp).unsqueeze(-1) + eps))
+        return coef * other_perp
+
+    def _interference_share(self, s_target, s_output, s_other, eps=1e-12):
+        """Fraction of L_pres's error energy that is the other speaker. (B,).
+
+        In [0, 1]. LOGGED, never optimised: it says whether a weight on the
+        interference term is moving the thing it targets, and it is computed at
+        w_interf = 1 too, so the control run shows the same column.
+        """
+        alpha = (s_output * s_target).sum(dim=-1, keepdim=True) / self.energy(s_target).unsqueeze(-1)
+        error_energy = self.energy(s_output - alpha * s_target)
+        interf_energy = self.energy(self._interference_part(s_target, s_output, s_other))
+        return interf_energy / (error_energy + eps)
 
     def _loss_target_absent(self, x_input, s_output, tau_abs=0.01):
         """L_abs, push-to-silence. CARTSE eq (2), normalised. (B, T) -> (B,)
@@ -229,7 +295,7 @@ class LossBSRNN:
         return ((shape_ours - shape_ideal).abs() * energy).sum(dim=(1, 2))
 
     def __call__(self, s_target, s_output, x_input, crop_absent,
-                 mask=None, oracle_mask=None, mixture_mag=None):
+                 mask=None, oracle_mask=None, mixture_mag=None, s_other=None):
         """The full M2 objective. decisions-m2.md 2026-08-20.
 
             L = (1 - w) * mean_present[ L_pres + wm * L_MR + wg * L_gain ] + w * mean_absent[ L_abs ]
@@ -241,7 +307,20 @@ class LossBSRNN:
         `both`/`target_only` crops land entirely in target silence
         (decisions-m1.md 2026-08-18), and an all-zero target down the L_pres
         path is a NaN.
+
+        `s_other` is the OTHER speaker's stem for each example (D10). With
+        w_interf != 1 the present branch optimises the interference-weighted
+        L_pres instead of the plain one. `parts["L_pres"]` stays the PLAIN value
+        either way, so every curve stays comparable with the control and with
+        every earlier run; the optimised value is `parts["L_pres_w"]`.
         """
+        # An arm configured for the term but handed no stem would train the
+        # plain objective and still look like the arm. Refuse rather than
+        # degrade -- the failure decisions-pending.md E8 guards against.
+        if self.w_interf != 1.0 and s_other is None:
+            raise ValueError(
+                f"w_interf = {self.w_interf} but no s_other was passed, so the "
+                f"interference weighting cannot be applied. Pass batch['other'].")
         crop_absent = crop_absent.bool()
         present = ~crop_absent
 
@@ -255,7 +334,7 @@ class LossBSRNN:
         # Constant key set: a missing half is a gap in the curve, not a
         # missing column.
         parts = {"L_pres": nan, "L_MR": nan, "L_gain": nan, "L_abs": nan,
-                 "L_struct": nan,
+                 "L_struct": nan, "L_pres_w": nan, "interf_share": nan,
                  "n_present": n_present, "n_absent": n_absent}
 
         if n_present:
@@ -267,13 +346,29 @@ class LossBSRNN:
                 "a crop flagged present has an all-zero target stem -- "
                 "crop_absent disagrees with s_target. Use the loader's "
                 "crop_absent, not the manifest condition label.")
-            loss_present = self._loss_target_present(target_p, output_p, self.tau_pres).mean()
+            other_p = None if s_other is None else s_other[present]
+            if other_p is not None and self.w_interf != 1.0:
+                # D10. The optimised term is the weighted one; the plain value is
+                # computed without a graph, for the log only.
+                loss_present_opt = self._loss_target_present(
+                    target_p, output_p, self.tau_pres, other_p, self.w_interf).mean()
+                with torch.no_grad():
+                    loss_present = self._loss_target_present(target_p, output_p, self.tau_pres).mean()
+            else:
+                loss_present = self._loss_target_present(target_p, output_p, self.tau_pres).mean()
+                loss_present_opt = loss_present
             loss_mr = self._loss_multi_res_stft(target_p, output_p, self.windows, self.p).mean()
             # Computed even at wg = 0 so it is logged before being weighted --
             # scripts/derive_w_g.py reads that to derive wg.
             loss_gain = self._loss_gain_match(target_p, output_p, self.gain_delta_db).mean()
-            total = total + (1 - self.w) * (loss_present + self.wm * loss_mr + self.wg * loss_gain)
+            total = total + (1 - self.w) * (loss_present_opt + self.wm * loss_mr + self.wg * loss_gain)
             parts["L_pres"] = float(loss_present.detach())
+            if other_p is not None:
+                # Logged at w_interf = 1 too, so the control run has the column.
+                parts["L_pres_w"] = float(loss_present_opt.detach())
+                with torch.no_grad():
+                    parts["interf_share"] = float(
+                        self._interference_share(target_p, output_p, other_p).mean())
             parts["L_MR"] = float(loss_mr.detach())
             parts["L_gain"] = float(loss_gain.detach())
 

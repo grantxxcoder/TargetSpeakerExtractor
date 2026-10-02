@@ -151,13 +151,21 @@ class TrialDataset(torch.utils.data.Dataset):
             sir_used = sir_used if sir_new is None else sir_new
             snr_used = snr_used if snr_new is None else snr_new
 
+        # D10: each direction also carries the OTHER speaker's stem, so the loss
+        # can price leakage of that speaker. Zeros when the interferer stem was
+        # not loaded (neither both_directions nor remix_gains); train.py refuses
+        # a non-unit w_interf in that case, so the zeros can only reach a loss
+        # that does not use them.
+        other_for_target = (interferer_audio if interferer_audio is not None
+                            else torch.zeros_like(target_audio))
         out = [self._example(idx, row, trial_directory, "target",
                              mixture_audio, target_audio, sir_used, snr_used,
-                             start_offset)]
+                             start_offset, other_audio=other_for_target)]
         if self.both_directions:
             out.append(self._example(idx, row, trial_directory, "interferer",
                                      mixture_audio, interferer_audio,
-                                     sir_used, snr_used, start_offset))
+                                     sir_used, snr_used, start_offset,
+                                     other_audio=target_audio))
         return out
 
     def _remix(self, idx, row, mixture, target, interferer):
@@ -247,11 +255,14 @@ class TrialDataset(torch.utils.data.Dataset):
                 group.loc[group["target_absent"] == 0, "snr_db"].to_numpy(float))
 
     def _example(self, idx, row, trial_directory, which, mixture_audio,
-                 target_audio, sir_used, snr_used, crop_start=0):
+                 target_audio, sir_used, snr_used, crop_start=0, other_audio=None):
         """One training example. `which` selects the direction:
 
             "target"      target.wav                + enrollment.wav
             "interferer"  interferer.wav            + interferer_enrollment.wav
+
+        `other` is the other speaker's stem for this direction, at the same crop
+        and after any remix, so mixture = target + other + noise still holds.
 
         Both directions receive the SAME mixture object -- same offset, same
         audio, and after any remix the same rebuilt mixture. That is the point:
@@ -270,6 +281,8 @@ class TrialDataset(torch.utils.data.Dataset):
         return {
             "mixture": mixture_audio,
             "target": target_audio,
+            "other": (other_audio if other_audio is not None
+                      else torch.zeros_like(target_audio)),
             "enrollment": enrollment_audio,
             "crop_absent": crop_absent,
             "trial_id": str(row["trial_id"]),
