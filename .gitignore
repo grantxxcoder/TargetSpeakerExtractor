@@ -279,3 +279,5 @@ kaggle_bundle/
 
 # Kaggle run outputs pulled back down (checkpoints, logs, zips) -- regenerable
 kaggle_out/
+docs/extra/interference-weight-derivation.md
+docs/extra/notation-fixes.md
