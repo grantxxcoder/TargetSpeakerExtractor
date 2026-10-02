@@ -20,6 +20,8 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
+| 2026-10-02 | `pytest` 14 files (D10 + loss, state, data, schedule, selection, checkpoint tests) | 177 tests | 7.7 min | after the D10 interference weight. All passed. Added by hand. |
+| 2026-10-02 | `pytest` 13 files (loss, state, data, schedule, selection, checkpoint tests) | 161 tests | 1.3 min | first pass after D10; 1 failure (key-set test, updated). Added by hand. |
 | 2026-09-28 | inline turbo repeatability check vs cached run | 6 clips (2 `both` trials x mixture, baseline, e21), 1 fresh load | 1.3 min | measured on a first attempt at 4 clips; the 6-clip rerun was not timed. 6/6 identical. Added by hand. |
 | 2026-09-28 | inline faster-whisper large-v3-turbo timing | first load (incl. 1.6 GB download) + 5 sir0_val mixtures, int8 cpu greedy | 5.8 min | load 273 s; 9.2-12.2 s/clip, mean 10.3 s/clip (small.en ~3 s). Added by hand. |
 | 2026-09-28 | `pytest tests/test_estimates.py tests/test_speech_gate.py -q` | 45 tests | 1.8 min | after adding --asr-model / --config to evaluate.py. Added by hand. |
@@ -28,6 +30,8 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | 2026-09-23 | `content_probe.score()` end-to-end smoke, 3 clips | 3 clips, sir0_val, untrained 1c model, cpu extraction + faster-whisper small.en int8 cpu | 3.1 min | ~16 s/clip extraction on cpu, ~4 s/clip ASR, plus ~1 min of model loading. The Kaggle figure differs: extraction moves to the T4, so the ASR sets the per-epoch cost at ~4 s/clip. Added by hand. |
 | 2026-09-21 | `pytest tests/ -q` | 515 tests | 11 min | full suite after adding eval_by_case.py. Added by hand: pytest does not use run_log.timed |
 <!-- rows appended below by src/run_log.py -->
+| 2026-10-02 | `scripts/diagnose_cue_directional.py` | 1421 trials x 2 directions, sir0ext | 1.4 h | cpu, batch 4 trials |
+| 2026-10-02 | `scripts/diagnose_cue_directional.py` | 1421 trials x 2 directions, sir0ext | 1.1 h | cpu, batch 4 trials |
 | 2026-09-30 | `experiments/results/2026-09-30-bootstrap-holes-trade/bootstrap_holes.py` | 2 systems x 3 arms x 2 listeners x 103 clips rebuilt from caches (no API calls), 10,000 paired draws | 5.0 min | cpu; includes VAD load for the speech gate. Added by hand: not a `run_log.py` script |
 | 2026-09-29 | `scripts/eval_by_case.py --split eval_public --cases interferer_only --listener judge` | 1 cases, eval_public, listener judge | 14 min |  |
 | 2026-09-29 | `scripts/eval_by_case.py --split eval_public --cases interferer_only --listener judge` | 1 cases, eval_public, listener judge | 8 min |  |

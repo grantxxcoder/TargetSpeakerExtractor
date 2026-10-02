@@ -55,3 +55,24 @@ $y_{(\cdot)}$ & Transcription of the subscripted signal \\
 $y^\star_s$ & Ground-truth LibriSpeech transcription of the target \\
 \end{longtable}
 
+\subsection*{Model and objective}
+\begin{longtable}[l]{@{}ll@{}}
+$X$, $X_t$ & STFT of the mixture; frame $t$ of it \\
+$X_e$, $x_e$ & STFT of the enrollment; the enrollment waveform \\
+$S$, $\hat{S}$ & STFT of the target; of the model output \\
+$N$, $H$, $h[n]$ & STFT window length, hop and window function \\
+$\tilde{x}_t$, $\tilde{e}_j$ & Unit-length mixture frame; unit-length enrollment frame \\
+$C_{t,j}$ & Cosine similarity of mixture frame $t$ and enrollment frame $j$ \\
+$A_{t,j}$ & Softmax weight of enrollment frame $j$ for mixture frame $t$ \\
+$\mu_t$, $u_t$ & Blended enrollment template; its unit-length direction \\
+$m_t$, $\phi_t$ & Projection of $|X_t|$ onto $u_t$; the baseline cue $m_t u_t$ \\
+$c_t$, $r_t$ & Similarity of $|X_t|$ to $u_t$; residual $|X_t| - m_t u_t$ \\
+$M$, $R$ & Complex mask; residual spectrogram \\
+$\alpha$, $s_\textup{proj}$ & Gain of the output along the target; $\alpha s$ \\
+$e_\textup{int}$, $e_\textup{art}$ & Interference (other speaker and noise); artefact \\
+$d^{\perp}$, $e_d$ & $d$ with its target-like part removed; the part of $\hat{s}$ along $d^{\perp}$ \\
+$L_\textup{pres}$, $L_\textup{MR}$, $L_\textup{gain}$, $L_\textup{abs}$ & Loss terms \\
+$w$, $w_\textup{m}$, $w_\textup{g}$, $\lambda$ & Loss weights \\
+$\tau_\textup{pres}$, $\tau_\textup{abs}$ & Floors of $L_\textup{pres}$ ($10^{-3}$) and $L_\textup{abs}$ ($10^{-2}$) \\
+\end{longtable}
+

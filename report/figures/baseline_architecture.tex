@@ -23,7 +23,7 @@
   % Columns sit symmetrically about the trunk at x = 3.5 and are narrower than
   % the trunk blocks, so the upper half does not overhang it.
   \node[sig] (xin) at (0.9,0) {mixture $x$};
-  \node[sig] (ein) at (6.1,0) {enrolment $e$};
+  \node[sig] (ein) at (6.1,0) {enrollment $e$};
 
   \node[inblock] (stft1) at (0.9,-1.2) {STFT\\[-1pt] \scriptsize 512 / 128, causal framing};
   \node[inblock] (stft2) at (6.1,-1.2) {STFT};
@@ -72,7 +72,7 @@
   \draw[arr] (apply) -- (istft);
   \draw[arr] (istft) -- (out);
 
-  % TF-Map needs the MIXTURE magnitude as well as the enrolment's. Label sits on
+  % TF-Map needs the MIXTURE magnitude as well as the enrollment's. Label sits on
   % the segment entering TF-Map, not back at the STFT it leaves.
   \draw[skip] (stft1.east) -- ++(0.75,0) |- (tfmap.west);
   \node[note] at ($(tfmap.west)+(-0.62,0.20)$) {$|X|$};

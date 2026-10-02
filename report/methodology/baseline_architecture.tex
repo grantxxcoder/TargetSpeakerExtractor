@@ -168,10 +168,10 @@ $M_t$ describes only that shape. It is built entirely from enrollment frames but
   \qquad
   m_t = \big\langle\, |X_t|,\ u_t \,\big\rangle,
   \qquad
-  f_t = m_t\, u_t .
+  \phi_t = m_t\, u_t .
   \label{eq:tfmap-energy}
   \end{equation}
-Where $m_t$ is the scalar projection of the mixture frame onto the template of the target speaker and describes with a single number per frame how much of the frame's energy lies in the direction of the enrollment. $f_t$ is the final feature, which is the template scaled by that projection. 
+Where $m_t$ is the scalar projection of the mixture frame onto the template of the target speaker and describes with a single number per frame how much of the frame's energy lies in the direction of the enrollment. $\phi_t$ is the final feature, which is the template scaled by that projection. 
 
 \paragraph{Where it enters and what it costs.}
 The result is a quantity of the same shape as the spectrogram itself, one value per frequency bin per frame. It is therefore attached as a third input channel alongside the real and imaginary parts, before the band split, so that it is divided into bands and projected by the same machinery as the rest of the input. Nothing else in the architecture changes. Because the extra channel only widens the input of the per-band projections, the entire conditioning path costs roughly \num{33000} parameters, under half a percent of the model, and it adds no learned parameters of its own at all: \eqref{eq:tfmap-unit} through \eqref{eq:tfmap-energy} contain nothing to train.
@@ -197,8 +197,7 @@ and then comparing the energy of that scaled target against the energy of whatev
 L_\textup{pres}
   = -10 \log_{10}
     \frac{\lVert s_\textup{proj} \rVert^2}
-         {\lVert \hat{s} - s_\textup{proj} \rVert^2
-          + \tau \lVert s_\textup{proj} \rVert^2}.
+         {\lVert \hat{s} - s_\textup{proj} \rVert^2 + \tau_\textup{pres} \lVert s_\textup{proj} \rVert^2}.
 \label{eq:lpres}
 \end{equation}
 Lower is better. The loss is secondly in terms of decibels (dB), which is where the logarithm comes from. The $\tau$ term in the denominator is a floor. Without it a perfect output would score $-\infty$, and the gradient would keep rewarding refinement of crops that are already essentially solved. With $\tau = 10^{-3}$ the best attainable score is

@@ -29,7 +29,7 @@ To standardise the transcriptions created by the different methods, a text norma
 \label{sec:lcfwer}
 The Live-model Content Fidelity Word Error Rate (LCF-WER) is a metric based off of the arithmetic of the standard Word Error Rate (WER) metric, but applied to a live-model transcription of the audio instead of a standard transcription. It is explicitly labelled as such as the standard WER metric is referenced in the training procedure, and is not associated with the live-model transcription. The standard WER metric is defined as follows:
 \begin{equation}
-    \text{WER} = \frac{S + D + I}{N}
+    \textup{WER} = \frac{S + D + I}{N}
 \end{equation}
 where $S$ is the number of substitutions, $D$ is the number of deletions, $I$ is the number of insertions, and $N$ is the total number of words in the reference. It is essentially a minimum edit-distance formula, where the number of edits required to change a reference text into the proposed text is divided by the number of words in the reference text. However, there is one flaw in this approach that is required for our metrics to highlight: the broad classes of substitutions, deletions, and insertions do not demonstrate the nuance of how these errors can occur. The LCF-WER is used to represent that fact that the classes of errors are specific to live model transcription. 
 
@@ -93,15 +93,15 @@ This protocol was used in the SLT 2026 REAL-TSE Challenge \cite{wang2026realtse}
 
 \subsection{Signal to Distortion/Interference/Artefact Ratios}
 \label{sec:sdiar}
-This section discusses the following ratios: Signal-to-Distortion Ratio (SDR), Signal-to-Interference Ratio (SIR), and Signal-to-Artefacts Ratio (SAR). The ratios are used in the following manner: SDR is used to measure how wrong the output audio is in total, and the SIR and SAR are used to measure in which direction the output audio is wrong. The SIR measures how much of real audio that is not target speech is present in the output audio such as an interfering speaker or background noise, and the SAR measures how much of the output audio is not real audio, such as artefacts from the model. The ratios are defined as follows where $y_{\text{tgt}}$ is the target speech, $e_{\text{int}}$ is the interfering speech, and $e_{\text{art}}$ is the artefacts from the model:
+This section discusses the following ratios: Signal-to-Distortion Ratio (SDR), Signal-to-Interference Ratio (SIR), and Signal-to-Artefacts Ratio (SAR). The ratios are used in the following manner: SDR is used to measure how wrong the output audio is in total, and the SIR and SAR are used to measure in which direction the output audio is wrong. The SIR measures how much of real audio that is not target speech is present in the output audio such as an interfering speaker or background noise, and the SAR measures how much of the output audio is not real audio, such as artefacts from the model. The output is split by orthogonal projection \cite{vincent2006bsseval} into the target part $s_\textup{proj}$ of Equation~\ref{eq:alpha}, the interference $e_\textup{int}$ explained by the other speaker $d$ and the noise, and the artefact $e_\textup{art}$ explained by none of the sources, so that $\hat{s} = s_\textup{proj} + e_\textup{int} + e_\textup{art}$ :
 \begin{equation}
-SDR = 10\log_{10} \dfrac{\lVert y_{\text{tgt}}\rVert^2}{\lVert e_{\text{int}} + e_{\text{art}}\rVert^2}
+\textup{SDR} = 10\log_{10} \dfrac{\lVert s_\textup{proj}\rVert^2}{\lVert e_\textup{int} + e_\textup{art}\rVert^2}
 \end{equation}
 \begin{equation}
-SIR = 10\log_{10} \dfrac{\lVert y_{\text{tgt}}\rVert^2}{\lVert e_{\text{int}}\rVert^2}
+\textup{SIR} = 10\log_{10} \dfrac{\lVert s_\textup{proj}\rVert^2}{\lVert e_\textup{int}\rVert^2}
 \end{equation}
 \begin{equation}
-SAR = 10\log_{10} \dfrac{\lVert y_{\text{tgt}} + e_{\text{int}}\rVert^2}{\lVert e_{\text{art}}\rVert^2}
+\textup{SAR} = 10\log_{10} \dfrac{\lVert s_\textup{proj} + e_\textup{int}\rVert^2}{\lVert e_\textup{art}\rVert^2}
 \end{equation}
 which are all measured in decibels (dB) where the higher ratio means better extraction of the target from the other audio in question. When training the model, the Scale-Invariant Signal-to-Distortion Ratio (SI-SDR) introduced by Le Roux et al. \cite{leroux2019sisdr} is used as the loss function which takes inspiration from the SDR metric and was defined earlier in equation~\ref{eq:lpres}. 
 \subsection{Anchors}                                  
