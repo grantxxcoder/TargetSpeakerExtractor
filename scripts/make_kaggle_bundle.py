@@ -167,8 +167,15 @@ def git_commit() -> str:
     try:
         head = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True,
                               text=True, check=True, timeout=10).stdout.strip()
-        dirty = subprocess.run(["git", "status", "--porcelain"], capture_output=True,
-                               text=True, check=True, timeout=10).stdout.strip()
+        # Dirty means a SHIPPED file differs from HEAD. Scoped to CODE, because
+        # an uncommitted edit to report/ cannot change what runs on Kaggle and
+        # used to mark every bundle -dirty. run_times.md is excluded: it ships
+        # only as a file for src.run_log to append to, and is a log, not code.
+        # 2026-10-02.
+        shipped = [c for c in CODE if c != "docs/run_times.md"]
+        dirty = subprocess.run(["git", "status", "--porcelain", "--", *shipped],
+                               capture_output=True, text=True, check=True,
+                               timeout=10, cwd=REPO).stdout.strip()
         return head + ("-dirty" if dirty else "")
     except Exception:
         return "UNKNOWN-not-a-git-checkout"
