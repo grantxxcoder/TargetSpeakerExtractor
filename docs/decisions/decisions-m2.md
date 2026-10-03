@@ -3946,3 +3946,74 @@ Watch ICR@2 and mean leak in `artif_ft`; `interf_artif_ft` is the guard.
 
 **AI assistance:** term, configs and code built with Claude; the method is Ochiai
 et al.'s. Declare on the SU form.
+
+## 2026-10-03 — D10 RESULT: the leak weight trades leaked words for invented ones; LCF-WER unchanged
+
+Judge `gemini-3.7-flash`, aistudio, audio-in / text-out, prompt `d118b7d3bf30`, one
+run each, 2026-10-03 (e21: 2026-09-25). `sir0_val` `both`, n=103, speech gate on.
+Epoch 5 per the 2026-10-03 comparison rule. Paired bootstrap over clips, 10,000
+draws, seed 42, rebuilt from cache (0 API calls, all five published aggregates
+matched): `experiments/results/2026-10-03-bootstrap-interf-ft/`. Renders
+`2026-10-03-est-interf-ft{,-control}-e{3,5}`, judge `…-eval-interf-ft{,-control}-e{3,5}-judge`.
+
+| e5, lower is better | control | arm | arm − control [95 %] |
+|---|---|---|---|
+| LCF-WER | 38.24 | 38.71 | +0.47 [−3.20, +4.15] |
+| mean leaked % | 21.57 | 18.31 | **−3.26 [−6.59, −0.03]** |
+| ICR@2 | 33.98 | 32.04 | −1.94 [−8.74, +4.85] |
+| invented/trial | 2.10 | 2.82 | **+0.72 [+0.27, +1.21]** |
+| FR@2 | 47.52 | 58.82 | +11.30 [+0.45, +22.49] |
+| deletions % | 9.58 | 8.85 | −0.73 [−4.29, +2.68] |
+
+- **The registered failure sign fired: more invented words.** Holds without the 3
+  judge-failed clips (+0.72 [+0.25, +1.22]); 3x e21's judge run-to-run spread
+  (2.12–2.33 over three runs). FR@2 loses its interval without them (+10.10 [−1.00, +21.16]).
+- **Prediction partly met.** Leaked share fell (borderline); ICR@2 did not; LCF-WER held.
+- **Extra epochs alone did nothing.** Control e5 vs e21: every interval spans 0
+  (LCF-WER −0.99 [−5.08, +2.89]). The ~1 dB val-separation gain after the restart
+  does not reach the judge, as at e15 (best separation, worst judge, 2026-09-26).
+- **The trade grows with training.** e3: leaked share −4.19 [−8.74, +0.29],
+  invented +0.14 [−0.39, +0.68], LCF-WER −2.82 [−7.67, +1.79]. e3 is NOT adopted:
+  picking it now would be selection after seeing, against the registered rule.
+- **The offline stand-in would have called it a win.** `small.en`, arm − control e5:
+  ICR@2 −9.7, invented/trial −0.18; the judge: −1.9 and +0.72. Arm e5's `small.en`
+  LCF-WER (65.7) is inflated by 3 repetition loops (55.1 with the probe's loop cap).
+- **Judge failures** (400 "invalid argument"), scored as non-responses: control e5
+  `000010`, control e3 `000112`, arm e3 `000153`.
+- **Limits:** one judge run and one training seed per arm; 24 comparisons, so only
+  invented/trial is a robust claim.
+- **Claim:** *on two-speaker mixtures, optimised for Gemini, w_interf = 2 cut the
+  share of the other speaker's words passed by ~3 points and added ~0.7 invented
+  words per clip; LCF-WER unchanged.*
+- **Consequence:** the AB-SDR pair (registered 2026-10-03) tests whether weighting
+  the artefact removes the invention; `interf_artif_ft` is the cell that matters.
+
+## 2026-10-03 — HAIL MARY REGISTERED: e21's config from scratch with both terms and a medium.en probe
+
+**Grant's call, exploratory.** One run, `bsrnn_interf_artif_scratch.yaml`. Five
+keys differ from e21's `bsrnn_cue_context.yaml`: `loss.w_interf 2.0`,
+`loss.w_artif 4.0`, `content_probe.asr_model medium.en` (was small.en),
+`content_probe.cap_errors_at_spoken true` (loop guard), `training.keep_stride 1`
+(keep every epoch). `train.py` now reads `asr_model` (absent = small.en; tested).
+
+**Not a controlled test.** e21's run is the nearest reference (same seed, data
+order, warmup, schedule rule), but the probe drives the lr cuts and the
+checkpoint pick and it changed too. Claim only "this objective with this probe,
+from scratch"; the term effects come from the 2x2 fine-tunes.
+
+**Probe cost, measured on the laptop** (cpu int8, probe decode, 11 e21 estimates):
+small.en 4.1 s/clip, medium.en 9.3 s/clip (2.25x). Kaggle: ~3,280 s/epoch
+PROJECTED (311 s small.en probe cost x 2.25 on 2,575 s), so 14 epochs (~12.7 h)
+breach the 12 h cap. Sessions: EPOCHS 12, 24, 28, each resumed from
+`model_sir0_last.pt` (newest, not best: the probe is too noisy to rewind on).
+Two resumes; e21's run had one.
+
+**Epochs to judge, fixed now:** e21 and e27 (matched to e21's judged e21/e27 and
+its last), `sir0_val` `both`, same judge and prompt, paired bootstrap. Any other
+epoch is chosen on turbo then the judge and is labelled as selected; adoption
+needs one clean `eval_public` score (decisions 2026-09-29).
+
+**Prediction:** none beyond the 2x2's. **Failure signs:** early mute (watch
+`enrol_sens_db`, `pres_abs_gap_db` through the warmup), more leaked words.
+
+**AI assistance:** config, probe switch and timing with Claude. Declare.

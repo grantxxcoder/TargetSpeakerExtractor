@@ -133,6 +133,9 @@ CODE = [
     # and the noise stem is recovered from the mixture. decisions-m2.md 2026-10-03.
     "experiments/configs/bsrnn_artif_ft.yaml",
     "experiments/configs/bsrnn_interf_artif_ft.yaml",
+    # 2026-10-03, the hail mary: e21's config from scratch with both terms and a
+    # medium.en probe. Exploratory, not controlled. decisions-m2.md 2026-10-03.
+    "experiments/configs/bsrnn_interf_artif_scratch.yaml",
     "docs/run_times.md",   # src.run_log appends here; give it a real file
 ]
 

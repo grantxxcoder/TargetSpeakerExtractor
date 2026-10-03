@@ -906,6 +906,10 @@ def build_content_probe(config, verbose=True):
           cap_errors_at_spoken: true   # loop guard; see content_probe.clip_errors.
                                        # Absent = false. Set it on a FRESH run only:
                                        # a resume refuses the change, by design.
+          asr_model: medium.en # faster-whisper size. Absent = small.en, so every
+                               # config before 2026-10-03 scores exactly as it did.
+                               # Measured 2026-10-03, cpu int8: small.en 4.1 s/clip,
+                               # medium.en 9.3 s/clip (2.25x).
 
     COST, and it is the reason for `n_trials`. MEASURED 2026-09-23 end to end:
     ~4 s per clip for the ASR on cpu, ~16 s per clip for extraction on cpu. On
@@ -918,7 +922,8 @@ def build_content_probe(config, verbose=True):
     block = (config.get("content_probe") or {})
     if not block.get("enabled", False):
         return None
-    from src.live_model_metric.content_probe import ContentProbe, load_probe_trials
+    from src.live_model_metric.content_probe import (ASR_MODEL_SIZE, ContentProbe,
+                                                     load_probe_trials)
 
     split = str(block.get("split", "sir0_val"))
     if split in HOLDOUT_SPLITS:
@@ -933,6 +938,7 @@ def build_content_probe(config, verbose=True):
         limit=int(block.get("n_trials", 40)),
         condition=str(block.get("condition", "both")))
     probe = ContentProbe(trials,
+                         model_size=str(block.get("asr_model", ASR_MODEL_SIZE)),
                          device=str(block.get("asr_device", "cpu")),
                          ema_span=int(block.get("ema_span", 3)),
                          # 2026-09-24 loop guard. Absent = off, so a run begun

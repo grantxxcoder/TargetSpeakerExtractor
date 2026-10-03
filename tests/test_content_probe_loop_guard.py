@@ -80,3 +80,15 @@ def test_train_py_reads_the_switch():
     assert train.build_content_probe(base, verbose=False).cap_errors_at_spoken is False
     base["content_probe"]["cap_errors_at_spoken"] = True
     assert train.build_content_probe(base, verbose=False).cap_errors_at_spoken is True
+
+
+def test_train_py_reads_the_asr_model_and_defaults_to_small():
+    """2026-10-03. Absent key = small.en, so every earlier run's probe is unchanged."""
+    import train
+    base = {"content_probe": {"enabled": True, "split": "sir0_val", "n_trials": 1,
+                              "data_root": str(ROOT / "data"),
+                              "manifest_dir": str(ROOT / "data/manifests")}}
+    assert train.build_content_probe(base, verbose=False).model_size == "small.en"
+    base["content_probe"]["asr_model"] = "medium.en"
+    probe = train.build_content_probe(base, verbose=False)
+    assert probe.model_size == "medium.en" and "medium.en" in probe.describe()
