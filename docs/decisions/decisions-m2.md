@@ -3990,8 +3990,11 @@ matched): `experiments/results/2026-10-03-bootstrap-interf-ft/`. Renders
 
 ## 2026-10-03 — HAIL MARY REGISTERED: e21's config from scratch with both terms and a medium.en probe
 
-**ON HOLD:** weights provisional until the 2x2 is judged (decisions-pending.md
-2026-10-03). **Grant's call, exploratory.** One run, `bsrnn_interf_artif_scratch.yaml`. Five
+**DECIDED 2026-10-03, before launch (Grant), after the AB-SDR RESULT below:**
+w_artif DROPPED. The run is `bsrnn_interf_scratch.yaml`, four keys from e21's config
+(w_interf 2.0, asr_model medium.en, loop guard, keep_stride 1); the rest of this
+entry (sessions, epochs to judge, limits) stands. The text below is the provisional
+version. **Grant's call, exploratory.** One run, `bsrnn_interf_artif_scratch.yaml`. Five
 keys differ from e21's `bsrnn_cue_context.yaml`: `loss.w_interf 2.0`,
 `loss.w_artif 4.0`, `content_probe.asr_model medium.en` (was small.en),
 `content_probe.cap_errors_at_spoken true` (loop guard), `training.keep_stride 1`
@@ -4018,3 +4021,43 @@ needs one clean `eval_public` score (decisions 2026-09-29).
 `enrol_sens_db`, `pres_abs_gap_db` through the warmup), more leaked words.
 
 **AI assistance:** config, probe switch and timing with Claude. Declare.
+
+## 2026-10-03 — AB-SDR RESULT: the artefact weight trades invented words for leaked ones; no cell beats the plain loss
+
+Judge `gemini-3.7-flash`, aistudio, audio-in / text-out, prompt `d118b7d3bf30`, one
+run each, 2026-10-03. `sir0_val` `both`, n=103, epoch 5 per the registered rule.
+Paired bootstrap, 10,000 draws, seed 42, rebuilt from cache, all four aggregates
+matched: `experiments/results/2026-10-03-bootstrap-interf-ft/report_2x2_2026-10-03.txt`.
+
+| e5, lower is better | control | leak (w_interf 2) | artif (w_artif 4) | both |
+|---|---|---|---|---|
+| LCF-WER | **38.24** | 38.71 | 47.58 | 42.87 |
+| mean leaked % | 21.57 | 18.31 | 36.23 | 29.84 |
+| ICR@2 | 33.98 | 32.04 | 48.54 | 43.69 |
+| invented/trial | 2.10 | 2.82 | 1.90 | 2.06 |
+| FR@2 | 47.52 | 58.82 | 47.00 | 46.00 |
+
+| effect [95 %] | LCF-WER | mean leak | invented/trial |
+|---|---|---|---|
+| artif, leak off (artif − control) | **+9.34 [+3.65, +15.37]** | **+14.66** | −0.20 [−0.65, +0.25] |
+| artif, leak on (both − leak) | +4.16 [−0.69, +9.41] | **+11.53** | **−0.76 [−1.28, −0.25]** |
+| both − control | +4.63 [−0.36, +10.01] | **+8.27** | −0.04 |
+| interaction | −5.18 [−10.82, +0.54] | −3.13 | −0.56 [−1.22, +0.08] |
+
+- **Registered prediction failed; the failure sign fired.** Invented words did not fall
+  alone; leaked words rose in both cells. Without the 4 judge-failed clips, both −
+  control LCF-WER is +5.00 [+0.18, +10.18].
+- **With w_interf on, w_artif removes the leak weight's extra invention** (−0.76) but
+  pays more leakage than w_interf saved. No cell beats the control on LCF-WER.
+- **The artefact term never generalised:** val artif_share flat (artif run 39–43 %)
+  or rising (both 45 → 53 %) while train fell or held (training logs).
+- **Epoch 3:** artif e3 judged (LCF-WER 49.83, leaked 38.32 %, invented 2.05),
+  consistent with e5. Both e3 CANCELLED by Grant once e5 settled it; the
+  registered secondary check is incomplete for that cell.
+- **Judge failures** (400), scored as non-responses: artif e5 `000057`, `000192`;
+  both e5 `000195`; artif e3 `000067`, `000070`, `000102`.
+- **Claim:** *on two-speaker mixtures, optimised for Gemini, weighting error TYPES in
+  the training loss moved errors between types (leaked <-> invented) and never
+  lowered LCF-WER below the plain loss; the AB-SDR weight Ochiai et al. found best
+  for ASR raised it by 9 points through leakage.*
+- **Consequence:** the hail mary drops w_artif (entry above).

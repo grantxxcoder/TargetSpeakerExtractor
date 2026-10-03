@@ -1,20 +1,18 @@
-# HAIL MARY: e21's config trained FROM SCRATCH with both new loss terms and a
+# HAIL MARY: e21's config trained FROM SCRATCH with the interference weight and a
 # medium.en probe. ONE exploratory run, NOT a controlled test. decisions-m2.md
-# 2026-10-03.
+# 2026-10-03 (registration, and the decision that dropped w_artif).
 #
 # CHANGES FROM bsrnn_cue_context.yaml (e21's config), and nothing else:
 #   loss.w_interf 2.0                  D10, interference weight (Vincent 2006 split)
-#   loss.w_artif 4.0                   AB-SDR artefact weight (Ochiai et al. 2024,
-#                                      eq. 18; their alpha = 2 is 4.0 as energy)
 #   content_probe.asr_model medium.en  was small.en
 #   content_probe.cap_errors_at_spoken the loop guard, off for e21
 #   training.keep_stride 1             keep every epoch, was 3
 #
 # WHY IT IS NOT A CONTROLLED TEST. e21's run is the nearest reference (same seed,
-# data order, schedule, warmup), but the probe drives the lr cuts and the
-# checkpoint pick, and here the probe changed too: the runs can cut lr at
-# different epochs. Report it as "this objective + this probe from scratch", not
-# as the effect of either term. The clean term tests are the 2x2 fine-tunes.
+# data order, warmup, schedule rule), but the probe drives the lr cuts and the
+# checkpoint pick, and the probe changed too: the runs can cut lr at different
+# epochs. Report it as "this objective + this probe from scratch". The clean
+# term test is the 2026-10-02 fine-tune pair (w_interf 2 vs 1).
 #
 # SESSIONS. ~3,280 s/epoch PROJECTED (Kaggle small.en probe cost ~311 s/epoch,
 # 2,886 vs 2,575 s, x 2.25 measured ratio -- not measured on Kaggle). 14 epochs
@@ -248,11 +246,8 @@ loss:
   w_interf: 2.0         # how many times an error that sounds like the OTHER
                         # speaker counts in L_pres. ENERGY weight (alpha 1.41).
                         # Needs data.both_directions or remix_gains (asserted).
-
-  # ---- AB-SDR: the artefact weight. decisions-m2.md 2026-10-03 ----
-  w_artif: 4.0          # how many times error that NO source explains counts in
-                        # L_pres. ENERGY weight: Ochiai's alpha = 2 -> 4.0.
-                        # Needs the other stem (asserted).
+  # w_artif (AB-SDR) DELIBERATELY ABSENT = 1.0: the 2x2 showed it trades invented
+  # words for leaked ones and never beats the plain loss (decisions-m2.md 2026-10-03).
 
   # ---- D17: the mask-structure term. decisions-pending.md 2026-09-13 ----
   # MEASURED: 84.2 % of the mask's variance is one number per frame, and it

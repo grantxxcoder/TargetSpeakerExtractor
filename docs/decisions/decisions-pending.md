@@ -4088,7 +4088,10 @@ check Qualcomm's own announcement before citing).
 - Conversation Focus is a product, not a benchmark: compare purpose and clue
   type, never quality.
 
-## 2026-10-03 — OPEN: the hail-mary run's loss weights (w_interf, w_artif)
+## 2026-10-03 — CLOSED 2026-10-03: the hail-mary run's loss weights (w_interf, w_artif)
+
+**Taken (Grant):** w_interf 2.0 only, w_artif dropped; config `bsrnn_interf_scratch.yaml`.
+Evidence: decisions-m2.md 2026-10-03 "AB-SDR RESULT". The text below is the open question as it stood.
 
 **On hold until the 2x2 is judged.** `bsrnn_interf_artif_scratch.yaml` carries
 w_interf 2.0 / w_artif 4.0 provisionally. Do not launch it before this closes.
