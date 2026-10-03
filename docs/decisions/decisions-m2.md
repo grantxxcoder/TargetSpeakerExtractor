@@ -3990,7 +3990,8 @@ matched): `experiments/results/2026-10-03-bootstrap-interf-ft/`. Renders
 
 ## 2026-10-03 — HAIL MARY REGISTERED: e21's config from scratch with both terms and a medium.en probe
 
-**Grant's call, exploratory.** One run, `bsrnn_interf_artif_scratch.yaml`. Five
+**ON HOLD:** weights provisional until the 2x2 is judged (decisions-pending.md
+2026-10-03). **Grant's call, exploratory.** One run, `bsrnn_interf_artif_scratch.yaml`. Five
 keys differ from e21's `bsrnn_cue_context.yaml`: `loss.w_interf 2.0`,
 `loss.w_artif 4.0`, `content_probe.asr_model medium.en` (was small.en),
 `content_probe.cap_errors_at_spoken true` (loop guard), `training.keep_stride 1`
