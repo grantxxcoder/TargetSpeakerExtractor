@@ -3930,8 +3930,14 @@ paired bootstrap over clips. NOT the probe-selected `model_sir0.pt`: the
 Artefact effect = artif_ft − control and interf_artif_ft − interf_ft.
 
 **Prediction, each w_artif-4 run vs its w_artif-1 partner:** invented/trial and
-FR@2 fall; `artif_share` (logged, all four runs from now) lower; LCF-WER falls or
-holds.
+FR@2 fall; `artif_share` lower (logged by the new pair only; the 2026-10-02 pair
+predates the column, so theirs is computed offline from their e3/e5 checkpoints on
+the same val crops); LCF-WER falls or holds.
+
+**Measured at registration, forward only** (e21 weights, 4 training batches,
+`kaggle_bundle/code`): artefact is 67–93 % of the present error, interference 0 %
+on 3 batches and 21 % on the fourth. So w_artif acts on every present crop and
+w_interf on a minority: the two weights are not equally strong interventions.
 
 **Failure sign, watched not assumed:** leaked words RISE. Output that copies the
 mixture has no artefact, so the term can be met by passing more of the other
