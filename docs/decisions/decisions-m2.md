@@ -4004,7 +4004,7 @@ from scratch"; the term effects come from the 2x2 fine-tunes.
 **Probe cost, measured on the laptop** (cpu int8, probe decode, 11 e21 estimates):
 small.en 4.1 s/clip, medium.en 9.3 s/clip (2.25x). Kaggle: ~3,280 s/epoch
 PROJECTED (311 s small.en probe cost x 2.25 on 2,575 s), so 14 epochs (~12.7 h)
-breach the 12 h cap. Sessions: EPOCHS 12, 24, 28, each resumed from
+breach the 12 h cap. Sessions: EPOCHS 11, 22, 28 (~1.75 h margin), each resumed from
 `model_sir0_last.pt` (newest, not best: the probe is too noisy to rewind on).
 Two resumes; e21's run had one.
 

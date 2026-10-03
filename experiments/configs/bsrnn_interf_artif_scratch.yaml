@@ -18,9 +18,10 @@
 #
 # SESSIONS. ~3,280 s/epoch PROJECTED (Kaggle small.en probe cost ~311 s/epoch,
 # 2,886 vs 2,575 s, x 2.25 measured ratio -- not measured on Kaggle). 14 epochs
-# would be ~12.7 h, over Kaggle's 12 h cap, so: EPOCHS 12, then resume with
-# EPOCHS 24, then EPOCHS 28. Check epoch 1's real time and adjust. e21's run had
-# ONE resume (after idx 13); this has two, at other epochs.
+# would be ~12.7 h, over Kaggle's 12 h cap, so: EPOCHS 11, then resume with
+# EPOCHS 22, then EPOCHS 28 (11 x 3,280 s = 10 h, leaving ~1.75 h for setup and
+# a slower-than-projected epoch). Resume from model_sir0_last.pt. Check epoch 1's
+# real time. e21's run had ONE resume (after idx 13); this has two.
 #
 # Everything below is bsrnn_cue_context.yaml verbatim apart from those keys.
 
