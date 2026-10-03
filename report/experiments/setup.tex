@@ -1,23 +1,41 @@
-\section{Experimental setup}
-\label{sec:experimental_setup}
-During the course of experiments, the following setup was used to ensure reproducible and consistent training and evalution of the models. 
+  \section{Training setup}
+  \label{sec:training}
+ 
+  \subsection{Training data}
+  \label{exp:data}
+  % sir0_train, 9,955 trials; each trial used twice (either speaker as target); re-levelled every epoch; 4 s crops. Point back to
+  Section~\ref{sec:data} for how the data was built.
+ 
+  \subsection{Optimisation and hardware}
+  \label{exp:hyperparam}
+  % AdamW, learning rate, weight decay, gradient clip, batch 3, mixed precision, LR halving, early stopping, silence warm-up, seed 42, Tesla T4
+  During training the AdamW optimiser \cite{loshchilov2019adamw} was used with a base learning rate of \num{0.0005}, weight decay of \num{0.0001} and gradient clipping at \num{5.0}. A batch size of 3 was used with mixed precision training. The learning rate schedule included halving the learning rate if every 3 epochs saw no improvement in the validation score for the baseline. For the extension however, the learning rate halved when the Whisper WER stops improving. The target-absent term in the loss, $L_{\text{abs}}$, is off for the first 4 epochs, as the model in the early epochs would just output silence as this term is easy to optimise. The model is trained on Kaggle's Tesla T4 GPU for roughly 15 hours of training time. The random seed is set to 42 for reproducibility. 
+ 
+  \subsection{Training curves}
+  \label{exp:curves}
+  Both models were trained with the same loss and the same settings, but differ in how long they were trained and in how the final model was
+  chosen. The baseline was trained for 16 epochs and the extension for 28. \autoref{fig:training_curves} shows how the validation scores of each
+  model changed during training, with epochs counted from zero.
 
-\subsection{Training setup}
-\label{sec:training}
+  \input{figures/training_curves}
+  
 
-\subsubsection{Data pipeline}
-\label{exp:data}
+  %======================================================================
+  \section{Evaluation setup}
+  \label{sec:evaluation_setup}
+ 
+  \subsection{Evaluation sets}
+  \label{exp:eval_sets}
+  % sir0_val (200 trials; the 103 with both speakers = headline set), eval_public (Case 3), eval_private held back. No evaluation speaker appears
+  A held out test set of 200 trials was used to evaluate the models. The test set is comprised of the following cases: \textit{(i)} 103 trials where both speakers are present, \textit{(ii)} 47 trials of the target speaker alone, \textit{(iii)} 42 trials of the interfering speaker alone and \textit{(iv)} 8 trials of neither speaker present.  
 
-\subsubsection{Model construction: baseline}
-\label{exp:baseline}
 
-\subsubsection{Model construction: extension}
-\label{exp:extension}
+  \subsection{Systems compared}
+  \label{exp:systems}
+  % Define the five once: No processing, Baseline, Extension, WeSep, Target alone (perfect).
+  
 
-\subsubsection{Hyperparameter configuration}
-\label{exp:hyperparam}
-
-\subsection{Transcription tool setup}
+\subsection{Listeners}
 \label{sec:transcription}
 
 \paragraph{Offline ASR model}
