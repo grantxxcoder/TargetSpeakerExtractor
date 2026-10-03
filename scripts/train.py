@@ -71,6 +71,19 @@ def build_loss_fn(config):
             "loss.w_interf != 1 needs data.both_directions or data.remix_gains, "
             "or the other speaker's stem is never loaded")
 
+    # The artefact weight (AB-SDR, Ochiai et al. 2024). An ENERGY weight: their
+    # alpha = 2 is w_artif = 4. Absent key = 1.0 = L_pres unchanged. Needs the
+    # other stem for the same reason, plus the noise, which the loss recovers as
+    # mixture - target - other. decisions-m2.md 2026-10-03.
+    w_artif = float(config["loss"].get("w_artif", 1.0))
+    assert w_artif > 0.0, f"loss.w_artif must be > 0, got {w_artif}"
+    if w_artif != 1.0:
+        assert (config["data"].get("both_directions", False)
+                or config["data"].get("remix_gains", False)), (
+            "loss.w_artif != 1 needs data.both_directions or data.remix_gains, "
+            "or the other speaker's stem is never loaded and the recovered noise "
+            "would contain him")
+
     # THE STATE TERM (decisions-pending.md D14) IS OPT-IN, AND THE BRANCH IS THE
     # OPT-IN. A config without `w_state` gets the plain LossBSRNN object, so a
     # pre-2026-09-11 run reproduces by construction rather than by a weight
@@ -85,10 +98,11 @@ def build_loss_fn(config):
                          windows=windows, sample_rate=sample_rate, wg=wg,
                          gain_delta_db=gain_delta_db,
                          w_struct=w_struct, struct_floor_db=struct_floor_db,
-                         w_interf=w_interf)
+                         w_interf=w_interf, w_artif=w_artif)
 
     # Not wired through LossBSRNNState (its __call__ does not take s_other).
     assert w_interf == 1.0, "loss.w_interf is not supported together with loss.w_state"
+    assert w_artif == 1.0, "loss.w_artif is not supported together with loss.w_state"
 
     # Imported here, not at module scope: the teacher pulls in speechbrain and
     # a 21 M-parameter checkpoint, and a baseline run should not pay for either.
@@ -239,7 +253,7 @@ def w_at_epoch(config, epoch):
 # One definition, used by both the stdout line and history.csv -- so a log
 # pasted out of a killed run is a valid history.csv with no editing.
 HISTORY_FIELDS = ["total", "L_pres", "L_MR", "L_gain", "L_abs", "L_state", "L_struct",
-                  "L_pres_w", "interf_share", "n_present", "n_absent"]
+                  "L_pres_w", "interf_share", "artif_share", "n_present", "n_absent"]
 
 # VAL-ONLY leading indicators; the loss terms are lagging ones.
 #   enrol_sens_db    output movement on an enrolment swap. Near 0 dB = strongly
@@ -323,11 +337,11 @@ def format_epoch_breakdown(epoch, num_epochs, tr, va, epoch_seconds, w_trained):
         f"  {'term':<7} {'train':>10} {'val':>10} {'gap(val-train)':>15}",
     ]
     for term in ("total", "L_pres", "L_MR", "L_gain", "L_abs", "L_state", "L_struct",
-                 "L_pres_w", "interf_share"):
+                 "L_pres_w", "interf_share", "artif_share"):
         # L_state, L_struct and the two D10 columns are NaN when their term is
         # not in use -- skip the row rather than print a line of NaNs.
         train_value, val_value = tr.get(term, float("nan")), va.get(term, float("nan"))
-        if term in ("L_state", "L_struct", "L_pres_w", "interf_share") \
+        if term in ("L_state", "L_struct", "L_pres_w", "interf_share", "artif_share") \
                 and not np.isfinite(train_value) and not np.isfinite(val_value):
             continue
         lines.append(f"  {term:<7} {train_value:>10.4f} {val_value:>10.4f} "
@@ -620,7 +634,7 @@ def add_parts(sums, counts, parts):
             sums["L_struct"] += parts["L_struct"] * parts["n_present"]
         # D10, present branch only, gated the same way: NaN when no other stem
         # reached the loss (the state-loss subclasses).
-        for term in ("L_pres_w", "interf_share"):
+        for term in ("L_pres_w", "interf_share", "artif_share"):
             if not math.isnan(parts.get(term, float("nan"))):
                 sums[term] += parts[term] * parts["n_present"]
         counts["present"] += parts["n_present"]
@@ -693,6 +707,10 @@ def epoch_report(sums, counts, w, wm, wg):
                 if n_present and "L_pres_w" in sums else float("nan"))
     interf_share = (sums["interf_share"] / n_present
                     if n_present and "interf_share" in sums else float("nan"))
+    # The artefact share, logged at every w_artif so all four D10/AB-SDR runs
+    # carry it. 1 - interf_share - artif_share is the noise share.
+    artif_share = (sums["artif_share"] / n_present
+                   if n_present and "artif_share" in sums else float("nan"))
 
     # `total` deliberately EXCLUDES the state term. It is the number
     # ReduceLROnPlateau and the curve read, and the four terms above are what it
@@ -716,6 +734,7 @@ def epoch_report(sums, counts, w, wm, wg):
         # Both outside `total`, for the same reason as L_struct.
         "L_pres_w": L_pres_w,
         "interf_share": interf_share,
+        "artif_share": artif_share,
         "n_present": n_present,
         "n_absent": n_absent,
     }

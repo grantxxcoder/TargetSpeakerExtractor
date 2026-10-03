@@ -128,6 +128,11 @@ CODE = [
     # are staged by stage_init_weights(). decisions-m2.md 2026-10-02.
     "experiments/configs/bsrnn_interf_ft.yaml",
     "experiments/configs/bsrnn_interf_ft_control.yaml",
+    # 2026-10-03, AB-SDR. The artefact-weighted pair completing the 2x2 with the
+    # two above. No new source file: the term is inside losses.py and train.py,
+    # and the noise stem is recovered from the mixture. decisions-m2.md 2026-10-03.
+    "experiments/configs/bsrnn_artif_ft.yaml",
+    "experiments/configs/bsrnn_interf_artif_ft.yaml",
     "docs/run_times.md",   # src.run_log appends here; give it a real file
 ]
 

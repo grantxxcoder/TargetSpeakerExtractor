@@ -3892,3 +3892,51 @@ of those words) is NOT predicted to improve.
 
 **AI assistance:** the term, configs and code were built with Claude; the idea is
 D10 (2026-08-30) and Ochiai et al.'s decomposition. Declare on the SU form.
+
+## 2026-10-03 — AB-SDR REGISTERED before running: two artefact-weighted fine-tunes, completing a 2x2 with D10
+
+**What.** `L_pres` counts the ARTEFACT part of its error (what no source explains;
+BSS_EVAL, Vincent et al. 2006) `w_artif` times: AB-SDR, Ochiai et al. 2024 eq. 18,
+borrowed inside the floored SI-SDR. Noise stem recovered as mixture − target −
+other (exact; `dataset_loader._remix`). `src/models/losses.py::_artefact_part`,
+`tests/test_artefact_weight.py`. `w_artif = 1` is the D10 term exactly (tested).
+
+**Weight 4.0 = Ochiai's alpha 2** (multi-talker). Their alpha multiplies the error
+inside the norm, so it is alpha² as an energy weight (tested). **Correction:** D10's
+`w_interf = 2.0` is also an energy weight, alpha 1.41; the 2026-10-02 configs'
+"Ochiai's weight is 2.0" compared different conventions. Left unedited in those
+configs (they ran).
+
+**Why now.** D10 arm e5, judge 2026-10-03 (`gemini-3.7-flash`, audio-in, prompt
+`d118b7d3bf30`, one run, 103 calls, 0 failed) vs e21's three runs: LCF-WER 38.7 vs
+39.2–39.9; leaked share 18.3 vs 22.3–24.2 %; invented/trial 2.82 vs 2.12–2.33;
+FR@2 58.8 vs 45.1–49.0 %. Fewer leaked words, more invented ones. Control e5 not
+yet judged at registration.
+
+**Runs.** `bsrnn_artif_ft.yaml` (w_interf 1, w_artif 4) and
+`bsrnn_interf_artif_ft.yaml` (2, 4). Otherwise identical to the 2026-10-02 pair:
+e21 start (md5 `1dfca8f4…`), lr 1.25e-4, 6 epochs, seed 42, batch 3. ~4.8 h each
+(2,836–2,913 s/epoch measured on that pair).
+
+| | w_artif 1 | w_artif 4 |
+|---|---|---|
+| **w_interf 1** | control (2026-10-02) | `artif_ft` |
+| **w_interf 2** | `interf_ft` (2026-10-02) | `interf_artif_ft` |
+
+**Comparison rule, all four runs, fixed now.** Judge epoch 5 (the 6-epoch budget)
+as primary, epoch 3 secondary; same 103 `sir0_val` `both` clips, same judge,
+paired bootstrap over clips. NOT the probe-selected `model_sir0.pt`: the
+`small.en` probe moves 7–10 points epoch to epoch (2026-10-02 pair).
+Artefact effect = artif_ft − control and interf_artif_ft − interf_ft.
+
+**Prediction, each w_artif-4 run vs its w_artif-1 partner:** invented/trial and
+FR@2 fall; `artif_share` (logged, all four runs from now) lower; LCF-WER falls or
+holds.
+
+**Failure sign, watched not assumed:** leaked words RISE. Output that copies the
+mixture has no artefact, so the term can be met by passing more of the other
+speaker (Ochiai's own observation-adding; refuted for us as a post-process).
+Watch ICR@2 and mean leak in `artif_ft`; `interf_artif_ft` is the guard.
+
+**AI assistance:** term, configs and code built with Claude; the method is Ochiai
+et al.'s. Declare on the SU form.
