@@ -104,9 +104,11 @@ This section discusses the following ratios: Signal-to-Distortion Ratio (SDR), S
 \textup{SAR} = 10\log_{10} \dfrac{\lVert s_\textup{proj} + e_\textup{int}\rVert^2}{\lVert e_\textup{art}\rVert^2}
 \end{equation}
 which are all measured in decibels (dB) where the higher ratio means better extraction of the target from the other audio in question. When training the model, the Scale-Invariant Signal-to-Distortion Ratio (SI-SDR) introduced by Le Roux et al. \cite{leroux2019sisdr} is used as the loss function which takes inspiration from the SDR metric and was defined earlier in equation~\ref{eq:lpres}. 
+
 \subsection{Anchors}                                  
 \label{sec:anchors}
 % floor, ceiling, text floor, text ceiling; a bare score is meaningless
+The following terms are used to describe the lower and upperbounds of the results section. The floor references passing the full mixture audio, unprocessed to a listener, and the ceiling references passing a clean target audio to the listener. Simply put the floor is the worst-case scenario and simulates what a listener would hear if the system did nothing. The ceiling system is the best possible outcome, where there is perfect separation and the listener hears only the target audio. The floor and ceiling systems are not real systems, but rather reference points for the listener to compare against. These anchors are measured by passing the respective audio through the listener without interference from the extractor model and then are evaluated with the same metrics.
 
 \subsection{Reporting protocol}                       
 \label{sec:reporting}

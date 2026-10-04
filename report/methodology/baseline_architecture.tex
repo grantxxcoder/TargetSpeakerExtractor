@@ -246,7 +246,7 @@ Each term is averaged over the crops it applies to, and the two averages are
 weighted against one another:
 \begin{equation}
 L = (1 - w) \operatorname*{mean}_{\textup{target present}}
-      \\big[\, L_\textup{pres} + w_\textup{m} L_\textup{MR} + w_\textup{g} L_\textup{gain} \,\big]
+      \big[\, L_\textup{pres} + w_\textup{m} L_\textup{MR} + w_\textup{g} L_\textup{gain} \,\big]
   + w \operatorname*{mean}_{\textup{target absent}}
       \big[\, L_\textup{abs} \,\big].
 \label{eq:total}
@@ -273,7 +273,7 @@ This is done by evaluating on the output that does nothing at all, $\hat{s} = x$
  $$w_\textup{m} = \frac{0.3 \times |L_\textup{pres}|}{L_\textup{MR}} =  \frac{0.3 \times 5.9088}{0.1842} = 9.62$$
 
 \paragraph{Differences with the source objective.}
-The present and absent terms are inpsired from the CARTSE system \cite{li2026cartse}, the online-track submission whose task most closely matches this one, but they are slightly modified. Table~\ref{tab:loss-deviations} lists the differences. The first is the most consequential: as published, the floor in \eqref{eq:lpres} is taken on $\lVert s \rVert^2$ rather than on $\lVert s_\textup{proj} \rVert^2$, which breaks the scale invariance the term is built on. With that form, an output of the correct shape scaled by a gain $g$ scores better the louder it is made and it is not bounded. Flooring on the projection instead makes numerator and floor scale together, so the two cancel and the score is flat with respect to gain.
+The present and absent terms are inspired from the CARTSE system \cite{li2026cartse}, the online-track submission whose task most closely matches this one, but they are slightly modified. Table~\ref{tab:loss-deviations} lists the differences. The first is the most consequential: as published, the floor in \eqref{eq:lpres} is taken on $\lVert s \rVert^2$ rather than on $\lVert s_\textup{proj} \rVert^2$, which breaks the scale invariance the term is built on. With that form, an output of the correct shape scaled by a gain $g$ scores better the louder it is made and it is not bounded. Flooring on the projection instead makes numerator and floor scale together, so the two cancel and the score is flat with respect to gain.
 
 \begin{table}[H]
 \caption{Departures from the objective of \cite{li2026cartse} as published. Each is
