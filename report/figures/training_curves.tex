@@ -1,11 +1,11 @@
 % Training curves, baseline and extension. Drawn for this work by
 %   ../tse_venv/bin/python scripts/plot_training_curves.py --out report/figures/training_curves.pdf
-% from both runs' history.csv and every matching live-judge run (sir0_val, both, n=103).
-% PLACEHOLDER (2026-10-03): judge runs for baseline epochs 7 and 15 are queued;
-% re-run the command above when they finish and they appear in the bottom-left panel.
+% from both runs' history.csv and every matching live-judge and Whisper small.en run
+% (sir0_val, both, n=103). Baseline epochs 7 and 15 have Whisper scores only (2026-10-03);
+% a judge run on either appears in the bottom-left panel on re-running the command above.
 \begin{figure}[htbp]
   \centering
   \includegraphics[width=\textwidth]{figures/training_curves.pdf}
-  \caption{Training (dashed) and validation (solid) scores per epoch, counted from zero, for the baseline (left) and the extension (right). Top: target-present loss, the first bracket of \autoref{eq:total} (lower is better). Middle: output level on target-absent clips relative to the mixture, $L_\textup{abs}$ (lower is quieter); the dotted line is the \SI{-10}{dB} silence bar, and shaded epochs fail it. Bottom: word error rate on the 103 validation trials with both speakers present (lower is better). Each diamond is one run of the live judge on the same audio, labelled with the mean of the runs at that epoch; the grey line is the in-training Whisper \texttt{small.en} check on 40 validation clips, which was not run for the baseline. The solid vertical line marks the chosen epoch, the blue dashed line the extension's lowest validation loss, and the grey dotted line where the extension's training resumed in a second session.}
+  \caption{Training (dashed) and validation (solid) scores per epoch, counted from zero, for the baseline (left) and the extension (right). Top: target-present loss, the first bracket of \autoref{eq:total} (lower is better). Middle: output level on target-absent clips relative to the mixture, $L_\textup{abs}$ (lower is quieter); the dotted line is the \SI{-10}{dB} silence bar, and shaded epochs fail it. Bottom: word error rate on the 103 validation trials with both speakers present (lower is better). Each filled diamond is one run of the live judge on the same audio, labelled with the mean of the runs at that epoch; each hollow diamond is Whisper \texttt{small.en} scoring that saved epoch on the same 103 trials; the grey line is the in-training Whisper \texttt{small.en} check on 40 validation clips, which was not run for the baseline. The solid vertical line marks the chosen epoch, the blue dashed line the extension's lowest validation loss, and the grey dotted line where the extension's training resumed in a second session.}
   \label{fig:training_curves}
 \end{figure}

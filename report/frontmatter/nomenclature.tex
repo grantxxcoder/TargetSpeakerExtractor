@@ -1,13 +1,15 @@
-\chapter*{Nomenclature}
-\addcontentsline{toc}{chapter}{Nomenclature}
+\section*{Nomenclature}
+\phantomsection
+\addcontentsline{toc}{section}{Nomenclature}
 
 % Abbreviations used in the text. Add rows as they are introduced.
-\section*{Abbreviations}
+\subsection*{Abbreviations}
 \begin{longtable}[l]{@{}ll@{}}
 AMI & Augmented multi-party interaction \\
 ASR  & Automatic speech recognition \\
 BAK & Background intrusiveness (DNSMOS P.835 sub-score) \\
 BSRNN & Band-split recurrent neural network \\
+CARTSE & CARTSE: Li and Seki's online REAL-TSE system \cite{li2026cartse} \\
 DNSMOS & Deep noise suppression mean opinion score \\
 EQ & Equalisation \\
 FR & Fabrication rate \\
@@ -43,9 +45,9 @@ WER   & Word error rate \\
 % paper (Li and Seki, 2026, CyberAgent system description). Either confirm the
 % expansion and add a row, or keep it as a bare system name.
 
-\section*{Symbols}
+\subsection*{Symbols}
 
-\subsection*{Signals and transcriptions}
+\subsubsection*{Signals and transcriptions}
 \begin{longtable}[l]{@{}ll@{}}
 $x$ & Mixture signal \\
 $s$ & Target reference signal \\
@@ -55,7 +57,7 @@ $y_{(\cdot)}$ & Transcription of the subscripted signal \\
 $y^\star_s$ & Ground-truth LibriSpeech transcription of the target \\
 \end{longtable}
 
-\subsection*{Model and objective}
+\subsubsection*{Model and objective}
 \begin{longtable}[l]{@{}ll@{}}
 $X$, $X_t$ & STFT of the mixture; frame $t$ of it \\
 $X_e$, $x_e$ & STFT of the enrollment; the enrollment waveform \\
@@ -70,9 +72,9 @@ $c_t$, $r_t$ & Similarity of $|X_t|$ to $u_t$; residual $|X_t| - m_t u_t$ \\
 $M$, $R$ & Complex mask; residual spectrogram \\
 $\alpha$, $s_\textup{proj}$ & Gain of the output along the target; $\alpha s$ \\
 $e_\textup{int}$, $e_\textup{art}$ & Interference (other speaker and noise); artefact \\
-$d^{\perp}$, $e_d$ & $d$ with its target-like part removed; the part of $\hat{s}$ along $d^{\perp}$ \\
+% $d^{\perp}$, $e_d$ & $d$ with its target-like part removed; the part of $\hat{s}$ along $d^{\perp}$ \\  % REMOVED with the hail-mary loss, todo 2
 $L_\textup{pres}$, $L_\textup{MR}$, $L_\textup{gain}$, $L_\textup{abs}$ & Loss terms \\
-$w$, $w_\textup{m}$, $w_\textup{g}$, $\lambda$ & Loss weights \\
+$w$, $w_\textup{m}$, $w_\textup{g}$ & Loss weights \\  % lambda removed with the hail-mary loss, todo 2
 $\tau_\textup{pres}$, $\tau_\textup{abs}$ & Floors of $L_\textup{pres}$ ($10^{-3}$) and $L_\textup{abs}$ ($10^{-2}$) \\
 \end{longtable}
 

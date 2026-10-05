@@ -10,9 +10,11 @@ Rows share y, columns share x (never a twin y-axis -- the rows have different un
           present_branch` ranks on. Training dashed, validation solid.
   middle  L_abs, output level on target-absent crops relative to the mixture
           (dB), with the silence bar `select_abs_max`. Epochs failing it shaded.
-  bottom  word error rate on sir0_val `both` (n=103): one diamond per live-judge
-          run, labelled with the epoch's mean; the extension's in-training
-          Whisper probe (40 clips) as a grey line. The baseline had no probe.
+  bottom  word error rate on sir0_val `both` (n=103): one filled diamond per
+          live-judge run, labelled with the epoch's mean; one hollow diamond per
+          Whisper small.en evaluation of a saved epoch (same 103 trials,
+          deterministic, so one run); the extension's in-training Whisper probe
+          (40 clips) as a grey line. The baseline had no probe.
 
 w_m, w_g and the silence bar are read from each run's own config copy, never
 typed in here. The baseline's chosen epoch is recomputed (pass the bar, then
@@ -20,10 +22,10 @@ lowest target-present loss) and checked against results.json `best_val`. The
 extension's is given: it was chosen on the judge, not by training
 (decisions-m2.md 2026-09-26).
 
-Judge results are FOUND, not listed by value: any results.json matching a run's
-patterns is plotted, after checking it is sir0_val / both / 103 trials. So
-re-running this after a new judge run adds it -- the baseline epochs 7 and 15
-queued 2026-10-03 appear without editing this file.
+Judge and Whisper results are FOUND, not listed by value: any results.json
+matching a run's patterns is plotted, after checking it is sir0_val / both / 103
+trials (and, for Whisper, that small.en scored it). So re-running this after a
+new evaluation adds it without editing this file.
 """
 
 from __future__ import annotations
@@ -61,7 +63,7 @@ MINUS = "−"
 ROOT = Path(__file__).resolve().parents[1]
 RES = ROOT / "experiments/results"
 
-# The figure's inputs. `judge` maps epoch -> glob patterns under RES.
+# The figure's inputs. `judge` and `whisper` map epoch -> glob patterns under RES.
 RUNS = {
     "Baseline": {
         "history": ["2026-09-04-train-sir0-10000"],
@@ -73,6 +75,11 @@ RUNS = {
             7: ["*-eval-10000-e7-judge*"],
             15: ["*-eval-10000-e15-judge*"],
         },
+        "whisper": {
+            6: ["2026-09-04-train-sir0-10000"],   # the run's own end-of-training eval
+            7: ["*-eval-10000-e7-asr"],
+            15: ["*-eval-10000-e15-asr"],
+        },
     },
     "Extension": {
         "history": ["2026-09-24-train-sir0-cuecontext-wer",
@@ -83,6 +90,7 @@ RUNS = {
         "judge": {e: [f"*-eval-cuecontext-wer-e{e}-judge",
                       f"*-eval-cuecontext-wer-e{e}-judge-r*"]
                   for e in (13, 15, 18, 21, 27)},
+        "whisper": {e: [f"*-eval-cuecontext-wer-e{e}-asr"] for e in (13, 15, 18, 21, 27)},
     },
 }
 
@@ -125,13 +133,16 @@ def recompute_choice(rows, config, run_dir):
     return int(best["epoch"])
 
 
-def judge_runs(patterns):
-    """LCF-WER of every matching judge run, checked to be the headline set."""
+def scored_runs(patterns, listener=None):
+    """LCF-WER of every matching run, checked to be the headline set and, if
+    `listener` is given, to have been scored by it."""
     values = []
     for d in sorted({p for pattern in patterns for p in RES.glob(pattern)}):
         results = json.loads((d / "results.json").read_text())
         if (results["split"], results["condition"], results["n_trials"]) != ("sir0_val", "both", 103):
             raise SystemExit(f"{d.name} is not sir0_val / both / 103")
+        if listener is not None and listener not in results["provenance"].get("listener", ""):
+            raise SystemExit(f"{d.name} was not scored by {listener}")
         values.append(float(results["systems"]["estimate"]["lcf_wer"]))
     return values
 
@@ -145,8 +156,9 @@ def load(name, spec):
             raise SystemExit(f"{name}: sessions disagree on the loss config")
     config = configs[0]
     chosen = spec["chosen"] if spec["chosen"] is not None else recompute_choice(rows, config, run_dirs[0])
-    judged = {e: v for e, p in spec["judge"].items() if (v := judge_runs(p))}
-    return rows, config, chosen, judged
+    judged = {e: v for e, p in spec["judge"].items() if (v := scored_runs(p))}
+    whispered = {e: v[0] for e, p in spec["whisper"].items() if (v := scored_runs(p, "small.en"))}
+    return rows, config, chosen, judged, whispered
 
 
 def main():
@@ -165,7 +177,7 @@ def main():
                              sharex="col", gridspec_kw={"hspace": 0.15, "wspace": 0.08,
                                                         "width_ratios": widths})
     for col, (name, spec) in enumerate(RUNS.items()):
-        rows, config, chosen, judged = loaded[name]
+        rows, config, chosen, judged, whispered = loaded[name]
         bar = float(config["training"]["select_abs_max"])
         ep = [int(r["epoch"]) for r in rows]
         val_pb = [present_branch(r, "val_", config) for r in rows]
@@ -212,21 +224,35 @@ def main():
             bot.text(0.97, 0.97, "Whisper not run during\nbaseline training",
                      transform=bot.transAxes, ha="right", va="top", fontsize=7, color=MUTED)
         epochs_judged = sorted(judged)
+        scored = sorted(set(judged) | set(whispered))
+
+        def label_left(e):
+            later = [k for k in scored if k > e]
+            return e == ep[-1] or bool(later and later[0] - e < 3)
+
         for e in epochs_judged:
             values = judged[e]
             bot.plot([e] * len(values), values, "D", color=ACCENT2, ms=4.5, mew=0,
                      alpha=0.9, zorder=4)
-            later = [k for k in epochs_judged if k > e]
-            left = e == ep[-1] or (later and later[0] - e < 3)
+            left = label_left(e)
             bot.text(e + (-0.6 if left else 0.6), mean(values), f"{mean(values):.1f}",
                      ha="right" if left else "left", va="center", fontsize=7, color=INK)
+        for e, value in sorted(whispered.items()):
+            bot.plot(e, value, "D", ms=4.5, mfc="none", mec=MUTED, mew=0.9, zorder=5)
+            # Opposite side to this epoch's Gemini label only when the two would touch.
+            near = e in judged and abs(mean(judged[e]) - value) < 8
+            left = label_left(e) != near
+            bot.text(e + (-0.6 if left else 0.6), value, f"{value:.1f}",
+                     ha="right" if left else "left", va="center", fontsize=7, color=MUTED,
+                     bbox={"boxstyle": "square,pad=0.1", "fc": "white", "ec": "none"}, zorder=4)
 
         bot.set_xlabel("Epoch")
         bot.xaxis.set_major_locator(MultipleLocator(2 if len(ep) <= 16 else 4))
         bot.xaxis.set_minor_locator(MultipleLocator(1))
         bot.set_xlim(ep[0] - 0.5, ep[-1] + 0.5)
         print(f"{name}: chosen {chosen}, judged "
-              + ", ".join(f"e{e} {[round(v, 2) for v in judged[e]]}" for e in epochs_judged))
+              + ", ".join(f"e{e} {[round(v, 2) for v in judged[e]]}" for e in epochs_judged)
+              + "; Whisper " + ", ".join(f"e{e} {v:.2f}" for e, v in sorted(whispered.items())))
 
     axes[2, 0].set_ylim(15, 80)
     axes[0, 0].set_ylabel("Target-present loss\n(lower is better)")
@@ -235,10 +261,12 @@ def main():
     fig.legend(handles=[Line2D([], [], color=INK, ls="-", marker="o", ms=2.6, lw=1.3),
                         Line2D([], [], color=INK, ls="--", lw=1.1),
                         Line2D([], [], color=MUTED, lw=0.9),
-                        Line2D([], [], color=ACCENT2, ls="none", marker="D", ms=4.5, mew=0)],
+                        Line2D([], [], color=ACCENT2, ls="none", marker="D", ms=4.5, mew=0),
+                        Line2D([], [], ls="none", marker="D", ms=4.5, mfc="none", mec=MUTED,
+                               mew=0.9)],
                labels=["Validation", "Training", "Whisper in training (40 clips)",
-                       "Gemini, one per run (103 trials)"],
-               loc="upper center", bbox_to_anchor=(0.5, 0.035), ncol=4, frameon=False,
+                       "Gemini, one per run (103 trials)", "Whisper, saved epoch (103 trials)"],
+               loc="upper center", bbox_to_anchor=(0.5, 0.035), ncol=3, frameon=False,
                handlelength=2.2, columnspacing=1.4)
     fig.align_ylabels(axes[:, 0])
 

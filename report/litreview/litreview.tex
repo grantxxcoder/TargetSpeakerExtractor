@@ -1,8 +1,8 @@
-\chapter{Literature Review}
-\label{ch:litreview}
+\section{Literature Review}
+\label{sec:litreview}
 
 % TODO
-\section{Target speaker extraction}
+\subsection{Target speaker extraction}
 \label{sec:tse}
 
 Target speech extraction (TSE) is already a well establish task in the speech processing literature. With the introduction of listening devices such as meeting transcription systems, hearing aids, and smart speakers, these devices benefit from the ability for more robust speech recognition in the presence of background noise and competing speakers. The main idea behind the task is best described by Cherry's cocktail party problem \cite{cherry1953cocktail}. Human's have the inate ability to focus on a single speaker in noisy environments, and using various indicators such as visual, spatial, and acoustic cues, human's can understand the speech of a target speaker while ignoring other speakers. The survey done by \v{Z}mol\'{i}kov\'{a} et al. \cite{zmolikova2023overview} provides a comprehensive overview of the task, differentiating between three main tasks: target speaker extraction, blind source separation, and noise suppression. In this work, the focus is on target speaker extraction using only voice samples as an acoustic cue.
@@ -14,7 +14,7 @@ Target speech extraction (TSE) is already a well establish task in the speech pr
 % paragraph 4
 The intention behind the TSE task is to be able to deploy a system into a real-world scenario. However due to the variability in the scenarios that a TSE system may be deployed in, a system must not necessarily be trained to only extract a speaker from among a noisy environment of other speakers. The survey by \v{Z}mol\'{i}kov\'{a} et al. \cite{zmolikova2023overview} in 2023 highlights the gap that many TSE systems are not trained to go silent when the target speaker is not present, which is a seperate task to extraction. The systems have thus assumed to always have a target present in the mixture, which confounds the model to assume that the target speaker is present whenever the mixture is processed. Another issue raised by \v{Z}mol\'{i}kov\'{a} et al. \cite{zmolikova2023overview} is that the use of signal level metrics such as signal-to-distortion ratio (SDR) are indicative of the ability of the model to extract speech, but \textit{(i)} it does not correlate with audible quality from the perspective of a human listener, and \textit{(ii)} it does not reflect the ability of the model to select or identify a target speaker as an evaluation metric. Among other issues, the a final point to raise that is included in the survey is that TSE systems are being moved to low latency streaming setups. Thus it is important to consider lightweight architectures that can be deployed in real-time scenarios. 
 
-\section{Streaming separation}
+\subsection{Streaming separation}
 \label{sec:streaming}
 Separation models work with either a raw waveform or on a spectrogram. Some architectures such as Conv-TasNet \cite{luo2019convtasnet} favoured for waveform with the reasoning that calculating a spectrogram contributes to the latency of the system. However, Yu et al. adapted a Band-Split RNN (BSRNN) architecture originally designed for music as an offline model \cite{luo2023music} to speech enhancement tasks with an online configuration \cite{yu2023high} which \v{Z}mol\'{i}kov\'{a} et al. \cite{zmolikova2023overview} list as another name for TSE. Yu et al. found that their online implementation ran faster than real-time on an Intel i5 CPU.
 
@@ -23,7 +23,7 @@ TSE systems must work frame by frame, or chunk by chunk. The REAL-TSE challenge 
 A concern about streaming is that it makes it harder to identify the target speaker. As found in the survey by \v{Z}mol\'{i}kov\'{a} et al. \cite{zmolikova2023overview}, typical TSE systems use the entire context of an audio clip to identify the target speaker. However, in a streaming scenario, the system must identify quite quickly speaker identity. Finally in this work, the assumption that a \SIrange{200}{300}{\milli\second} budget is sufficient that reflects a conversational use case. 
 
 
-\section{How extraction is evaluated}
+\subsection{How extraction is evaluated}
 \label{sec:evaluation}
 When making use of signal based metrics, practitioners are often required to use simulated data. This is because a clean reference signal is required for comparison against the model output. By nature it is quite difficult to obtain perfectly clean speech in a real-world scenario. Popular resources to use for simulated mixtures include Libri2Mix \cite{cosentino2020librimix} and WSJ0-2mix \cite{hershey2016deep}. Thus the first issue related to evaluation is the translation of performance on simulated data to real-world data. Zhang et al. \cite{zhang2021closing} show that there is not necessarily a direct translation in performance: in multi-channel speech enhancement, the model with the best signal-to-distortion ratio (SDR) on simulated data more than doubled its word error rate (WER) compared of the unprocessed input on real recordings from 19.5\,\% to 41.5\,\%. Signal scores also fail in the following manner for TSE: \textit{(i)} extracting a wrong speaker can still yield a low signal score due to similarities in speech, and \textit{(ii)} a silent target leaves the score undefined.
 
@@ -31,7 +31,7 @@ A natural guess to evaluate the performance of a TSE system is to suggest using 
 
 The next progression would be to transcribe the audio and compare it against a ground truth transcription. The standard approach is to use the simple word error rate (WER) metric. However, this metric hides nuance in the failure of an extractor. Recognisers are hurt by the distortions of the extractor rather than by leftover noise left in the audio \cite{iwamoto2022bad} and secondly, a different recogniser may have different performance on the same audio. This leads into the shortcomings of WER as a metric for TSE. Suppose a word is heard from the interfering speaker, and secondly another word that neither speaker said and was invented, both can appear in the metric as a substitution or an insertion error. Finally the WER is only defined if there is target speech present.
 
-\section{Speech LLMs as listeners and judges}
+\subsection{Speech LLMs as listeners and judges}
 \label{sec:llms}
 It is not a novel idea to make use of large language models (LLMs) to evaluate the quality of speech. In fact, Manakul et al. \cite{manakul2026audiojudge} found that large audio models (LAMs), which are LLMs that accept audio as input, are able to rank speech systems similarly to human raters. However, for tasks related to measuring speaking rate or speaker identity tasks, the performance of these models is poor and often are close to random chance. The authors also found that these established LAMs that they tested are robust against noise and are more reliable on lexical content as opposed to non-lexical content.
 
