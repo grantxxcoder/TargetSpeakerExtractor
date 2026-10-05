@@ -227,7 +227,7 @@ model amplified the mixture, which is a direct failure. The inclusion of the den
 
 
 \paragraph{Output level.}
-$L_\textup{pres}$ is scale-invariant and $L_\textup{abs}$ rewards silence, leaving a gap in the training that would otherwise allow a model to simply mute its output. This gap is filled by the third term, which ensures that the model does the following: \textit{(i)} prevents the undiscriminatory output of silence, and \textit{(ii)} ensures a reasonable level of output. A third present-branch term creates a bound for the allowed output level against the target's, with a dead zone of $\pm\delta$:
+$L_\textup{pres}$ is scale-invariant and $L_\textup{abs}$ rewards silence, leaving a gap in the training that would otherwise allow a model to simply mute its output. This gap is filled by the third term, which ensures that the model does the following: \textit{(i)} prevents the indiscriminate output of silence, and \textit{(ii)} ensures a reasonable level of output. It bounds the output level against the target's, with a dead zone of $\pm\delta$:
 \begin{equation}
 L_\textup{gain} = \max\!\Big(0,\ \Big|\, 20 \log_{10} \frac{\operatorname{rms}(\hat{s})}{\operatorname{rms}(s)} \Big| - \delta \Big),
 \qquad \delta = \SI{3}{dB}.
@@ -261,7 +261,12 @@ against this rather than relying on the labels agreeing.
 
 \paragraph{Weights.} 
 
-The weight $w$ on the silent branch is derived rather than chosen. Silent crops make up a measured \num{0.297} of the training crops, and the objective is intended to weight silence at twice its frequency in the data, following \cite{li2026cartse}. Carrying that through gives $w = 0.458$.
+The weight $w$ on the silent branch is derived rather than chosen. Silent crops make up a measured \num{0.297} of the training crops and, following \cite{li2026cartse}, each silent crop is counted twice ($\eta = 2$). The present branch then carries $1 - p = 0.703$ and the absent branch $\eta p = 0.594$, and normalising the two to sum to one gives
+  \begin{equation*}
+  w = \frac{\eta p}{(1 - p) + \eta p} = \frac{0.594}{1.297} = 0.458 .
+  \end{equation*}
+
+
 
 The weight $w_\textup{m}$ on the spectral term is derived from the target present and absent losses. The reason for this term is  equations~\eqref{eq:lpres} and \eqref{eq:lmr} are in different units. $L_\textup{pres}$ is in units with respect to a ratio in decibels, and $L_\textup{MR}$ is the mean absolute difference between compressed magnitudes. Therefore the weighting term $w_\textup{m}$ will reconcile the two terms to be on the same scale.
 This is done by evaluating on the output that does nothing at all, $\hat{s} = x$, over 300 training crops which will simulate the scenario for the average losses for an untrained model. The median values for $L_\textup{pres}$ and $L_\textup{MR}$ are \num{-5.91} and \num{0.184} respectively. The aim is for the spectral term (Multi-Resolution) to be roughly \SI{30}{\percent} of the present branch at the start of training. The calculation then becomes  

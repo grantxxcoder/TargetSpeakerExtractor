@@ -29,7 +29,7 @@ If no words are audible, leave the transcript empty and set status to no_speech.
     In-loop transcriber    & \texttt{faster-whisper} 1.2.1, \texttt{small.en}, int8 quantisation, greedy decoding; training-time checkpoint shortlisting only \\
     Word error rate        & \texttt{jiwer} 4.0.0 \cite{jiwer} \\
     Stopword list          & \texttt{NLTK} English stopwords \cite{bird2009nltk}, snapshotted into the source tree so the list cannot change with a library upgrade \\
-    Judge model            & \emph{to be recorded} \\
+    Judge model            & \texttt{gemini-3.7-flash} \\
     Random seed            & 42 \\
     \bottomrule
   \end{tabularx}
