@@ -1,7 +1,7 @@
 % Block diagram of the extractor as implemented. Drawn for this work.
 % Provenance is stated per component in the caption, not wholesale: the diagram
-% is not a redraw of any published figure -- the causal time path, the lookahead
-% shift and the third input channel do not appear in one.
+% is not a redraw of any published figure -- the causal time path and the third
+% input channel do not appear in one.
 %
 % Requires, in the preamble: \usetikzlibrary{arrows.meta,positioning,calc,backgrounds}
 \begin{figure}[htbp]
@@ -39,11 +39,10 @@
   \node[block] (split) at (3.5,-7.2)  {band split\\[-1pt] \scriptsize 32 bands over 257 bins};
   \node[block] (norm)  at (3.5,-8.7)  {per-band norm $+$ $1{\times}1$ projection\\[-1pt] \scriptsize to $N=128$};
   \node[block] (bsnet) at (3.5,-10.4) {time LSTM \emph{(causal)}\\[-1pt] $\to$ band LSTM \emph{(bidirectional)}};
-  \node[ours]  (look)  at (3.5,-12.1) {lookahead shift\\[-1pt] \scriptsize $k$ frames, $k=0\ldots16$};
-  \node[block] (est)   at (3.5,-13.6) {per-band MLP\\[-1pt] \scriptsize complex mask $M$ $+$ residual $R$};
-  \node[block] (apply) at (3.5,-15.1) {$\hat{S} = M \otimes X + R$};
-  \node[block] (istft) at (3.5,-16.6) {inverse STFT};
-  \node[sig]   (out)   at (3.5,-17.8) {estimate $\hat{s}$};
+  \node[block] (est)   at (3.5,-12.1) {per-band MLP\\[-1pt] \scriptsize complex mask $M$ $+$ residual $R$};
+  \node[block] (apply) at (3.5,-13.6) {$\hat{S} = M \otimes X + R$};
+  \node[block] (istft) at (3.5,-15.1) {inverse STFT};
+  \node[sig]   (out)   at (3.5,-16.3) {estimate $\hat{s}$};
 
   % Six identical blocks, drawn as a stack rather than annotated with an arrow:
   % offset copies on the background layer sit behind the front block.
@@ -66,8 +65,7 @@
   \draw[arr] (cat) -- (split);
   \draw[arr] (split) -- (norm);
   \draw[arr] (norm) -- (bsnet);
-  \draw[arr] (bsnet) -- (look);
-  \draw[arr] (look) -- (est);
+  \draw[arr] (bsnet) -- (est);
   \draw[arr] (est) -- (apply);
   \draw[arr] (apply) -- (istft);
   \draw[arr] (istft) -- (out);
@@ -84,13 +82,13 @@
         {complex\\mixture\\bands};
 
   % ---------- legend -------------------------------------------------------
-  \node[note] at (3.5,-18.5) {\emph{dashed}: added in this work};
+  \node[note] at (3.5,-17.0) {\emph{dashed}: added in this work};
 
 \end{tikzpicture}
 \caption{The extractor as implemented. Band splitting and the interleaved
 band-level and sequence-level modelling follow \cite{luo2023music}; the
 mask-plus-residual estimator follows \cite{yu2023high}; TF-Map conditioning
-follows \cite{zhang2025multi}. The causal time path, the lookahead shift and the
-third input channel are this work's.}
+follows \cite{zhang2025multi}. The causal time path and the third input channel
+are this work's.}
 \label{fig:baseline-architecture}
 \end{figure}
