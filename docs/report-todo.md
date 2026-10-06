@@ -3,6 +3,23 @@
 Submission **2026-11-05** (37 days). Supersedes the 2026-09-07 list (in git history).
 `file:line` = `report/…`. **NB** = an examiner will catch it, or a claim is wrong.
 
+## 0. PARKED until the other sections are done (2026-10-06): "Why the metric is needed"
+
+The intro (done 2026-10-05) promises both of these. Write them when the section pass reaches them.
+
+- **Experiments → new subsection "Testing the metric"** (`exp:metric_tests`, after Evaluation setup). No numbers.
+  Question: does the split, or the live model vs an offline transcriber, change a decision? Test 1: mask sharpening
+  (hysteresis post-processing, no retraining; settings no change / mild 1.4-0.6-0.2 / sharp 1.5-0.5-0.0; baseline e6
+  and WeSep; cite Canny 1986, Bregman 1990). Test 2: 5-epoch fine-tunes of e21 with leak weight / artefact weight
+  (Ochiai 2024) / both vs control, registered before running. Listeners: Gemini + Whisper `small.en`, 103 `sir0_val`
+  `both` clips, paired bootstrap 10,000 draws, seed 42, Holm.
+- **Results → new FIRST subsection "Why the metric is needed"** (`sec:results_metric`, before Content fidelity).
+  Same WER, different leak (#17); Whisper misprices it (#18); training changes swap errors (D10, AB-SDR); takeaway.
+  Numbers: evidence block at the bottom of this file + `experiments/results/2026-10-03-bootstrap-interf-ft/`.
+- **Before writing:** add Canny 1986 + Bregman 1990 to the bib; note that the control row is baseline e6's own output
+  (judge 51.51 on 09-21 vs Table 5.1's 55.18 three-run mean, same audio); one judge run per arm (Limitations);
+  retractions below still apply; #17/#18 still need a `decisions-m4.md` entry (audio + code on `m5-listener-panel` b7c54f2).
+
 ## 1. NB — wrong or unsafe claims currently in the report
 
 - [ ] **Judge "held out of training" is false.** `experiments/setup.tex:30`. Rule

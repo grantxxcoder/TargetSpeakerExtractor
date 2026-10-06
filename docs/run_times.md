@@ -20,6 +20,7 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
+| 2026-10-06 | AMI audio download (wget, `data/raw/ami/meetings.txt`) | 60 meetings x (Array1-01 + 4 headsets), 299 files, 17 GB | 36.5 min | ~7.7 MB/s. Added by hand. |
 | 2026-10-03 | `experiments/results/2026-10-03-bootstrap-interf-ft/bootstrap_2x2.py --epochs 5` | 4 systems x 103 clips rebuilt from the judge cache (no API calls), 6 contrasts x 6 metrics, 10,000 paired draws, 2 passes | 4.2 min | cpu; includes VAD load. Ran alongside the user's eval_artif.sh. Added by hand: not a `run_log.py` script |
 | 2026-10-03 | `scripts/make_kaggle_bundle.py --split sir0 --code-only --no-teacher` + 3 `--verify-config` (artif_ft, interf_artif_ft, interf_artif_scratch) | 35 code files, e21 init weights, 110 MB zip | 2.1 min | laptop. Added by hand: the script does not use `run_log.timed`. |
 | 2026-10-03 | inline faster-whisper timing, small.en vs medium.en | 12 e21 estimates (213 s audio), cpu int8, probe decode; 1 warm-up clip untimed | ~3 min | small.en 4.14 s/clip (load 1.4 s), medium.en 9.31 s/clip (load 19.9 s), ratio 2.25. Wall summed from the script's own timings, not clocked. Added by hand. |

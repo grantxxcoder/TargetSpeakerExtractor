@@ -1,0 +1,52 @@
+# AMI real-audio transfer set (secondary eval). EVAL ONLY: never trained on,
+# filtered on, or used to pick a checkpoint. Scored once, with frozen systems.
+#
+# Source: AMI Meeting Corpus (Carletta et al., 2005), CC BY 4.0.
+# Construction borrowed from REAL-T (Li et al., Interspeech 2025): real
+# overlapping segments as mixtures, same-speaker solo segments as enrolment.
+# Differences from REAL-T: two active speakers only (decisions-m0.md
+# 2026-08-14), enrolment from a DIFFERENT meeting, scored by the LCF judge.
+#
+# Ceiling is APPROXIMATE: the target's headset (IHM) carries cross-talk bleed
+# and a different channel response from the table mic. Never ground truth.
+
+seed: 42
+n_trials: 300
+
+annotations: data/raw/ami/annotations      # ami_public_manual_1.6.2
+audio: data/raw/ami/amicorpus              # <meeting>/audio/<meeting>.<channel>.wav
+
+channels:
+  mixture: Array1-01                       # one table-mic channel (SDM)
+  ceiling: headset                         # target's IHM, approximate
+  interferer: headset                      # interferer's IHM
+  enrollment: headset                      # target's IHM, sibling meeting
+
+# Groups: 5 per recording site, seeded draw from complete 4-meeting scenario
+# groups with >= 20 usable windows (counted from annotations, 2026-10-06).
+groups:
+  ES: [ES2002, ES2003, ES2005, ES2007, ES2015]   # Edinburgh
+  IS: [IS1000, IS1001, IS1003, IS1004, IS1009]   # IDIAP
+  TS: [TS3003, TS3004, TS3010, TS3011, TS3012]   # TNO
+trials_per_group: 20                       # ES2005 has 19 usable; shortfall topped up from other groups, seeded
+no_trials_from: [IS1003b]                  # Array1-01 missing on the server (404); enrolment source only
+
+window:
+  min_s: 10.0
+  max_s: 20.0
+  exactly_two_active: true                 # every other participant silent, vocal sounds included
+  min_words_each: 5                        # both speakers, so either can be the target
+  edge_silence_s: 0.3                      # cut only inside an all-silent gap of >= this
+  drop_if_marked: [gap, transformerror]    # transcriber "unclear" marks
+  target_choice: random                    # one direction per window, seeded
+
+enrollment:
+  min_s: 5.0
+  from: sibling_meeting                    # same group, different meeting
+  match_on: global_name                    # NXT letters A-D are not stable across meetings
+  solo: true                               # only the target active
+
+text:
+  strip: [punctuation_tokens, markup]      # everything else left to the pinned normaliser (B5)
+
+level_match: true                          # one gain on the table mic to the constructed sets' loudness; logged per trial
