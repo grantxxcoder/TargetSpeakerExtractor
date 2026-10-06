@@ -1,13 +1,15 @@
-\chapter*{Nomenclature}
-\addcontentsline{toc}{chapter}{Nomenclature}
+\section*{Nomenclature}
+\phantomsection
+\addcontentsline{toc}{section}{Nomenclature}
 
 % Abbreviations used in the text. Add rows as they are introduced.
-\section*{Abbreviations}
+\subsection*{Abbreviations}
 \begin{longtable}[l]{@{}ll@{}}
 AMI & Augmented multi-party interaction \\
 ASR  & Automatic speech recognition \\
 BAK & Background intrusiveness (DNSMOS P.835 sub-score) \\
 BSRNN & Band-split recurrent neural network \\
+CARTSE & Li and Seki's online REAL-TSE system \cite{li2026cartse} \\
 DNSMOS & Deep noise suppression mean opinion score \\
 EQ & Equalisation \\
 FR & Fabrication rate \\
@@ -24,6 +26,7 @@ NLTK & Natural Language Toolkit \\
 OVRL & Overall quality (DNSMOS P.835 sub-score) \\
 REAL-TSE & Real-world target speaker extraction (challenge) \\
 RIR & Room impulse response \\
+RTF & Real-time factor \\
 SAR & Signal-to-artefacts ratio \\
 SDR & Signal-to-distortion ratio \\
 SIG & Speech signal quality (DNSMOS P.835 sub-score) \\
@@ -38,13 +41,11 @@ VAD & Voice activity detection \\
 WER   & Word error rate \\
 \end{longtable}
 
-% TODO: CARTSE is used in the text but its expansion is not given in the source
-% paper (Li and Seki, 2026, CyberAgent system description). Either confirm the
-% expansion and add a row, or keep it as a bare system name.
 
-\section*{Symbols}
 
-\subsection*{Signals and transcriptions}
+\subsection*{Symbols}
+
+\subsubsection*{Signals and transcriptions}
 \begin{longtable}[l]{@{}ll@{}}
 $x$ & Mixture signal \\
 $s$ & Target reference signal \\
@@ -52,5 +53,26 @@ $\hat{s}$ & Model output, the estimated target \\
 $d$ & Interfering speech signal \\
 $y_{(\cdot)}$ & Transcription of the subscripted signal \\
 $y^\star_s$ & Ground-truth LibriSpeech transcription of the target \\
+\end{longtable}
+
+\subsubsection*{Model and objective}
+\begin{longtable}[l]{@{}ll@{}}
+$X$, $X_t$ & STFT of the mixture; frame $t$ of it \\
+$X_e$, $x_e$ & STFT of the enrollment; the enrollment waveform \\
+$S$, $\hat{S}$ & STFT of the target; of the model output \\
+$N$, $H$, $h[n]$ & STFT window length, hop and window function \\
+$\tilde{x}_t$, $\tilde{e}_j$ & Unit-length mixture frame; unit-length enrollment frame \\
+$C_{t,j}$ & Cosine similarity of mixture frame $t$ and enrollment frame $j$ \\
+$A_{t,j}$ & Softmax weight of enrollment frame $j$ for mixture frame $t$ \\
+$\mu_t$, $u_t$ & Blended enrollment template; its unit-length direction \\
+$m_t$, $\phi_t$ & Projection of $|X_t|$ onto $u_t$; the baseline cue $m_t u_t$ \\
+$c_t$, $r_t$ & Similarity of $|X_t|$ to $u_t$; residual $|X_t| - m_t u_t$ \\
+$M$, $R$ & Complex mask; residual spectrogram \\
+$\alpha$, $s_\textup{proj}$ & Gain of the output along the target; $\alpha s$ \\
+$e_\textup{int}$, $e_\textup{art}$ & Interference (other speaker and noise); artefact \\
+% $d^{\perp}$, $e_d$ & $d$ with its target-like part removed; the part of $\hat{s}$ along $d^{\perp}$ \\  % REMOVED with the hail-mary loss, todo 2
+$L_\textup{pres}$, $L_\textup{MR}$, $L_\textup{gain}$, $L_\textup{abs}$ & Loss terms \\
+$w$, $w_\textup{m}$, $w_\textup{g}$ & Loss weights \\  % lambda removed with the hail-mary loss, todo 2
+$\tau_\textup{pres}$, $\tau_\textup{abs}$ & Floors of $L_\textup{pres}$ ($10^{-3}$) and $L_\textup{abs}$ ($10^{-2}$) \\
 \end{longtable}
 

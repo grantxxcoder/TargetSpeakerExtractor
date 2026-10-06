@@ -3818,3 +3818,246 @@ baseline, `sir0_val` `both`, paired, one run each:
   `eval_public`.
 - Recommended, not decided: report the other arms (struct, state, 1a, 1c, other
   1c-wer epochs, wesepref) as variants tried, one run each.
+
+## 2026-10-02 — ITEM 1c ADDS NOTHING OVER 1a on 1,079 unseen two-voice crops, and steers LESS
+
+`diagnose_cue_directional.py` on all 1,421 `sir0_privval` `both` trials (1,079
+crops with two live voices, 537 same-gender), 1a e15 vs 1c e12, same crops.
+`experiments/results/2026-10-02-cue-directional-privval-1a-vs-1c/`, compared with
+`scripts/compare_directional.py` (crop-level bootstrap and sign-flip permutation,
+10,000 draws, seed 42; McNemar kept for comparability with 2026-09-23).
+Exception to `decisions-m3.md` 2026-09-24, taken by Grant for this test only:
+SI-SDR, no listener, no selection.
+
+| lands on the requested voice | 1a e15 | 1c e12 | 1c − 1a, pp [95 % CI] | p (crops) | McNemar |
+|---|---|---|---|---|---|
+| all (1,079) | 71.2 % | 70.8 % | −0.5 [−1.6, +0.7] | 0.49 | +83/−93 |
+| **same-gender (537)** | 60.1 % | 58.6 % | **−1.6 [−3.4, +0.2]** | 0.10 | +38/−55 |
+| cross-gender (542) | 82.2 % | 82.8 % | +0.7 [−0.9, +2.3] | 0.49 | +45/−38 |
+
+| selectivity, dB (higher better) | 1a e15 | 1c e12 | 1c − 1a [95 % CI] | p |
+|---|---|---|---|---|
+| all | 10.75 | 10.08 | **−0.67 [−1.04, −0.28]** | 0.0005 |
+| same-gender | 4.87 | 3.92 | **−0.96 [−1.46, −0.45]** | 0.0002 |
+| cross-gender | 16.57 | 16.19 | −0.38 [−0.93, +0.16] | 0.17 |
+
+- **The same-gender rate does not move.** Any 1c gain is at most +0.2 pp; the
+  registered acceptance test for 1c fails on 7x the crops of 2026-09-23.
+- **1c steers less**, by ~1 dB on same-gender pairs, beyond the noise.
+- **`sir0_val` was optimistic for both:** same-gender 64.5 / 67.1 % there, 60.1 /
+  58.6 % here. Quote the larger set.
+- **Holds when resampling SPEAKERS, not crops.** The split has 40 speakers (20 as
+  targets), none in training. Target-speaker bootstrap, 10,000 draws: same-gender
+  rate −1.58 [−3.70, +0.45] pp; selectivity −0.96 [−1.41, −0.48] dB.
+- **USED, NOT IGNORED.** ||gamma|| 3.08 (bias alone 0.71); 87.9 % of gamma's variance is
+  between speakers, mean cosine between enrollments 0.23 (60 enrollments, 20
+  speakers; `gamma_probe.yaml`). The model modulates per speaker; the modulation
+  does not help it pick the requested voice.
+- **Not a verdict on the method.** One training run per arm, and 1c had 13 epochs
+  against 1a's 16. Claim: *this 1c checkpoint is no better than this 1a
+  checkpoint at following the request*, not "ECAPA cannot help".
+- `results.tex` crediting the extension's gain to ECAPA is now contradicted twice.
+
+## 2026-10-02 — D10 REGISTERED before running: the interference-weighted fine-tune and its control
+
+**What.** `L_pres` counts the part of its error that the OTHER speaker's clean stem
+explains `w_interf` times (`src/models/losses.py::_interference_part`, the BSS_EVAL
+interference term, Vincent et al. 2006; AB-SDR, Ochiai et al. 2024, weights the
+artefact term instead). `w_interf = 1.0` is e21's objective exactly (tested).
+
+**Runs.** Both start from e21 (`models/model_sir0_cuecontext-wer-e21.pt`, md5
+`1dfca8f492d9c4aac86c11ebf8723ee9`), fresh optimiser, lr 1.25e-4, 6 epochs, seed 42,
+batch 3, `w_schedule` removed (it would hold w = 0 for 6,632 steps).
+`bsrnn_interf_ft.yaml` (w_interf 2.0) vs `bsrnn_interf_ft_control.yaml` (1.0); the
+configs differ in that key only. Notebooks `kaggle_train_interf_ft{,_control}.ipynb`.
+~4.8 h each at e21's 2,886 s/epoch (projected).
+
+**Compare the arm with the control only, never with e21** (e21 was overfitting
+after epoch 15; extra epochs alone can move every number).
+
+**Prediction, on `sir0_val` `both` (judge) and the case suite, arm vs control:**
+- leaked words per trial and ICR@2 fall;
+- LCF-WER falls, or holds;
+- `interf_share` (logged every epoch, both runs) is lower in the arm.
+
+**Failure signs, watched not assumed:** more silenced clips, more deletions, more
+invented words. Silence resembles neither speaker, so the term can be gamed by
+cutting; `L_gain` is meant to block that.
+
+**Scope stated now, so it is not reinterpreted later.** The term acts only on crops
+where the target speaks AND the other speaker is audible in the crop (on the
+pre-flight batches, 4 of 13 present crops). Target-absent crops train on `L_abs`,
+which already counts every sound, so the other-speaker-only case (e21 passes 54 %
+of those words) is NOT predicted to improve.
+
+**AI assistance:** the term, configs and code were built with Claude; the idea is
+D10 (2026-08-30) and Ochiai et al.'s decomposition. Declare on the SU form.
+
+## 2026-10-03 — AB-SDR REGISTERED before running: two artefact-weighted fine-tunes, completing a 2x2 with D10
+
+**What.** `L_pres` counts the ARTEFACT part of its error (what no source explains;
+BSS_EVAL, Vincent et al. 2006) `w_artif` times: AB-SDR, Ochiai et al. 2024 eq. 18,
+borrowed inside the floored SI-SDR. Noise stem recovered as mixture − target −
+other (exact; `dataset_loader._remix`). `src/models/losses.py::_artefact_part`,
+`tests/test_artefact_weight.py`. `w_artif = 1` is the D10 term exactly (tested).
+
+**Weight 4.0 = Ochiai's alpha 2** (multi-talker). Their alpha multiplies the error
+inside the norm, so it is alpha² as an energy weight (tested). **Correction:** D10's
+`w_interf = 2.0` is also an energy weight, alpha 1.41; the 2026-10-02 configs'
+"Ochiai's weight is 2.0" compared different conventions. Left unedited in those
+configs (they ran).
+
+**Why now.** D10 arm e5, judge 2026-10-03 (`gemini-3.7-flash`, audio-in, prompt
+`d118b7d3bf30`, one run, 103 calls, 0 failed) vs e21's three runs: LCF-WER 38.7 vs
+39.2–39.9; leaked share 18.3 vs 22.3–24.2 %; invented/trial 2.82 vs 2.12–2.33;
+FR@2 58.8 vs 45.1–49.0 %. Fewer leaked words, more invented ones. Control e5 not
+yet judged at registration.
+
+**Runs.** `bsrnn_artif_ft.yaml` (w_interf 1, w_artif 4) and
+`bsrnn_interf_artif_ft.yaml` (2, 4). Otherwise identical to the 2026-10-02 pair:
+e21 start (md5 `1dfca8f4…`), lr 1.25e-4, 6 epochs, seed 42, batch 3. ~4.8 h each
+(2,836–2,913 s/epoch measured on that pair).
+
+| | w_artif 1 | w_artif 4 |
+|---|---|---|
+| **w_interf 1** | control (2026-10-02) | `artif_ft` |
+| **w_interf 2** | `interf_ft` (2026-10-02) | `interf_artif_ft` |
+
+**Comparison rule, all four runs, fixed now.** Judge epoch 5 (the 6-epoch budget)
+as primary, epoch 3 secondary; same 103 `sir0_val` `both` clips, same judge,
+paired bootstrap over clips. NOT the probe-selected `model_sir0.pt`: the
+`small.en` probe moves 7–10 points epoch to epoch (2026-10-02 pair).
+Artefact effect = artif_ft − control and interf_artif_ft − interf_ft.
+
+**Prediction, each w_artif-4 run vs its w_artif-1 partner:** invented/trial and
+FR@2 fall; `artif_share` lower (logged by the new pair only; the 2026-10-02 pair
+predates the column, so theirs is computed offline from their e3/e5 checkpoints on
+the same val crops); LCF-WER falls or holds.
+
+**Measured at registration, forward only** (e21 weights, 4 training batches,
+`kaggle_bundle/code`): artefact is 67–93 % of the present error, interference 0 %
+on 3 batches and 21 % on the fourth. So w_artif acts on every present crop and
+w_interf on a minority: the two weights are not equally strong interventions.
+
+**Failure sign, watched not assumed:** leaked words RISE. Output that copies the
+mixture has no artefact, so the term can be met by passing more of the other
+speaker (Ochiai's own observation-adding; refuted for us as a post-process).
+Watch ICR@2 and mean leak in `artif_ft`; `interf_artif_ft` is the guard.
+
+**AI assistance:** term, configs and code built with Claude; the method is Ochiai
+et al.'s. Declare on the SU form.
+
+## 2026-10-03 — D10 RESULT: the leak weight trades leaked words for invented ones; LCF-WER unchanged
+
+Judge `gemini-3.7-flash`, aistudio, audio-in / text-out, prompt `d118b7d3bf30`, one
+run each, 2026-10-03 (e21: 2026-09-25). `sir0_val` `both`, n=103, speech gate on.
+Epoch 5 per the 2026-10-03 comparison rule. Paired bootstrap over clips, 10,000
+draws, seed 42, rebuilt from cache (0 API calls, all five published aggregates
+matched): `experiments/results/2026-10-03-bootstrap-interf-ft/`. Renders
+`2026-10-03-est-interf-ft{,-control}-e{3,5}`, judge `…-eval-interf-ft{,-control}-e{3,5}-judge`.
+
+| e5, lower is better | control | arm | arm − control [95 %] |
+|---|---|---|---|
+| LCF-WER | 38.24 | 38.71 | +0.47 [−3.20, +4.15] |
+| mean leaked % | 21.57 | 18.31 | **−3.26 [−6.59, −0.03]** |
+| ICR@2 | 33.98 | 32.04 | −1.94 [−8.74, +4.85] |
+| invented/trial | 2.10 | 2.82 | **+0.72 [+0.27, +1.21]** |
+| FR@2 | 47.52 | 58.82 | +11.30 [+0.45, +22.49] |
+| deletions % | 9.58 | 8.85 | −0.73 [−4.29, +2.68] |
+
+- **The registered failure sign fired: more invented words.** Holds without the 3
+  judge-failed clips (+0.72 [+0.25, +1.22]); 3x e21's judge run-to-run spread
+  (2.12–2.33 over three runs). FR@2 loses its interval without them (+10.10 [−1.00, +21.16]).
+- **Prediction partly met.** Leaked share fell (borderline); ICR@2 did not; LCF-WER held.
+- **Extra epochs alone did nothing.** Control e5 vs e21: every interval spans 0
+  (LCF-WER −0.99 [−5.08, +2.89]). The ~1 dB val-separation gain after the restart
+  does not reach the judge, as at e15 (best separation, worst judge, 2026-09-26).
+- **The trade grows with training.** e3: leaked share −4.19 [−8.74, +0.29],
+  invented +0.14 [−0.39, +0.68], LCF-WER −2.82 [−7.67, +1.79]. e3 is NOT adopted:
+  picking it now would be selection after seeing, against the registered rule.
+- **The offline stand-in would have called it a win.** `small.en`, arm − control e5:
+  ICR@2 −9.7, invented/trial −0.18; the judge: −1.9 and +0.72. Arm e5's `small.en`
+  LCF-WER (65.7) is inflated by 3 repetition loops (55.1 with the probe's loop cap).
+- **Judge failures** (400 "invalid argument"), scored as non-responses: control e5
+  `000010`, control e3 `000112`, arm e3 `000153`.
+- **Limits:** one judge run and one training seed per arm; 24 comparisons, so only
+  invented/trial is a robust claim.
+- **Claim:** *on two-speaker mixtures, optimised for Gemini, w_interf = 2 cut the
+  share of the other speaker's words passed by ~3 points and added ~0.7 invented
+  words per clip; LCF-WER unchanged.*
+- **Consequence:** the AB-SDR pair (registered 2026-10-03) tests whether weighting
+  the artefact removes the invention; `interf_artif_ft` is the cell that matters.
+
+## 2026-10-03 — HAIL MARY REGISTERED: e21's config from scratch with both terms and a medium.en probe
+
+**DECIDED 2026-10-03, before launch (Grant), after the AB-SDR RESULT below:**
+w_artif DROPPED. The run is `bsrnn_interf_scratch.yaml`, four keys from e21's config
+(w_interf 2.0, asr_model medium.en, loop guard, keep_stride 1); the rest of this
+entry (sessions, epochs to judge, limits) stands. The text below is the provisional
+version. **Grant's call, exploratory.** One run, `bsrnn_interf_artif_scratch.yaml`. Five
+keys differ from e21's `bsrnn_cue_context.yaml`: `loss.w_interf 2.0`,
+`loss.w_artif 4.0`, `content_probe.asr_model medium.en` (was small.en),
+`content_probe.cap_errors_at_spoken true` (loop guard), `training.keep_stride 1`
+(keep every epoch). `train.py` now reads `asr_model` (absent = small.en; tested).
+
+**Not a controlled test.** e21's run is the nearest reference (same seed, data
+order, warmup, schedule rule), but the probe drives the lr cuts and the
+checkpoint pick and it changed too. Claim only "this objective with this probe,
+from scratch"; the term effects come from the 2x2 fine-tunes.
+
+**Probe cost, measured on the laptop** (cpu int8, probe decode, 11 e21 estimates):
+small.en 4.1 s/clip, medium.en 9.3 s/clip (2.25x). Kaggle: ~3,280 s/epoch
+PROJECTED (311 s small.en probe cost x 2.25 on 2,575 s), so 14 epochs (~12.7 h)
+breach the 12 h cap. Sessions: EPOCHS 11, 22, 28 (~1.75 h margin), each resumed from
+`model_sir0_last.pt` (newest, not best: the probe is too noisy to rewind on).
+Two resumes; e21's run had one.
+
+**Epochs to judge, fixed now:** e21 and e27 (matched to e21's judged e21/e27 and
+its last), `sir0_val` `both`, same judge and prompt, paired bootstrap. Any other
+epoch is chosen on turbo then the judge and is labelled as selected; adoption
+needs one clean `eval_public` score (decisions 2026-09-29).
+
+**Prediction:** none beyond the 2x2's. **Failure signs:** early mute (watch
+`enrol_sens_db`, `pres_abs_gap_db` through the warmup), more leaked words.
+
+**AI assistance:** config, probe switch and timing with Claude. Declare.
+
+## 2026-10-03 — AB-SDR RESULT: the artefact weight trades invented words for leaked ones; no cell beats the plain loss
+
+Judge `gemini-3.7-flash`, aistudio, audio-in / text-out, prompt `d118b7d3bf30`, one
+run each, 2026-10-03. `sir0_val` `both`, n=103, epoch 5 per the registered rule.
+Paired bootstrap, 10,000 draws, seed 42, rebuilt from cache, all four aggregates
+matched: `experiments/results/2026-10-03-bootstrap-interf-ft/report_2x2_2026-10-03.txt`.
+
+| e5, lower is better | control | leak (w_interf 2) | artif (w_artif 4) | both |
+|---|---|---|---|---|
+| LCF-WER | **38.24** | 38.71 | 47.58 | 42.87 |
+| mean leaked % | 21.57 | 18.31 | 36.23 | 29.84 |
+| ICR@2 | 33.98 | 32.04 | 48.54 | 43.69 |
+| invented/trial | 2.10 | 2.82 | 1.90 | 2.06 |
+| FR@2 | 47.52 | 58.82 | 47.00 | 46.00 |
+
+| effect [95 %] | LCF-WER | mean leak | invented/trial |
+|---|---|---|---|
+| artif, leak off (artif − control) | **+9.34 [+3.65, +15.37]** | **+14.66** | −0.20 [−0.65, +0.25] |
+| artif, leak on (both − leak) | +4.16 [−0.69, +9.41] | **+11.53** | **−0.76 [−1.28, −0.25]** |
+| both − control | +4.63 [−0.36, +10.01] | **+8.27** | −0.04 |
+| interaction | −5.18 [−10.82, +0.54] | −3.13 | −0.56 [−1.22, +0.08] |
+
+- **Registered prediction failed; the failure sign fired.** Invented words did not fall
+  alone; leaked words rose in both cells. Without the 4 judge-failed clips, both −
+  control LCF-WER is +5.00 [+0.18, +10.18].
+- **With w_interf on, w_artif removes the leak weight's extra invention** (−0.76) but
+  pays more leakage than w_interf saved. No cell beats the control on LCF-WER.
+- **The artefact term never generalised:** val artif_share flat (artif run 39–43 %)
+  or rising (both 45 → 53 %) while train fell or held (training logs).
+- **Epoch 3:** artif e3 judged (LCF-WER 49.83, leaked 38.32 %, invented 2.05),
+  consistent with e5. Both e3 CANCELLED by Grant once e5 settled it; the
+  registered secondary check is incomplete for that cell.
+- **Judge failures** (400), scored as non-responses: artif e5 `000057`, `000192`;
+  both e5 `000195`; artif e3 `000067`, `000070`, `000102`.
+- **Claim:** *on two-speaker mixtures, optimised for Gemini, weighting error TYPES in
+  the training loss moved errors between types (leaked <-> invented) and never
+  lowered LCF-WER below the plain loss; the AB-SDR weight Ochiai et al. found best
+  for ASR raised it by 9 points through leakage.*
+- **Consequence:** the hail mary drops w_artif (entry above).

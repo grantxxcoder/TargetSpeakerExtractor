@@ -31,6 +31,27 @@
   urldate = {2026-08-21}
 }
 
+% Proposed and derived the cue split (item 1a; commits 51f739d, c387366).
+% A tool, not an author (SU interim AI guidelines); declare on SU's AI form.
+@misc{anthropic2026claude,
+  author       = {{Anthropic}},
+  title        = {Claude (Opus 5 and Opus 5.5), used via Claude Code},
+  year         = {2026},
+  howpublished = {\url{https://claude.ai}},
+  note         = {Accessed: 2026-09-21 to 2026-10-02},
+  urldate      = {2026-10-02}
+}
+
+% Vector projection onto a unit vector, used in the cue split.
+% TODO: confirm the edition against the copy actually used.
+@book{strang2016linear,
+  author    = {Strang, Gilbert},
+  title     = {Introduction to Linear Algebra},
+  edition   = {5th},
+  publisher = {Wellesley-Cambridge Press},
+  year      = {2016}
+}
+
 
 
 @inproceedings{yu2023high,
@@ -167,6 +188,20 @@
                Processing (ICASSP)},
   year      = {2025},
   doi       = {10.1109/ICASSP49660.2025.10889409}
+}
+
+% The toolkit whose TF-Map code supplies the energy-recovery step (m_t u_t)
+% of the baseline cue. Verified on the ISCA archive 2026-10-01.
+@inproceedings{wang2024wesep,
+  author    = {Wang, Shuai and Zhang, Ke and Lin, Shaoxiong and Li, Junjie and
+               Wang, Xuefei and Ge, Meng and Yu, Jianwei and Qian, Yanmin and
+               Li, Haizhou},
+  title     = {{WeSep}: A Scalable and Flexible Toolkit Towards Generalizable
+               Target Speaker Extraction},
+  booktitle = {Proc. Interspeech 2024},
+  pages     = {4273--4277},
+  year      = {2024},
+  doi       = {10.21437/Interspeech.2024-1840}
 }
 
 @article{luo2019convtasnet,
@@ -545,6 +580,22 @@
   doi       = {10.21437/Interspeech.2022-318}
 }
 
+% AB-SDR: the BSS_EVAL error decomposition used as a TRAINING loss, with the
+% artefact term boosted. D10 boosts the interference term of the same
+% decomposition instead. Verified on Crossref 2026-10-02.
+@article{ochiai2024rethinking,
+  author    = {Ochiai, Tsubasa and Iwamoto, Kazuma and Delcroix, Marc and
+               Ikeshita, Rintaro and Sato, Hiroshi and Araki, Shoko and
+               Katagiri, Shigeru},
+  title     = {Rethinking Processing Distortions: Disentangling the Impact of
+               Speech Enhancement Errors on Speech Recognition Performance},
+  journal   = {{IEEE/ACM} Transactions on Audio, Speech, and Language Processing},
+  volume    = {32},
+  pages     = {3589--3602},
+  year      = {2024},
+  doi       = {10.1109/TASLP.2024.3426924}
+}
+
 % Preprint. Recogniser choice changes how well WER ranks enhancement systems
 % (rank agreement with human WER 0.43 for a weak recogniser, 1.00 for strong).
 @misc{deoliveira2026toogood,
@@ -783,3 +834,12 @@
   pages   = {943--950},
   year    = {1979}
 } 
+% AdamW, the optimiser for every training run (scripts/train.py). Verified on
+% arXiv:1711.05101 2026-10-03: "Published as a conference paper at ICLR 2019".
+@inproceedings{loshchilov2019adamw,
+  author    = {Loshchilov, Ilya and Hutter, Frank},
+  title     = {Decoupled Weight Decay Regularization},
+  booktitle = {Proc. International Conference on Learning Representations (ICLR)},
+  year      = {2019},
+  note      = {arXiv:1711.05101}
+}

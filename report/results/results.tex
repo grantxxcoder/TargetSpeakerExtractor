@@ -1,18 +1,18 @@
-\chapter{Results}
-\label{ch:results}
+\section{Results}
+\label{sec:results}
 
 % CLAIM THIS SECTION MUST SUPPORT: judge and offline ASR agree on the ranking of
 % systems but fail by opposite mechanisms. See the error composition below.
 
 [TODO:] Highlight that the model still has capacity to learn more with more training data and more parameters. Just that we needed a proof of concept. Also need to maybe put CARTSE's results in here for reference on another dataset.
 
-In the results section, all reference to the "floor" and "ceiling" systems are related to passing the full mixture audio and the clean target audio respectively to the listener. This means that for the floor system, the listener is hearing the unprocessed mixture of the target and interferer and simulates what a listener would hear if the system did nothing. The ceiling system is the best possible outcome, where there is perfect separation and the listener hears only the target audio. The floor and ceiling systems are not real systems, but rather reference points for the listener to compare against. 
-\section{Content fidelity}
+
+\subsection{Content fidelity}
 \label{sec:results_content}
 The main metrics to consider for this project is the performance of our extractor system with respect to the content fidelity on a live system. The content fidelity metrics are used to measure how the live artificial intelligence system is able to interpret the audio after the extraction process. The end goal is for the extractor to isolate and process the target speaker's audio in such a way for there to be minimal loss of content fidelity. Secondly, since the live system is a black box, non-deterministic system, the stability of the interpretation of the audio is also important to consider. 
 The sections to follow consider the content fidelity for both a live judge and an offline transcriber.
 
-\subsection{The live judge - Gemini Live}
+\subsubsection{The live judge - Gemini Live}
 \label{sec:results_content_judge}
 The live judge results are shown in \autoref{tab:content_judge}. These results are most indicative of the overall performance of the extractor system as the live judge is the end user of the extraction process. To better understand the variability of the live judge on the same audio, \autoref{fig:judge_runs} shows how the different systems changed in the LCF-WER metric across three independent runs.
 \begin{table}[H]
@@ -48,7 +48,7 @@ Overall, the baseline system is a clear improvement over the floor, which is ind
 To get a better idea of how stable the live judge is on the same audio, \autoref{fig:judge_runs} demonstrates how the LCF-WER changed across the three independent runs but measured per clip instead of the overall average. The idea is to gain a better understanding of how the standard deviation of the LCF-WER is distributed across the clips. The first observation is the confirmation of the extreme variability of the live judge when passed extracted audio by the baseline. In fact, the baseline has worse variability than the floor and the highest average in change of performance between the three runs. A very encouraging result is that the extension seems to have the best stability even when compared to WeSep. On single clips, there are outlier performance changes of up to 100 points (when one run results in 100 more errors than another run), these outliers could be incredibly difficult cases that are not indicative of the overall performance of the system. However, as seen in the bar plot, the extension on average has the smallest changes in overall performance across the three runs.
 \begin{table}[H]
 \centering
-\caption{Gemini Live's response in each trial case of \autoref{sec:metrics}. Cases 1 and 2, where the target spoke, report LCF-WER. Case 3, where only the other speaker spoke, reports the words Gemini output per trial, where 0 is correct, and how many outputs were silenced. Case 4 (noise only, $n = 8$) is omitted: no system produced a word, and every output was below the speech gate. The speech gate is part of the evaluation and is applied identically to every system: a clip with under \SI{0.1}{\second} of detected speech is not sent to Gemini and is scored as an empty response, and ``silenced'' counts those clips. Case 1 is the 3-run mean of \autoref{tab:content_judge}; Cases 2 and 3 are one run each. Target alone is silent in Case 3 by construction.}
+\caption{Gemini Live's response in each trial case of \autoref{sec:trial_construction}. Cases 1 and 2, where the target spoke, report LCF-WER. Case 3, where only the other speaker spoke, reports the words Gemini output per trial, where 0 is correct, and how many outputs were silenced. Case 4 (noise only, $n = 8$) is omitted: no system produced a word, and every output was below the speech gate. The speech gate is part of the evaluation and is applied identically to every system: a clip with under \SI{0.1}{\second} of detected speech is not sent to Gemini and is scored as an empty response, and ``silenced'' counts those clips. Case 1 is the 3-run mean of \autoref{tab:content_judge}; Cases 2 and 3 are one run each. Target alone is silent in Case 3 by construction.}
 \label{tab:content_cases}
 \small
 \begin{tabular}{@{}lcccc@{}}
@@ -67,9 +67,12 @@ Ceiling   & 1.19  & 1.46 & ---   & --- \\
 \end{tabular}
 \end{table}
 
-On a larger set ($n = 123$), the extension passed 57\,\% of the other speaker's words to Gemini against WeSep's 70\,\% (a difference of $-3.6$ words per trial), and fell fully silent on 56 clips against WeSep's 11.
 
-\subsection{The offline transcriber}
+
+
+Table \ref{tab:content_cases} highlights where the extension shines. For the cases where the extractor needs to either suppress only background noise surrounding a target or only interfering speech, the extension performs better than WeSep. Secondly, if the extractor needs to suppress background noise such that a voice activity detector (VAD) does not detect any speech, the extension is able to do this more often than WeSep getting 18 noisy clips suppressed as compared against WeSep's 7. On a larger set ($n = 123$), the extension passed 57\,\% of the other speaker's words to Gemini against WeSep's 70\,\% (a difference of $-3.6$ words per trial), and fell fully silent on 56 clips against WeSep's 11. The improvement in the extension's performance can be attributed to the diversity of training examples that include those specific cases. Interestingly, all the models perform worse on the target only case than just leaving the target unprocessed. This is likely due to the robustness of Gemini to background noise, leaving the extractor model to introduce artefacts that are misinterpreted by Gemini. Overall, the extension has shown improvement over WeSep in different acoustic scenarios, although still falls short when considering pure speech extraction with multiple speakers. 
+
+\subsubsection{The offline transcriber}
 \label{sec:results_content_asr}
 The offline transcriber serves to demonstrate how the extractor system performs on a standard transcription tool. The results are shown in \autoref{tab:content_asr}. The offline transcription system seems like a natural alternative to the live system whilst building the architecture as the live systems make use of paid APIs and are not open source. 
 \begin{table}[H]
@@ -103,7 +106,7 @@ The offline transcriber results produce the same conclusions as the live judge, 
 %      than doing nothing. LCF-WER on two-speaker mixtures is therefore
 %      dominated by interferer suppression, and a system can lose target words
 %      while halving the score. State this wherever LCF-WER is quoted.
-\section{Error composition}
+\subsection{Error composition}
 \label{sec:results_errors}
 The LCF-WER metric is a combination of three different types of errors to form the word error rate: substitution, deletion and insertion. The metric is useful for breaking down the weaknesses of the extractor system and to better understand how the system is introducing error. For example, a system with high deletions is indicative of over suppression of the target speaker's content, a system with high insertions is indicative of hallucination or leakage, and finally a system with high substitutions is indicative of misinterpretation of the target speaker's content. The error composition for both the live judge and the offline transcriber are shown in \autoref{tab:error_split}.
 \begin{table}[H]
@@ -137,7 +140,7 @@ The first observation is related to the live judge and how it performs when give
 %  (c) NEVER quote delta-SAR. The floor's +30 dB is an artefact of the cap, not a
 %      measurement, so any improvement against it is meaningless. Absolute SAR
 %      of +10.34 dB means roughly 9 % of the output energy was invented.
-\section{Signal-domain separation}
+\subsection{Signal-domain separation}
 \label{sec:results_signal}
 A key part of the training process is to introduce the idea of separation. The three kinds considered in this project is separation of the target from the background noise (distortion), interference from other speakers (interference) and finally from artefacts introduced by the extractor system (artefact). The signal-domain separation results are shown in \autoref{tab:signal}. These metrics highlight what the extractor system is doing in the signal domain and can best be used to understand the trade-offs between the different types of separation. A note about the values in the table: SAR for the floor and ceiling are both at +30 dB, as since these systems do not contain a model there can be no artefacts introduced. 
 \begin{table}[H]
@@ -169,7 +172,7 @@ The most noticeable observation is that the extension has significantly improved
 %  (c) P808 is flat at +0.02. The metric the REAL-TSE organisers switched TO is
 %      nearly blind to what this model does, while OVRL, the one that was gamed,
 %      moves.
-\section{Perceptual quality}
+\subsection{Perceptual quality}
 \label{sec:results_perceptual}
 The perceptual quality metrics are used to indicate that extraction audio that sounds good to a proxy of a human listener does not necessarily translate to better content fidelity. The perceptual quality metrics are shown in \autoref{tab:dnsmos}. 
 \begin{table}[H]
@@ -206,7 +209,7 @@ First considering P808 in isolation, the extension seemingly has a similar, if n
 %      7.19 M, and the 5 s enrolment re-embedded through a full speaker encoder on
 %      every chunk against our cheap TF-Map cue. The protocol is matched; the cost
 %      is not.
-\section{Latency and throughput}
+\subsection{Latency and throughput}
 \label{sec:results_latency}
 
 \begin{table}[H]

@@ -83,6 +83,9 @@ class LossBSRNNState(LossBSRNN):
     baseline should not depend on a multiplication by zero.
     """
 
+    # D10's `s_other` is not wired through this class's __call__.
+    ACCEPTS_OTHER = False
+
     def __init__(self, *args, teacher=None, w_state=0.0, **kwargs):
         super().__init__(*args, **kwargs)
         if teacher is None:

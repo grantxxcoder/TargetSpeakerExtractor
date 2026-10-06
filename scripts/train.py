@@ -58,6 +58,32 @@ def build_loss_fn(config):
     # A negative deadzone punishes a PERFECT match -- reads as a dead term.
     assert gain_delta_db >= 0.0, f"loss.gain_delta_db must be >= 0, got {gain_delta_db}"
 
+    # D10, the interference weight. Absent key = 1.0 = L_pres unchanged, so
+    # every pre-2026-10-02 config reproduces its own objective exactly.
+    w_interf = float(config["loss"].get("w_interf", 1.0))
+    assert w_interf > 0.0, f"loss.w_interf must be > 0, got {w_interf}"
+    if w_interf != 1.0:
+        # The other speaker's stem is only read from disk when one of these is on.
+        # Without them the loader hands the target direction a zero stem and the
+        # term would silently vanish while the run still looked like the arm.
+        assert (config["data"].get("both_directions", False)
+                or config["data"].get("remix_gains", False)), (
+            "loss.w_interf != 1 needs data.both_directions or data.remix_gains, "
+            "or the other speaker's stem is never loaded")
+
+    # The artefact weight (AB-SDR, Ochiai et al. 2024). An ENERGY weight: their
+    # alpha = 2 is w_artif = 4. Absent key = 1.0 = L_pres unchanged. Needs the
+    # other stem for the same reason, plus the noise, which the loss recovers as
+    # mixture - target - other. decisions-m2.md 2026-10-03.
+    w_artif = float(config["loss"].get("w_artif", 1.0))
+    assert w_artif > 0.0, f"loss.w_artif must be > 0, got {w_artif}"
+    if w_artif != 1.0:
+        assert (config["data"].get("both_directions", False)
+                or config["data"].get("remix_gains", False)), (
+            "loss.w_artif != 1 needs data.both_directions or data.remix_gains, "
+            "or the other speaker's stem is never loaded and the recovered noise "
+            "would contain him")
+
     # THE STATE TERM (decisions-pending.md D14) IS OPT-IN, AND THE BRANCH IS THE
     # OPT-IN. A config without `w_state` gets the plain LossBSRNN object, so a
     # pre-2026-09-11 run reproduces by construction rather than by a weight
@@ -71,7 +97,12 @@ def build_loss_fn(config):
         return LossBSRNN(wm=wm, w=w, tau_pres=tau_pres, tau_abs=tau_abs, p=p,
                          windows=windows, sample_rate=sample_rate, wg=wg,
                          gain_delta_db=gain_delta_db,
-                         w_struct=w_struct, struct_floor_db=struct_floor_db)
+                         w_struct=w_struct, struct_floor_db=struct_floor_db,
+                         w_interf=w_interf, w_artif=w_artif)
+
+    # Not wired through LossBSRNNState (its __call__ does not take s_other).
+    assert w_interf == 1.0, "loss.w_interf is not supported together with loss.w_state"
+    assert w_artif == 1.0, "loss.w_artif is not supported together with loss.w_state"
 
     # Imported here, not at module scope: the teacher pulls in speechbrain and
     # a 21 M-parameter checkpoint, and a baseline run should not pay for either.
@@ -222,7 +253,7 @@ def w_at_epoch(config, epoch):
 # One definition, used by both the stdout line and history.csv -- so a log
 # pasted out of a killed run is a valid history.csv with no editing.
 HISTORY_FIELDS = ["total", "L_pres", "L_MR", "L_gain", "L_abs", "L_state", "L_struct",
-                  "n_present", "n_absent"]
+                  "L_pres_w", "interf_share", "artif_share", "n_present", "n_absent"]
 
 # VAL-ONLY leading indicators; the loss terms are lagging ones.
 #   enrol_sens_db    output movement on an enrolment swap. Near 0 dB = strongly
@@ -256,8 +287,11 @@ def history_row(tr, va):
     """One row. Epoch comes from the VAL dict, not enumerate(), so a resume does
     not relabel epoch 40 as 0. .get on the diagnostics: hand-built val rows (the
     tests, older histories) lack them, and that must not kill the row."""
-    return ([va["epoch"]] + [tr[k] for k in HISTORY_FIELDS]
-            + [va[k] for k in HISTORY_FIELDS] + [va["lr"], va.get("w", float("nan"))]
+    # .get on the loss fields too: L_pres_w and interf_share (D10) are absent
+    # from hand-built rows written before 2026-10-02.
+    return ([va["epoch"]] + [tr.get(k, float("nan")) for k in HISTORY_FIELDS]
+            + [va.get(k, float("nan")) for k in HISTORY_FIELDS]
+            + [va["lr"], va.get("w", float("nan"))]
             + [va.get(k, float("nan")) for k in VAL_DIAGNOSTICS])
 
 
@@ -302,12 +336,13 @@ def format_epoch_breakdown(epoch, num_epochs, tr, va, epoch_seconds, w_trained):
         f"lr {va['lr']:.2e}  w_trained {w_trained:.3f}",
         f"  {'term':<7} {'train':>10} {'val':>10} {'gap(val-train)':>15}",
     ]
-    for term in ("total", "L_pres", "L_MR", "L_gain", "L_abs", "L_state", "L_struct"):
-        # L_state and L_struct are NaN when their term is not in use -- skip the
-        # row rather than print a line of NaNs. The other four always apply.
+    for term in ("total", "L_pres", "L_MR", "L_gain", "L_abs", "L_state", "L_struct",
+                 "L_pres_w", "interf_share", "artif_share"):
+        # L_state, L_struct and the two D10 columns are NaN when their term is
+        # not in use -- skip the row rather than print a line of NaNs.
         train_value, val_value = tr.get(term, float("nan")), va.get(term, float("nan"))
-        if term in ("L_state", "L_struct") and not np.isfinite(train_value) \
-                and not np.isfinite(val_value):
+        if term in ("L_state", "L_struct", "L_pres_w", "interf_share", "artif_share") \
+                and not np.isfinite(train_value) and not np.isfinite(val_value):
             continue
         lines.append(f"  {term:<7} {train_value:>10.4f} {val_value:>10.4f} "
                      f"{val_value - train_value:>15.4f}")
@@ -552,6 +587,34 @@ def unpack(batch, device):
     return mixture, target, enrollment, crop_absent
 
 
+def init_weights_record(config):
+    """{"path", "md5"} of `training.init_weights`, or None when not set.
+
+    The md5 goes into meta.yaml beside the config, so the run records exactly
+    which weights it started from, not just a filename that could be replaced.
+    """
+    path = (config.get("training") or {}).get("init_weights")
+    if not path:
+        return None
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"training.init_weights: no file at {path}")
+    return {"path": str(path), "md5": hashlib.md5(path.read_bytes()).hexdigest()}
+
+
+def other_kwargs(loss_fn, batch, device):
+    """{"s_other": the other speaker's stem} for a loss that takes it, else {}.
+
+    D10. Separate from unpack() so its four-value return, and every caller of
+    it, stays as it was. The state-loss subclasses set ACCEPTS_OTHER = False and
+    get nothing; plain LossBSRNN gets the stem even at w_interf = 1, so the
+    control run logs `interf_share` too.
+    """
+    if not getattr(loss_fn, "ACCEPTS_OTHER", False) or "other" not in batch:
+        return {}
+    return {"s_other": batch["other"].to(device)}
+
+
 def add_parts(sums, counts, parts):
     """Accumulate each loss term against its own crop count.
 
@@ -569,6 +632,11 @@ def add_parts(sums, counts, parts):
         # is not in use, and NaN * n would poison the sum, so it is gated.
         if not math.isnan(parts.get("L_struct", float("nan"))):
             sums["L_struct"] += parts["L_struct"] * parts["n_present"]
+        # D10, present branch only, gated the same way: NaN when no other stem
+        # reached the loss (the state-loss subclasses).
+        for term in ("L_pres_w", "interf_share", "artif_share"):
+            if not math.isnan(parts.get(term, float("nan"))):
+                sums[term] += parts[term] * parts["n_present"]
         counts["present"] += parts["n_present"]
     if parts["n_absent"]:
         sums["L_abs"] += parts["L_abs"] * parts["n_absent"]
@@ -633,6 +701,16 @@ def epoch_report(sums, counts, w, wm, wg):
     # which it does only for a non-NaN L_struct.
     L_struct = (sums["L_struct"] / n_present
                 if n_present and "L_struct" in sums else float("nan"))
+    # D10. L_pres above stays the PLAIN term, so `total` and every curve mean
+    # what they meant before; these two say what the interference weight did.
+    L_pres_w = (sums["L_pres_w"] / n_present
+                if n_present and "L_pres_w" in sums else float("nan"))
+    interf_share = (sums["interf_share"] / n_present
+                    if n_present and "interf_share" in sums else float("nan"))
+    # The artefact share, logged at every w_artif so all four D10/AB-SDR runs
+    # carry it. 1 - interf_share - artif_share is the noise share.
+    artif_share = (sums["artif_share"] / n_present
+                   if n_present and "artif_share" in sums else float("nan"))
 
     # `total` deliberately EXCLUDES the state term. It is the number
     # ReduceLROnPlateau and the curve read, and the four terms above are what it
@@ -651,6 +729,12 @@ def epoch_report(sums, counts, w, wm, wg):
         # every run before 2026-09-13 incomparable to every run after. D17's
         # contribution is visible in its own column.
         "L_struct": L_struct,
+        # D10. The optimised present term at w_interf != 1 (equal to L_pres at
+        # 1), and the share of L_pres's error energy that is the other speaker.
+        # Both outside `total`, for the same reason as L_struct.
+        "L_pres_w": L_pres_w,
+        "interf_share": interf_share,
+        "artif_share": artif_share,
         "n_present": n_present,
         "n_absent": n_absent,
     }
@@ -822,6 +906,10 @@ def build_content_probe(config, verbose=True):
           cap_errors_at_spoken: true   # loop guard; see content_probe.clip_errors.
                                        # Absent = false. Set it on a FRESH run only:
                                        # a resume refuses the change, by design.
+          asr_model: medium.en # faster-whisper size. Absent = small.en, so every
+                               # config before 2026-10-03 scores exactly as it did.
+                               # Measured 2026-10-03, cpu int8: small.en 4.1 s/clip,
+                               # medium.en 9.3 s/clip (2.25x).
 
     COST, and it is the reason for `n_trials`. MEASURED 2026-09-23 end to end:
     ~4 s per clip for the ASR on cpu, ~16 s per clip for extraction on cpu. On
@@ -834,7 +922,8 @@ def build_content_probe(config, verbose=True):
     block = (config.get("content_probe") or {})
     if not block.get("enabled", False):
         return None
-    from src.live_model_metric.content_probe import ContentProbe, load_probe_trials
+    from src.live_model_metric.content_probe import (ASR_MODEL_SIZE, ContentProbe,
+                                                     load_probe_trials)
 
     split = str(block.get("split", "sir0_val"))
     if split in HOLDOUT_SPLITS:
@@ -849,6 +938,7 @@ def build_content_probe(config, verbose=True):
         limit=int(block.get("n_trials", 40)),
         condition=str(block.get("condition", "both")))
     probe = ContentProbe(trials,
+                         model_size=str(block.get("asr_model", ASR_MODEL_SIZE)),
                          device=str(block.get("asr_device", "cpu")),
                          ema_span=int(block.get("ema_span", 3)),
                          # 2026-09-24 loop guard. Absent = off, so a run begun
@@ -1044,7 +1134,8 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
             # .float() is not cosmetic: see amp_ctx on why the loss stays fp32.
             loss, parts = loss_fn(target, s_output.float(), mixture, crop_absent,
                                   mask=None if mask is None else mask.float(),
-                                  oracle_mask=oracle, mixture_mag=mix_mag)
+                                  oracle_mask=oracle, mixture_mag=mix_mag,
+                                  **other_kwargs(loss_fn, batch, device))
             scaler.scale(loss).backward()
             # UNSCALE BEFORE CLIPPING. scale() multiplied the loss by ~65536 so
             # small gradients survive fp16, so the gradients sitting here are
@@ -1102,7 +1193,8 @@ def train(model, train_loader, val_loader, optimizer, num_epochs, device, print_
                                    if want_mask_val else (None, None))
                 _, parts = loss_fn(target, s_output, mixture, crop_absent,
                                    mask=None if mask is None else mask.float(),
-                                   oracle_mask=oracle, mixture_mag=mix_mag)
+                                   oracle_mask=oracle, mixture_mag=mix_mag,
+                                   **other_kwargs(loss_fn, batch, device))
                 add_parts(val_sums, val_counts, parts)
                 diagnostic_accumulate(diag, model, mixture, enrollment,
                                       s_output, crop_absent, amp=use_amp,
@@ -1475,6 +1567,8 @@ def log_results(out_dir, config, config_path, args, model, device, manifest_csv,
             "manifest_config_md5": manifest_meta.get("config_md5"),
             "device": str(device),
             "resumed": bool(args.resume),
+            # None for a run trained from scratch. decisions-m2.md 2026-10-02.
+            "init_weights": init_weights_record(config),
             # unwrap(): with DataParallel on, `type(model).__name__` would
             # record "DataParallel" and the meta.yaml would no longer say which
             # architecture ran. band_widths is not forwarded at all.
@@ -1679,6 +1773,25 @@ def main():
     # Empty on a fresh run; the resume branch below replaces it. Declared here
     # so the train() call is valid on both paths.
     resumed_wer_history = []
+
+    # FINE-TUNE FROM WEIGHTS ONLY (D10, 2026-10-02). `training.init_weights`
+    # starts a NEW run from another run's weights with a fresh optimiser,
+    # scheduler, epoch and step count. It exists because the selected extension,
+    # e21, was saved weights-only, so --resume cannot start from it. Skipped on
+    # --resume: the resumed checkpoint already holds the fine-tuned weights.
+    init_record = init_weights_record(config)
+    if init_record and not args.resume:
+        source = torch.load(init_record["path"], map_location=device, weights_only=False)
+        # Same ARCHITECTURE or refuse: a fine-tune whose model block differs from
+        # its source is a different model warm-started by accident.
+        if (source.get("config") or {}).get("model") != config["model"]:
+            raise ValueError(f"{init_record['path']} was trained with a different "
+                             f"model block; init_weights needs the same architecture")
+        # strict=True (the default): a missing or extra tensor is an error.
+        core.load_state_dict(source["model"])
+        print(f"initialised from {init_record['path']} (md5 {init_record['md5']}), "
+              f"fresh optimiser at lr {config['training']['lr']}", flush=True)
+
     if args.resume:
         if not save_path.exists():
             raise FileNotFoundError(f"--resume but no checkpoint at {save_path}")

@@ -9,8 +9,21 @@ error -- while a validator that joins with "\n" still reports it as fine. That
 bug shipped once; _lines() and the check at the bottom exist to stop it again.
 
     python scripts/make_kaggle_notebook.py
+    python scripts/make_kaggle_notebook.py --config experiments/configs/bsrnn_interf_ft.yaml \
+        --epochs 6 --out notebooks/kaggle_train_interf_ft.ipynb
+
+--config / --epochs pre-set the two knobs that decide WHICH run this is, so a
+notebook can be uploaded and run without editing a cell by hand. EPOCHS
+overrides the config's training.epochs, so leaving it at the default when the
+config asks for fewer is a silently longer run, not a crash. 2026-10-02.
 """
-import json, pathlib
+import argparse, json, pathlib
+
+_ap = argparse.ArgumentParser()
+_ap.add_argument("--config", default=None, help="pre-set CONFIG in the knobs cell")
+_ap.add_argument("--epochs", type=int, default=None, help="pre-set EPOCHS in the knobs cell")
+_ap.add_argument("--out", default="notebooks/kaggle_train_mid.ipynb")
+ARGS = _ap.parse_args()
 
 def _lines(src):
     """nbformat convention: every element of `source` carries its own trailing
@@ -484,7 +497,7 @@ from pathlib import Path
 sys.path.insert(0, ".")
 from scripts.train import (get_data_loaders, build_model, build_loss_fn, unpack,
                           build_context_encoder, context_kwargs,
-                           amp_ctx, oracle_mask_and_mag)
+                           amp_ctx, oracle_mask_and_mag, other_kwargs)
 # argv, NOT a notebook global: this runs in its OWN subprocess (see the comment
 # in the driver below), so a bare CONFIG here is a NameError at import time.
 B, data, split, config = (int(sys.argv[1]), Path(sys.argv[2]), sys.argv[3],
@@ -545,9 +558,11 @@ for i, b in enumerate(tr):
             out, mask = m(x, e, **context_kwargs(enc, e)), None
     oracle, mix_mag = (oracle_mask_and_mag(m, s, x) if want_mask
                        else (None, None))
+    # D10: the other speaker's stem, which a w_interf != 1 loss requires.
     loss, _ = L(s, out.float(), x, a,
                 mask=None if mask is None else mask.float(),
-                oracle_mask=oracle, mixture_mag=mix_mag)
+                oracle_mask=oracle, mixture_mag=mix_mag,
+                **other_kwargs(L, b, dev))
     # A non-finite loss makes the scaler skip FOREVER, which is indistinguishable
     # from a too-small calibration budget unless it is checked for directly.
     if not torch.isfinite(loss):
@@ -765,7 +780,9 @@ cells.append(code(r'''
 import shutil, zipfile, glob
 from pathlib import Path
 
-STAMP = f"{SPLIT}-e{EPOCHS}"
+# The config's name is in the stamp so two arms run in two sessions download as
+# two different files. 2026-10-02.
+STAMP = f"{SPLIT}-{Path(CONFIG).stem}-e{EPOCHS}"
 bundle = Path(WORK) / f"results-{STAMP}.zip"
 with zipfile.ZipFile(bundle, "w", zipfile.ZIP_DEFLATED) as z:
     for f in sorted(Path(RES).rglob("*")):
@@ -865,7 +882,24 @@ nb = {
     "nbformat_minor": 5,
 }
 
-out = pathlib.Path("notebooks/kaggle_train_mid.ipynb")
+def _override(prefix, new_line):
+    """Replace the ONE knob line starting with `prefix`. Asserted unique, so a
+    renamed or duplicated knob fails here instead of producing a notebook that
+    silently trains the default."""
+    hits = [(ci, li) for ci, c in enumerate(cells)
+            for li, l in enumerate(c["source"]) if l.startswith(prefix)]
+    assert len(hits) == 1, f"expected one line starting {prefix!r}, found {len(hits)}"
+    ci, li = hits[0]
+    cells[ci]["source"][li] = new_line + "\n"
+
+if ARGS.config:
+    _override("CONFIG      = ", f'CONFIG      = "{ARGS.config}"   '
+                                f'# set by make_kaggle_notebook.py --config')
+if ARGS.epochs:
+    _override("EPOCHS      = ", f"EPOCHS      = {ARGS.epochs}       "
+                                f"# set by --epochs; the notes below are for the default 14")
+
+out = pathlib.Path(ARGS.out)
 out.parent.mkdir(parents=True, exist_ok=True)
 out.write_text(json.dumps(nb, indent=1) + "\n")
 # Validate the way Jupyter reads it: "".join, never "\n".join.

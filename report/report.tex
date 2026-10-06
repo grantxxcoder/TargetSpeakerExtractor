@@ -1,4 +1,4 @@
-\documentclass[a4paper,12pt]{report}
+\documentclass[a4paper,12pt]{article}  % sections, not chapters: a technical report
 
 % Page layout
 \usepackage[left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm]{geometry}
@@ -22,19 +22,15 @@
 \usepackage[raggedright,sf,bf]{titlesec}
 \usepackage[margin=\the\parindent,small,bf,sf]{caption}
 \titlelabel{\thetitle.\ }
-\titleformat{\chapter}[display]{\huge\bfseries\sffamily}{\chaptertitlename\ \thechapter}{15pt}{\Huge \raggedright}
-\titlespacing*{\chapter}{0pt}{0pt}{40pt}  % remove spacing before chapter headings
 \makeatletter
-\let\originall@chapter\l@chapter
-\def\l@chapter#1#2{\originall@chapter{{\sffamily #1}}{#2}}
+\let\originall@section\l@section
+\def\l@section#1#2{\originall@section{{\sffamily #1}}{#2}}
 \makeatother
 
 %% Alternative headings using small-caps (comment out the top section)
 %\usepackage[raggedright,bf]{titlesec}
 %\usepackage[margin=\the\parindent,small,bf]{caption}
 %\titlelabel{\thetitle.\ }
-%\titleformat{\chapter}[display]{\huge\scshape}{\chaptertitlename\ \thechapter}{15pt}{\Huge \raggedright}
-%\titlespacing*{\chapter}{0pt}{0pt}{40pt}  % remove spacing before chapter headings
 
 % Table of contents
 \let \savenumberline \numberline
@@ -47,12 +43,14 @@
 \usepackage{pdfpages}
 \usepackage{subcaption}
 \setlength{\abovecaptionskip}{7.5pt}  % spacing above and below captions
+\counterwithin{figure}{section}
 \newcommand*{\WaterMark}[2][0.2\paperwidth]{\AddToShipoutPicture*{\AtTextCenter{\parbox[c]{0pt}{\makebox[0pt][c]{\includegraphics[width=#1]{#2}}}}}}
 
 % Mathematics
 \usepackage[cmex10]{amsmath}
 \usepackage{amssymb}
 \usepackage{cancel}
+\numberwithin{equation}{section}  % (3.1), as under the report class
 \DeclareMathOperator*{\argmax}{arg\,max}
 \newcommand{\T}{^\top}
 \newcommand{\tr}{\textrm{tr}}
@@ -72,6 +70,7 @@
     \renewcommand{\arraystretch}{1.2}
     }
 \renewcommand{\tabularxcolumn}[1]{m{#1}}
+\numberwithin{table}{section}
 \newcolumntype{C}{>{\centering\arraybackslash}X}
 \newcolumntype{L}{>{\raggedright\arraybackslash}X}
 \newcommand{\lowerbetter}{\ensuremath{\downarrow}}   % table header: lower is better
@@ -99,10 +98,14 @@
 \usepackage{hyperref}
 \hypersetup{colorlinks=true,linktoc=all,citecolor=black,linkcolor=black}
 \usepackage[nottoc]{tocbibind}
+\addto\extrasenglish{%  % \autoref at every heading depth reads "Section"
+  \def\sectionautorefname{Section}%
+  \def\subsectionautorefname{Section}%
+  \def\subsubsectionautorefname{Section}}
 
 % Pseudo-code
 \usepackage{algpseudocode}  % should go after \usepackage{hyperref}
-\renewcommand{\thealgorithm}{\arabic{chapter}.\arabic{algorithm}} 
+\renewcommand{\thealgorithm}{\arabic{section}.\arabic{algorithm}}
 \captionsetup[algorithm]{labelfont={bf,sf},font=small,labelsep=colon}
 
 % Bibliography
@@ -123,9 +126,13 @@
 \input{frontmatter/title_page}
 \pagenumbering{roman}
 \input{frontmatter/declaration}
+\clearpage
 \input{frontmatter/abstract}
+\clearpage
 \input{frontmatter/acknowledgements}
+\clearpage
 \tableofcontents
+\clearpage
 %\listoffigures
 %\listoftables
 \input{frontmatter/nomenclature}
@@ -141,9 +148,11 @@
 \input{conclusion/conclusion}
 
 % Bibliography
+\phantomsection  % contents link lands on References, not the Conclusion
 \bibliography{references}
 
 % End matter
+\clearpage
 \appendix
 \input{appendices/appendices}
 

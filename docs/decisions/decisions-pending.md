@@ -4087,3 +4087,24 @@ check Qualcomm's own announcement before citing).
 - Never "runs on glasses". Nothing is measured on that hardware.
 - Conversation Focus is a product, not a benchmark: compare purpose and clue
   type, never quality.
+
+## 2026-10-03 — CLOSED 2026-10-03: the hail-mary run's loss weights (w_interf, w_artif)
+
+**Taken (Grant):** w_interf 2.0 only, w_artif dropped; config `bsrnn_interf_scratch.yaml`.
+Evidence: decisions-m2.md 2026-10-03 "AB-SDR RESULT". The text below is the open question as it stood.
+
+**On hold until the 2x2 is judged.** `bsrnn_interf_artif_scratch.yaml` carries
+w_interf 2.0 / w_artif 4.0 provisionally. Do not launch it before this closes.
+
+- **The 2 : 4 ratio was never chosen.** 4.0 is Ochiai et al.'s alpha = 2 (tuned on
+  a conventional ASR backend); 2.0 is D10's. As energy weights the distortion push
+  is ~6x the leakage push (`interf_artif_ft` epoch 1, train: 0.455 x 3 = +137 % of
+  the error vs 0.239 x 1 = +24 %).
+- **Evidence so far, epochs 1–2 (rough, from epoch averages):** w_artif 4 alone
+  lets ~59 % more of the other speaker through than the control and leans less on
+  the enrolment; with w_interf 2 added, ~+30 %.
+- **Decide on:** the judge's e5 (and e3) results for `artif_ft` and `interf_artif_ft`
+  against the control and `interf_ft` (rule: decisions-m2.md 2026-10-03). If
+  `interf_artif_ft` still leaks more than the control on the judge, lower w_artif
+  (e.g. 2.0) for the hail mary.
+- **Write the choice** into decisions-m2.md's hail-mary entry, and the config, before launch.

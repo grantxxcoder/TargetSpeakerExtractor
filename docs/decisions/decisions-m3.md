@@ -1435,6 +1435,9 @@ differently. Per-trial r = 0.825 (`2026-09-15-judge-predictability`).
   SIR band.
 - **CLAUDE.md limit (a) is unchanged.** `sir0_privval` is still never scored,
   filtered or selected on during training.
+- **Exception, 2026-10-02 (Grant):** one SI-SDR voice-swap test, 1a e15 vs 1c e12,
+  on all 1,421 `both` trials. No listener, no selection. Result in `decisions-m2.md`
+  2026-10-02.
 
 ### Kept, not deleted
 
