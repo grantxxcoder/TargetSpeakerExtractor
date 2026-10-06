@@ -138,3 +138,47 @@ Every parameter below is drawn independently per trial from the stated distribut
   \end{xltabular}
 \endgroup
 
+
+
+\section{AMI evaluation set}
+\label{app:ami}
+
+\begin{table}[H]
+  \mytable
+  \begin{tabularx}{\textwidth}{@{}lL@{}}
+    \toprule
+    Property & Value \\
+    \midrule
+    \multicolumn{2}{@{}l}{\emph{Recordings}} \\
+    Source                 & AMI Meeting Corpus, scenario meetings \cite{carletta2005ami} \\
+    Trials                 & 300, totalling 77.9 min \\
+    Trial length           & Median 15.8 s, range 10.1--20.0 s \\
+    Rooms                  & 3, one per recording site (Edinburgh, IDIAP, TNO); 100 trials each \\
+    Meetings               & 58, from 15 four-meeting groups (5 per site) \\
+    Model input            & One table microphone (\texttt{Array1-01}), level as recorded \\
+    Target alone           & The target's headset; approximate, as it also picks up the other speaker \\
+    Enrolment              & 5.0 s of the target speaking alone, from their headset in a different meeting; 247 distinct clips \\
+    \midrule
+    \multicolumn{2}{@{}l}{\emph{Speakers}} \\
+    Unique speakers        & 60 (20 per site); 55 appear as the target \\
+    Trials per target      & Median 5, range 1--12 \\
+    Sex                    & 45 male, 15 female; 228 trials have a male target, 72 a female target \\
+    Pairing                & 236 same-sex trials, 64 mixed-sex \\
+    Native English         & 21 of 60 speakers; 108 of 300 trials have a native-English target \\
+    Native language        & English 21, Dutch 21\textsuperscript{a}, French 8, Hindi 2, Tamil 2; one each of Chinese, Greek, Spanish, Swiss German, Telugu and Wolof \\
+    Age                    & Mean 26.8, median 25.5, range 19--58 years\textsuperscript{b} \\
+    \midrule
+    \multicolumn{2}{@{}l}{\emph{Content}} \\
+    Target words           & Median 14 per trial, range 5--52; 5{,}075 in total \\
+    Other speaker's words  & Median 15.5 per trial, range 5--70 \\
+    \bottomrule
+  \end{tabularx}
+  \caption{The AMI evaluation set: real meeting recordings cut into stretches
+           where exactly two people speak, with no mixing and no level change.
+           Sex is read from AMI's speaker-ID code, which agrees with the
+           recorded sex for all 189 participants that have a record.
+           \textsuperscript{a}Includes the 20 TNO speakers, who have no entry
+           in AMI's participant record; their native language is inferred from
+           the ID code. \textsuperscript{b}Recorded for 36 of the 60 speakers.}
+  \label{tab:ami}
+\end{table}

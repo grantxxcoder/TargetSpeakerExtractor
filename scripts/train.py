@@ -1407,9 +1407,13 @@ SPLIT_MANIFESTS = {
     # scored where nothing was selected. get_data_loaders refuses it: validating
     # on it in training would make it a selection set. decisions-m3.md 2026-09-24.
     "sir0pub": (("sir0_train", "sir0_train"), ("eval_public", "eval_public")),
+    # ami: RENDERING ONLY. The AMI real-audio transfer set built by
+    # scripts/build_ami_trials.py -- eval only, never trained, filtered or
+    # selected on. The train half is a placeholder get_data_loaders never reads.
+    "ami":   (("sir0_train", "sir0_train"), ("ami_eval",    "ami_eval")),
     "full":  (("train",       "train"),       ("val",       "val")),
 }
-RENDER_ONLY_SPLITS = frozenset({"sir0pub"})
+RENDER_ONLY_SPLITS = frozenset({"sir0pub", "ami"})
 
 
 def get_data_loaders(split, csv_path, data_path, config):
@@ -1421,7 +1425,8 @@ def get_data_loaders(split, csv_path, data_path, config):
         raise ValueError(f"Unknown split: {split}. Known: {sorted(SPLIT_MANIFESTS)}")
     if split in RENDER_ONLY_SPLITS:
         raise ValueError(f"split {split!r} is for rendering estimates only; "
-                         f"training on it would select checkpoints on eval_public.")
+                         f"training on it would select checkpoints on "
+                         f"{SPLIT_MANIFESTS[split][1][0]}.")
     (train_manifest, train_audio), (val_manifest, val_audio) = SPLIT_MANIFESTS[split]
     # Every trial trained twice, once per speaker. Config-driven so the arm is
     # recorded with the run; absent key = the old single-direction behaviour, so

@@ -41,7 +41,7 @@ window:
   target_choice: random                    # one direction per window, seeded
 
 enrollment:
-  min_s: 5.0
+  length_s: 5.0                            # cut exactly this long; protocol minimum (metric-definitions.md §2)
   from: sibling_meeting                    # same group, different meeting
   match_on: global_name                    # NXT letters A-D are not stable across meetings
   solo: true                               # only the target active
@@ -49,4 +49,4 @@ enrollment:
 text:
   strip: [punctuation_tokens, markup]      # everything else left to the pinned normaliser (B5)
 
-level_match: true                          # one gain on the table mic to the constructed sets' loudness; logged per trial
+level: as_recorded                         # no gain, no matching to the constructed sets -- unseen conditions are the point

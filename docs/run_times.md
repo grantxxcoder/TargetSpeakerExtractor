@@ -36,6 +36,7 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | 2026-09-23 | `content_probe.score()` end-to-end smoke, 3 clips | 3 clips, sir0_val, untrained 1c model, cpu extraction + faster-whisper small.en int8 cpu | 3.1 min | ~16 s/clip extraction on cpu, ~4 s/clip ASR, plus ~1 min of model loading. The Kaggle figure differs: extraction moves to the T4, so the ASR sets the per-epoch cost at ~4 s/clip. Added by hand. |
 | 2026-09-21 | `pytest tests/ -q` | 515 tests | 11 min | full suite after adding eval_by_case.py. Added by hand: pytest does not use run_log.timed |
 <!-- rows appended below by src/run_log.py -->
+| 2026-10-06 | `scripts/build_ami_trials.py` | 300 trials, ami_eval | 87 s | cpu |
 | 2026-10-05 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-10-05-est-interf-scratch-e22 --metrics content --listener judge --judge-rpm 10 --out experiments/results/2026-10-05-eval-interf-scratch-e22-judge | 17 min |  |
 | 2026-10-05 | `scripts/evaluate.py` | --config experiments/configs/eval_offline_asr_turbo.yaml --systems estimate --est experiments/results/2026-10-05-est-interf-scratch-e22 --out experiments/results/2026-10-05-eval-asr-turbo-interf-scratch-e22 | 15 min |  |
 | 2026-10-05 | `scripts/evaluate.py` | --config experiments/configs/eval_offline_asr_turbo.yaml --systems estimate --est experiments/results/2026-10-05-est-interf-scratch-e24 --out experiments/results/2026-10-05-eval-asr-turbo-interf-scratch-e24 | 14 min |  |
