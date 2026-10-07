@@ -101,7 +101,7 @@ Every parameter below is drawn independently per trial from the stated distribut
     Utterances per source & $\le 6$            & Cap on how many utterances one recording may contribute \\
     \midrule
     \multicolumn{3}{@{}l}{\emph{Levels}} \\
-    SIR                   & $[-5.0, 15.0]$ dB  & Target loudness relative to the interferer \\
+    SIR                   & $[-10.0, 10.0]$ dB  & Target loudness relative to the interferer \\
     SNR                   & $[0.0, 20.0]$ dB   & Target loudness relative to the noise bed \\
     Target loudness       & $[-33.0, -25.0]$ LUFS & Absolute level of the target, BS.1770 integrated \cite{itu2015bs1770} \\
     Clip ceiling          & $0.95$             & Peak after which the whole trial is rescaled together \\
@@ -131,7 +131,7 @@ Every parameter below is drawn independently per trial from the stated distribut
     \midrule
     \multicolumn{3}{@{}l}{\emph{Regimes}} \\
     Regime weights        & $0.6$ / $0.4$      & Proportion of trials drawn as \texttt{base} / \texttt{hard} \\
-    \texttt{base} SIR     & $[0.0, 12.0]$ dB   & Regime override \\
+    \texttt{base} SIR     & $[0.0, 8.0]$ dB   & Regime override \\
     \texttt{base} SNR     & $[8.0, 20.0]$ dB   & Regime override \\
     \texttt{base} activity & $[0.45, 0.78]$    & Regime override \\
     \texttt{base} $T_{60}$ & $[0.25, 0.5]$ s   & Regime override \\

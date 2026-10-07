@@ -985,3 +985,33 @@ Paired bootstrap over clips, 10,000 draws, seed 42:
 - **Still all-or-nothing:** unsilenced e21 clips carry 29.2 words vs the
   floor's 28.0. The gain is silencing more often, not partial suppression.
 - **`eval_public` is now seen.** Nothing may be selected or tuned on it.
+
+## 2026-10-06 — AMI: WeSep and e21 through the judge
+Judge `gemini-3.7-flash`, audio-in / text-out, prompt sha `d118b7d3bf30`, run
+2026-10-06, one run. `ami_eval` `both`, n=300. Construction: decisions-m0.md
+2026-10-06. Numbers and paths: `experiments/results/2026-10-06-ami-summary/`.
+
+| | No processing | WeSep | e21 | Target's headset |
+|---|---|---|---|---|
+| LCF-WER | 115.5 | **80.6** | 91.3 | 72.5 |
+| target words missed | 3.5 | 27.7 | 45.3 | 2.3 |
+| other speaker passed (mean leak) | 82.8 | **19.6** | 25.2 | 52.0 |
+| invented / trial | 1.48 | 2.65 | **1.83** | 1.13 |
+| gate-blocked | 0 | 38 | 110 | 0 |
+
+- **Ranking holds on real audio:** WeSep ahead of e21, as on `sir0_val`.
+- **Floor > 100 %:** the judge transcribes both talkers; the other speaker's words
+  are insertions against a ~14-word target.
+- **Headset is not a ceiling here:** median 20.9 dB bleed separation, 52 % leak. Do
+  not report "share of headroom": the gap is small because the headset is poor.
+- **e21 near-mutes real audio:** 110/300 outputs blocked, median 25.9 dB below its
+  input; speech still present (110/110 found after levelling). Real behaviour, not a
+  gate artefact. Suspected cause: AMI input (~−48 dB RMS) far quieter than training.
+- **WeSep's 38 blocks are mostly a gate artefact:** ~7 dB below input, 38/38 speech
+  after levelling. Its 80.6 is pessimistic.
+- **e21 invents less:** +24 % over the floor vs +79 % for WeSep.
+- **10 × 400 invalid-argument** across both passes, audio normal; all succeeded on
+  retry. Final runs have 0 failures.
+
+Open: meeting-clustered bootstrap on e21 − WeSep; e21 with the 110 inputs levelled
+(local diagnostic) to test the quiet-input explanation.
