@@ -137,6 +137,10 @@ CODE = [
     # weight only (w_artif dropped after the 2x2) and a medium.en probe.
     # Exploratory, not controlled. decisions-m2.md 2026-10-03.
     "experiments/configs/bsrnn_interf_scratch.yaml",
+    # 2026-10-07, matched baseline: the baseline model under e21's protocol
+    # (content_wer schedule + selection, keep_stride 3, the probe). No new source
+    # file: every key it sets already exists. decisions-m2.md 2026-10-07.
+    "experiments/configs/bsrnn_baseline_matched.yaml",
     "docs/run_times.md",   # src.run_log appends here; give it a real file
 ]
 

@@ -12,6 +12,8 @@
  
 
   \subsubsection{Model Selection}
+    Training length was set by the 12-hour limit of a Kaggle GPU session rather than by the loss. An early stopping mechanism after 10 epochs without improvement was available as a backstop but never triggered. The baseline ran for one session of 16 epochs. The extension ran for 14 epochs, and because its in-training word error rate was still falling at the end of that session (its best epoch was the last), training was resumed for a second session, to 28 epochs.
+
   The final model to base the evaluation on cannot simply be chosen by the model with the lowest validation loss as a result of the proxy training objective. The loss (\autoref{sec:objective}) is a proxy for the downstream task, where the approach in the proxy is to reward better separation. However, better separation does not guarantee better recognition (\autoref{sec:evaluation}): the epoch with the lowest loss for the extension has the highest WER of the chosen checkpoints as seen in \autoref{fig:training_curves}. Secondly, the model cannot be optimised directly against the WER as it is not differentiable. Finally a consideration is that the live judge is also too slow to run after every epoch. The model is thus chosen as follows: Whisper (\autoref{sec:offline_asr}) during training will create a shortlist of best candidate checkpoints based on the WER of the validation set for the extension model. The baseline model however had the candidates chosen by the lowest validation loss. Then candidates are then scored by the live judge (\autoref{sec:live_judge}) where the lowest WER is chosen as the final model with ties broken by the fewer invented words. 
 
   \subsubsection{Systems compared}
@@ -21,6 +23,7 @@
 
   WeSep was not trained on data that contained noise or reverberation, whereas trials in this work contain both. Secondly, WeSep itself has a causal separator, however, the features are normalised over the entire clip before the separator. This setup means that every output frame depends on audio that has not arrived yet and thus the model cannot be streamed and is treated as an offline system. Finally, the results of WeSep are not comparable to the results found in the REAL-TSE challenge \cite{wang2026realtse} due to varying data, metrics and protocols. 
 
+ 
   \subsubsection{Training curves}
   \label{exp:curves}
   Both models were trained with the same loss and the same settings, but differ in how long they were trained and in how the final model was
