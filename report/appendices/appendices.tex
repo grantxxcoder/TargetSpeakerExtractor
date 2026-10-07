@@ -69,7 +69,7 @@ speech signals arrive with different but consistent room responses.
 \section{Construction parameters}
 \label{app:params}
 
-Every parameter below is drawn independently per trial from the stated distribution, except where a regime overrides it. Ranges written $[a, b]$ are sampled uniformly on that interval.
+Every parameter below is drawn independently per trial from the stated distribution, except where a regime overrides it. The table gives the training and validation settings. The \texttt{eval\_public} and \texttt{eval\_private} splits draw SIR from $[-5, 15]$\,dB and use no regimes. Ranges written $[a, b]$ are sampled uniformly on that interval.
 
 % xltabular, not table + tabularx: a float cannot break across pages, and this
 % table is taller than one. The header repeats on every page it spans.
@@ -131,7 +131,6 @@ Every parameter below is drawn independently per trial from the stated distribut
     \midrule
     \multicolumn{3}{@{}l}{\emph{Regimes}} \\
     Regime weights        & $0.6$ / $0.4$      & Proportion of trials drawn as \texttt{base} / \texttt{hard} \\
-    \texttt{base} SIR     & $[0.0, 8.0]$ dB   & Regime override \\
     \texttt{base} SNR     & $[8.0, 20.0]$ dB   & Regime override \\
     \texttt{base} activity & $[0.45, 0.78]$    & Regime override \\
     \texttt{base} $T_{60}$ & $[0.25, 0.5]$ s   & Regime override \\
@@ -201,3 +200,27 @@ Every parameter below is drawn independently per trial from the stated distribut
     Other speaker's words  & Median 15.5 per trial, range 5--70 \\
   \end{xltabular}
 \endgroup
+
+
+\section{Offline transcriber results}
+\label{app:asr}
+The same 103 two-speaker trials as \autoref{tab:content_judge}, transcribed by the offline transcriber of \autoref{sec:offline_asr} instead of Gemini (\autoref{sec:results_content}).
+
+\begin{table}[H]
+\centering
+\caption{Content recovered by the offline transcriber,
+\texttt{faster-whisper large-v3-turbo}. Lower is better in every column.}
+\label{tab:content_asr}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+ & WER \lowerbetter & ICR@2 \lowerbetter & mean leak \lowerbetter & invented \lowerbetter & FR@2 \lowerbetter \\
+system & (\%) & (\%) & (\%) & /trial & (\%) \\
+\midrule
+Floor & 63.04 & 76.70 & 62.78 & 1.59 & 38.83 \\
+Baseline & 52.71 & 62.14 & 45.73 & 1.96 & 49.02 \\
+Extension & 41.01 & 36.89 & 19.55 & 2.46 & 57.43 \\
+WeSep    & \textbf{29.13} & \textbf{22.33} & \textbf{12.46} & 2.02 & 54.37 \\
+Ceiling  & 1.98 & 0.00 & 0.00 & 0.45 & 8.74 \\
+\bottomrule
+\end{tabular}
+\end{table}

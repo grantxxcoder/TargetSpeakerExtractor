@@ -36,6 +36,13 @@ Blind mark **57/100** (pass, not yet "good"). Items below are *not* already else
 - [ ] Wording: "33,000 parameters" vs "no learned parameters" (TF map); causality claimed as own though the challenge baseline is causal — say what *this* work changed (per-frame norm, no centring); AI-attribution sentence `extension_architecture.tex:43` contradicts itself; "Appendix C of the Whisper paper"; Fig 3.3 title shows "wesep_16k"; Table 5.5 caption points to wrong section.
 - [ ] Metric validity: say FR counts some misrecognitions (ceiling 0.22/trial is that floor); no human validation of leak/FR → Limitations.
 
+## 0c. NEW from blind review v2 (2026-10-07, 58/100, `docs/reports/2026-10-07-blind-examiner-review-v2.md`)
+- [ ] **NB judge is not the Live API** — justify transcription by `gemini-3.7-flash` as the stand-in, or Limitations.
+- [ ] **NB extension's gain is partly suppression** — deletions 3.00 → 9.44 %; AMI 110/300 silenced, 45 % missed. Say it in Results.
+- [ ] **Selection-free headline** — run Case 1 on `eval_public` (230 `both` trials) for baseline, e21, WeSep + anchors? Decide before the 10-14 freeze.
+- [ ] FR denominator shrinks with silencing; judge SE 1.24 vs SD 0.34 explained; "roughly 15 hours"; Fig 3.2 causal claim; define "target words missed"; App. D transcripts source; latency chunk size/hardware; 71.8/52.6 % method.
+- [ ] Typos: data.tex:8, baseline_architecture.tex:114, metrics.tex:7, metrics.tex:80, litreview.tex:24, results.tex:40.
+
 ---
 
 ## 1. Front matter
@@ -139,7 +146,7 @@ Blind mark **57/100** (pass, not yet "good"). Items below are *not* already else
 - [ ] `:39` "subsequentlyhas", "over the passing the audio"; `:144` "significantly" (no test) → "clearly"; `:130` caption points to `sec:results_errors` for the cap — point to Metrics.
 - [ ] `:113` Error composition discusses only the floor — add extension/WeSep (deletions vs insertions story) from the table.
 - [ ] **Causality probe result**: WeSep 1.12e-2 vs ours 1.68e-8 (needed for intro's "fully causal").
-- [ ] **AMI results**: WeSep vs e21 table + near-mute finding (110/300 blocked, ~26 dB below input); label anchor "Target's headset"; no headroom share. decisions-m4.md 2026-10-06.
+- [ ] **AMI results**: ~~table~~ (added 2026-10-07, Table 5.3, `sec:results_ami`). STILL TO WRITE: the discussion — ranking holds (WeSep ahead), e21 near-mutes real audio (110/300 silenced, ~26 dB below input; speech present after levelling; suspected quiet input), WeSep's 38 mostly a gate artefact (~7 dB down), e21 invents less (+24 % vs +79 % over no processing); no headroom share. decisions-m4.md 2026-10-06.
 - [ ] `eval_public` per SIR band (B1) — or state why not.
 - [ ] §0 "Why the metric is needed" as the first subsection (parked).
 

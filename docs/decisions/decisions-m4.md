@@ -1015,3 +1015,25 @@ Judge `gemini-3.7-flash`, audio-in / text-out, prompt sha `d118b7d3bf30`, run
 
 Open: meeting-clustered bootstrap on e21 − WeSep; e21 with the 110 inputs levelled
 (local diagnostic) to test the quiet-input explanation.
+
+## 2026-10-07 — eval_private scored ONCE for the selection-free headline
+
+**Decided 2026-10-07 (Grant), after all selection on `sir0_val` is finished.** Baseline
+10000-e6, e21 and WeSep are rendered on `eval_private` `both` (249 trials, 20 speakers
+never trained, tuned or selected on) and judged once each: `gemini-3.7-flash`,
+aistudio, audio-in / text-out, prompt `d118b7d3bf30`, run date recorded per result.
+Driver `eval_private.sh` (render, then judge); render-only split `sir0priv` added to
+`scripts/train.py` and `scripts/make_estimates_wesep.py` (training on it is refused).
+
+**Why.** Both blind reviews (`docs/reports/2026-10-07-blind-examiner-review*.md`) rank
+"checkpoints chosen on the reported trials" as the top problem. This is the protocol
+`select_by_wer.py` always stated: select on `sir0_val`, report on `eval_private`.
+
+**Reporting rule, fixed now:** the methods say checkpoints were selected on
+`sir0_val` and the headline is reported on `eval_private`. `eval_private` uses the
+original level distribution (target usually louder), so it is easier than `sir0_val`;
+report both, and per SIR band if space allows.
+
+**Consequences:** `eval_private` is now seen. Nothing may be selected or tuned on it
+from here on (CLAUDE.md limit (a) still holds for training). The matched baseline,
+once selected on `sir0_val`, is scored here the same way.

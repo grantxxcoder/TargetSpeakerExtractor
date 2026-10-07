@@ -73,6 +73,9 @@ VAL_SPLITS = {
     "sir0ext": ("sir0_privval", "sir0_privval"),
     # Public test split, rendering only (scripts/train.py RENDER_ONLY_SPLITS).
     "sir0pub": ("eval_public", "eval_public"),
+    # Private test split, rendering only, scored once after selection.
+    # decisions-m4.md 2026-10-07.
+    "sir0priv": ("eval_private", "eval_private"),
     # AMI real-audio transfer set, rendering only (scripts/build_ami_trials.py).
     "ami":   ("ami_eval",    "ami_eval"),
     "full":  ("val",       "val"),

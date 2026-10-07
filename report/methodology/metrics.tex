@@ -75,3 +75,6 @@ which are all measured in decibels (dB) where the higher ratio means better extr
 \label{sec:anchors}
 % floor, ceiling, text floor, text ceiling; a bare score is meaningless
 The following terms are used to describe the lower and upperbounds of the results section. The floor references passing the full mixture audio, unprocessed to a listener as the worst case scenario, and the ceiling references passing a clean target audio to the listener as best case. The ceiling system is perfect separation and the listener hears only the target audio. The floor and ceiling systems are not real systems, but rather reference points for the listener to compare against. 
+\subsubsection{Uncertainty}
+\label{sec:uncertainty}
+Each 95\,\% interval is a percentile bootstrap \cite{efron1979bootstrap}. The interval is computed using bootsteap resampling where the trials are redrawn with replacement 10{,}000 times, and on every draw the score is recomputed as the total errors over the total reference words \cite{bisani2004bootstrap}. Because trials from the same speaker are not independent unique speakers are chosen rather than individual trials, and whole meetings for the AMI recordings. 
