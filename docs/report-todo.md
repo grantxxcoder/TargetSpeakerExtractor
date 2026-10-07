@@ -74,17 +74,17 @@ The intro (done 2026-10-05) promises both of these.
 ### 4.2 Baseline architecture (`methodology/baseline_architecture.tex`)
 - [ ] **NB `:27` band plan** lists 31 bands but says 32. Real plan: 3/6/16/64-bin bands + an 8-bin top band; edges ≈ 1.41 / 3.28 / 5.78 / 7.78 / 8 kHz (`bands.py`, verified).
 - [ ] **NB `:32` caption** "lowest fifteen 100 Hz; single highest spans 2 kHz" — lowest are 93.75 Hz; the *widest* is 2 kHz; the highest is ~250 Hz.
-- [ ] **NB `:48`** "A batch is twelve … crops" → six (3 trials × both directions; `collate_pairs`). Same at `setup.tex:11`.
-- [ ] **NB `:109` TF map, two inversions**: the softmax spread weights *too evenly* (not "not enough"); the template does *not* indicate whether the target is speaking. Optional measured numbers: 619.6 of 628 frames used, template varies 4.7 %; with κ = 16 top 50 frames carry ~59 %.
+- [x] **NB `:48`** "A batch is twelve … crops" → six (3 trials × both directions; `collate_pairs`). Same at `setup.tex:11`.
+- [x] **NB `:109` TF map, two inversions**: the softmax spread weights *too evenly* (not "not enough"); the template does *not* indicate whether the target is speaking. Optional measured numbers: 619.6 of 628 frames used, template varies 4.7 %; with κ = 16 top 50 frames carry ~59 %.
 - [ ] **NB CARTSE deviations table deleted**: the floor-on-‖s_proj‖² change (keeps L_pres scale-invariant; CARTSE floors on ‖s‖²) is now stated nowhere. Rule: borrowed-and-changed must be stated. Restore at least that + branch-wise means.
 - [ ] **NB `:209` w_m**: "derived from the target present and absent losses" → from L_pres and L_MR (both present). **Keep 9.62** (both models trained with it) but say it was calibrated on the earlier data (−5.91 / 0.184); on the final data the same rule gives **7.45** (median −5.15 / 0.207, 300 `sir0_train` crops, `experiments/results/2026-10-07-wm-anchor-sir0/`), so the spectral term starts at 0.39 × |L_pres|, not 0.30. (Earlier "≈ 1.75" was wrong.)
 - [ ] `:198` Combining branches: lost the *reason* for per-branch means (balance fixed by w regardless of how many silent crops a batch draws); currently conflated with crop-vs-label routing.
 - [ ] `:185` Output level — Claude-drafted, reword in own words; w_g crops came from `sir0_val`; 2.30 is a rule of thumb.
 - [ ] Wording: `:17` "centered" → "centred"; `:46` "the approach is to first it normalises"; `:79` "It is useful to not bound this mask…" (unclear); `:130` "invariable" → "invariant"; `:159` grammar; `:161` "quite" → "quiet"; `:166` "The model should penalise" → "The loss…", "in this works".
-- [ ] Trim (after supervisor sign-off, §10): Nyquist paragraph `:37–38`, residual-block textbook lines.
+- [ ] Trim (after supervisor sign-off, §10): ~~Nyquist paragraph~~ (cut 10-07), residual-block textbook lines.
 
 ### 4.3 Extension (`methodology/extension_architecture.tex`)
-- [ ] **NB `:6`** energy step "as seen in WeSep implementation" → Zhang et al. 2025 §II-A (verified in the paper).
+- [x] **NB `:6`** energy step "as seen in WeSep implementation" → Zhang et al. 2025 §II-A (verified in the paper).
 - [ ] `:45` "Speaker context embedding" — the *utterance-level* embedding is used (contextual was discarded); rename "Speaker embedding" here and at `setup.tex:20`.
 - [ ] `:47` say where/how the 128-d embedding enters the network (`context_encoder.py`); drop "served locally on a device" (scope is server-class).
 - [ ] `:3` "Below discusses"; `:20` "cannot tell distinguish".
@@ -103,7 +103,7 @@ The intro (done 2026-10-05) promises both of these.
 
 - [ ] `experiments.tex:4` leftover `% TODO`.
 - [ ] **NB `:15` Model selection**: baseline was *not* judged — picked on validation target-present loss with the silence bar (L_abs ≤ −10 dB), epoch 6 of 16. Extension: `small.en` on 40 clips → kept checkpoints → Gemini on 103 → e21. Add consequences: optimised for Gemini; selected on the reporting set (winner's curse −6.76 vs −1.51 [−4.07, +1.04]); different rules per model. Draft A (2026-10-05) covers it.
-- [ ] `:11` batch: "3 trials, each in both directions (6 crops)"; check "roughly 15 hours".
+- [x] `:11` batch: "3 trials, each in both directions (6 crops)"; check "roughly 15 hours".
 - [ ] `:20` (iv) "WeSep provides a potential upper bound" — overclaim (offline, different data); rename "speaker context embedding".
 - [ ] `:24–28` **Training curves analysis** (task 7): why e21 ≠ lowest loss; baseline e7 57.0 % / e15 51.8 % on Gemini (one run each, 2026-10-04) — e15 by silencing 5 clips and deleting 13.5 % vs 3.0 %; re-plot with baseline Gemini diamonds.
 - [ ] `:47` "it's result" → "its"; "for which … built for"; "transcribe the estimated audio … what it is able to hear". `:49` "reponse".

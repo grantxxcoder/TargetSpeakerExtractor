@@ -138,17 +138,45 @@ Every parameter below is drawn independently per trial from the stated distribut
   \end{xltabular}
 \endgroup
 
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\textwidth]{figures/enrollment_provenance.pdf}
+    \caption{Distribution of the source of the enrollment clips across the dataset.}
+    \label{fig:enrollment_distribution}
+\end{figure}
+
 
 
 \section{AMI evaluation set}
 \label{app:ami}
 
-\begin{table}[H]
-  \mytable
-  \begin{tabularx}{\textwidth}{@{}lL@{}}
+% xltabular, not table + tabularx, so the table can break across pages.
+% Same pattern as tab:params: header repeats, caption sits in the last footer.
+\begingroup
+  \small
+  \renewcommand{\arraystretch}{1.2}
+  \begin{xltabular}{\textwidth}{@{}lL@{}}
     \toprule
     Property & Value \\
     \midrule
+    \endfirsthead
+    \toprule
+    Property & Value \\
+    \midrule
+    \endhead
+    \midrule
+    \multicolumn{2}{r@{}}{\emph{Continued on the next page}} \\
+    \endfoot
+    \bottomrule
+    \caption{The AMI evaluation set: real meeting recordings cut into stretches
+           where exactly two people speak, with no mixing and no level change.
+           Sex is read from AMI's speaker-ID code, which agrees with the
+           recorded sex for all 189 participants that have a record.
+           \textsuperscript{a}Includes the 20 TNO speakers, who have no entry
+           in AMI's participant record; their native language is inferred from
+           the ID code. \textsuperscript{b}Recorded for 36 of the 60 speakers.}
+    \label{tab:ami}
+    \endlastfoot
     \multicolumn{2}{@{}l}{\emph{Recordings}} \\
     Source                 & AMI Meeting Corpus, scenario meetings \cite{carletta2005ami} \\
     Trials                 & 300, totalling 77.9 min \\
@@ -171,14 +199,5 @@ Every parameter below is drawn independently per trial from the stated distribut
     \multicolumn{2}{@{}l}{\emph{Content}} \\
     Target words           & Median 14 per trial, range 5--52; 5{,}075 in total \\
     Other speaker's words  & Median 15.5 per trial, range 5--70 \\
-    \bottomrule
-  \end{tabularx}
-  \caption{The AMI evaluation set: real meeting recordings cut into stretches
-           where exactly two people speak, with no mixing and no level change.
-           Sex is read from AMI's speaker-ID code, which agrees with the
-           recorded sex for all 189 participants that have a record.
-           \textsuperscript{a}Includes the 20 TNO speakers, who have no entry
-           in AMI's participant record; their native language is inferred from
-           the ID code. \textsuperscript{b}Recorded for 36 of the 60 speakers.}
-  \label{tab:ami}
-\end{table}
+  \end{xltabular}
+\endgroup

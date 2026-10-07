@@ -2,7 +2,9 @@
 \label{sec:metrics}
  The metrics are where the main contribution of the work lies. Since the main task is intelligibility of the target speaker for live transcribers and not necessarily the \textit{quality} of the extracted target speaker speech, the metrics that are designed in this section aim to reflect that objective.
 
-
+\subsubsection{Transcripts and references}
+\label{sec:transcripts}
+When a system produces output, either the offline or the live model with the prompt of \autoref{app:prompt}, it gives a transcript $y_{\hat{s}}$. The two anchors get transcribed as well to give the untouched mixture as $y_{x}$ and the clean target as $y_{s}$. Every transcript is scored against the LibtriSpeech reference transcript of the target speaker $y^\star_s$, and the interferer speaker $y^\star_d$. Before scoring, each transcript is normalised using Whisper's \texttt{EnglishTextNormalizer} \cite{whisper_normalizer,radford2023whisper}. This includes lowercasing, removing punctuation, contractions expanded and numbers written consistently.
 
 \subsubsection{Live-model Content Fidelity Word Error Rate}
 \label{sec:lcfwer}
