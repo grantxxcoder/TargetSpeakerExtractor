@@ -1895,3 +1895,33 @@ home.
 Still genuinely open in M0: the three interpreted renderer points (supervisor
 glance), per-parameter EDA, and refreshing the pre-rebuild figures in
 `src/exploratory/data_setup.ipynb`.
+
+## 2026-10-06 — AMI secondary eval set built: 300 two-speaker trials
+Settles the 2026-08-14 choice: **restricted to two active speakers**, so AMI
+tests real audio inside the declared scope. Eval only (`ami` is render-only in
+`scripts/train.py`); never trained, filtered or selected on.
+
+**Construction** (`scripts/build_ami_trials.py`, `experiments/configs/ami_eval.yaml`).
+Borrowed from REAL-T (Li et al., Interspeech 2025), cited as borrowed.
+- Source: AMI scenario meetings (Carletta et al., 2005), CC BY 4.0. 15 groups, 5 per
+  site (Edinburgh, IDIAP, TNO), seeded draw from groups with ≥ 20 usable windows.
+- Window: 10–20 s, exactly two people active (vocal sounds count), both ≥ 5 words,
+  no `gap`/`transformerror` marks, cut inside a ≥ 0.3 s all-silent gap. 20 per group.
+- Mixture = table mic `Array1-01`; `target.wav` = target headset (**approximate**);
+  enrolment = 5.0 s solo stretch from the target's headset in a **sibling meeting**.
+- Level as recorded. No gain, no matching to the constructed sets.
+
+**Differences from REAL-T:** two speakers only; enrolment from a different meeting;
+scored by the LCF judge. Not comparable to REAL-T numbers.
+
+**Found while building:**
+- IS1003b has no `Array1-01` on the server → enrolment source only.
+- ES2005 has 19 usable windows → 1 topped up from other groups, seeded.
+- NXT letters A–D change person across a group's meetings (4 of 15 groups) →
+  enrolment matched on `global_name`.
+- TNO speakers are absent from `participants.xml`: sex from the ID code (agrees
+  for all 189 recorded), native language inferred (Dutch), age unknown.
+- Natural overlap is low: median 7.5 % vs ~25 % in the constructed sets.
+
+Set: 300 trials, 77.9 min, 58 meetings, 60 speakers (45 M / 15 F, 21 native
+English). Report: Appendix D, `tab:ami`.

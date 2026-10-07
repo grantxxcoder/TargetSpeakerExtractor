@@ -1,11 +1,12 @@
-# Report todo — 2026-09-29
+# Report todo — 2026-10-07 (full read-through)
 
-Submission **2026-11-05** (37 days). Supersedes the 2026-09-07 list (in git history).
-`file:line` = `report/…`. **NB** = an examiner will catch it, or a claim is wrong.
+Submission **2026-11-05** (29 days). Experiment freeze **2026-10-14**. Supersedes 2026-09-29 (git history).
+Worked **section by section, in report order**. `file:line` = `report/…` as of 2026-10-07.
+**NB** = wrong or unsafe claim; an examiner will catch it. Everything else is wording, structure or missing content.
 
-## 0. PARKED until the other sections are done (2026-10-06): "Why the metric is needed"
+## 0. PARKED until the section pass reaches Results: "Why the metric is needed"
 
-The intro (done 2026-10-05) promises both of these. Write them when the section pass reaches them.
+The intro (done 2026-10-05) promises both of these.
 
 - **Experiments → new subsection "Testing the metric"** (`exp:metric_tests`, after Evaluation setup). No numbers.
   Question: does the split, or the live model vs an offline transcriber, change a decision? Test 1: mask sharpening
@@ -15,151 +16,151 @@ The intro (done 2026-10-05) promises both of these. Write them when the section 
   `both` clips, paired bootstrap 10,000 draws, seed 42, Holm.
 - **Results → new FIRST subsection "Why the metric is needed"** (`sec:results_metric`, before Content fidelity).
   Same WER, different leak (#17); Whisper misprices it (#18); training changes swap errors (D10, AB-SDR); takeaway.
-  Numbers: evidence block at the bottom of this file + `experiments/results/2026-10-03-bootstrap-interf-ft/`.
-- **Before writing:** add Canny 1986 + Bregman 1990 to the bib; note that the control row is baseline e6's own output
-  (judge 51.51 on 09-21 vs Table 5.1's 55.18 three-run mean, same audio); one judge run per arm (Limitations);
-  retractions below still apply; #17/#18 still need a `decisions-m4.md` entry (audio + code on `m5-listener-panel` b7c54f2).
+  Numbers: evidence block at the bottom + `experiments/results/2026-10-03-bootstrap-interf-ft/`.
+- **Before writing:** add Canny 1986 + Bregman 1990 to the bib; control row is baseline e6's own output (judge 51.51
+  on 09-21 vs Table 5.1's 55.18, same audio); one judge run per arm (Limitations); retractions below apply;
+  #17/#18 still need a `decisions-m4.md` entry (audio + code on `m5-listener-panel` b7c54f2).
 
-## 1. NB — wrong or unsafe claims currently in the report
+---
 
-- [ ] **Judge "held out of training" is false.** `experiments/setup.tex:30`. Rule
-  withdrawn 2026-09-15. Rewrite: the holdout moved from the model to the data
-  (`sir0_privval`, `eval_private` never scored/selected in training); every claim
-  says *optimised for Gemini*. Same fix in `metric-definitions.md` §4 (weak-point A7).
-- [ ] **Headline numbers are on the split e21 was selected on.** All tables use
-  `sir0_val` `both` n=103, and e21 was picked on it → optimistic. Say so in every
-  caption; the only selection-free number is `eval_public` Case 3 (m4 2026-09-29).
-- [ ] **`methodology/data.tex:54` misdescribes the eval set.** The 103 trials are the
-  `both` slice of the 200-trial `sir0_val` (103/47/42/8), not a "final holdout with no
-  target-absent trials". Name `sir0_val`, `eval_public`, `eval_private`, `sir0_privval` (dropped 09-24).
-- [ ] **SIR rancges contradict.** `data.tex:46` U[−10, 10] dB vs appendix [−5, 15],
-  `base` [0, 12], plus training-time gain re-draw (`dataset_loader.py`). State the real
-  distribution per split. `eval_public` is easier than training (SIR +4.76 dB, 75 %
-  target-louder, weak-point B1) → report it per SIR band.
-- [ ] **Extension's gain credited to ECAPA.** `results/results.tex:46`. m2 2026-09-27:
-  the extension is three inseparable changes (cue parts + context, content-WER selection
-  and LR schedule, 21 vs 6 epochs). "Best streaming model", not "conditioning worked".
-- [ ] **Judge noise figure is 3x understated.** `results.tex:241` comment says SEM ≈ 0.5;
-  measured SEM 1.50, CI [0.98, 2.00] (A2). Systems judged once cannot be split below
-  ±4.16 pts (A3).
-- [ ] **No CIs or paired tests anywhere.** Table 5.1 has ±SD only. Add a separate 95 % CI
-  column (house style) and paired bootstrap differences: e21 − baseline −16.36
-  [−23.83, −9.18]. Case tables are one run each — say so.
-- [ ] **Floor anchor bug (A1).** `load_once_index` is last-row-wins; plain run now gives
-  floor 62.98 vs table 62.94. Fix, re-derive anchors, confirm Tables 5.1–5.3.
-- [ ] **WeSep confounds must travel with every mention** (O4): different training data,
-  offline (global normaliser, cannot stream), 27.2 M vs 7.19 M params, out of domain.
-  `results.tex:46` calls it "best case of what BSRNN can achieve" — qualify.
-- [ ] **Model-selection section describes the retired rule.** `setup.tex:43-49`
-  ("10 dB down on absent branch"). Now: in-loop content WER (m2 09-23); e21 chosen on the
-  judge, overruling in-loop e18 (m2 09-26). Gemini as selection criterion → record ID/prompt/date.
-- [ ] **`w_m = 9.62` was calibrated on an abandoned distribution** (C6, ~65 % too high).
-  `architecture.tex:261-267`. Re-derive on `sir0` or state it.
-- [ ] **ICR is not an independent axis** (A6, r = 0.78 with WER). `metrics.tex:37-67`
-  presents it as one. Restate as a split of WER's insertions; say FR *is* independent (r = 0.24).
-- [ ] **Latency overclaim.** `results.tex:231` "comfortably within". Measured p99 margin is
-  14–23 %, about the method's own error: claim "keeps up on an idle CPU". Footnote ‡ in
-  Table 5.7 has no text.
-- [ ] **Wording rules.** "two-speaker mixtures", never "conversation" (`litreview.tex:23`,
-  `metrics.tex:16`). No REAL-TSE comparability — `results.tex:7` proposes adding CARTSE
-  numbers: only with an explicit non-comparability line, or drop.
-- [ ] **Stale `% CLAIMS` comments disagree with the tables** (error split 9.28→12.60 vs
-  6.93/5.70; OVRL 2.237 vs 2.183; SAR/SIR 10.34 swapped). Write prose from the tables, delete comments.
-- [ ] **TF-map equation omits the ×16 sharpening.** `architecture.tex` eq 3.5 writes
-  softmax(S); baseline trained with `tfmap_scale: 16.0` (√F, `conditioning.py:85-97`).
-  Without it the template is the clip's mean spectrum (measured 2026-08-25). State the
-  departure from Zhang 2025 (they use un-normalised products) as borrowed-and-changed.
+## 1. Front matter
 
-## 2. NB — missing content that must exist
+- [ ] `title_page.tex:1,20` degree wording, submission date (department).
+- [ ] `declaration.tex:1` official SU declaration wording.
+- [ ] **AI declaration section** — new front-matter page + SU form. List every Claude-drafted passage adopted:
+  intro contributions + scope line; §2.4 judge paragraph + gap; STFT and TF-map condensations; ICR rewrite and
+  symbol definitions; Output level paragraph; cue split (`extension_architecture.tex:43`); nomenclature rows.
+- [ ] `acknowledgements.tex:5` empty.
+- [ ] `abstract.tex` empty — write last.
+- [ ] `nomenclature.tex`: add κ, ℓᵢ, aᵢ, k, 𝒯, 𝒯ₖ, Sₙ, 𝒩, p, 𝟙, 𝓘ᵢ; abbreviations PSE, LLM, API, ECAPA-TDNN.
+  `N` means three things (STFT window, MR window variable `metrics`-side, WER reference length `metrics.tex:11`).
+  Delete commented rows `:74`, `:76`.
 
-- [ ] **The metric-contribution proof is not in the report.** Leak/fabrication trade and
-  cheap-listener misranking (evidence below). Bootstrap first, then a results section.
-- [ ] **Case 2 regression not discussed.** Every system makes target-only clips worse than
-  doing nothing (1.65 → 3.56–5.40 LCF-WER). Report it.
-- [ ] **e21 is all-or-nothing on Case 3.** Silences 18/42 (56/123 on `eval_public`);
-  unsilenced clips pass ~the raw mixture's words. `results.tex:70` has one line with an
-  unexplained n=123 — expand.
-- [ ] **Extension architecture section** — methodology only covers the baseline;
-  `setup.tex:14` empty.
-- [ ] **WeSep described** — what it is, citation, why it cannot stream. `setup.tex:53`.
-- [ ] **O4 framing** — our baseline *is* `BSRNN_TFMAP_CAUSAL`, the challenge baseline; write
-  negative M5 arms (state teacher, mask structure, capacity) as a reproduction.
-- [ ] **Causality probe result** — described in `setup.tex:41`, never reported. WeSep
-  1.12e-2 vs ours 1.68e-8.
-- [ ] **Latency component breakdown** — promised in `litreview.tex:21`, not delivered.
-  Also state gap: quality scored whole-clip, latency chunked with state dropped (B2).
-- [ ] **Text reference condition** — cut 2026-09-03 on latency (m4). One paragraph with the
-  pass-through caveat.
-- [ ] **Anchors + reporting protocol** — `metrics.tex:107-113` empty stubs.
-- [ ] **Hyperparameter / config table** from the YAMLs (appendix); `setup.tex:8-18` empty.
-- [ ] **Judge record** — appendix `Judge model: to be recorded`: `gemini-3.7-flash`,
-  aistudio, audio-in/text-out, prompt sha `d118b7d3bf30`, run dates 09-02 → 09-29, and
-  the JSON response schema (status field).
-- [ ] **LLM-as-judge literature** (A8) — Zheng 2023 (arXiv:2306.05685), judge-bias papers;
-  PESQetarian for metric gaming. Plus a gap statement → research questions.
-- [ ] **Limitations / threats section** — two-speaker boundary, read speech, single seed
-  (J5), selection on `sir0_val`, prompt sensitivity on n=4 (A5), AMI not run, the four
-  points in `results.tex:234`.
-- [ ] **Define the five systems once**, before results; use house labels ("No processing /
-  Target alone (perfect)"), not Floor/Ceiling. Define "mean leak" and "invented/trial" in metrics.
-- [ ] **Research questions + contributions** in the intro ("metric is the contribution,
-  extractor is the vehicle").
+## 2. Introduction — done 2026-10-05; leftovers
 
-## 3. Inline TODOs in the .tex
+- [ ] `:3` "accoustically", "presented to" → "presented with".
+- [ ] `:15` "estaablished"; `:16` "differentiated against" → "differentiated through".
+- [ ] `:15` "made fully causal" needs the causality-probe result in Results (§7).
+- [ ] `:8` promises §0 evidence; `:21` outline — add "and how the metric itself is tested" once §0 exists.
 
-| Where | Todo |
-|---|---|
-| `frontmatter/title_page.tex:1,20` | degree wording, submission date (dept.) |
-| `frontmatter/declaration.tex:1` | official SU declaration text |
-| `frontmatter/abstract.tex` | empty — write last |
-| `frontmatter/acknowledgements.tex:4` | empty |
-| `frontmatter/nomenclature.tex:41` | CARTSE expansion; also add PSE, RTF, LLM, API, ECAPA-TDNN, LCF; symbols `w`, `w_m`, `τ`, `α`, `k` |
-| `introduction/introduction.tex:4` | whole chapter |
-| `litreview/litreview.tex:4,10,12` | chapter intro; paragraphs 2–3 of §TSE (speaker encoders, enrolment, WeSep) |
-| `methodology/methodology.tex:4` | chapter intro |
-| `methodology/data.tex:35` | enrolment: single 5 s clip (appendix says so) — confirm, delete TODO |
-| `methodology/architecture.tex:24` | cite CARTSE for window-minus-hop |
-| `methodology/architecture.tex:42` | band-plan experiment → cut to future work |
-| `methodology/architecture.tex:74` | model size "not final" — capacity arm was confounded; finalise |
-| `methodology/architecture.tex:103,108` | lookahead: crash fixed, ablation never run → run or cut |
-| `methodology/architecture.tex:182` | objective: update to current loss |
-| `methodology/architecture.tex:261` | weights paragraph (see `w_m` above) |
-| `methodology/metrics.tex:77` | hallucination definition needs a citation (Koenecke 2024, Atwany 2025) |
-| `experiments/experiments.tex:4` | chapter intro ("This section" → chapter) |
-| `experiments/setup.tex:34` | name the VAD (Silero 6.2.1, same as data) |
-| `experiments/setup.tex:53` | WeSep comparison |
-| `results/results.tex:7` | capacity/data headroom; CARTSE (see wording rule) |
-| `results/results.tex:234` | four caveats as prose |
-| `appendices/appendices.tex:17` | judge row |
-| `conclusion/conclusion.tex:4` | whole chapter |
+## 3. Literature review
 
-## 4. Experiments — decide run or cut this week
+- [ ] `:4` leftover `% TODO`.
+- [ ] `:18` broken sentence "the assumption that a 200–300 ms budget is sufficient." (no verb); "identify quite quickly speaker identity".
+- [ ] `:23` "compared of the unprocessed input"; reason (i) "extracting a wrong speaker can still yield a low signal score" — unclear (a wrong speaker *does* score low; the point is that an average hides it).
+- [ ] `:25` "pertubations" → "perturbations".
+- [ ] **NB** `:33` Koenecke did not find the language prior causes hallucination — report what they measured (~1 % of transcripts, 38 % harmful).
+- [ ] `:33` cut the AIR-Bench → role-swap link (different problems).
+- [ ] **NB** `:37` "report a single error instead of a rate of error" — Chondhekar reports a rate (semantic WER). Say "a single error rate, not split by source".
+- [ ] Verify Foo 2026 "60–72 %" against the paper (only in the weak-points register).
+- [ ] Optional: PESQetarian (de Oliveira 2024) for metric gaming (A8).
 
-- [x] **Bootstrap #17 and #18** — done 2026-09-30, `experiments/results/2026-09-30-bootstrap-holes-trade/`. Both narrowed; see evidence below.
-- [ ] **Data scaling** — `data.tex:54` promises 1,989 / 4,976 / 9,955 results; add or delete.
-- [ ] **Lookahead ablation** — run or remove from methodology.
-- [ ] **Prompt sensitivity (A5)** — cheap; the primary contribution rests on it.
-- [ ] **#8 per-band gate** — past its 28 Sep cut date → future work.
-- [ ] **#10 AMI transfer** (DNSMOS only) — or state as not done.
-- [ ] **#11 GPU latency** — the 4,976 re-time is obsolete (baseline is now 10000-e6).
-- [ ] **Case 1a–1d** — defined in `metrics.tex:7-10`, never reported: report or drop.
+## 4. Methodology
 
-## 5. Cleanup
+### 4.0 Section intro
+- [ ] `methodology.tex:4` leftover `% TODO`.
 
-- [ ] **#15 Front-matter admin — only item needing someone else. Start now.**
-- [ ] #6 symbols: `N` means four things; `enrollment`/`enrolment` split.
-- [ ] #19 figure: cue decomposition, same- vs cross-gender
-  (`experiments/results/2026-09-22-cue-directional-sir0`).
-- [ ] Typos in lit review (well establish, Human's, inate, seperate, adverserial pertubations); broken sentence `setup.tex:40` ("This is The second…").
-- [ ] Check SU rules on list of figures/tables (commented out in `report.tex:129`).
-- [ ] Final: caption pass, reference pass, every judge number carries ID/prompt/modality/date.
+### 4.1 Data (`methodology/data.tex`)
+- [ ] **NB `:62` Splits is wrong**: validation used all 200 `sir0_val` trials (not 103), and that set is where checkpoints were chosen — not an "evaluation holdout". Name `eval_public` / `eval_private`; drop the data-scaling promise or report it (§7). Draft B (2026-10-05) covers it.
+- [ ] **Structure `:36–41`**: "Trial definitions in evaluation" + `\subsubsection{Text normalisation}` sit mid-Data, so Enrollment, Parameters, Target-absent, Splits and Limitations now render *under* "Text normalisation". Move both to the end of Data (or back to the start of Metrics).
+- [ ] **NB `:54`** "would just learn to follow the speech that was loudest" — overstated (direct test was inconclusive). Use the measured fact: on 90 %-target-louder data a stranger's enrollment changed the output by 2.6 % (`decisions-m2.md` 2026-08-25). Use `\SIrange`.
+- [ ] `:34` regimes: give the bands (base = SNR 8–20 dB, T60 ≤ 0.5 s, activity 45–78 %; hard = full ranges; SIR the same in both); gender → "half the two-speaker trials are same-gender".
+- [ ] `:25` "a target speaker close to a recording device" — base does not narrow distance.
+- [ ] `:3` "Below includes a description for…"; `:7` "three" → four, "(iii) needs to include" (no subject); `:16` "The attribution to the success came from…".
+- [ ] `:60` heading "Target-absent trials" → "Trial cases"; use Case 1–4.
+- [ ] **AMI described** (Carletta 2005; only real-audio check; REAL-T trial cutting cited as borrowed; headset target is approximate; point to App. D `tab:ami`). decisions-m0.md 2026-10-06.
+- [ ] **NB appendix `appendices.tex:134`** base SIR row now `[0.0, 8.0]` dB — wrong: sir0 has no base SIR override (±10 dB in both). Delete row; note eval splits use [−5, 15] dB with no regimes.
 
-## 6. Sequence
+### 4.2 Baseline architecture (`methodology/baseline_architecture.tex`)
+- [ ] **NB `:27` band plan** lists 31 bands but says 32. Real plan: 3/6/16/64-bin bands + an 8-bin top band; edges ≈ 1.41 / 3.28 / 5.78 / 7.78 / 8 kHz (`bands.py`, verified).
+- [ ] **NB `:32` caption** "lowest fifteen 100 Hz; single highest spans 2 kHz" — lowest are 93.75 Hz; the *widest* is 2 kHz; the highest is ~250 Hz.
+- [x] **NB `:48`** "A batch is twelve … crops" → six (3 trials × both directions; `collate_pairs`). Same at `setup.tex:11`.
+- [x] **NB `:109` TF map, two inversions**: the softmax spread weights *too evenly* (not "not enough"); the template does *not* indicate whether the target is speaking. Optional measured numbers: 619.6 of 628 frames used, template varies 4.7 %; with κ = 16 top 50 frames carry ~59 %.
+- [ ] **NB CARTSE deviations table deleted**: the floor-on-‖s_proj‖² change (keeps L_pres scale-invariant; CARTSE floors on ‖s‖²) is now stated nowhere. Rule: borrowed-and-changed must be stated. Restore at least that + branch-wise means.
+- [ ] **NB `:209` w_m**: "derived from the target present and absent losses" → from L_pres and L_MR (both present). **Keep 9.62** (both models trained with it) but say it was calibrated on the earlier data (−5.91 / 0.184); on the final data the same rule gives **7.45** (median −5.15 / 0.207, 300 `sir0_train` crops, `experiments/results/2026-10-07-wm-anchor-sir0/`), so the spectral term starts at 0.39 × |L_pres|, not 0.30. (Earlier "≈ 1.75" was wrong.)
+- [ ] `:198` Combining branches: lost the *reason* for per-branch means (balance fixed by w regardless of how many silent crops a batch draws); currently conflated with crop-vs-label routing.
+- [ ] `:185` Output level — Claude-drafted, reword in own words; w_g crops came from `sir0_val`; 2.30 is a rule of thumb.
+- [ ] Wording: `:17` "centered" → "centred"; `:46` "the approach is to first it normalises"; `:79` "It is useful to not bound this mask…" (unclear); `:130` "invariable" → "invariant"; `:159` grammar; `:161` "quite" → "quiet"; `:166` "The model should penalise" → "The loss…", "in this works".
+- [ ] Trim (after supervisor sign-off, §10): ~~Nyquist paragraph~~ (cut 10-07), residual-block textbook lines.
 
-1. **Sep 29–Oct 5** — section 1 fixes; run/cut decisions (section 4); bootstraps; admin emails.
-2. **Oct 6–19** — section 2 content; results prose; lit review; limitations.
-3. **Oct 20–26** — introduction, conclusion.
-4. **Oct 27–Nov 2** — abstract, cleanup, full read-through. Nov 3–5 buffer.
+### 4.3 Extension (`methodology/extension_architecture.tex`)
+- [x] **NB `:6`** energy step "as seen in WeSep implementation" → Zhang et al. 2025 §II-A (verified in the paper).
+- [ ] `:45` "Speaker context embedding" — the *utterance-level* embedding is used (contextual was discarded); rename "Speaker embedding" here and at `setup.tex:20`.
+- [ ] `:47` say where/how the 128-d embedding enters the network (`context_encoder.py`); drop "served locally on a device" (scope is server-class).
+- [ ] `:3` "Below discusses"; `:20` "cannot tell distinguish".
+
+### 4.4 Metrics (`methodology/metrics.tex`)
+- [ ] **NB `:31` mean leak** is now averaged over 𝒯 — code averages over 𝒯₅ (aᵢ ≥ 5); over 𝒯 divides by zero when aᵢ = 0. Restore 𝒯₅ + its "where" clause.
+- [ ] **NB `:53`** "negated indicator function" → indicator function.
+- [ ] `:20` "leaked" is no longer defined — add "…that also appear in the live model's transcript"; first sentence gives the wrong reason for stopwords (not "easily hallucinated").
+- [ ] `:18` add back that ICR is not independent of LCF-WER (A6): leaked words are already insertions/substitutions; ICR says where they came from.
+- [ ] FR: say FR_count is the tables' "invented/trial"; target alone scores 0.22/trial, so only the excess over it belongs to a system.
+- [ ] `:66` SDR/SIR/SAR lost its opening (name the three); add the +30 dB cap (τ = 10⁻³) — Table 5.6 caption points to it.
+- [ ] `:78–81` Anchors: "upperbounds"; rename floor/ceiling → "No processing" / "Target alone (perfect)" (ICR text already uses these); delete comment `:80`.
+- [ ] `:56` "In this works", "1-5" → "1--5".
+
+## 5. Experiments (`experiments/setup.tex`)
+
+- [ ] `experiments.tex:4` leftover `% TODO`.
+- [ ] **NB `:15` Model selection**: baseline was *not* judged — picked on validation target-present loss with the silence bar (L_abs ≤ −10 dB), epoch 6 of 16. Extension: `small.en` on 40 clips → kept checkpoints → Gemini on 103 → e21. Add consequences: optimised for Gemini; selected on the reporting set (winner's curse −6.76 vs −1.51 [−4.07, +1.04]); different rules per model. Draft A (2026-10-05) covers it.
+- [x] `:11` batch: "3 trials, each in both directions (6 crops)"; check "roughly 15 hours".
+- [ ] `:20` (iv) "WeSep provides a potential upper bound" — overclaim (offline, different data); rename "speaker context embedding".
+- [ ] `:24–28` **Training curves analysis** (task 7): why e21 ≠ lowest loss; baseline e7 57.0 % / e15 51.8 % on Gemini (one run each, 2026-10-04) — e15 by silencing 5 clips and deleting 13.5 % vs 3.0 %; re-plot with baseline Gemini diamonds.
+- [ ] `:47` "it's result" → "its"; "for which … built for"; "transcribe the estimated audio … what it is able to hear". `:49` "reponse".
+- [ ] `:53` speech-gate four-case list → one sentence; "support" → "supported".
+- [ ] `:57` latency: state the framing cost — 40 ms by our convention (window + hop), = CARTSE's 24 + 8 ms; component breakdown promised at `litreview.tex:16`.
+- [ ] Text reference condition: one paragraph (cut on latency 2026-09-03, m4) with the pass-through caveat.
+- [ ] §0 "Testing the metric" subsection (parked).
+
+## 6. Results (`results/results.tex`)
+
+- [ ] **Section opening**: every two-speaker number is on `sir0_val`, where checkpoints were chosen → optimistic; the only selection-free results are `eval_public` Case 3 and AMI. House labels throughout ("No processing / Target alone (perfect)").
+- [ ] **NB `:41`** credits the gain to ECAPA — the extension is three inseparable changes (cue + embedding, content-WER selection/LR schedule, 21 vs 6 epochs). "Best streaming model", not "conditioning worked".
+- [ ] **NB `:66`** "18 noisy clips" are *other-speaker* clips; "attributed to the diversity of training examples" unsupported (same data); "extension better than WeSep" on Case 2 is within noise and all are worse than no processing; explain n = 123 `eval_public` (e21 − WeSep −3.64 [−5.67, −1.65] words/trial; silenced 56 vs 11; all-or-nothing: unsilenced clips 29.2 vs 28.0). Draft C (2026-10-05).
+- [ ] **NB Table 5.1** (`:15`): add prompt + run dates (rules); "selected on these trials"; separate 95 % CI column + paired differences (e21 − baseline −16.36 [−23.83, −9.18]); floor anchor bug A1 (62.98 vs 62.94) — fix code first.
+- [ ] **NB `:185–202` latency**: caption lost CPU spec (i5-1135G7, 4 threads, 2,250 × 80 ms chunks) and "WeSep single earlier run"; ‡ has no footnote text; "comfortably within" → "within" (p99 margin 14–23 %); worst case 196 ms is 4 ms under 200, not "well within".
+- [ ] **NB `:205–215`** four caveats as prose; judge noise SEM is 1.50 [0.98, 2.00], not 0.5; systems judged once cannot be split below ±4.16.
+- [ ] Delete stale `% CLAIMS` comments `:116–124`, `:146–156` (numbers disagree with the tables).
+- [ ] `:39` "subsequentlyhas", "over the passing the audio"; `:144` "significantly" (no test) → "clearly"; `:130` caption points to `sec:results_errors` for the cap — point to Metrics.
+- [ ] `:113` Error composition discusses only the floor — add extension/WeSep (deletions vs insertions story) from the table.
+- [ ] **Causality probe result**: WeSep 1.12e-2 vs ours 1.68e-8 (needed for intro's "fully causal").
+- [ ] **AMI results**: WeSep vs e21 table + near-mute finding (110/300 blocked, ~26 dB below input); label anchor "Target's headset"; no headroom share. decisions-m4.md 2026-10-06.
+- [ ] `eval_public` per SIR band (B1) — or state why not.
+- [ ] §0 "Why the metric is needed" as the first subsection (parked).
+
+## 7. Experiments still to decide — before the 2026-10-14 freeze
+
+- [ ] **Prompt sensitivity (A5)** — cheap; the primary contribution rests on the judge prompt.
+- [ ] **AMI open items**: meeting-clustered bootstrap e21 − WeSep; e21 on the 110 levelled inputs (quiet-input explanation).
+- [ ] **Floor anchor bug (A1)** — fix `load_once_index`, re-derive anchors, confirm Tables 5.1–5.3.
+- [x] **w_m on sir0** — measured 2026-10-07: rule gives 7.45 vs trained 9.62 (§4.2). Weak-point C6's "~65 % too high" should read ~29 %.
+- [ ] Data scaling — report 2.135 / 2.584 / 2.900 dB (signal only) or cut.
+- [ ] Drop: GPU latency (#11, obsolete); per-band gate (#8) → future work.
+
+## 8. Conclusion
+
+- [ ] `:4–5` Summary of contributions — answer the intro's contributions with the headline numbers + scope (two-speaker mixtures, optimised for Gemini, selected on `sir0_val`).
+- [ ] `:6–7` **Limitations and future work** (one sentence now): two-speaker boundary; read speech, simulated shoebox rooms, English; selection on `sir0_val`; single seed; one judge run per arm; prompt sensitivity; AMI near-mute; quality scored whole-clip but latency chunked (B2). Future: band plan, per-band gate, hail-mary loss, w_m. Fold in `data.tex:64`.
+
+## 9. Appendices
+
+- [ ] `appendices.tex:17–19` delete TODO; `:32` judge row → AI Studio API, audio in / text out, prompt sha `d118b7d3bf30`, runs 2026-09-03 → 2026-10-06.
+- [ ] `:134` base SIR row (see §4.1).
+- [ ] Hyperparameter/config table from the YAMLs.
+- [ ] "Enrolment" (App. D) vs "enrollment" (body) — pick one.
+
+## 10. Final passes
+
+- [ ] Restructure + trim to budget (body ≤ 35 pp, PDF ≤ 50) — outline to supervisor first.
+- [ ] SU rule on list of figures/tables (`report.tex`, commented out).
+- [ ] Caption pass; reference pass; every judge number carries model ID / prompt / modality / date.
+
+## Done since 2026-09-29 (for the record)
+
+Introduction (10-05); §2.4 judge literature + gap (10-06); STFT shortened; TF map condensed with κ = 16 and Zhang
+credited for the energy step in §3.2; ICR rewritten with symbol definitions; lookahead removed (text, figure, caption);
+"held out" judge claims removed; Silero VAD named; Koenecke cited for hallucination; 5 s clean enrollment; −20 dB floor;
+w derivation step; numbered Cases 1–4; nomenclature ℜ/ℑ + CARTSE row; App. D AMI table; Chondhekar wording.
 
 ---
 
@@ -188,6 +189,10 @@ arm = arm − control LCF-WER. DiD = judge cost − `small.en` cost; negative = 
 "opposite sign" (judge cost is zero ±3.5) and the "10.7x" ratio (denominator is zero): say
 "Whisper charges 15–18 points for a change the judge does not notice". Judge differences
 are still below its re-measurement noise (A3, ±4.16).
+
+**D10 (2026-10-03).** Leak-weight fine-tune of e21, e5: LCF-WER +0.47 [−3.20, +4.15]; mean leak −3.26
+[−6.59, −0.03]; invented/trial **+0.72 [+0.27, +1.21]** (the robust one). `small.en` would have called it a win.
+AB-SDR 2x2: weighting error types moves errors between leaked and invented; no cell beats the plain loss.
 
 **#16 O4.** Organisers' DNSMOS-OVRL gaming incident (Track 1 human-MOS LCC +0.003,
 swapped to P.808 post hoc) is first-hand evidence for the metric contribution.

@@ -373,3 +373,12 @@ def test_the_public_test_split_can_be_rendered_but_never_trained_on():
     assert "sir0pub" in RENDER_ONLY_SPLITS
     with pytest.raises(ValueError, match="rendering estimates only"):
         get_data_loaders("sir0pub", None, None, None)
+
+
+def test_the_ami_split_can_be_rendered_but_never_trained_on():
+    """AMI is the real-audio transfer check: eval only, never a selection set."""
+    from train import RENDER_ONLY_SPLITS, SPLIT_MANIFESTS, get_data_loaders
+    assert SPLIT_MANIFESTS["ami"][1] == ("ami_eval", "ami_eval")
+    assert "ami" in RENDER_ONLY_SPLITS
+    with pytest.raises(ValueError, match="rendering estimates only"):
+        get_data_loaders("ami", None, None, None)

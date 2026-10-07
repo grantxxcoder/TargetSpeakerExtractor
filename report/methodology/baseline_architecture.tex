@@ -1,6 +1,6 @@
 \subsection{Baseline model architecture}
 \label{sec:architecture}
-
+The baseline architecture section describes the architecture that was used as a backbone in the REAL-TSE baseline \cite{wang2026realtse}. The architecture in this work is built from scratch, but the design is that of the baseline.
 \input{figures/baseline_architecture}
 \subsubsection{Band-split Recurrent Neural Network (BSRNN)}
 \label{sec:bsrnn}
@@ -9,114 +9,75 @@ Luo and Yu \cite{luo2023music} propose the BSRNN model as a frequency-domain sep
 
 \subsubsection{Short-time Fourier transform}
 \label{sec:stft}
-
-When speaking, the audio contains energy. The energy is not evenly distributed across frequencies, and in normal speech it is not evenly distributed across time either. The energy is concentrated in particular frequency bands by the unique resonances of the speaker's vocal tract, and is also concentrated in time by syllables, words and phrases. Audio models therefore want to leverage that structure, and require the input to be presented in a representation that allows for those concentrations to be observed. The waveform itself cannot represent that structure as it is a one-dimensional signal and is not aligned with the human perception of sound. 
-
-The short-time Fourier transform (STFT) produces that representation. The waveform is cut into short overlapping segments. These segments are used to compute the Fourier transform, which is used to decompose the signal into its frequency components. These overlapping segments are called frames, and the idea is to pass each of these segments through the Fourier transform by first multiplying the segment by a window function. The window function, which is typically a Hann window, tapers at the ends such that when multiplied, silences the ends of the segment to isolate the middle. After this a discrete Fourier transform is taken of each segment. The result is one complex number per frequency bin per segment: for a real input $x$, the coefficient at frequency bin $f$ and frame $t$ is
+The model operates in the time-frequency domain rather than a waveform. To ensure the input audio is in suitable form, a short-time Fourier transform (STFT) is applied by cutting the waveform into short, overlapping frames. A window function is applied to each frame, and then a discrete Fourier transform is applied to each windowed frame. The result is a complex-valued spectrogram, a two-dimensional representation of the audio signal. On the horizontal axis is time, and on the vertical axis is frequency. The discrete Fourier transform is defined as:
 \begin{equation}
 X(f, t) = \sum_{n=0}^{N-1} x[tH + n]\,h[n]\,e^{-\mathrm{j}2\pi fn/N},
 \label{eq:stft}
 \end{equation}
-where $\mathrm{j}$ is the imaginary unit ($\mathrm{j} = \sqrt{-1}$), $N$ is the window length in samples, $H$ is the hop by which successive windows advance, and $h[n]$ is the window function. The hop is what makes the segments overlap: consecutive frames share $N - H$ samples, so a feature that falls near the edge of one frame sits comfortably inside the next. For the implementation in this work, a window size of $N = 512$ is selected, with a hop of $H = 128$ samples at \SI{16}{\kHz} gives a \SI{32}{\ms} window shifting by \SI{8}{\ms}. These are the values Yu et al. \cite{yu2023high} specify for their \SI{16}{\kHz} model. Secondly given the constraint of the streaming budget of \SIrange{200}{300}{\ms}, the framing consumes well under a quarter of that budget. Finally, the approach in this work forms the frames without centring creating the causal framing. The reason for this is that centring each frame on its own timestamp makes frame $t$ consume $N/2 = 256$ samples -- \SI{16}{\ms} -- of audio recorded \emph{after} $t$. Since the objective is to create an online, streaming system and thus the model should not depend on future input. To account for the beginning samples of the audio, the signal is padded by $N - H$ samples at the start, which is a kind of cold start of a live system whose input buffer begins empty.
+ where $N$ is the window length, $H$ the hop between frames, $h[n]$ a Hann window and $\mathrm{j}$ the imaginary unit. Following Yu et al.\ \cite{yu2023high}, $N = 512$ and $H = 128$ at \SI{16}{\kHz}: a \SI{32}{\ms} window moving in \SI{8}{\ms} steps, giving 257 frequency bins. Frames are not centered on timestamps as this would imply future information which is not suitable for streaming tasks. Instead, the signal is padded with $N - H$ samples at the start of a sequence.
 
-Each coefficient carries two quantities. Its magnitude $|X(f,t)|$ is how much energy the signal has in that frequency band at that time, and its phase $\angle X(f,t)$ is where in repetition of the waveform the signal is at that time. The magnitude is what the model uses to determine which parts of the mixture belong to the target speaker, and the phase is what the model uses to reconstruct the waveform from the modified magnitude. The complex spectrogram is kept separately, since the mask of Section~\ref{sec:estimator} is applied to it rather than to the network's internal features.
-
-% TODO: cite CARTSE for the window-minus-hop convention once the bib entry exists.
 
 \subsubsection{Band plan}
 \label{sec:bandplan}
 
-The spectrogram of Section~\ref{sec:stft} has 257 outputted frequency bins, each covering an equal slice of \SI{31.25}{\Hz}. Treating all 257 alike would waste the model's capacity, because speech does not spread itself evenly across them. Most of the energy, and nearly all of the structure that distinguishes one voice from another, sits at the lower frequencies: the pitch of a voice and the resonances that give a vowel its identity all fall below about \SI{4}{\kHz}, and energy falls away steadily above that. The bins near the top carry far less information and thus would be wasteful to model with the same level of detail as the bins near the bottom.  
+The spectrogram of Section~\ref{sec:stft} has 257 outputted frequency bins, each covering an equal slice of \SI{31.25}{\Hz}. However, each band should be modelled independently. Most of all the structure that distinguishes one voice from another sits at the lower frequencies: the pitch of a voice and the resonances that give a vowel its identity all fall below about \SI{4}{\kHz}, and energy falls away steadily above that. The bins near the top carry far less information and thus would be wasteful to model with the same level of detail as the bins near the bottom.  
 
-A band plan is the decision of how to group those bins. Bins are gathered into contiguous groups, called bands, and each band is then handled separately by the network: it gets its own normalisation and its own projection, so a band is compared against itself over time rather than against the loud low-frequency bands next to it. Grouping few bins per band keeps fine detail. Secondly grouping many bins into one band summarises coarsely but costs far less. A band plan therefore decides where the model's resolution is spent. 
+A band plan is the decision of how to group those bins. Bins are gathered into bands and each band is then handled separately by the network: it gets its own normalisation and projection. This allows a band to be compared against itself over time rather than against the loud low-frequency bands next to it. Grouping few bins per band keeps fine detail. Secondly grouping many bins into one band summarises coarsely but costs far less. A band plan therefore decides where the model's resolution is spent. 
 
-The plan in this work is 32 bands over the 257 bins: fifteen bands of \SI{100}{\Hz} covering \SIrange{0}{1.5}{\kHz}, ten of \SI{200}{\Hz} covering \SIrange{1.5}{3.5}{\kHz}, five of \SI{500}{\Hz} covering \SIrange{3.5}{6}{\kHz}, and the remaining \SIrange{6}{8}{\kHz} as one band. Figure~\ref{fig:bandplan} shows it against a real mixture in the training set. The effect is a factor of twenty between the finest and coarsest resolution. This plan follows the implementation from Zhang et al.\ \cite{zhang2025multi} for their \SI{16}{\kHz} target speaker extraction model and used by the challenge baseline built on it, but no reason is given there for these particular boundaries, and no explanation is given in previous papers. The original band splitting was designed for music \cite{luo2023music}, where the sources are instruments rather than voices. It is adopted here as the baseline so that this work's results are comparable with that lineage, and it is recorded as an unjustified inheritance rather than a motivated choice.
+The plan in this work is 32 bands over the 257 bins: fifteen bands of \SI{100}{\Hz} covering \SIrange{0}{1.5}{\kHz}, ten of \SI{200}{\Hz} covering \SIrange{1.5}{3.5}{\kHz}, five of \SI{500}{\Hz} covering \SIrange{3.5}{6}{\kHz}, and the remaining \SIrange{6}{8}{\kHz} as one band. Figure~\ref{fig:bandplan} shows it against a real mixture in the training set. This plan follows the implementation from Zhang et al.\ \cite{zhang2025multi} for their \SI{16}{\kHz} target speaker extraction model and used by the challenge baseline built on it, but no reason is given for these particular boundaries, and no explanation is given in previous papers.
 
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\textwidth]{figures/bandplan-wesep.png}
-\caption{The band plan used here, shown against a four-second mixture from the training set. Left: the band boundaries drawn over the spectrogram, closely spaced at the bottom where the speech structure is and widening upwards. Right: the width of each band in hertz. The lowest fifteen bands are \SI{100}{\Hz} wide; the single highest spans \SI{2}{\kHz}. This band plan follows the one used by Zhang et al.\ \cite{zhang2025multi} for their \SI{16}{\kHz} model.}
+\caption{The band plan used here, shown against a four-second mixture from the training set. Left: the band boundaries drawn over the spectrogram, closely spaced at the bottom where the speech structure is and widening upwards. Right: the width of each band in hertz. The lowest fifteen bands are \SI{100}{\Hz} wide and the single highest spans \SI{2}{\kHz}.}
 \label{fig:bandplan}
 \end{figure}
-
-% REMOVED 2026-10-05 (todo 2): no alternative band plan was ever trained, so the
-% promise of a comparison goes. Future work. Original text:
-% [GRANT: TODO - Possible experiment]
-% \textit{
-% Because the plan is a free parameter that nobody has justified, it is also
-% implemented as a configurable table rather than fixed in code, with alternative
-% plans available for comparison.}
-
-\paragraph{Why the spectrum stops at \SI{8}{\kHz}.}
-The audio in this work is sampled at \SI{16}{\kHz}, meaning 16{,}000 amplitude measurements per second. When measuring a wave you need at least two measurements per cycle, one for the peak and one for the trough of the wave. Therefore the fastest possible wave that \SI{16}{\kHz} sampling can represent will complete 8{,}000 cycles per second. Anything faster cannot be distinguished from a slower wave passing through the same measured points. Therefore, the largest possible range that can be represented by the 257 bins have to span \SIrange{0}{8}{\kHz} rather than \SIrange{0}{16}{\kHz}.
 
 
 \subsubsection{Per-band normalisation}
 \label{sec:subbandnorm}
 
-The bands defined by Section~\ref{sec:bandplan} are not comparable with one another. Speech energy falls away by roughly \SI{6}{dB} per octave, so the lowest bands carry orders of magnitude more energy than the highest. Therefore, if all 257 bins were scaled together, there would be a severe imbalance where the high bands would be underrepresented. This would then hurt the performance of the model as the high bands would be diluted and would contribute almost nothing to the gradient, and the model would in effect only learn to separate the bottom of the spectrum. Giving each band its own scaling is what prevents that. A band at \SI{6}{\kHz} is then judged against its own typical level rather than against the bands beneath it.
+The bands defined by Section~\ref{sec:bandplan} are not comparable with one another. Each band typically carries different amounts of energy therefore, if all 257 bins were scaled together, there would be a severe imbalance. The high bands would be underrepresented and thus diluted, effectively reducing the model's ability to learn the high-frequency features. Giving each band its own scaling is what prevents that. A band at \SI{6}{\kHz} is then judged against its own typical level rather than against the bands beneath it.
 
-This module does two things to each band independently, following \cite{yu2023high}. First it normalises the band, using a layer normalisation applied across the channels of that band. Secondly, because the bands must be the same size before they can be stacked together, a projection is required to map the band to a fixed width. Since there are varying sized and independent bands, each band has its own projection, which is a learnable linear layer that maps the band to a fixed width of 128 values. Every band is given the same structure but its own weights, so nothing is shared between bands and each is free to learn a representation suited to its own frequency range. The result is a stack of 32 bands, each with 128 features, which is then passed to the next module.
+Following \cite{yu2023high} the approach is to first it normalises the band, using a layer normalisation applied across the channels of that band. Secondly, because the bands must be the same size before they can be stacked together, a projection is required to map the band to a fixed width. Since there are varying sized and independent bands, each band has its own projection, which is a learnable linear layer that maps the band to a fixed width of 128 values. Every band is given the same structure but its own weights, so nothing is shared between bands and each is free to learn a representation suited to its own frequency range. The result is a stack of 32 bands, each with 128 features, which is then passed to the next module.
 
-Normalisation is applied across the values of a band \emph{within a single frame}. Each frame is therefore normalised using only itself. This is a deliberate design choice that opposes Yu et al.\ \cite{yu2023high}, who use batch
-normalisation for their online configuration. The opposition is for the following reasons: \textit{(i)} although batch normalisation will work for online models as indicated by Yu et al. and is causal, there are two different operations of batch normalisation: training and inference. During training, the mean and variance are computed from the current batch, but during inference, these statistics are computed from the entire training set. The function that is optimised during training is therefore not the function that is deployed. \textit{(ii)} That gap is unusually wide here. A batch is twelve four-second crops drawn at random from a corpus spanning a range of reverberation times, signal-to-interference ratios and noise levels, and in which roughly three crops in ten contain no target speech at all. The statistics of a batch therefore depend on what was drawn, and a silent crop normalised alongside loud ones is not normalised as it would be at inference. Because normalisation is per band, the effect is worst in the high bands, where the energy is smallest and the variation between batches is largest relative to the signal. \textit{(iii)} Single frame normalisation carries no state and is unaffected by the amount of audio processed, so a four-second training chunk is normalised exactly as a stream that has been running for a minute.
+Normalisation is applied across the values of a band \emph{within a single frame}. Each frame is therefore normalised using only itself. This is a deliberate design choice that \emph{opposes} Yu et al.\ \cite{yu2023high}, who use batch normalisation for their online configuration. The opposition is for the following reasons: \textit{(i)} during training, the mean and variance are computed from the current batch, but during inference, these statistics are computed from the entire training set. The function that is optimised during training is therefore not the function that is deployed. \textit{(ii)} The variability of the data does not give a reliable estimate of the true distribution. The statistics of a batch therefore depend on what was drawn, and a silent crop normalised alongside loud ones is not normalised as it would be at inference. \textit{(iii)} Single frame normalisation carries no state and is unaffected by the amount of audio processed, so a four-second training chunk is normalised exactly as a stream that has been running for a minute.
 
 
 \subsubsection{Residual LSTM block}
 \label{sec:resrnn}
 
-The idea of the residual LSTM block is to model the sequential structure of speech such that the model can leverage patterns that unfold over time. There are two kinds of sequential structures that are modelled here. The first is the sequence over time, which is the natural order of speech. The second is the sequence over frequency. Think of the time being unidirectional, as the speech only makes sense to unfold forward in time, but the frequency is bidirectional, as all of the bands of a frame are available at the same instant and can be traversed in either direction. The block is used for both kinds of modelling, with the same structure but different parameters.
+Two kinds of sequential structures are modelled: time and frequency. Time is unidirectional, but frequency is bidirectional, as all of the bands of a frame are available at the same instant and can be traversed in either direction. The block is used for both kinds of modelling, with the same structure but different parameters.
 
-The recurrent layer is what carries information forward where this work leverages a long short-term memory
-layer, or LSTM. This is a recurrent layer with an internal mechanism for deciding what to keep in that summary and what to discard, which is what allows it to retain information over hundreds of frames rather than only the last few. This structure also suits the deployment target directly. At inference time, since the model is running in a streaming fashion, the LSTM's internal state is preserved between frames and information can be carried forward indefinitely. The LSTM is therefore a natural fit for the task, and it is used in the same way for both the time and frequency sequences.
+At inference time, since the model is running in a streaming fashion, the LSTM's internal state is preserved between frames and information can be carried forward indefinitely. The LSTM is therefore a natural fit for the task, and it is used in the same way for both the time and frequency sequences.
 
 The block is made of three steps applied in order, following \cite{luo2023music}. The input is first normalised, then passed through the LSTM, and the LSTM's output is then mapped back to the input's width by a learned projection. The final addition is a residual connection and is inspired by the original ResNet \cite{he2016deep} architecture. This allows the gradient an unobstructed path back through the computation stack of all the blocks, which matters because six of these blocks are stacked in Section~\ref{sec:bsnet}. This is important as the LSTM is a deep recurrent layer, and the gradient can vanish or explode as it passes through the LSTM's internal state. The residual connection allows the gradient to bypass the LSTM entirely, which is what allows the model to train when the gradient vanishes within the LSTM. 
 
-
-% REMOVED 2026-10-05 (todo 2): model size is final; both reported models use these widths.
-% [GRANT: TODO ] - Still might need to increase the size of the model so this is not final!!!
-
-\paragraph{What is used here.}
-The LSTM has a single layer with a width of 192, taken from Yu et al.\ \cite{yu2023high}, whose \SI{16}{\kHz} model specifies that width. This is deliberately narrower than the reference implementation of the same architecture,
-which uses twice the feature width, or 256. Because the LSTM's width differs from
-the 128 features entering the block, the projection is not optional bookkeeping: it
-is what makes the addition dimensionally possible at all.
-
-The block is written to be indifferent to what its sequence axis represents. It
-receives a batch of sequences and processes them; whether those sequences run along
-time or along frequency is decided by the caller. This is what allows the same
-block to be used for both kinds of modelling in Section~\ref{sec:bsnet}, with one
-critical difference between the two uses. Along time the LSTM runs forward only,
-because a backward pass over time reads frames that have not yet arrived. Along
-frequency it runs in both directions, which costs nothing in latency, since all the
-bands of a frame are available at the same instant.
+A single LSTM layer is given a width of 192, which is Yu et al.'s \cite{yu2023high} choice for their \SI{16}{\kHz} model. The input to the block is 128 wide, which is projected to 192 for the LSTM and then projected back to 128 for the residual addition. 
 
 \subsubsection{Band and sequence model}
 \label{sec:bsnet}
 
-The band and sequence model is the implementation of the residual LSTM block of Section~\ref{sec:resrnn} in a stack of six blocks, using the input from Section~\ref{sec:subbandnorm}. After the per-band normalisation and projection, there are 32 bands of 128 features each. The model is now tasked for the two kinds of sequential modelling with the residual LSTM blocks as previously mentioned: time and frequency. 
+The band and sequence model is the implementation of the residual LSTM block of Section~\ref{sec:resrnn} in a stack of six blocks, using the input from Section~\ref{sec:subbandnorm}. After the per-band normalisation and projection, there are 32 bands of 128 features each.
 
-Each of these blocks is designed to make two passes. The design is to first make a pass over the time dimension (unidirectional), and then make a pass over the frequency dimension (bidirectional). This is considered as follows:
+Each of these blocks is designed to make two passes: first make a pass over the time dimension (unidirectional), and then make a pass over the frequency dimension (bidirectional). This is considered as follows:
 \begin{itemize}
-    \item \textbf{Time}: The recurrence goes forward only, as a backward pass would assume knowledge of future frames  that have not yet arrived.
-    \item \textbf{Frequency}: The recurrence goes over the bands of a frame in both directions. This pass is what lets the bands inform one another: a voice lays down a harmonic pattern across many bands at the same instant, so whether a given band belongs to the target is often not decidable from that band alone. Frequency itself is not a causal dimension. This can be reasoned by the fact that all the bands of a frame are all available simultaneously so the bidirectional recurrence does not introduce any latency. 
+    \item \textbf{Time}: The recurrence goes forward only, as a backward pass would assume knowledge of future frames that have not yet arrived.
+    \item \textbf{Frequency}: The recurrence goes over the bands of a frame in both directions. Frequency itself is not a causal dimension. This can be reasoned by the fact that all the bands of a frame are all available simultaneously so the bidirectional recurrence does not introduce any latency. 
 \end{itemize}
-Pairing the two passes in a single block is the design of Luo and Yu \cite{luo2023music}, who motivate it by analogy with dual-path recurrent networks for speech separation rather than by an argument specific to bands. Stacking six such blocks follows Yu et al.\ \cite{yu2023high}, where their \SI{16}{\kHz} model uses that specific number of blocks. The effect of stacking the blocks is to allow for the accumulation of evidence over longer time spans. The evidence can then be shared across bands of the next block and so forth.
+Pairing the two passes in a single block is the design of Luo and Yu \cite{luo2023music}, who motivate it by analogy with dual-path recurrent networks for speech separation rather than by an argument specific to bands. Stacking six such blocks follows Yu et al.\ \cite{yu2023high}, where their \SI{16}{\kHz} model uses that specific number of blocks. The effect of stacking the blocks is to allow for the accumulation of evidence over longer time spans.
 
 \subsubsection{Estimation module}
 \label{sec:estimator}
 
 The estimation module is responsible for producing an output spectrogram that contains the estimated target speaker's speech. This is done by creating an output network per band to reconstruct the target speaker's speech from the features produced by the band and sequence model. However, there are two methods to do this: either to predict the output spectrogram directly, or to predict a mask that is applied to the mixture. The latter is the approach taken here, following Yu et al.\ \cite{yu2023high}.
 
-Yu et al. realised that the mixture audio itself already contains the target's speech, and thus it would be more efficient to mask the mixture rather than predict the output spectrogram directly. This mask is a number for each time-frequency bin, which the mixture is multiplied by.
-
-A mask alone is not enough however as multiplication can only ever scale what a bin already holds. In the cases where  the interferer completely dominates a bin no multiplier recovers the target as the multiplication operation would not be able to scale the drowned out target. To solve this, the estimation module makes use of a residual spectrogram and is predicted directly and appended. Yu et al.\ \cite{yu2023high} introduce it for exactly this reason, to absorb what the mask alone produces as artefacts. It is useful to not bound this mask and is what the original implementation encouraged. The estimate for a band is then
+Yu et al. realised that the mixture audio itself already contains the target's speech, and thus it would be more efficient to mask the mixture rather than predict the output spectrogram directly. This mask is a number for each time-frequency bin, which the mixture is multiplied by. A mask alone is not enough as multiplication can only ever scale what a bin already holds. In the cases where the interferer completely dominates a bin no multiplier recovers the target as the multiplication operation would not be able to scale the drowned out target. To solve this, the estimation module makes use of a residual spectrogram and is predicted directly and appended. Yu et al.\ \cite{yu2023high} introduce it for exactly this reason, to absorb what the mask alone produces as artefacts. It is useful to not bound this mask and is what the original implementation encouraged. The estimate for a band is then
 \begin{equation}
 \hat{S} = M \otimes X + R,
 \label{eq:estimator}
 \end{equation}
-where $\otimes$ is the complex product, taken bin by bin. The $X$ that the mask multiplies is the
-original complex mixture and is taken as is from the band split and not from the output of the model's features. The features are used only to \emph{decide} how to mask the input. The conditioning feature of Section~\ref{sec:tfmap} therefore never enters the signal path either.
+where $\otimes$ is the complex product, taken bin by bin. The $X$ that the mask multiplies is the original complex mixture and is taken as is from the band split and not from the output of the model's features. The features are used only to \emph{decide} how to mask the input. The conditioning feature of Section~\ref{sec:tfmap} therefore never enters the signal path either.
 
 Each band has its own two-layer output network: a normalisation, then a projection to a width of 384 with a $\tanh$ activation. Finally we have two output layers reading from it, one producing the mask and one the residual. The width of 384 is the value Yu et al.\ \cite{yu2023high} specify.
 
@@ -124,61 +85,45 @@ The mask output layer has to output four pairs of real and imaginary parts for e
 
 \subsubsection{Time-frequency map}
 \label{sec:tfmap}
-The TF Map is the enrollment-conditioning module to turn normal speech enhancement into the TSE task. The idea behind this module is for the model to take an enrollment of the target speaker, and use the unique audio signature of that speaker to condition the model to extract only that speaker from the mixture. The general process includes processing the enrollment clip through the STFT module, extracting the magnitude of the enrollment, and then breaking up the spectrogram into basis vectors. These basis vectors are then compared to the mixture's spectrogram using cosine similarity.
+The TF Map \cite{zhang2025multi} is the module that turns speech enhancement into target speaker extraction. It compares the mixture with the clean enrollment clip frame by frame, and gives the network a cue of what the target's spectrum should look like at each instant. Let $|X_t|$ be frame $t$ of the mixture's magnitude spectrogram and $|X_{e,j}|$ frame $j$ of the enrollment's. Every frame is first scaled to unit length, so that only the spectral \emph{shape} remains and does not keep the loudness:
+  \begin{equation}
+  \tilde{x}_t = \frac{|X_t|}{\big\lVert |X_t| \big\rVert},
+  \qquad
+  \tilde{e}_j = \frac{|X_{e,j}|}{\big\lVert |X_{e,j}| \big\rVert}.
+  \label{eq:tfmap-unit}
+  \end{equation}
+  Each mixture frame is then compared with every enrollment frame by cosine similarity. For unit vectors this is simply the inner product. The similarities are then turned into weights that blend the enrollment frames into a template that can be referenced against the mixture frame:
+  \begin{equation} 
+  C_{t,j} = \big\langle \tilde{x}_t,\ \tilde{e}_j \big\rangle,
+  \qquad
+  A_{t,j} = \operatorname*{softmax}_{j} \big( \kappa\, C_{t,j} \big),
+  \qquad
+  \mu_t = \sum_{j=1}^{T_e} A_{t,j}\, \tilde{e}_j .
+  \label{eq:tfmap-cos}
+  \end{equation}
 
-Concretely, let $|X| \in \mathbb{R}^{F \times T}$ be the magnitude spectrogram of the mixture and $|X_e| \in \mathbb{R}^{F \times T_e}$ that of the enrollment, and write $|X_t|$ and $|X_{e,j}|$ for one frame of each. The module proceeds in three steps. 
-\emph{First}, every frame of both spectrograms is scaled to unit length,
-\begin{equation}
-\tilde{x}_t = \frac{|X_t|}{\big\lVert |X_t| \big\rVert},
-\qquad
-\tilde{e}_j = \frac{|X_{e,j}|}{\big\lVert |X_{e,j}| \big\rVert}.
-\label{eq:tfmap-unit}
-\end{equation}
-
-\emph{Second}, each mixture frame is compared against every enrollment frame by cosine similarity. Because \eqref{eq:tfmap-unit} has already removed the length of each frame, the cosine of the angle between two frames is simply their inner product:
-\begin{equation}
-C_{t,j}
-  \;=\; \cos \theta_{t,j}
-  \;=\; \frac{\big\langle |X_t|,\ |X_{e,j}| \big\rangle}
-             {\big\lVert |X_t| \big\rVert \, \big\lVert |X_{e,j}| \big\rVert}
-  \;=\; \big\langle \tilde{x}_t,\ \tilde{e}_j \big\rangle .
-\label{eq:tfmap-cos}
-\end{equation}
-This is what makes the comparison of spectral \emph{shape} rather than of loudness: a quiet frame and a loud frame with the same spectral pattern are identical under \eqref{eq:tfmap-cos}. Note also that magnitudes are non-negative, so $C_{t,j} \in [0, 1]$ for every pair.
-
-\emph{Third}, the similarities of a mixture frame are turned into weights over the enrollment, and those weights are used to blend the enrollment frames,
-\begin{equation}
-A_{t,j} = \operatorname*{softmax}_{j} \big( C_{t,j} \big),
-\qquad
-\mu_t = \sum_{j=1}^{T_e} A_{t,j}\, \tilde{e}_j,
-\label{eq:tfmap}
-\end{equation}
-following \cite{zhang2025multi}. The softmax runs along the enrollment index $j$, so each row of $A$ sums to one and describes how to blend the enrollment frames for one instant of the mixture. $\mu_t$ is a guessed spectrum: for each mixture frame, a weighted average of all the enrollment frames, with the weights given by $A$. It is a rough estimate of the shape of the target speaker's spectrum at that instant.
-
-$\mu_t$ describes only that shape. It is built entirely from enrollment frames but on its own it says nothing about whether the target is speaking. Note also that the mixture's magnitude has not been used at any point so far: \eqref{eq:tfmap-unit} removed it before the comparison in \eqref{eq:tfmap-cos} was made. The final step is to address the energy component. The estimate is scaled to unit length and the mixture's spectrum is projected onto it which measures how much of the mixture's actual energy lies in the pattern the enrollment predicted:
+  Zhang et al.\ \cite{zhang2025multi} also normalise the frames and make use of cosine similarity, but they use softmax directly on the inner product rather than scaling it by a factor $\kappa = 16$. After testing it was found that since the similarities lie between $[0, 1]$, the softmax spread the weights to evenly and thus did not give a clear template. The $\kappa$ factor is therefore used to scale the similarities which sharpens the softmax to give a more distinct template. The template only describes the shape and does not indicate whether a target is speaking. As in \cite{zhang2025multi}, the energy is restored by projecting the mixture frame onto the template's direction:
   \begin{equation}
   u_t = \frac{\mu_t}{\lVert \mu_t \rVert},
   \qquad
   m_t = \big\langle\, |X_t|,\ u_t \,\big\rangle,
   \qquad
-  \phi_t = m_t\, u_t .
+  \phi_t = m_t\, u_t ,
   \label{eq:tfmap-energy}
   \end{equation}
-Where $m_t$ is the scalar projection of the mixture frame onto the template of the target speaker and describes with a single number per frame how much of the frame's energy lies in the direction of the enrollment. $\phi_t$ is the final feature, which is the template scaled by that projection. 
-
-\paragraph{Where it enters and what it costs.}
-The result is a quantity of the same shape as the spectrogram itself, one value per frequency bin per frame. It is therefore attached as a third input channel alongside the real and imaginary parts, before the band split, so that it is divided into bands and projected by the same machinery as the rest of the input. Nothing else in the architecture changes. Because the extra channel only widens the input of the per-band projections, the entire conditioning path costs roughly \num{33000} parameters, under half a percent of the model, and it adds no learned parameters of its own at all: \eqref{eq:tfmap-unit} through \eqref{eq:tfmap-energy} contain nothing to train.
+  where $m_t$ is a scalar per frame which describes how much of the mixture's energy lies along the target's predicted spectrum.  $\phi_t$, the template scaled by it, is the cue passed to the network.
+ The entire conditioning path costs roughly \num{33000} parameters, under half a percent of the model, and it adds no learned parameters of its own at all: \eqref{eq:tfmap-unit} through \eqref{eq:tfmap-energy} contain nothing to train.
 
 
 \subsubsection{Objective function}
 \label{sec:objective}
 
-The objective has to express two different requirements, because the training data contains two different situations. Where the target speaks, the output should match the target signal. Where the target is silent as the result of either the trial contains no target speech at all, or because the four-second crop happened to land in a gap between the target's utterances, there is no signal to match, and the correct output is silence. A single loss cannot serve both use cases and so the objective is therefore split, and each crop is scored by the branch that applies to it.
+The objective has to express two different requirements: output the target signal when it is present, otherwise, output silence. A single loss cannot serve both use cases and so the objective is therefore split, and each crop is scored by the branch (target present versus absent) that applies to it.
 
 Throughout, $x$ is the mixture, $s$ the target reference and $\hat{s}$ the model's output, all in the time domain over one training crop.
 
 \paragraph{Target present.}
-The first term measures how much of the output is the target and how much is everything else, following \cite{li2026cartse}. Importantly, the loss needs to be invariable to the overall volume as if the $\hat{s}$ is of the correct shape, it should not be penalised for being loud or quiet. Therefore the first step is to find the single gain that best explains the output as a scaled copy of the target, which will be calculated as a projection, 
+The first term measures how much of the output is the target and how much is everything else, following \cite{li2026cartse}. The loss needs to be invariable to the overall volume as if the $\hat{s}$ is of the correct shape, it should not be penalised for being loud or quiet. Therefore the first step is to find the single gain that best explains the output as a scaled copy of the target, which will be calculated as a projection, 
 \begin{equation}
 \alpha = \frac{\langle \hat{s},\, s \rangle}{\lVert s \rVert^2},
 \qquad
@@ -214,7 +159,7 @@ Three choices inside \eqref{eq:lmr} are worth stating. The exponent $p = 0.3$ co
 The window lengths used are \num{8}, \num{16}, \num{32} and \SI{64}{\ms}. This is with respect to the model's own \SI{32}{\ms} framing. The model builds its output by masking \SI{32}{\ms} frames and overlapping them, so the places that most errors would occur can be expected to exist at frame boundaries. The \SI{8}{\ms} and \SI{16}{\ms} windows resolve this and the \SI{64}{\ms} window catches harmonic structure that the short ones blur.
 
 \paragraph{Target absent.}
-When there is no target speaker present in the mixture audio, the model should output silence and suppress all other noise. The model should therefore penalise any output that is not silent. This is modelled after a modified version of the absolute level loss from CARTSE \cite{li2026cartse}, where in this works the loss now contains the denominator term. 
+The model should penalise any output that is not silence. This is modelled after a modified version of the absolute level loss from CARTSE \cite{li2026cartse}, where in this works the loss now contains the denominator term. 
 
 \begin{equation}
 L_\textup{abs} = 10 \log_{10}
@@ -222,7 +167,7 @@ L_\textup{abs} = 10 \log_{10}
        {\lVert x \rVert^2}.
 \label{eq:labs}
 \end{equation}
- Including the denominator term makes the loss relative to the input, which is directly readable: \SI{0}{dB} means the output is as loud as the mixture, that is, the model did nothing; \SI{-10}{dB} means the interfering speech was suppressed by \SI{10}{dB}; and the same $\tau_\textup{abs}$ floors the term at \SI{-20}{dB}, beyond which the output counts as silent. A positive value means the
+ Including the denominator term makes the loss relative to the input, which is directly readable: \SI{0}{dB} means the output is as loud as the mixture, that is, the model did nothing; \SI{-10}{dB} means the interfering speech was suppressed by \SI{10}{dB}. The same $\tau_\textup{abs}$ floors the term at \SI{-20}{dB}, beyond which the output counts as silent. A positive value means the
 model amplified the mixture, which is a direct failure. The inclusion of the denominator also allows for scale invariance, which puts the loss in the same units as the loss for the target present case.
 
 
@@ -246,18 +191,7 @@ L = (1 - w) \operatorname*{mean}_{\textup{target present}}
       \big[\, L_\textup{abs} \,\big].
 \label{eq:total}
 \end{equation}
-Averaging within each branch rather than over the batch as a whole matters more
-than it appears to. Under a single batch-wide mean, the share of the gradient
-belonging to the silent crops would be whatever fraction of the batch happened to
-be silent, so the balance between the two requirements would fluctuate from step to
-step on the luck of the draw. Under \eqref{eq:total} that balance is fixed by $w$.
-
-Which branch a crop belongs to is decided from the audio of the cropped target
-itself, not from the trial's label. A trial in which the target does speak can
-still yield a crop containing no target speech, and this occurs in \SI{5.8}{\percent}
-of crops. Routing such a crop to the present branch would put an all-zero reference
-into \eqref{eq:alpha}, where $\alpha$ becomes $0/0$. the implementation asserts
-against this rather than relying on the labels agreeing.
+ The decision to average over the crops within each branch rather than over the entire batch is deliberate. During an epoch, a random crop can draw a trial where the label of the trial is both target and interferer are present, but the crop itself may contain silence (occurs in \SI{5.8}{\percent} of cases). The model should therefore be rewarded for silence where the loss should not be diluted by the presence of other crops in the batch. Therefore the branch a crop belongs to is decided from the audio of the cropped target itself, not from the trial's label.
 
 \paragraph{Weights.} 
 
@@ -272,68 +206,4 @@ The weight $w_\textup{m}$ on the spectral term is derived from the target presen
 This is done by evaluating on the output that does nothing at all, $\hat{s} = x$, over 300 training crops which will simulate the scenario for the average losses for an untrained model. The median values for $L_\textup{pres}$ and $L_\textup{MR}$ are \num{-5.91} and \num{0.184} respectively. The aim is for the spectral term (Multi-Resolution) to be roughly \SI{30}{\percent} of the present branch at the start of training. The calculation then becomes  
  $$w_\textup{m} = \frac{0.3 \times |L_\textup{pres}|}{L_\textup{MR}} =  \frac{0.3 \times 5.9088}{0.1842} = 9.62$$
 
-\paragraph{Differences with the source objective.}
-The present and absent terms are inspired from the CARTSE system \cite{li2026cartse}, the online-track submission whose task most closely matches this one, but they are slightly modified. Table~\ref{tab:loss-deviations} lists the differences. The first is the most consequential: as published, the floor in \eqref{eq:lpres} is taken on $\lVert s \rVert^2$ rather than on $\lVert s_\textup{proj} \rVert^2$, which breaks the scale invariance the term is built on. With that form, an output of the correct shape scaled by a gain $g$ scores better the louder it is made and it is not bounded. Flooring on the projection instead makes numerator and floor scale together, so the two cancel and the score is flat with respect to gain.
 
-\begin{table}[H]
-\caption{Departures from the objective of \cite{li2026cartse} as published. Each is
-recorded with its reason in the project's decision log.}
-\label{tab:loss-deviations}
-\mytable
-\begin{tabularx}{\textwidth}{@{}lLL@{}}
-\toprule
-& As published & As used here \\
-\midrule
-1. Floor in \eqref{eq:lpres}
-    & On $\tau_\textup{pres} \lVert s \rVert^2$, which is not scale-invariant
-    & On $\tau_\textup{pres} \lVert s_\textup{proj} \rVert^2$, so that gain cancels
-    \\
-2. Scale of \eqref{eq:labs}
-    & Unnormalised, so the value shifts with input loudness
-    & Divided by $\lVert x \rVert^2$, so \SI{0}{dB} means ``did nothing''
-    \\
-3. Averaging over the batch
-    & One mean over all crops in the batch
-    & A mean within each branch, so the balance is set by $w$ alone
-    \\
-4. Number of weights
-    & A separate weight on the silent term
-    & Folded into $w$; under branch-wise means the two are one degree of freedom
-    \\
-5. Silence weight
-    & Twice the absent rate of the source corpus
-    & $w = 0.458$, the same emphasis at this project's measured \num{0.297}
-    \\
-6. Windows in \eqref{eq:lmr}
-    & All at or above the model's frame length
-    & \numlist{8;16;32;64}\,\si{\ms}, slightly lower and higher than the model's \SI{32}{\ms} frame length
-    \\
-\bottomrule
-\end{tabularx}
-\end{table}
-
-% \paragraph{What is deliberately absent.}
-% The source objective includes a term that maximises a non-intrusive speech-quality
-% predictor, DNSMOS. It is rejected here on two independent grounds. The challenge
-% organisers measured that predictor's overall variant against human opinion scores
-% and found a linear correlation of \num{+0.003} on the online track, effectively no
-% agreement, and consequently demoted it to a reference score
-% \cite{wang2026realtse}. Optimising directly against a measure that does not track
-% human judgement is the specific failure this project's evaluation is designed to
-% avoid. Independently, perceptual quality is not this work's objective at all: the
-% target is what a downstream listening model recovers, which quality may or may not
-% serve. The term is therefore recorded as rejected, with its reason, rather than
-% omitted silently.
-
-% Several further terms from the same source -- a frame-level split of the present
-% and absent cases, a speaker-consistency term, and a mel-filterbank distance -- are
-% deferred rather than rejected, and are discussed with the proxy objective in
-% Section~\ref{sec:experiments}. Using a speaker-similarity term in training would
-% forfeit speaker similarity as an independent measurement at evaluation, which is
-% reason enough to keep it out of the baseline.
-
-% Finally, the baseline is trained on a conventional signal objective on purpose. The
-% comparison this work is built around needs a competently trained conventional arm
-% for the proposed measure to diverge from, and the later variant must start from the
-% same checkpoint for that comparison to be attributable to the objective rather than
-% to anything else.
