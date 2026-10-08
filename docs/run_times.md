@@ -20,6 +20,7 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
+| 2026-10-08 | ad-hoc `sf.info` duration scan of `data/wham_noise_16k/*/*.flac` | 28,000 clips (tr/cv/tt) | >5 min, killed by timeout | cpu; a seeded 1,000-clip sample took 4.2 s, so the full scan was I/O-bound on a cold cache |
 | 2026-10-07 | `pytest tests/test_estimates.py` | 26 tests (split tables in sync after adding sir0priv) | 2.6 min | cpu |
 | 2026-10-07 | `experiments/results/2026-10-07-ci-clustered/ci_clustered.py baseline` | 3 judge runs x 103 sir0_val `both` clips from the judge cache (0 API calls), 10,000 speaker-clustered draws | 87 s | cpu; includes VAD load. Added by hand |
 | 2026-10-07 | `experiments/results/2026-10-07-ci-clustered/ci_clustered.py extension` | 3 judge runs x 103 sir0_val `both` clips rebuilt from the judge cache (0 API calls), 10,000 speaker-clustered draws | 99 s | cpu; includes VAD load. Added by hand |
@@ -39,6 +40,7 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | 2026-09-23 | `content_probe.score()` end-to-end smoke, 3 clips | 3 clips, sir0_val, untrained 1c model, cpu extraction + faster-whisper small.en int8 cpu | 3.1 min | ~16 s/clip extraction on cpu, ~4 s/clip ASR, plus ~1 min of model loading. The Kaggle figure differs: extraction moves to the T4, so the ASR sets the per-epoch cost at ~4 s/clip. Added by hand. |
 | 2026-09-21 | `pytest tests/ -q` | 515 tests | 11 min | full suite after adding eval_by_case.py. Added by hand: pytest does not use run_log.timed |
 <!-- rows appended below by src/run_log.py -->
+| 2026-10-08 | `scripts/evaluate.py` | --split eval_private --condition both --est experiments/results/2026-10-07-est-private-10000-e6 --metrics content --listener judge --judge-rpm 10 --out experiments/results/2026-10-08-eval-private-10000-e6-judge | 1.3 h |  |
 | 2026-10-08 | `scripts/evaluate.py` | --split eval_private --condition both --est experiments/results/2026-10-07-est-private-cuecontext-wer-e21 --metrics content --listener judge --judge-rpm 10 --out experiments/results/2026-10-08-eval-private-cuecontext-wer-e21-judge | 45 min |  |
 | 2026-10-08 | `scripts/evaluate.py` | --split eval_private --condition both --est experiments/results/2026-10-07-est-private-cuecontext-wer-e21 --metrics content --listener judge --judge-rpm 10 --out experiments/results/2026-10-08-eval-private-cuecontext-wer-e21-judge **(failed)** | 2.6 h |  |
 | 2026-10-08 | `scripts/make_estimates.py` | 103 trials rendered, sir0 | 12 min | cpu, whole-clip |
