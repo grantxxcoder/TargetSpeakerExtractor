@@ -24,12 +24,12 @@ The spectrogram of Section~\ref{sec:stft} has 257 outputted frequency bins, each
 
 A band plan is the decision of how to group those bins. Bins are gathered into bands and each band is then handled separately by the network: it gets its own normalisation and projection. This allows a band to be compared against itself over time rather than against the loud low-frequency bands next to it. Grouping few bins per band keeps fine detail. Secondly grouping many bins into one band summarises coarsely but costs far less. A band plan therefore decides where the model's resolution is spent. 
 
-The plan in this work is 32 bands over the 257 bins: fifteen bands of \SI{100}{\Hz} covering \SIrange{0}{1.5}{\kHz}, ten of \SI{200}{\Hz} covering \SIrange{1.5}{3.5}{\kHz}, five of \SI{500}{\Hz} covering \SIrange{3.5}{6}{\kHz}, and the remaining \SIrange{6}{8}{\kHz} as one band. Figure~\ref{fig:bandplan} shows it against a real mixture in the training set. This plan follows the implementation from Zhang et al.\ \cite{zhang2025multi} for their \SI{16}{\kHz} target speaker extraction model and used by the challenge baseline built on it, but no reason is given for these particular boundaries, and no explanation is given in previous papers.
+ The plan in this work divides the 257 bins into 32 bands: fifteen of 3 bins (about \SI{100}{\Hz}) up to \SI{1.4}{\kHz}, ten of 6 bins (about \SI{200}{\Hz}) up to \SI{3.3}{\kHz}, five of 16 bins (\SI{500}{\Hz}) up to \SI{5.8}{\kHz}, one of 64 bins (\SI{2}{\kHz}) up to \SI{7.8}{\kHz}, and a final band of the 8 remaining bins at the top of the spectrum. Figure~\ref{fig:bandplan} shows it against a real mixture in the training set. This plan follows the implementation from Zhang et al.\ \cite{zhang2025multi} for their \SI{16}{\kHz} target speaker extraction model and used by the challenge baseline built on it, but no reason is given for these particular boundaries, and no explanation is given in previous papers.
 
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\textwidth]{figures/bandplan-wesep.png}
-\caption{The band plan used here, shown against a four-second mixture from the training set. Left: the band boundaries drawn over the spectrogram, closely spaced at the bottom where the speech structure is and widening upwards. Right: the width of each band in hertz. The lowest fifteen bands are \SI{100}{\Hz} wide and the single highest spans \SI{2}{\kHz}.}
+\caption{The band plan used here, shown against a four-second mixture from the training set. Left: the band boundaries drawn over the spectrogram, closely spaced at the bottom where the speech structure is and widening upwards. Right: the width of each band in hertz.}
 \label{fig:bandplan}
 \end{figure}
 
@@ -102,7 +102,7 @@ The TF Map \cite{zhang2025multi} is the module that turns speech enhancement int
   \label{eq:tfmap-cos}
   \end{equation}
 
-  Zhang et al.\ \cite{zhang2025multi} also normalise the frames and make use of cosine similarity, but they use softmax directly on the inner product rather than scaling it by a factor $\kappa = 16$. After testing it was found that since the similarities lie between $[0, 1]$, the softmax spread the weights to evenly and thus did not give a clear template. The $\kappa$ factor is therefore used to scale the similarities which sharpens the softmax to give a more distinct template. The template only describes the shape and does not indicate whether a target is speaking. As in \cite{zhang2025multi}, the energy is restored by projecting the mixture frame onto the template's direction:
+  Zhang et al.\ \cite{zhang2025multi} also normalise the frames and make use of cosine similarity, but they use softmax directly on the inner product rather than scaling it by a factor $\kappa = 16$. After testing it was found that since the similarities lie between $[0, 1]$, the softmax spread the weights too evenly and thus did not give a clear template. The $\kappa$ factor is therefore used to scale the similarities which sharpens the softmax to give a more distinct template. The template only describes the shape and does not indicate whether a target is speaking. As in \cite{zhang2025multi}, the energy is restored by projecting the mixture frame onto the template's direction:
   \begin{equation}
   u_t = \frac{\mu_t}{\lVert \mu_t \rVert},
   \qquad
@@ -111,8 +111,7 @@ The TF Map \cite{zhang2025multi} is the module that turns speech enhancement int
   \phi_t = m_t\, u_t ,
   \label{eq:tfmap-energy}
   \end{equation}
-  where $m_t$ is a scalar per frame which describes how much of the mixture's energy lies along the target's predicted spectrum.  $\phi_t$, the template scaled by it, is the cue passed to the network.
- The entire conditioning path costs roughly \num{33000} parameters, under half a percent of the model, and it adds no learned parameters of its own at all: \eqref{eq:tfmap-unit} through \eqref{eq:tfmap-energy} contain nothing to train.
+  where $m_t$ is a scalar per frame which describes how much of the mixture's energy lies along the target's predicted spectrum.  $\phi_t$, the template scaled by it, is the cue passed to the network. The TF Map itself has nothing to train as \eqref{eq:tfmap-unit}--\eqref{eq:tfmap-energy} contain no weights. The extra channel is the only addition as it widens the per-band projection by about \num{33000} parameters.
 
 
 \subsubsection{Objective function}
@@ -154,7 +153,7 @@ L_\textup{MR} = \frac{1}{|\mathcal{N}|} \sum_{N \in \mathcal{N}}
 \end{equation}
 where $S_N$ and $\hat{S}_N$ are the spectrograms of the target and the output (Equation~\ref{eq:stft}) window length $N$ and hop $N/4$, and each norm is averaged over its time-frequency coefficients.
 
-Three choices inside \eqref{eq:lmr} are worth stating. The exponent $p = 0.3$ compresses magnitudes, which will highlight the quieter components relative to loud ones so that an error in a low-energy region is not diluted just because it is quite. Without the compression the term would be dominated by the same loud low bands that already dominate \eqref{eq:lpres}. The real and imaginary terms are left uncompressed and they are what make the term sensitive to phase: a magnitude-only loss would be indifferent to the phase that the complex mask of Section~\ref{sec:estimator} is free to change. Finally the term is evaluated at several window lengths rather than one, because a single analysis window can hide errors at its own scale.
+Three choices inside \eqref{eq:lmr} are worth stating. The exponent $p = 0.3$ compresses magnitudes, which will highlight the quieter components relative to loud ones so that an error in a low-energy region is not diluted just because it is quiet. Without the compression the term would be dominated by the same loud low bands that already dominate \eqref{eq:lpres}. The real and imaginary terms are left uncompressed and they are what make the term sensitive to phase: a magnitude-only loss would be indifferent to the phase that the complex mask of Section~\ref{sec:estimator} is free to change. Finally the term is evaluated at several window lengths rather than one, because a single analysis window can hide errors at its own scale.
 
 The window lengths used are \num{8}, \num{16}, \num{32} and \SI{64}{\ms}. This is with respect to the model's own \SI{32}{\ms} framing. The model builds its output by masking \SI{32}{\ms} frames and overlapping them, so the places that most errors would occur can be expected to exist at frame boundaries. The \SI{8}{\ms} and \SI{16}{\ms} windows resolve this and the \SI{64}{\ms} window catches harmonic structure that the short ones blur.
 

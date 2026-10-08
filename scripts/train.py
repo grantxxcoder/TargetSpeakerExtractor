@@ -1407,13 +1407,19 @@ SPLIT_MANIFESTS = {
     # scored where nothing was selected. get_data_loaders refuses it: validating
     # on it in training would make it a selection set. decisions-m3.md 2026-09-24.
     "sir0pub": (("sir0_train", "sir0_train"), ("eval_public", "eval_public")),
+    # sir0priv: RENDERING ONLY. The private test split, scored once AFTER all
+    # selection on sir0_val is finished, for the selection-free headline
+    # (select_by_wer.py: "select on sir0_val; report on eval_private").
+    # get_data_loaders refuses it, so it can never become a selection set.
+    # decisions-m4.md 2026-10-07.
+    "sir0priv": (("sir0_train", "sir0_train"), ("eval_private", "eval_private")),
     # ami: RENDERING ONLY. The AMI real-audio transfer set built by
     # scripts/build_ami_trials.py -- eval only, never trained, filtered or
     # selected on. The train half is a placeholder get_data_loaders never reads.
     "ami":   (("sir0_train", "sir0_train"), ("ami_eval",    "ami_eval")),
     "full":  (("train",       "train"),       ("val",       "val")),
 }
-RENDER_ONLY_SPLITS = frozenset({"sir0pub", "ami"})
+RENDER_ONLY_SPLITS = frozenset({"sir0pub", "sir0priv", "ami"})
 
 
 def get_data_loaders(split, csv_path, data_path, config):

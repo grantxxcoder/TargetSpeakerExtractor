@@ -69,7 +69,7 @@ speech signals arrive with different but consistent room responses.
 \section{Construction parameters}
 \label{app:params}
 
-Every parameter below is drawn independently per trial from the stated distribution, except where a regime overrides it. Ranges written $[a, b]$ are sampled uniformly on that interval.
+Every parameter below is drawn independently per trial from the stated distribution, except where a regime overrides it. The table gives the training and validation settings. The \texttt{eval\_public} and \texttt{eval\_private} splits draw SIR from $[-5, 15]$\,dB and use no regimes. Ranges written $[a, b]$ are sampled uniformly on that interval.
 
 % xltabular, not table + tabularx: a float cannot break across pages, and this
 % table is taller than one. The header repeats on every page it spans.
@@ -131,7 +131,6 @@ Every parameter below is drawn independently per trial from the stated distribut
     \midrule
     \multicolumn{3}{@{}l}{\emph{Regimes}} \\
     Regime weights        & $0.6$ / $0.4$      & Proportion of trials drawn as \texttt{base} / \texttt{hard} \\
-    \texttt{base} SIR     & $[0.0, 8.0]$ dB   & Regime override \\
     \texttt{base} SNR     & $[8.0, 20.0]$ dB   & Regime override \\
     \texttt{base} activity & $[0.45, 0.78]$    & Regime override \\
     \texttt{base} $T_{60}$ & $[0.25, 0.5]$ s   & Regime override \\
@@ -201,3 +200,56 @@ Every parameter below is drawn independently per trial from the stated distribut
     Other speaker's words  & Median 15.5 per trial, range 5--70 \\
   \end{xltabular}
 \endgroup
+
+
+\section{Offline transcriber results}
+\label{app:asr}
+The same 103 two-speaker trials as \autoref{tab:content_judge}, transcribed by the offline transcriber of \autoref{sec:offline_asr} instead of Gemini (\autoref{sec:results_content}).
+
+\begin{table}[H]
+\centering
+\caption{Content recovered by the offline transcriber,
+\texttt{faster-whisper large-v3-turbo}. Lower is better in every column.}
+\label{tab:content_asr}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+ & WER \lowerbetter & ICR@2 \lowerbetter & mean leak \lowerbetter & invented \lowerbetter & FR@2 \lowerbetter \\
+system & (\%) & (\%) & (\%) & /trial & (\%) \\
+\midrule
+Floor & 63.04 & 76.70 & 62.78 & 1.59 & 38.83 \\
+Baseline & 52.71 & 62.14 & 45.73 & 1.96 & 49.02 \\
+Extension & 41.01 & 36.89 & 19.55 & 2.46 & 57.43 \\
+WeSep    & \textbf{29.13} & \textbf{22.33} & \textbf{12.46} & 2.02 & 54.37 \\
+Ceiling  & 1.98 & 0.00 & 0.00 & 0.45 & 8.74 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+\section{Choice of the extension's epoch}
+\label{app:epoch_choice}
+% Numbers: experiments/results/2026-10-08-e21-vs-e27-judge/report.txt (rebuilt from the
+% judge cache, no new calls; WER, ICR@2, FR@2 rows reproduce 2026-09-27-judge-repeats-e21).
+% Decision: decisions-m2.md 2026-09-26 and its updates.
+Epochs 21 and 27 of the extension were both judged by Gemini on the 103 two-speaker validation trials (\autoref{fig:training_curves}) and tie on word error. \autoref{tab:e21_e27} compares them on every Gemini measure of \autoref{sec:metrics}.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Epoch 21 (chosen) against epoch 27 (the last) of the extension, on the 103 two-speaker validation trials. Lower is better in every row. Epoch 21 was judged three times: its mean is shown, with the SD of the three runs. Epoch 27 was judged once. The difference is epoch 21 minus epoch 27, so a negative value favours epoch 21; its 95\,\% interval and the share of draws in which epoch 21 is better come from resampling the trials in pairs (10,000 draws, seed 42). Percentages and their spreads are in percentage points; invented words are a count per trial. Judge \texttt{gemini-3.7-flash} through AI Studio, audio in and text out, prompt \texttt{d118b7d3bf30}; epoch 21 run on 2026-09-25 and twice on 2026-09-26, epoch 27 on 2026-09-25.}
+\label{tab:e21_e27}
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+ & Epoch 21 & SD & Epoch 27 & Difference & 95\,\% CI & Epoch 21 better \\
+measure & (3 runs) & (3 runs) & (1 run) & (21 $-$ 27) & & (\% of draws) \\
+\midrule
+LCF-WER (\%) & 39.59 & 0.34 & 39.23 & $+0.36$ & $[-3.00, +3.78]$ & 41.1 \\
+ICR@2 (\%) & 33.66 & 2.02 & 32.04 & $+1.62$ & $[-5.18, +8.41]$ & 31.5 \\
+mean leak (\%) & 23.08 & 0.97 & 20.16 & $+2.93$ & $[-0.47, +6.42]$ & 4.6 \\
+invented /trial & 2.20 & 0.11 & 2.56 & $-0.37$ & $[-0.79, +0.08]$ & 94.9 \\
+FR@2 (\%) & 46.88 & 1.98 & 55.45 & $-8.56$ & $[-16.83, 0.00]$ & 97.4 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Word error, the primary measure, is a tie: the difference is 0.36 points and its interval spans zero. The two epochs differ in the kind of error they leave. Epoch 27 lets less of the other speaker through (mean leak 2.9 points lower), and epoch 21 leads Gemini to invent fewer words (8.6 points fewer trials with two or more invented words). Each gap favours one epoch in about 95\,\% of draws, but each interval reaches zero, so neither is established. The signal measures of \autoref{sec:sdiar} show the same trade: epoch 27 removes more of the other speaker (SIR \SI{10.21}{dB} against \SI{9.17}{dB}) and adds more artefacts (SAR \SI{5.44}{dB} against \SI{6.28}{dB}), so it suppresses harder. Epoch 21 was chosen because it ties on word error and invents fewer words. Two limits apply: the choice was made on the same 103 trials it is reported on, and epoch 27 was judged only once.

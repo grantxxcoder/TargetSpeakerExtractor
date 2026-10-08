@@ -21,6 +21,28 @@ The intro (done 2026-10-05) promises both of these.
   on 09-21 vs Table 5.1's 55.18, same audio); one judge run per arm (Limitations); retractions below apply;
   #17/#18 still need a `decisions-m4.md` entry (audio + code on `m5-listener-panel` b7c54f2).
 
+## 0b. NEW from the blind examiner review (2026-10-07, `docs/reports/2026-10-07-blind-examiner-review.md`)
+
+Blind mark **57/100** (pass, not yet "good"). Items below are *not* already elsewhere in this file.
+- [ ] **NB References print internal notes** — bib `note` fields in [2] google2026geminilive, [9] cosentino2020librimix, [22] wichern2019wham, [34] bird2009nltk, [35]–[36] ITU P.835/P.808 (and check all). Strip annotations from `references.bib`.
+- [ ] **NB Table 5.4 S+D+I ≠ LCF-WER** (floor 63.27 vs 62.94, baseline 55.59 vs 55.18, WeSep 26.39 vs 25.80): error split is from a different run than the 3-run means. Use 3-run means or say which run.
+- [ ] **NB `results.tex:39` "14.24 points"** is the ICR@2 gap; the mean-leak gap is 15.28.
+- [ ] **NB `results.tex:89`** calls Whisper's score "LCF-WER" (defined live-model only) and says it reaches "the same conclusions" — contradicts contribution 2. Reword.
+- [ ] **NB intro "five times as often as WeSep"** rests on `eval_public` n=123, never defined; on the documented 42 it is 18 vs 7 (2.6×). Name the set or use the 42.
+- [ ] **Ablation**: report the 1a (cue parts) and 1c (+ embedding) arms as a partial ablation (decisions-m2 09-27: 1a −10.36 vs baseline) — answers "confounded comparison".
+- [ ] Research questions: none stated; examiner expects them (intro).
+- [ ] Lit review: add SpeakerBeam / VoiceFilter (bib has `zmolikova2019speakerbeam`, `wang2019voicefilter`), SpEx+; enhancement-for-ASR line.
+- [ ] Method gaps: where the embedding enters the net + parameter count; target reference dry or with early reflections; streaming chunk size (80 ms); show the w_g derivation (1.24 / 2.30) or cite the log; κ = 16 measured numbers.
+- [ ] Wording: "33,000 parameters" vs "no learned parameters" (TF map); causality claimed as own though the challenge baseline is causal — say what *this* work changed (per-frame norm, no centring); AI-attribution sentence `extension_architecture.tex:43` contradicts itself; "Appendix C of the Whisper paper"; Fig 3.3 title shows "wesep_16k"; Table 5.5 caption points to wrong section.
+- [ ] Metric validity: say FR counts some misrecognitions (ceiling 0.22/trial is that floor); no human validation of leak/FR → Limitations.
+
+## 0c. NEW from blind review v2 (2026-10-07, 58/100, `docs/reports/2026-10-07-blind-examiner-review-v2.md`)
+- [ ] **NB judge is not the Live API** — justify transcription by `gemini-3.7-flash` as the stand-in, or Limitations.
+- [ ] **NB extension's gain is partly suppression** — deletions 3.00 → 9.44 %; AMI 110/300 silenced, 45 % missed. Say it in Results.
+- [ ] **Selection-free headline** — run Case 1 on `eval_public` (230 `both` trials) for baseline, e21, WeSep + anchors? Decide before the 10-14 freeze.
+- [ ] FR denominator shrinks with silencing; judge SE 1.24 vs SD 0.34 explained; "roughly 15 hours"; Fig 3.2 causal claim; define "target words missed"; App. D transcripts source; latency chunk size/hardware; 71.8/52.6 % method.
+- [ ] Typos: data.tex:8, baseline_architecture.tex:114, metrics.tex:7, metrics.tex:80, litreview.tex:24, results.tex:40.
+
 ---
 
 ## 1. Front matter
@@ -124,12 +146,13 @@ The intro (done 2026-10-05) promises both of these.
 - [ ] `:39` "subsequentlyhas", "over the passing the audio"; `:144` "significantly" (no test) → "clearly"; `:130` caption points to `sec:results_errors` for the cap — point to Metrics.
 - [ ] `:113` Error composition discusses only the floor — add extension/WeSep (deletions vs insertions story) from the table.
 - [ ] **Causality probe result**: WeSep 1.12e-2 vs ours 1.68e-8 (needed for intro's "fully causal").
-- [ ] **AMI results**: WeSep vs e21 table + near-mute finding (110/300 blocked, ~26 dB below input); label anchor "Target's headset"; no headroom share. decisions-m4.md 2026-10-06.
+- [ ] **AMI results**: ~~table~~ (added 2026-10-07, Table 5.3, `sec:results_ami`). STILL TO WRITE: the discussion — ranking holds (WeSep ahead), e21 near-mutes real audio (110/300 silenced, ~26 dB below input; speech present after levelling; suspected quiet input), WeSep's 38 mostly a gate artefact (~7 dB down), e21 invents less (+24 % vs +79 % over no processing); no headroom share. decisions-m4.md 2026-10-06.
 - [ ] `eval_public` per SIR band (B1) — or state why not.
 - [ ] §0 "Why the metric is needed" as the first subsection (parked).
 
 ## 7. Experiments still to decide — before the 2026-10-14 freeze
 
+- [ ] **Matched-protocol baseline** (registered decisions-m2.md 2026-10-07) — `bsrnn_baseline_matched.yaml`, 2 Kaggle sessions (14 → 28 epochs), then judge e13/e15/e18/e21/e27 + probe pick. Answers the blind review's "confounded comparison".
 - [ ] **Prompt sensitivity (A5)** — cheap; the primary contribution rests on the judge prompt.
 - [ ] **AMI open items**: meeting-clustered bootstrap e21 − WeSep; e21 on the 110 levelled inputs (quiet-input explanation).
 - [ ] **Floor anchor bug (A1)** — fix `load_once_index`, re-derive anchors, confirm Tables 5.1–5.3.

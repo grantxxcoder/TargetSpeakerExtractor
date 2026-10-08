@@ -3791,6 +3791,15 @@ of draws; the interval now touches zero. WER still ties (+0.36 [−3.00, +3.78])
 judge measure and has fewer artefacts (`decisions-m3.md` 2026-09-26). Do not describe it as clearly
 better than e27 on invented words. e27 has one run; repeats on e27 would settle it.
 
+**Update 2026-10-08: e21 is NOT level or ahead on every judge measure.** Mean leak
+and invented/trial added (`experiments/results/2026-10-08-e21-vs-e27-judge/`, judge
+cache, no new calls; same method, 3-run mean minus e27): mean leak **+2.93
+[−0.47, +6.42]**, e27 better in 95.4 % of draws; invented/trial −0.37 [−0.79, +0.08].
+e27 leaks less, borderline, consistent with its higher SIR (`decisions-m3.md`
+2026-09-26). The trade is leak (e27) vs invented words (e21), each borderline; word
+error ties. **Selection unchanged.** Report appendix `tab:e21_e27`. AI assistance:
+analysis and appendix text with Claude. Declare.
+
 ## 2026-09-27 — The report's baseline is baseline 10000-e6; its extension is e21
 
 **Decision (Grant):** the report compares one baseline and one extension.
@@ -4061,3 +4070,47 @@ matched: `experiments/results/2026-10-03-bootstrap-interf-ft/report_2x2_2026-10-
   lowered LCF-WER below the plain loss; the AB-SDR weight Ochiai et al. found best
   for ASR raised it by 9 points through leakage.*
 - **Consequence:** the hail mary drops w_artif (entry above).
+
+## 2026-10-07 — MATCHED BASELINE REGISTERED: the baseline model under e21's protocol
+
+**Decided 2026-10-07, before launch (Grant).** One run,
+`experiments/configs/bsrnn_baseline_matched.yaml`: the baseline model of
+`bsrnn_baseline.yaml` (single TF-Map cue, no speaker embedding, 7.19 M) trained
+under e21's protocol. Against `bsrnn_cue_context.yaml` (e21) only the five model keys
+differ (`context_embedding`, `context_embedding_dim`, `context_normalise`,
+`tfmap_parts`, `tfmap_part_scales`); verified by diffing the two files with
+comments stripped.
+
+**Why.** The blind examiner review (`docs/reports/2026-10-07-blind-examiner-review.md`,
+item 2, design mark 48/100) and the 2026-09-27 entry both say the same thing: e21
+vs baseline 10000-e6 bundles four changes (cue parts, embedding, 28 vs 16 epochs,
+content-WER schedule + selection + Gemini pick vs `total` schedule + loss
+selection). This run removes the last two, so e21 − matched isolates the
+architecture and matched − e6 isolates the protocol.
+
+**Protocol, fixed now (mirrors e21):**
+- Session 1: `EPOCHS = 14`. Session 2: `EPOCHS = 28`, `RESUME_FROM` =
+  session 1's `model_sir0_last.pt` (newest, so training is continuous as e21's was;
+  e21's session-1 best was also its last, idx 13).
+- Seed 42, batch 3 (both directions), w = 0.458 schedule, w_m 9.62, w_g 1.69,
+  lr 5e-4, patience 10, `lr_schedule_on: content_wer`, `select_on: content_wer`,
+  `keep_stride: 3`, `keep_top_k: 3`, probe `small.en` cpu, 40 `sir0_val` `both` clips.
+- **Epochs to judge, fixed now:** the indices judged for e21 (e13, e15, e18, e21,
+  e27), plus the in-loop probe's pick if it is not among them. `sir0_val` `both`,
+  n = 103, `gemini-3.7-flash`, aistudio, audio-in / text-out, prompt `d118b7d3bf30`;
+  record the run date with each result. **Selection:** lowest LCF-WER, ties to fewer
+  invented words — the rule that picked e21.
+
+**Readings, fixed now** (paired bootstrap over the 103 clips, 10,000 draws, seed 42):
+- architecture effect = e21 − matched; protocol effect = matched − e6.
+- LCF-WER primary; mean leak and invented/trial reported alongside.
+- No prediction. Either sign is reportable: a closed gap says the protocol carried
+  e21's gain, which supports choosing checkpoints by the listener.
+
+**Cost, projected** from measured parts (2,364 s/epoch baseline 2026-09-04; probe
+~300 s/epoch 2026-09-24): ~2,660 s/epoch, ~10.3 h per 14-epoch session, two sessions.
+
+**Limits:** one seed (as e21). The selected checkpoint is chosen on the reporting
+trials, as e21 was; the selection-free check is `eval_public` Case 3.
+
+**AI assistance:** config, registration and bundle prepared with Claude. Declare.

@@ -4,7 +4,7 @@
 
 \subsubsection{Transcripts and references}
 \label{sec:transcripts}
-When a system produces output, either the offline or the live model with the prompt of \autoref{app:prompt}, it gives a transcript $y_{\hat{s}}$. The two anchors get transcribed as well to give the untouched mixture as $y_{x}$ and the clean target as $y_{s}$. Every transcript is scored against the LibtriSpeech reference transcript of the target speaker $y^\star_s$, and the interferer speaker $y^\star_d$. Before scoring, each transcript is normalised using Whisper's \texttt{EnglishTextNormalizer} \cite{whisper_normalizer,radford2023whisper}. This includes lowercasing, removing punctuation, contractions expanded and numbers written consistently.
+When a system produces output, either the offline or the live model with the prompt of \autoref{app:prompt}, it gives a transcript $y_{\hat{s}}$. The two anchors get transcribed as well to give the untouched mixture as $y_{x}$ and the clean target as $y_{s}$. Every transcript is scored against the LibriSpeech reference transcript of the target speaker $y^\star_s$, and the interferer speaker $y^\star_d$. Before scoring, each transcript is normalised using Whisper's \texttt{EnglishTextNormalizer} \cite{whisper_normalizer,radford2023whisper}. This includes lowercasing, removing punctuation, contractions expanded and numbers written consistently.
 
 \subsubsection{Live-model Content Fidelity Word Error Rate}
 \label{sec:lcfwer}
@@ -55,13 +55,7 @@ where $\mathcal{I}_i$ is the set of words in the $i$-th trial's output that are 
 where $\mathbb{1}\!$ is the indicator function.
 \subsubsection{Deep Noise Suppression Mean Opinion Score}
 \label{sec:dnsmos}
-The Deep Noise Suppression Mean Opinion Score (DNSMOS) is a model based instrument that is used to evaluate the quality of the audio output as if heard from a human listener. The instrument itself is a neural network that predicts what a collection of humans would have rated an audio clip on a scale of 1-5, where 1 is bad and 5 is excellent. In this works, two different DNSMOS protocols are used. Specifically ITU-T P.835 \cite{itu2003p835} and ITU-T P.808 \cite{itu2018p808}, predicted by the corresponding DNSMOS models \cite{reddy2022dnsmos835, reddy2021dnsmos}. The former returns three metrics namely:
-\begin{itemize}
-    \item \textbf{SIG:} The quality of the speech in the audio clip.
-    \item \textbf{BAK:} The background noise quality of the audio, which measures how much the background noise is affecting the speech in the audio.
-    \item \textbf{OVRL:} The overall quality of the audio.
-\end{itemize}
-This protocol was used in the SLT 2026 REAL-TSE Challenge \cite{wang2026realtse} to measure how good the different teams TSE models were, but they found that some of the entrants were finding ways to game the metric by making the audio sound better to the model, and not necessarily perform actual target speaker extraction. The challenge organisers therefore made use of the latter protocol in their final evaluation, the P808, which is a single metric from a separately trained model to measure overall quality of the audio clip. 
+The Deep Noise Suppression Mean Opinion Score (DNSMOS) is a model based instrument that is used to evaluate the quality of the audio output as if heard from a human listener. The instrument itself is a neural network that predicts what a collection of humans would have rated an audio clip on a scale of 1-5, where 1 is bad and 5 is excellent. In this work, two different DNSMOS protocols are used. Specifically ITU-T P.835 \cite{itu2003p835} and ITU-T P.808 \cite{itu2018p808}, predicted by the corresponding DNSMOS models \cite{reddy2022dnsmos835, reddy2021dnsmos}. The former returns three metrics namely: \textit{SIG:} The quality of the speech in the audio clip. \textit{BAK:} The background noise quality of the audio, which measures how much the background noise is affecting the speech in the audio. \textit{OVRL:} The overall quality of the audio. This protocol was used in the SLT 2026 REAL-TSE Challenge \cite{wang2026realtse} to measure how good the different teams TSE models were, but they found that some of the entrants were finding ways to game the metric by making the audio sound better to the model. The challenge organisers therefore made use of the latter protocol in their final evaluation, the P808, which is a single metric from a separately trained model to measure overall quality of the audio clip. 
 
 \subsubsection{Signal to Distortion/Interference/Artefact Ratios}
 \label{sec:sdiar}
@@ -80,4 +74,7 @@ which are all measured in decibels (dB) where the higher ratio means better extr
 \subsubsection{Anchors}                                  
 \label{sec:anchors}
 % floor, ceiling, text floor, text ceiling; a bare score is meaningless
-The following terms are used to describe the lower and upperbounds of the results section. The floor references passing the full mixture audio, unprocessed to a listener as the worst case scenario, and the ceiling references passing a clean target audio to the listener as best case. The ceiling system is perfect separation and the listener hears only the target audio. The floor and ceiling systems are not real systems, but rather reference points for the listener to compare against. 
+The following terms are used to describe the lower and upper bounds of the results section. The floor references passing the full mixture audio, unprocessed to a listener as the worst case scenario, and the ceiling references passing a clean target audio to the listener as best case. The ceiling system is perfect separation and the listener hears only the target audio. The floor and ceiling systems are not real systems, but rather reference points for the listener to compare against. 
+\subsubsection{Uncertainty}
+\label{sec:uncertainty}
+Each 95\,\% interval is a percentile bootstrap \cite{efron1979bootstrap}. The interval is computed using bootstrap resampling where the trials are redrawn with replacement 10{,}000 times, and on every draw the score is recomputed as the total errors over the total reference words \cite{bisani2004bootstrap}. Because trials from the same speaker are not independent unique speakers are chosen rather than individual trials, and whole meetings for the AMI recordings. 
