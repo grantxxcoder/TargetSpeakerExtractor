@@ -72,6 +72,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RES = ROOT / "experiments/results"
 
 JUDGED_EPOCHS = (13, 15, 18, 21, 27)   # e21's judged set; the matched run reuses it
+BASELINE_EXTRA_JUDGED = (4,)           # matched run's session-1 probe pick, judged 2026-10-08
 RESUME = 13.5                          # both runs' second Kaggle session starts at 14
 
 # The figure's inputs. `judge` maps epoch -> glob patterns under RES.
@@ -84,7 +85,8 @@ RUNS = {
         "chosen": None,                       # picked on the judge after session 2
         "lowest_marker": False,
         "judge": {e: [f"*-eval-baseline-matched-e{e}-judge",
-                      f"*-eval-baseline-matched-e{e}-judge-r*"] for e in JUDGED_EPOCHS},
+                      f"*-eval-baseline-matched-e{e}-judge-r*"]
+                  for e in (*BASELINE_EXTRA_JUDGED, *JUDGED_EPOCHS)},
     },
     "Extension": {
         "label": "Extension",
