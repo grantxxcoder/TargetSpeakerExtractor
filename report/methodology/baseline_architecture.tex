@@ -111,7 +111,7 @@ The TF Map \cite{zhang2025multi} is the module that turns speech enhancement int
   \phi_t = m_t\, u_t ,
   \label{eq:tfmap-energy}
   \end{equation}
-  where $m_t$ is a scalar per frame which describes how much of the mixture's energy lies along the target's predicted spectrum.  $\phi_t$, the template scaled by it, is the cue passed to the network. The TF Map itself has nothing to train as \eqref{eq:tfmap-unit}--\eqref{eq:tfmap-energy} contain no weights. The extra channel is the only addition as it widens the per-bad projection by about \num{33000} parameters.
+  where $m_t$ is a scalar per frame which describes how much of the mixture's energy lies along the target's predicted spectrum.  $\phi_t$, the template scaled by it, is the cue passed to the network. The TF Map itself has nothing to train as \eqref{eq:tfmap-unit}--\eqref{eq:tfmap-energy} contain no weights. The extra channel is the only addition as it widens the per-band projection by about \num{33000} parameters.
 
 
 \subsubsection{Objective function}
@@ -153,7 +153,7 @@ L_\textup{MR} = \frac{1}{|\mathcal{N}|} \sum_{N \in \mathcal{N}}
 \end{equation}
 where $S_N$ and $\hat{S}_N$ are the spectrograms of the target and the output (Equation~\ref{eq:stft}) window length $N$ and hop $N/4$, and each norm is averaged over its time-frequency coefficients.
 
-Three choices inside \eqref{eq:lmr} are worth stating. The exponent $p = 0.3$ compresses magnitudes, which will highlight the quieter components relative to loud ones so that an error in a low-energy region is not diluted just because it is quite. Without the compression the term would be dominated by the same loud low bands that already dominate \eqref{eq:lpres}. The real and imaginary terms are left uncompressed and they are what make the term sensitive to phase: a magnitude-only loss would be indifferent to the phase that the complex mask of Section~\ref{sec:estimator} is free to change. Finally the term is evaluated at several window lengths rather than one, because a single analysis window can hide errors at its own scale.
+Three choices inside \eqref{eq:lmr} are worth stating. The exponent $p = 0.3$ compresses magnitudes, which will highlight the quieter components relative to loud ones so that an error in a low-energy region is not diluted just because it is quiet. Without the compression the term would be dominated by the same loud low bands that already dominate \eqref{eq:lpres}. The real and imaginary terms are left uncompressed and they are what make the term sensitive to phase: a magnitude-only loss would be indifferent to the phase that the complex mask of Section~\ref{sec:estimator} is free to change. Finally the term is evaluated at several window lengths rather than one, because a single analysis window can hide errors at its own scale.
 
 The window lengths used are \num{8}, \num{16}, \num{32} and \SI{64}{\ms}. This is with respect to the model's own \SI{32}{\ms} framing. The model builds its output by masking \SI{32}{\ms} frames and overlapping them, so the places that most errors would occur can be expected to exist at frame boundaries. The \SI{8}{\ms} and \SI{16}{\ms} windows resolve this and the \SI{64}{\ms} window catches harmonic structure that the short ones blur.
 

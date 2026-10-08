@@ -3791,6 +3791,15 @@ of draws; the interval now touches zero. WER still ties (+0.36 [−3.00, +3.78])
 judge measure and has fewer artefacts (`decisions-m3.md` 2026-09-26). Do not describe it as clearly
 better than e27 on invented words. e27 has one run; repeats on e27 would settle it.
 
+**Update 2026-10-08: e21 is NOT level or ahead on every judge measure.** Mean leak
+and invented/trial added (`experiments/results/2026-10-08-e21-vs-e27-judge/`, judge
+cache, no new calls; same method, 3-run mean minus e27): mean leak **+2.93
+[−0.47, +6.42]**, e27 better in 95.4 % of draws; invented/trial −0.37 [−0.79, +0.08].
+e27 leaks less, borderline, consistent with its higher SIR (`decisions-m3.md`
+2026-09-26). The trade is leak (e27) vs invented words (e21), each borderline; word
+error ties. **Selection unchanged.** Report appendix `tab:e21_e27`. AI assistance:
+analysis and appendix text with Claude. Declare.
+
 ## 2026-09-27 — The report's baseline is baseline 10000-e6; its extension is e21
 
 **Decision (Grant):** the report compares one baseline and one extension.

@@ -39,6 +39,15 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | 2026-09-23 | `content_probe.score()` end-to-end smoke, 3 clips | 3 clips, sir0_val, untrained 1c model, cpu extraction + faster-whisper small.en int8 cpu | 3.1 min | ~16 s/clip extraction on cpu, ~4 s/clip ASR, plus ~1 min of model loading. The Kaggle figure differs: extraction moves to the T4, so the ASR sets the per-epoch cost at ~4 s/clip. Added by hand. |
 | 2026-09-21 | `pytest tests/ -q` | 515 tests | 11 min | full suite after adding eval_by_case.py. Added by hand: pytest does not use run_log.timed |
 <!-- rows appended below by src/run_log.py -->
+| 2026-10-08 | `scripts/evaluate.py` | --split eval_private --condition both --est experiments/results/2026-10-07-est-private-cuecontext-wer-e21 --metrics content --listener judge --judge-rpm 10 --out experiments/results/2026-10-08-eval-private-cuecontext-wer-e21-judge | 45 min |  |
+| 2026-10-08 | `scripts/evaluate.py` | --split eval_private --condition both --est experiments/results/2026-10-07-est-private-cuecontext-wer-e21 --metrics content --listener judge --judge-rpm 10 --out experiments/results/2026-10-08-eval-private-cuecontext-wer-e21-judge **(failed)** | 2.6 h |  |
+| 2026-10-08 | `scripts/make_estimates.py` | 103 trials rendered, sir0 | 12 min | cpu, whole-clip |
+| 2026-10-08 | `scripts/make_estimates.py` | 103 trials rendered, sir0 | 12 min | cpu, whole-clip |
+| 2026-10-08 | `experiments/results/2026-10-08-e21-vs-e27-judge/compare.py` | e21 (3 runs) + e27 (1 run) x 103 clips from the judge cache, no API calls; 5 measures, 10,000 paired draws | 3.4 min | cpu. Measured with `time`. Added by hand. |
+| 2026-10-07 | `scripts/train.py --split sir0` | 9,955 trials x 14 epochs (idx 0-13), sir0, `bsrnn_baseline_matched.yaml` (matched baseline session 1, from scratch) | 11.1 h | batch 3, cuda, 2863 s/epoch (projection was 2,660). From the run's meta.yaml (kaggle_out/results). Added by hand. |
+| 2026-10-07 | `scripts/make_estimates_wesep.py` | 249 trials rendered, sir0priv, tfmap_context_causal_100 | 1.3 h | cpu, whole-clip |
+| 2026-10-07 | `scripts/make_estimates.py` | 249 trials rendered, sir0priv | 29 min | cpu, whole-clip |
+| 2026-10-07 | `scripts/make_estimates.py` | 249 trials rendered, sir0priv | 38 min | cpu, whole-clip |
 | 2026-10-06 | `scripts/evaluate.py` | --split ami_eval --condition both --est experiments/results/2026-10-06-est-ami-cuecontext-wer-e21 --metrics content --listener judge --judge-rpm 10 --judge-max-new-calls 320 --out experiments/results/2026-10-06-eval-ami-cuecontext-wer-e21-judge | 25 min |  |
 | 2026-10-06 | `scripts/make_estimates.py` | 300 trials rendered, ami | 33 min | cpu, whole-clip |
 | 2026-10-06 | `scripts/evaluate.py` | --split ami_eval --condition both --est experiments/results/2026-10-06-est-ami-wesep-tfmap-causal --metrics content --listener judge --judge-rpm 10 --judge-max-new-calls 20 --out experiments/results/2026-10-06-eval-ami-wesep-judge-retry | 2 min |  |
