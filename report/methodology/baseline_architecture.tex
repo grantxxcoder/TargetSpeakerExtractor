@@ -14,13 +14,13 @@ The model operates in the time-frequency domain rather than a waveform. To ensur
 X(f, t) = \sum_{n=0}^{N-1} x[tH + n]\,h[n]\,e^{-\mathrm{j}2\pi fn/N},
 \label{eq:stft}
 \end{equation}
- where $N$ is the window length, $H$ the hop between frames, $h[n]$ a Hann window and $\mathrm{j}$ the imaginary unit. Following Yu et al.\ \cite{yu2023high}, $N = 512$ and $H = 128$ at \SI{16}{\kHz}: a \SI{32}{\ms} window moving in \SI{8}{\ms} steps, giving 257 frequency bins. Frames are not centered on timestamps as this would imply future information which is not suitable for streaming tasks. Instead, the signal is padded with $N - H$ samples at the start of a sequence.
+ where $N$ is the window length, $H$ the hop between frames, $h[n]$ a Hann window and $\mathrm{j}$ the imaginary unit. Following Yu et al.\ \cite{yu2023high}, $N = 512$ and $H = 128$ at \SI{16}{\kHz}: a \SI{32}{\ms} window moving in \SI{8}{\ms} steps, giving 257 frequency bins. Frames are not centred on timestamps as this would imply future information which is not suitable for streaming tasks. Instead, the signal is padded with $N - H$ samples at the start of a sequence.
 
 
 \subsubsection{Band plan}
 \label{sec:bandplan}
 
-The spectrogram of Section~\ref{sec:stft} has 257 outputted frequency bins, each covering an equal slice of \SI{31.25}{\Hz}. However, each band should be modelled independently. Most of all the structure that distinguishes one voice from another sits at the lower frequencies: the pitch of a voice and the resonances that give a vowel its identity all fall below about \SI{4}{\kHz}, and energy falls away steadily above that. The bins near the top carry far less information and thus would be wasteful to model with the same level of detail as the bins near the bottom.  
+The spectrogram of Section~\ref{sec:stft} has 257 outputted frequency bins, each covering an equal slice of \SI{31.25}{\Hz}. However, each band should be modelled independently. Most of the structure that distinguishes one voice from another sits at the lower frequencies: the pitch of a voice and the resonances that give a vowel its identity all fall below about \SI{4}{\kHz}, and energy falls away steadily above that. The bins near the top carry far less information and thus would be wasteful to model with the same level of detail as the bins near the bottom.  
 
 A band plan is the decision of how to group those bins. Bins are gathered into bands and each band is then handled separately by the network: it gets its own normalisation and projection. This allows a band to be compared against itself over time rather than against the loud low-frequency bands next to it. Grouping few bins per band keeps fine detail. Secondly grouping many bins into one band summarises coarsely but costs far less. A band plan therefore decides where the model's resolution is spent. 
 
@@ -37,9 +37,9 @@ A band plan is the decision of how to group those bins. Bins are gathered into b
 \subsubsection{Per-band normalisation}
 \label{sec:subbandnorm}
 
-The bands defined by Section~\ref{sec:bandplan} are not comparable with one another. Each band typically carries different amounts of energy therefore, if all 257 bins were scaled together, there would be a severe imbalance. The high bands would be underrepresented and thus diluted, effectively reducing the model's ability to learn the high-frequency features. Giving each band its own scaling is what prevents that. A band at \SI{6}{\kHz} is then judged against its own typical level rather than against the bands beneath it.
+The bands defined by Section~\ref{sec:bandplan} are not comparable with one another. Each band typically carries different amounts of energy; therefore, if all 257 bins were scaled together, there would be a severe imbalance. The high bands would be underrepresented and thus diluted, effectively reducing the model's ability to learn the high-frequency features. Giving each band its own scaling is what prevents that. A band at \SI{6}{\kHz} is then judged against its own typical level rather than against the bands beneath it.
 
-Following \cite{yu2023high} the approach is to first it normalises the band, using a layer normalisation applied across the channels of that band. Secondly, because the bands must be the same size before they can be stacked together, a projection is required to map the band to a fixed width. Since there are varying sized and independent bands, each band has its own projection, which is a learnable linear layer that maps the band to a fixed width of 128 values. Every band is given the same structure but its own weights, so nothing is shared between bands and each is free to learn a representation suited to its own frequency range. The result is a stack of 32 bands, each with 128 features, which is then passed to the next module.
+Following \cite{yu2023high} the approach first normalises the band, using a layer normalisation applied across the channels of that band. Secondly, because the bands must be the same size before they can be stacked together, a projection is required to map the band to a fixed width. Since there are varying sized and independent bands, each band has its own projection, which is a learnable linear layer that maps the band to a fixed width of 128 values. Every band is given the same structure but its own weights, so nothing is shared between bands and each is free to learn a representation suited to its own frequency range. The result is a stack of 32 bands, each with 128 features, which is then passed to the next module.
 
 Normalisation is applied across the values of a band \emph{within a single frame}. Each frame is therefore normalised using only itself. This is a deliberate design choice that \emph{opposes} Yu et al.\ \cite{yu2023high}, who use batch normalisation for their online configuration. The opposition is for the following reasons: \textit{(i)} during training, the mean and variance are computed from the current batch, but during inference, these statistics are computed from the entire training set. The function that is optimised during training is therefore not the function that is deployed. \textit{(ii)} The variability of the data does not give a reliable estimate of the true distribution. The statistics of a batch therefore depend on what was drawn, and a silent crop normalised alongside loud ones is not normalised as it would be at inference. \textit{(iii)} Single frame normalisation carries no state and is unaffected by the amount of audio processed, so a four-second training chunk is normalised exactly as a stream that has been running for a minute.
 
@@ -63,7 +63,7 @@ The band and sequence model is the implementation of the residual LSTM block of 
 Each of these blocks is designed to make two passes: first make a pass over the time dimension (unidirectional), and then make a pass over the frequency dimension (bidirectional). This is considered as follows:
 \begin{itemize}
     \item \textbf{Time}: The recurrence goes forward only, as a backward pass would assume knowledge of future frames that have not yet arrived.
-    \item \textbf{Frequency}: The recurrence goes over the bands of a frame in both directions. Frequency itself is not a causal dimension. This can be reasoned by the fact that all the bands of a frame are all available simultaneously so the bidirectional recurrence does not introduce any latency. 
+    \item \textbf{Frequency}: The recurrence goes over the bands of a frame in both directions. Frequency itself is not a causal dimension. This can be reasoned by the fact that all the bands of a frame are available simultaneously so the bidirectional recurrence does not introduce any latency. 
 \end{itemize}
 Pairing the two passes in a single block is the design of Luo and Yu \cite{luo2023music}, who motivate it by analogy with dual-path recurrent networks for speech separation rather than by an argument specific to bands. Stacking six such blocks follows Yu et al.\ \cite{yu2023high}, where their \SI{16}{\kHz} model uses that specific number of blocks. The effect of stacking the blocks is to allow for the accumulation of evidence over longer time spans.
 
@@ -72,7 +72,7 @@ Pairing the two passes in a single block is the design of Luo and Yu \cite{luo20
 
 The estimation module is responsible for producing an output spectrogram that contains the estimated target speaker's speech. This is done by creating an output network per band to reconstruct the target speaker's speech from the features produced by the band and sequence model. However, there are two methods to do this: either to predict the output spectrogram directly, or to predict a mask that is applied to the mixture. The latter is the approach taken here, following Yu et al.\ \cite{yu2023high}.
 
-Yu et al. realised that the mixture audio itself already contains the target's speech, and thus it would be more efficient to mask the mixture rather than predict the output spectrogram directly. This mask is a number for each time-frequency bin, which the mixture is multiplied by. A mask alone is not enough as multiplication can only ever scale what a bin already holds. In the cases where the interferer completely dominates a bin no multiplier recovers the target as the multiplication operation would not be able to scale the drowned out target. To solve this, the estimation module makes use of a residual spectrogram and is predicted directly and appended. Yu et al.\ \cite{yu2023high} introduce it for exactly this reason, to absorb what the mask alone produces as artefacts. It is useful to not bound this mask and is what the original implementation encouraged. The estimate for a band is then
+Yu et al. realised that the mixture audio itself already contains the target's speech, and thus it would be more efficient to mask the mixture rather than predict the output spectrogram directly. This mask is a number for each time-frequency bin, which the mixture is multiplied by. A mask alone is not enough as multiplication can only ever scale what a bin already holds. In the cases where the interferer completely dominates a bin no multiplier recovers the target as the multiplication operation would not be able to scale the drowned out target. To solve this, the estimation module makes use of a residual spectrogram, which is predicted directly and added. Yu et al.\ \cite{yu2023high} introduce it for exactly this reason, to absorb what the mask alone produces as artefacts. It is useful to not bound this mask and is what the original implementation encouraged. The estimate for a band is then
 \begin{equation}
 \hat{S} = M \otimes X + R,
 \label{eq:estimator}
@@ -117,19 +117,19 @@ The TF Map \cite{zhang2025multi} is the module that turns speech enhancement int
 \subsubsection{Objective function}
 \label{sec:objective}
 
-The objective has to express two different requirements: output the target signal when it is present, otherwise, output silence. A single loss cannot serve both use cases and so the objective is therefore split, and each crop is scored by the branch (target present versus absent) that applies to it.
+The objective has to express two different requirements: output the target signal when it is present, otherwise, output silence. A single loss cannot serve both use cases and so the objective is split, and each crop is scored by the branch (target present versus absent) that applies to it.
 
 Throughout, $x$ is the mixture, $s$ the target reference and $\hat{s}$ the model's output, all in the time domain over one training crop.
 
 \paragraph{Target present.}
-The first term measures how much of the output is the target and how much is everything else, following \cite{li2026cartse}. The loss needs to be invariable to the overall volume as if the $\hat{s}$ is of the correct shape, it should not be penalised for being loud or quiet. Therefore the first step is to find the single gain that best explains the output as a scaled copy of the target, which will be calculated as a projection, 
+The first term measures how much of the output is the target and how much is everything else, following \cite{li2026cartse}. The loss needs to be invariant to the overall volume: if $\hat{s}$ has the correct shape, it should not be penalised for being loud or quiet. Therefore the first step is to find the single gain that best explains the output as a scaled copy of the target, which will be calculated as a projection, 
 \begin{equation}
 \alpha = \frac{\langle \hat{s},\, s \rangle}{\lVert s \rVert^2},
 \qquad
 s_\textup{proj} = \alpha s,
 \label{eq:alpha}
 \end{equation}
-and then comparing the energy of that scaled target against the energy of whatever the output contains beyond it. The loss is modelled after the Scale-Invariant Signal-to-Distortion Ratio (SI-SDR). The loss is therefore,
+and then to compare the energy of that scaled target against the energy of whatever the output contains beyond it. The loss is modelled after the Scale-Invariant Signal-to-Distortion Ratio (SI-SDR). The loss is therefore,
 \begin{equation}
 L_\textup{pres}
   = -10 \log_{10}
@@ -141,7 +141,7 @@ Lower is better. The loss is secondly in terms of decibels (dB), which is where 
 \SI{-30}{dB}. This constant follows the suggestion from CARTSE \cite{li2026cartse}. The reasoning is that an output whose residual error already sits \SI{30}{dB} below the target is close enough to be treated as solved, so it would be wasteful to keep spending gradient on it. Two properties of this measure should be stated plainly, because they are what the second term exists to compensate for. The first is that everything the output contains beyond the target is collected into one denominator. Residual interfering speech, residual background noise and artefacts the model itself introduced all count identically per unit of energy, although they are not equally damaging: a fragment of the interferer left in the output can be transcribed downstream as words the target never said, whereas a diffuse artefact of the same energy usually cannot. The measure has no way to express that difference. The second is that it is an energy ratio summed over the whole crop, so it is dominated by whatever is loudest in it. Speech energy sits overwhelmingly in the low frequencies and in vowels, which means a model can score well on \eqref{eq:lpres} while reconstructing fricatives and the upper spectrum poorly. Those are the parts that carry consonant identity, and therefore much of what makes speech intelligible rather than merely present. 
 
 \paragraph{Multi-resolution spectral term.}
-Equation~\eqref{eq:lpres} is a single number computed over the whole waveform, which makes it ignore the location of errors in the spectrum. Since it cannot express \emph{where} in the spectrum the error lies, a model that reconstructs the loud low bands well and the quiet high bands poorly is barely penalised and secondly since being scale-invariant, it does not constrain the output's absolute loudness at all. The idea is to use a loss that considers multiple resolutions of $s$ and $\hat{s}$. By considering different granularity of the spectrogram, the model is encouraged to reconstruct both the low and high frequency bands well. A spectral term allows for this following \cite{yu2023high}:
+Equation~\eqref{eq:lpres} is a single number computed over the whole waveform, which makes it ignore the location of errors in the spectrum. Since it cannot express \emph{where} in the spectrum the error lies, a model that reconstructs the loud low bands well and the quiet high bands poorly is barely penalised and, being scale-invariant, it does not constrain the output's absolute loudness at all. The idea is to use a loss that considers multiple resolutions of $s$ and $\hat{s}$. By considering different granularity of the spectrogram, the model is encouraged to reconstruct both the low and high frequency bands well. A spectral term allows for this following \cite{yu2023high}:
 \begin{equation}
 L_\textup{MR} = \frac{1}{|\mathcal{N}|} \sum_{N \in \mathcal{N}}
   \Big(
@@ -151,11 +151,11 @@ L_\textup{MR} = \frac{1}{|\mathcal{N}|} \sum_{N \in \mathcal{N}}
   \Big),
 \label{eq:lmr}
 \end{equation}
-where $S_N$ and $\hat{S}_N$ are the spectrograms of the target and the output (Equation~\ref{eq:stft}) window length $N$ and hop $N/4$, and each norm is averaged over its time-frequency coefficients.
+where $S_N$ and $\hat{S}_N$ are the spectrograms of the target and the output (Equation~\ref{eq:stft}) with window length $N$ and hop $N/4$, and each norm is averaged over its time-frequency coefficients.
 
 Three choices inside \eqref{eq:lmr} are worth stating. The exponent $p = 0.3$ compresses magnitudes, which will highlight the quieter components relative to loud ones so that an error in a low-energy region is not diluted just because it is quiet. Without the compression the term would be dominated by the same loud low bands that already dominate \eqref{eq:lpres}. The real and imaginary terms are left uncompressed and they are what make the term sensitive to phase: a magnitude-only loss would be indifferent to the phase that the complex mask of Section~\ref{sec:estimator} is free to change. Finally the term is evaluated at several window lengths rather than one, because a single analysis window can hide errors at its own scale.
 
-The window lengths used are \num{8}, \num{16}, \num{32} and \SI{64}{\ms}. This is with respect to the model's own \SI{32}{\ms} framing. The model builds its output by masking \SI{32}{\ms} frames and overlapping them, so the places that most errors would occur can be expected to exist at frame boundaries. The \SI{8}{\ms} and \SI{16}{\ms} windows resolve this and the \SI{64}{\ms} window catches harmonic structure that the short ones blur.
+The window lengths used are \num{8}, \num{16}, \num{32} and \SI{64}{\ms}. This is with respect to the model's own \SI{32}{\ms} framing. The model builds its output by masking \SI{32}{\ms} frames and overlapping them, so the places where most errors would occur can be expected to exist at frame boundaries. The \SI{8}{\ms} and \SI{16}{\ms} windows resolve this and the \SI{64}{\ms} window catches harmonic structure that the short ones blur.
 
 \paragraph{Target absent.}
 The model should penalise any output that is not silence. This is modelled after a modified version of the absolute level loss from CARTSE \cite{li2026cartse}, where in this works the loss now contains the denominator term. 
@@ -190,7 +190,7 @@ L = (1 - w) \operatorname*{mean}_{\textup{target present}}
       \big[\, L_\textup{abs} \,\big].
 \label{eq:total}
 \end{equation}
- The decision to average over the crops within each branch rather than over the entire batch is deliberate. During an epoch, a random crop can draw a trial where the label of the trial is both target and interferer are present, but the crop itself may contain silence (occurs in \SI{5.8}{\percent} of cases). The model should therefore be rewarded for silence where the loss should not be diluted by the presence of other crops in the batch. Therefore the branch a crop belongs to is decided from the audio of the cropped target itself, not from the trial's label.
+ The decision to average over the crops within each branch rather than over the entire batch is deliberate. During an epoch, a random crop can draw a trial whose label says both target and interferer are present, but the crop itself may contain silence (occurs in \SI{5.8}{\percent} of cases). The model should therefore be rewarded for silence where the loss should not be diluted by the presence of other crops in the batch. Therefore the branch a crop belongs to is decided from the audio of the cropped target itself, not from the trial's label.
 
 \paragraph{Weights.} 
 
@@ -201,7 +201,7 @@ The weight $w$ on the silent branch is derived rather than chosen. Silent crops 
 
 
 
-The weight $w_\textup{m}$ on the spectral term is derived from the target present and absent losses. The reason for this term is  equations~\eqref{eq:lpres} and \eqref{eq:lmr} are in different units. $L_\textup{pres}$ is in units with respect to a ratio in decibels, and $L_\textup{MR}$ is the mean absolute difference between compressed magnitudes. Therefore the weighting term $w_\textup{m}$ will reconcile the two terms to be on the same scale.
+The weight $w_\textup{m}$ on the spectral term is derived from the target present and absent losses. The reason for this term is that equations~\eqref{eq:lpres} and \eqref{eq:lmr} are in different units. $L_\textup{pres}$ is in units with respect to a ratio in decibels, and $L_\textup{MR}$ is the mean absolute difference between compressed magnitudes. Therefore the weighting term $w_\textup{m}$ will reconcile the two terms to be on the same scale.
 This is done by evaluating on the output that does nothing at all, $\hat{s} = x$, over 300 training crops which will simulate the scenario for the average losses for an untrained model. The median values for $L_\textup{pres}$ and $L_\textup{MR}$ are \num{-5.91} and \num{0.184} respectively. The aim is for the spectral term (Multi-Resolution) to be roughly \SI{30}{\percent} of the present branch at the start of training. The calculation then becomes  
  $$w_\textup{m} = \frac{0.3 \times |L_\textup{pres}|}{L_\textup{MR}} =  \frac{0.3 \times 5.9088}{0.1842} = 9.62$$
 
