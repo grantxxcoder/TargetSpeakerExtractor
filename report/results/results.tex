@@ -4,28 +4,27 @@
 
 \subsection{Why the metric is needed}
 \label{sec:results_metric}
+The distinction between \autoref{sec:icr} and \autoref{sec:fr} matters when investigating the insertion and substition error of the LCF-WER metric. With Gemini as the listener, the fabrication and leakage error trade against each other. To demonstrate this, two fine tunes were run on the extension model where 5 additional epochs were trained: one run weighted the interferer speaker audio penalised the interferer audio more heavily, and the second penalised the artefact error. The fine tune was done on the validation set to demonstrate the tradeoff of the metric and not necessarily to improve the extension (in which the fine tuning aas a strategy did not show improvement). The results of the two fine tunes are shown in \autoref{tab:metric_evidence}. Both fine tunes show the LCF-WER metric worsening but their reasons are different. The interferer weighted fine tune shows the clear reduction in how much the interferer speaker's content is leaked into the output, but at the expense of more invented words (as more artefacts are introduced hence more hallucination). This is shown by the mean percentage of the interferer words leaked into the output improving by 3.26 percentage points, but the number of invented words increasing. The second fine shows the opposite situation with a heavy increase in leaked words but slight reduction in invented words.
+
 \autoref{tab:metric_evidence} shows how changes to an extractor move what each listener recovers, split into the errors the metric separates.
 \begin{table}[H]
 \centering
-\caption{Effect of a change on what each listener recovers, on the same 103 two-speaker trials of \texttt{sir0\_val}. Each entry is the change minus its own control, in percentage points, with the 95\,\% interval below it (paired bootstrap over trials, 10{,}000 draws, seed 42); negative is an improvement, and an interval that excludes 0 is not explained by which trials were drawn. Gemini is \texttt{gemini-3.7-flash}, audio in and text out, with the prompt of \autoref{app:prompt}, one run per setting (2026-09-21 for mask sharpening, 2026-10-03 for the fine-tunes). \emph{Mask sharpening} post-processes the extractor's mask without retraining, compared with the same system's unsharpened output. The \emph{leak} and \emph{artefact weights} are five-epoch fine-tunes of the extension that weight the interfering speaker's or the artefact share of the error more heavily, compared with a fine-tune without the extra weight.}
+\caption{Effect of weighting one source of error during fine-tuning, with Gemini as the listener. Lower is better in every row. Negative values are improvements.}
 \label{tab:metric_evidence}
 \small
-\begin{tabular}{@{}lcccc@{}}
+\begin{tabular}{@{}lrcrc@{}}
 \toprule
- & \multicolumn{3}{c}{Gemini} \\
-\cmidrule(lr){2-4}
-change & LCF-WER & mean leak & what changed instead \\
+& \multicolumn{2}{c}{Leak weight} & \multicolumn{2}{c}{Artefact weight} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+& change & 95\,\% CI & change & 95\,\% CI \\
 \midrule
-\multicolumn{5}{@{}l}{\emph{Mask sharpening (sharp vs no change), no retraining}} \\
-Baseline & \shortstack{$+1.72$\\{\scriptsize $[-3.18,\,+6.78]$}} & \shortstack{$-11.26$\\{\scriptsize $[-16.70,\,-6.08]$}} & \shortstack{deletions $+7.48$\\{\scriptsize $[+3.95,\,+11.45]$}} \\[6pt]
-WeSep & \shortstack{$-0.32$\\{\scriptsize $[-3.85,\,+2.97]$}} & \shortstack{$-3.44$\\{\scriptsize $[-6.50,\,-0.81]$}} & \shortstack{substitutions $+2.88$\\{\scriptsize $[+0.80,\,+5.32]$}}  \\[6pt]
-\midrule
-\multicolumn{5}{@{}l}{\emph{Training changes (fine-tune of the extension vs its control fine-tune)}} \\
-Leak weight & \shortstack{$+0.47$\\{\scriptsize $[-3.20,\,+4.15]$}} & \shortstack{$-3.26$\\{\scriptsize $[-6.59,\,-0.03]$}} & \shortstack{invented/trial $+0.72$\\{\scriptsize $[+0.27,\,+1.21]$}}  \\[6pt]
-Artefact weight & \shortstack{$+9.34$\\{\scriptsize $[+3.65,\,+15.37]$}} & \shortstack{$+14.66$\\{\scriptsize $[+9.09,\,+20.52]$}} & \shortstack{invented/trial $-0.20$\\{\scriptsize $[-0.65,\,+0.25]$}}  \\[6pt]
+LCF-WER \lowerbetter          & $+0.47$  & $[-3.20,\,+4.15]$ & $+9.34$  & $[+3.65,\,+15.37]$ \\
+mean leak  \lowerbetter        & $-3.26$  & $[-6.59,\,-0.03]$ & $+14.66$ & $[+9.09,\,+20.52]$ \\
+invented words per trial \lowerbetter & $+0.72$ & $[+0.27,\,+1.21]$ & $-0.20$ & $[-0.65,\,+0.25]$ \\
 \bottomrule
 \end{tabular}
 \end{table}
+
 
 \subsection{Content fidelity}
 \label{sec:results_content}
@@ -89,14 +88,14 @@ Ceiling   & 1.19  & 1.46 & ---   & --- \\
 \end{table}
 
 
-Table \ref{tab:content_cases} highlights where the extension shines. For the cases where the extractor needs to either suppress only background noise surrounding a target or only interfering speech, the extension performs better than WeSep. Secondly, if the extractor needs to suppress background noise such that a voice activity detector (VAD) does not detect any speech, the extension is able to do this more often than WeSep getting 18 noisy clips suppressed as compared against WeSep's 7. On these 42 clips the difference in words per trial is within noise ($-1.45$, 95\,\% CI $-7.05$ to $+4.10$). On a larger set ($n = 123$), the extension passed 57\,\% of the other speaker's words to Gemini against WeSep's 70\,\% (a difference of $-3.64$ words per trial, 95\,\% CI $-5.67$ to $-1.65$), and fell fully silent on 56 clips against WeSep's 11 (exact McNemar test, $p = 4 \times 10^{-12}$). The improvement in the extension's performance can be attributed to the diversity of training examples that include those specific cases. Interestingly, all the models perform worse on the target-only case than just leaving the target unprocessed. This is likely due to the robustness of Gemini to background noise, leaving the extractor model to introduce artefacts that are misinterpreted by Gemini. Overall, the extension has shown improvement over WeSep in different acoustic scenarios, although it still falls short when considering pure speech extraction with multiple speakers. 
+Table \ref{tab:content_cases} highlights where the extension shines. For the cases where the extractor needs to either suppress only background noise surrounding a target or only interfering speech, the extension performs better than WeSep. Secondly, if the extractor needs to suppress background noise such that a voice activity detector (VAD) does not detect any speech, the extension is able to do this more often than WeSep getting 18 noisy clips suppressed as compared against WeSep's 7. On these 42 clips the difference in words per trial is within noise ($-1.45$, 95\,\% CI $-7.05$ to $+4.10$). The improvement in the extension's performance can be attributed to the diversity of training examples that include those specific cases. Interestingly, all the models perform worse on the target-only case than just leaving the target unprocessed. This is likely due to the robustness of Gemini to background noise, leaving the extractor model to introduce artefacts that are misinterpreted by Gemini. Overall, the extension has shown improvement over WeSep in different acoustic scenarios, although it still falls short when considering pure speech extraction with multiple speakers. 
 
 \subsubsection{Real recordings}
 \label{sec:results_ami}
 \autoref{tab:ami_results} shows Gemini's results on the AMI meeting recordings of \autoref{app:ami}.
 \begin{table}[H]
 \centering
-\caption{Content recovered by Gemini on 300 real two-speaker stretches of AMI meeting recordings (\autoref{app:ami}). \texttt{gemini-3.7-flash}, audio in and text out, prompt in \autoref{app:prompt}, one run on 2026-10-06. No system was trained, tuned or selected on these recordings, and the baseline was not run. \emph{Target's headset} is the target's own headset microphone, which also picks up the other speaker, so it is an approximate reference rather than a perfect one. LCF-WER can exceed 100\,\% because Gemini transcribes both talkers and the other speaker's words count as insertions. \emph{Silenced} counts outputs below the speech gate, scored as empty responses; the target speaks in every clip, so fewer is better. 95\,\% CI is the range for LCF-WER in percentage points, redrawing whole meetings (\autoref{sec:uncertainty}). Lower is better in every column.}
+\caption{Content recovered by Gemini on 300 real two-speaker stretches of AMI meeting recordings (\autoref{app:ami}). Lower is better in every column.}
 \label{tab:ami_results}
 \small
 \begin{tabular}{@{}lcccc@{}}
