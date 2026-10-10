@@ -72,6 +72,12 @@ ROOT = Path(__file__).resolve().parents[1]
 RES = ROOT / "experiments/results"
 
 JUDGED_EPOCHS = (13, 15, 18, 21, 27)   # e21's judged set; the matched run reuses it
+# Matched run's extra judged epochs: e4 is session 1's probe pick (judged
+# 2026-10-08); e5 and e11 were judged 2026-10-08/09 at the author's request,
+# outside the fixed judge set of decisions-m2.md 2026-10-07. The baseline's
+# chosen epoch is the lowest LCF-WER among all its judged epochs (author's
+# decision 2026-10-09).
+BASELINE_EXTRA_JUDGED = (4, 5, 11)
 RESUME = 13.5                          # both runs' second Kaggle session starts at 14
 
 # The figure's inputs. `judge` maps epoch -> glob patterns under RES.
@@ -81,10 +87,14 @@ RUNS = {
         "label": "Baseline, matched protocol",
         "colour": ACCENT2,
         "history": ["2026-10-07-train-sir0-baseline-matched-s1"],   # session 1 of 2
-        "chosen": None,                       # picked on the judge after session 2
+        "chosen": 11,                         # lowest LCF-WER of e4/e5/e11/e13 (ranking.txt, 2026-10-09)
+        # Author's choice 2026-10-09: one diamond at this epoch, the LOWEST of its
+        # judge runs. The report's judge table gives the 3-run mean +- SD.
+        "lowest_run_only": (11,),
         "lowest_marker": False,
         "judge": {e: [f"*-eval-baseline-matched-e{e}-judge",
-                      f"*-eval-baseline-matched-e{e}-judge-r*"] for e in JUDGED_EPOCHS},
+                      f"*-eval-baseline-matched-e{e}-judge-r*"]
+                  for e in (*BASELINE_EXTRA_JUDGED, *JUDGED_EPOCHS)},
     },
     "Extension": {
         "label": "Extension",
@@ -132,7 +142,7 @@ LAYOUTS = {
     "sisdr-wer": {"rows": [["sisdr"], ["wer"]], "notes": "wer", "chosen": "wer",
                   "height": 4.0},
     "terms-wer": {"rows": [["pres", "mr", "gain"], ["wer"]], "notes": "wer", "chosen": "wer",
-                  "height": 4.4, "ylabel": "Loss term\n(lower is better)"},
+                  "height": 4.1, "ylabel": "Loss term\n(lower is better)"},
 }
 
 
@@ -171,6 +181,9 @@ def load(name, spec):
         if (c["loss"], c["training"]["select_abs_max"]) != (configs[0]["loss"], configs[0]["training"]["select_abs_max"]):
             raise SystemExit(f"{name}: sessions disagree on the loss config")
     judged = {e: v for e, p in spec["judge"].items() if (v := scored_runs(p))}
+    for e in spec.get("lowest_run_only", ()):
+        if e in judged:
+            judged[e] = [min(judged[e])]
     return rows, configs[0], judged
 
 
@@ -215,7 +228,8 @@ def main():
     # across the width. Every panel shares the epoch axis.
     fig = plt.figure(figsize=(TEXTWIDTH_IN, layout["height"]))
     split = any(len(names) > 1 for names in rows_spec)
-    grid = fig.add_gridspec(len(rows_spec), 1, hspace=0.4 if split else 0.15)
+    # 0.25 between a split row and the next (was 0.4; tightened 2026-10-10 on request).
+    grid = fig.add_gridspec(len(rows_spec), 1, hspace=0.25 if split else 0.15)
     axes, first = {}, None
     for i, names in enumerate(rows_spec):
         cells = grid[i].subgridspec(1, len(names), wspace=0.35)
@@ -306,20 +320,28 @@ def main():
         shared = len(runs_here) > 1
         dodge = {r: (k - (len(runs_here) - 1) / 2) * 0.4 for k, r in enumerate(runs_here)}
         later = [k for k in scored if k > e]
+        earlier = [k for k in scored if k < e]
         crowded = e == last_ep or bool(later and later[0] - e < 3)
+        # Neighbours within 2 epochs on BOTH sides: a side label would sit on a
+        # neighbour's diamond, so the label goes above its own diamonds instead.
+        boxed_in = crowded and bool(earlier and e - earlier[-1] < 3)
         for run, name, values in marks[e]:
             c = RUNS[name]["colour"]
             x = e + dodge[run]
             wer.plot([x] * len(values), values, "D", color=c, ms=4.5, mew=0, alpha=0.9,
                      zorder=4)
+            label = {"fontsize": 7, "zorder": 6, "color": INK,
+                     "bbox": {"boxstyle": "square,pad=0.1", "fc": "white", "ec": "none"}}
+            if boxed_in and not shared:
+                texts.append(wer.text(x, max(values) + 2.0, f"{mean(values):.1f}",
+                                      ha="center", va="bottom", **label))
+                continue
             left = dodge[run] < 0 if shared else crowded
             if not left:
                 right_edge = max(right_edge, x + 1.6)
             texts.append(wer.text(x + (-0.45 if left else 0.45), mean(values),
                                   f"{mean(values):.1f}", ha="right" if left else "left",
-                                  va="center", fontsize=7, zorder=6, color=INK,
-                                  bbox={"boxstyle": "square,pad=0.1", "fc": "white",
-                                        "ec": "none"}))
+                                  va="center", **label))
 
     wer.set_xlabel("Epoch")
     wer.xaxis.set_major_locator(MultipleLocator(2 if last_ep < 16 else 4))

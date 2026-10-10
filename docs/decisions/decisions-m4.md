@@ -1037,3 +1037,28 @@ report both, and per SIR band if space allows.
 **Consequences:** `eval_private` is now seen. Nothing may be selected or tuned on it
 from here on (CLAUDE.md limit (a) still holds for training). The matched baseline,
 once selected on `sir0_val`, is scored here the same way.
+
+## 2026-10-08 — eval_private results; trial 000372 removed for every system
+
+Judge `gemini-3.7-flash`, aistudio, audio-in / text-out, prompt `d118b7d3bf30`, run
+2026-10-08, one run, speech gate on. `eval_private` `both`. First pass + retry:
+`experiments/results/2026-10-08-eval-private-*-judge{,-retry}/`.
+
+**Removed (Grant):** `eval_private-42-000372`, for all systems and both anchors. Gemini
+refused the baseline and e21 outputs of that clip twice with HTTP 400 "Request blocked
+due to copyright/recitation content"; WeSep, mixture and target were answered. A filter
+decision cannot be retried, and scoring it empty for two systems only biases against
+them. Taken after seeing results, so report the n = 249 numbers alongside. Scored from
+cache, no new calls: `experiments/results/2026-10-08-eval-private-excl-000372/`.
+
+| n = 248, lower is better | No processing | Baseline e6 | e21 | WeSep | Target alone |
+|---|---|---|---|---|---|
+| LCF-WER | 52.05 | 48.79 | 41.81 | **34.08** | 1.78 |
+| mean leak | 47.89 | 38.20 | 21.15 | **18.99** | 0.00 |
+| invented / trial | **1.48** | 1.97 | 2.26 | 2.07 | 0.29 |
+| empty responses | 0 | 0 | 5 (gate) | 1 (gate) | 0 |
+
+- Ranking unchanged from n = 249 (49.11 / 42.17 / 33.87): removal moves no system by
+  more than 0.4 points.
+- The recitation refusal reached the code as `judge_failed`, not `filter_blocked`: a
+  400 bypasses the filter classifier. Open: classify recitation 400s as filter blocks.

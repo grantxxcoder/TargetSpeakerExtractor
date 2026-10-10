@@ -6,7 +6,30 @@
       "Read(//home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/.env)",
       "Read(//home/grant/Documents/University/Masters/Project/TargetSpeakerExtractor/.env.*)",
       "Bash(cat .env*)",
-      "Bash(cat ./.env*)"
+      "Bash(cat ./.env*)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/.envrc)",
+      "Read(**/secrets.toml)",
+      "Edit(**/.env)",
+      "Edit(**/.env.*)",
+      "Edit(**/.envrc)",
+      "Edit(**/secrets.toml)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Read|Edit|MultiEdit|Write|NotebookEdit|Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/block-secrets.sh",
+            "timeout": 10,
+            "onFailure": "block"
+          }
+        ]
+      }
     ]
   }
 }
