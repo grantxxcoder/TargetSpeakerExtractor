@@ -42,7 +42,11 @@
 \usetikzlibrary{arrows.meta,positioning,calc,backgrounds}
 \usepackage{pdfpages}
 \usepackage{subcaption}
-\setlength{\abovecaptionskip}{7.5pt}  % spacing above and below captions
+\setlength{\abovecaptionskip}{4pt}  % spacing above and below captions (was 7.5pt)
+% Tighter gaps around floats (LaTeX defaults: 12pt / 20pt / 12pt).
+\setlength{\intextsep}{8pt plus 2pt minus 2pt}
+\setlength{\textfloatsep}{10pt plus 2pt minus 4pt}
+\setlength{\floatsep}{8pt plus 2pt minus 2pt}
 \counterwithin{figure}{section}
 \newcommand*{\WaterMark}[2][0.2\paperwidth]{\AddToShipoutPicture*{\AtTextCenter{\parbox[c]{0pt}{\makebox[0pt][c]{\includegraphics[width=#1]{#2}}}}}}
 

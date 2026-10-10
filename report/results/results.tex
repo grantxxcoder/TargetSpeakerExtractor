@@ -7,7 +7,7 @@
 The distinction between \autoref{sec:icr} and \autoref{sec:fr} matters when investigating the insertion and substition error of the LCF-WER metric. With Gemini as the listener, the fabrication and leakage error trade against each other. To demonstrate this, two fine tunes were run on the extension model where 5 additional epochs were trained: one run weighted the interferer speaker audio penalised the interferer audio more heavily, and the second penalised the artefact error. The fine tune was done on the validation set to demonstrate the tradeoff of the metric and not necessarily to improve the extension (in which the fine tuning aas a strategy did not show improvement). The results of the two fine tunes are shown in \autoref{tab:metric_evidence}. Both fine tunes show the LCF-WER metric worsening but their reasons are different. The interferer weighted fine tune shows the clear reduction in how much the interferer speaker's content is leaked into the output, but at the expense of more invented words (as more artefacts are introduced hence more hallucination). This is shown by the mean percentage of the interferer words leaked into the output improving by 3.26 percentage points, but the number of invented words increasing. The second fine shows the opposite situation with a heavy increase in leaked words but slight reduction in invented words.
 
 \autoref{tab:metric_evidence} shows how changes to an extractor move what each listener recovers, split into the errors the metric separates.
-\begin{table}[H]
+\begin{table}[htbp]
 \centering
 \caption{Effect of weighting one source of error during fine-tuning, with Gemini as the listener. Lower is better in every row. Negative values are improvements.}
 \label{tab:metric_evidence}
@@ -34,7 +34,7 @@ The sections to follow consider the content fidelity for both a live judge and a
 \subsubsection{The live judge}
 \label{sec:results_content_judge}
 The live judge results are shown in \autoref{tab:content_judge}. These results are most indicative of the overall performance of the extractor system as the live judge is the end user of the extraction process. To better understand the variability of the live judge on the same audio, \autoref{fig:judge_runs} shows how the different systems changed in the LCF-WER metric across three independent runs.
-\begin{table}[H]
+\begin{table}[htbp]
 \centering
 \caption{Content recovered by Gemini. \texttt{gemini-3.7-flash}, audio in and text out. Each value is the average of 3 runs on the same 103 trials, and $\pm$ is the standard deviation of those three run scores. 95\,\% CI is the range for the 3-run LCF-WER in percentage points, redrawing whole speakers (\autoref{sec:uncertainty}); \autoref{fig:judge_runs} shows how much the runs differ. Lower is better in every column.}
 \label{tab:content_judge}
@@ -46,7 +46,7 @@ The live judge results are shown in \autoref{tab:content_judge}. These results a
 system & (\%) &  & (\%) & (\%) & /trial & (\%) \\
 \midrule
 Floor  & 62.94\,$\pm$\,0.37 & [56.02, 70.18] & 75.73\,$\pm$\,0.00 & 63.90\,$\pm$\,0.65 & 1.27\,$\pm$\,0.03 & 30.7\,$\pm$\,3.1 \\
-Baseline & 55.18\,$\pm$\,3.22 & [48.10, 62.17] & 61.49\,$\pm$\,4.38 & 48.62\,$\pm$\,3.27 & 1.91\,$\pm$\,0.13 & 41.7\,$\pm$\,3.4 \\
+Baseline & 53.26\,$\pm$\,1.82 & [46.23, 60.35] & 58.58\,$\pm$\,2.02 & 42.20\,$\pm$\,0.87 & 2.52\,$\pm$\,0.20 & 49.8\,$\pm$\,1.5 \\
 Extension & 39.59\,$\pm$\,0.34 & [33.35, 45.92] & 33.66\,$\pm$\,2.02 & 23.08\,$\pm$\,0.97 & 2.20\,$\pm$\,0.11 & 46.9\,$\pm$\,2.0 \\
 WeSep & \textbf{25.80}\,$\pm$\,0.56 & [20.71, 31.14] & \textbf{25.24}\,$\pm$\,0.97 & \textbf{13.04}\,$\pm$\,0.32 & \textbf{1.80}\,$\pm$\,0.02 & \textbf{38.6}\,$\pm$\,2.3 \\
 Ceiling & 1.19\,$\pm$\,0.18 & [0.80, 1.60] & 0.00\,$\pm$\,0.00 & 0.00\,$\pm$\,0.00 & 0.22\,$\pm$\,0.03 & 0.3\,$\pm$\,0.6 \\
@@ -54,19 +54,19 @@ Ceiling & 1.19\,$\pm$\,0.18 & [0.80, 1.60] & 0.00\,$\pm$\,0.00 & 0.00\,$\pm$\,0.
 \end{tabular}
 \end{table}
 
-\begin{figure}[H]
+\begin{figure}[htbp]
 \centering
 \includegraphics[width=\textwidth]{figures/judge_run_variation.pdf}
 \caption{How much Gemini's LCF-WER changed across the three runs in \autoref{tab:content_judge}, where change is the highest of the three run scores minus the lowest. (a) The box plot showing how the change varies per clip over the averaged runs. A clip's score can pass 100\,\% and can occur when Gemini adds words through hallucination or by including interfering speech. (b) Change in the overall score over all 103 clips. Floor and ceiling (grey) are reference points.}
 \label{fig:judge_runs}
 \end{figure}
 
- The baseline improves the LCF-WER by 7.76 points, which is a 12.3\,\% relative improvement over the floor. There is a decisive improvement however in the baseline model's performance over the floor with regard to including an interfering speaker's content, as the average percentage of interfering words included in the output is 14.24 points lower than the floor. This came at a trade-off with the number of hallucinated words. The baseline system subsequently has fabricated/invented more words on average per trial as seen in the table. Finally, the baseline system also more frequently fabricates, as indicated by FR@2. Therefore, both the frequency and quantity of fabrication have increased over passing the audio unprocessed. 
+ The baseline improves the LCF-WER by 9.68 points, which is a 15.4\,\% relative improvement over the floor. There is a decisive improvement however in the baseline model's performance over the floor with regard to including an interfering speaker's content, as the average percentage of interfering words included in the output is 17.15 points lower than the floor. This came at a trade-off with the number of hallucinated words. The baseline system subsequently has fabricated/invented more words on average per trial as seen in the table. Finally, the baseline system also more frequently fabricates, as indicated by FR@2. Therefore, both the frequency and quantity of fabrication have increased over passing the audio unprocessed. 
 
-Overall, the baseline system is a clear improvement over the floor, which is indicative that the extractor has begun to find a signal in the mixture that is associated with the target speaker. The encouraging results can be seen when comparing the extension against the baseline and WeSep. For the extension, the inclusion of the pretrained ECAPA speaker encoder and passing the enrollment audio in parts instead of a single embedding has markedly improved the performance of the extractor. The LCF-WER has improved by 15.59 points over the baseline, which is a 28.3\,\% relative improvement. However, the most encouraging part of the results is how the extension has both reduced the number of leaked words per trial and the frequency of leakage by substantial amounts. The improvement can be attributed to the speaker specific information being passed to the extractor through the ECAPA speaker encoder. An interesting trade-off however is that the extension has increased the number of invented words per trial and the frequency of invention. This is indicative of the highly aggressive nature of the extractor, which was designed to mask out the interfering speaker's content; however, as a result, the masking can leave gaps or artefacts in the output which the live judge then interprets as words. 
+Overall, the baseline system is a clear improvement over the floor, which is indicative that the extractor has begun to find a signal in the mixture that is associated with the target speaker. The encouraging results can be seen when comparing the extension against the baseline and WeSep. For the extension, the inclusion of the pretrained ECAPA speaker encoder and passing the enrollment audio in parts instead of a single embedding has markedly improved the performance of the extractor. The LCF-WER has improved by 13.67 points over the baseline, which is a 25.7\,\% relative improvement. However, the most encouraging part of the results is how the extension has both reduced the number of leaked words per trial and the frequency of leakage by substantial amounts. The improvement can be attributed to the speaker specific information being passed to the extractor through the ECAPA speaker encoder. Unlike the leakage, the extension did not drastically invent less words per trial, with only a slight improvement from 2.52 to 2.20 words per trial. However, both baseline and extension invent well above the floor (1.27).
 
-To get a better idea of how stable the live judge is on the same audio, \autoref{fig:judge_runs} demonstrates how the LCF-WER changed across the three independent runs but measured per clip instead of the overall average. The first observation is the confirmation of the extreme variability of the live judge when given audio extracted by the baseline. In fact, the baseline has worse variability than the floor and the highest average in change of performance between the three runs. The extension has the best stability even when compared to WeSep. On single clips, there are outlier performance changes of up to 100 points (when one run results in 100 more errors than another run), these outliers could be incredibly difficult cases that are not indicative of the overall performance of the system. However, as seen in the bar plot, the extension on average has the smallest changes in overall performance across the three runs. Measured from the extension's three runs, the judge alone moves a system's score by about 1.2 points from one run to the next (standard error 1.24, a 95\,\% range of $\pm 2.43$ points; 0.72 for the 3-run mean), so two systems judged once each cannot be told apart below about 4 points.
-\begin{table}[H]
+To get a better idea of how stable the live judge is on the same audio, \autoref{fig:judge_runs} demonstrates how the LCF-WER changed across the three independent runs but measured per clip instead of the overall average. The first observation is the confirmation of the extreme variability of the live judge when given audio extracted by the baseline. In fact, the baseline has worse variability than the floor and the highest average in change of performance between the three runs. The extension has the best stability even when compared to WeSep. On single clips, there are outlier performance changes of up to 209 points (when one run results in 209 more errors per 100 reference words than another run), these outliers could be incredibly difficult cases that are not indicative of the overall performance of the system. However, as seen in the bar plot, the extension on average has the smallest changes in overall performance across the three runs. Measured from the extension's three runs, the judge alone moves a system's score by about 1.2 points from one run to the next (standard error 1.24, a 95\,\% range of $\pm 2.43$ points; 0.72 for the 3-run mean), so two systems judged once each cannot be told apart below about 4 points.
+\begin{table}[htbp]
 \centering
 \caption{Gemini's response in each trial case of \autoref{sec:trial_construction}. Cases 1 and 2, where the target spoke, report LCF-WER. Case 3, where only the other speaker spoke, reports the words Gemini output per trial, where 0 is correct, and how many outputs were silenced. Case 4 (noise only, $n = 8$) is omitted: no system produced a word, and every output was below the speech gate. The speech gate is part of the evaluation and is applied identically to every system: a clip with under \SI{0.1}{\second} of detected speech is not sent to Gemini and is scored as an empty response, and ``silenced'' counts those clips.}
 \label{tab:content_cases}
@@ -79,7 +79,7 @@ To get a better idea of how stable the live judge is on the same audio, \autoref
 system & (\%, $n = 103$) & (\%, $n = 47$) & ($n = 42$) & (of 42) \\
 \midrule
 Floor     & 62.94 & 1.65 & 30.69 & 0 \\
-Baseline  & 55.18 & 4.00 & 25.26 & 7 \\
+Baseline  & 53.26 & 2.48 & 24.12 & 8 \\
 Extension & 39.59 & 3.56 & 16.50 & \textbf{18} \\
 WeSep     & \textbf{25.80} & 5.40 & 17.95 & 7 \\
 Ceiling   & 1.19  & 1.46 & ---   & --- \\
@@ -93,7 +93,7 @@ Table \ref{tab:content_cases} highlights where the extension shines. For the cas
 \subsubsection{Real recordings}
 \label{sec:results_ami}
 \autoref{tab:ami_results} shows Gemini's results on the AMI meeting recordings of \autoref{app:ami}.
-\begin{table}[H]
+\begin{table}[htbp]
 \centering
 \caption{Content recovered by Gemini on 300 real two-speaker stretches of AMI meeting recordings (\autoref{app:ami}). Lower is better in every column.}
 \label{tab:ami_results}
@@ -120,7 +120,7 @@ The offline transcriber reaches the same conclusions as the live judge, but by a
 \subsection{Error composition}
 \label{sec:results_errors}
 The LCF-WER metric is a combination of three different types of errors to form the word error rate: substitution, deletion and insertion. The metric is useful for breaking down the weaknesses of the extractor system and to better understand how the system is introducing error. For example, a system with high deletions is indicative of over suppression of the target speaker's content, a system with high insertions is indicative of hallucination or leakage, and finally a system with high substitutions is indicative of misinterpretation of the target speaker's content. The error composition for both the live judge and the offline transcriber is shown in \autoref{tab:error_split}.
-\begin{table}[H]
+\begin{table}[htbp]
 \centering
 \caption{Substitution (S), deletion (D) and insertion (I) rates for each listener. Lower is better.}
 \label{tab:error_split}
@@ -131,7 +131,7 @@ The LCF-WER metric is a combination of three different types of errors to form t
 system & $S$ \lowerbetter & $D$ \lowerbetter & $I$ \lowerbetter & $S$ \lowerbetter & $D$ \lowerbetter & $I$ \lowerbetter \\
 \midrule
 Floor    & 29.22 & 5.97 & 28.08 & 33.41 & 6.93  & 22.70 \\
-Baseline & 25.64 & 3.00 & 26.95 & 27.24 & 5.70  & 19.76 \\
+Baseline & 23.21 & 4.34 & 25.72 & 25.70 & 7.04  & 16.18 \\
 Extension & 16.96 & 9.44 & 13.19 & 19.24 & 12.28 & 9.49 \\
 WeSep    & 10.62 & 6.78 & 8.99  & 13.45 & 5.91  & 9.78 \\
 Ceiling  & 0.87  & 0.15 & 0.03  & 1.60  & 0.15  & 0.23 \\
@@ -154,7 +154,7 @@ The first observation is related to the live judge and how it performs when give
 \subsection{Conventional metrics}
 \label{sec:results_signal}
 The three kinds of separation considered in this project are the target from the background noise (distortion), interference from other speakers and finally from artefacts introduced by the extractor system. The signal-domain separation results are shown in \autoref{tab:conventional}. These metrics highlight what the extractor system is doing in the signal domain and can best be used to understand the trade-offs between the different types of separation. A note about the values in the table: SAR for the floor and ceiling are both at +30 dB, since these systems do not contain a model there can be no artefacts introduced. 
-\begin{table}[H]
+\begin{table}[htbp]
 \centering
 \caption{Signal-domain decomposition, in \si{\decibel}, and DNSMOS predicted opinion scores (personalised model, from 1 to 5) on the same 103 trials; higher is better in every column. The \SI{+30}{\decibel} entries are the cap created by the denominator floor $\tau = 10^{-3}$ (\autoref{sec:sdiar}), not measurements.}
 \label{tab:conventional}
@@ -166,7 +166,7 @@ The three kinds of separation considered in this project are the target from the
 system & SDR \higherbetter & SIR \higherbetter & SAR \higherbetter & P.808 \higherbetter & SIG \higherbetter & BAK \higherbetter & OVRL \higherbetter \\
 \midrule
 Floor     & $-1.12$  & $-1.12$  & $+30.00$ & 2.913 & 4.090 & 2.031 & 2.497 \\
-Baseline  & $+1.29$  & $+3.66$  & $+11.11$ & 2.955 & 3.233 & 2.286 & 2.183 \\
+Baseline  & $+1.44$  & $+5.43$  & $+8.58$  & 2.995 & 2.961 & 2.579 & 2.144 \\
 Extension & $+2.29$  & $+9.17$  & $+6.28$  & \textbf{3.030} & 2.957 & \textbf{3.045} & 2.306 \\
 WeSep     & $+4.68$  & $+10.34$ & $+8.26$  & 3.010 & \textbf{3.450} & 2.640 & \textbf{2.510} \\
 Ceiling   & $+30.00$ & $+30.00$ & $+30.00$ & 3.550 & 4.175 & 3.592 & 3.429 \\
@@ -181,7 +181,7 @@ Considering P.808 in isolation, the extension has a comparable overall quality s
 \subsection{Latency and throughput}
 \label{sec:results_latency}
 
-\begin{table}[H]
+\begin{table}[htbp]
 \centering
 \caption{Baseline and extension figures are the median of three runs each, alternated in one session on an otherwise idle machine, with the range in brackets. The requirement is $\textup{RTF} < 1$ \emph{and} latency within \SI{200}{}--\SI{300}{\milli\second}. The first is the binding constraint, because a chunk that finishes inside its own duration meets the latency budget automatically.}
 \label{tab:latency}

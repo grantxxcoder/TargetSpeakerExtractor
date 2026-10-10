@@ -87,7 +87,10 @@ RUNS = {
         "label": "Baseline, matched protocol",
         "colour": ACCENT2,
         "history": ["2026-10-07-train-sir0-baseline-matched-s1"],   # session 1 of 2
-        "chosen": None,                       # picked on the judge after session 2
+        "chosen": 11,                         # lowest LCF-WER of e4/e5/e11/e13 (ranking.txt, 2026-10-09)
+        # Author's choice 2026-10-09: one diamond at this epoch, the LOWEST of its
+        # judge runs. The report's judge table gives the 3-run mean +- SD.
+        "lowest_run_only": (11,),
         "lowest_marker": False,
         "judge": {e: [f"*-eval-baseline-matched-e{e}-judge",
                       f"*-eval-baseline-matched-e{e}-judge-r*"]
@@ -139,7 +142,7 @@ LAYOUTS = {
     "sisdr-wer": {"rows": [["sisdr"], ["wer"]], "notes": "wer", "chosen": "wer",
                   "height": 4.0},
     "terms-wer": {"rows": [["pres", "mr", "gain"], ["wer"]], "notes": "wer", "chosen": "wer",
-                  "height": 4.4, "ylabel": "Loss term\n(lower is better)"},
+                  "height": 4.1, "ylabel": "Loss term\n(lower is better)"},
 }
 
 
@@ -178,6 +181,9 @@ def load(name, spec):
         if (c["loss"], c["training"]["select_abs_max"]) != (configs[0]["loss"], configs[0]["training"]["select_abs_max"]):
             raise SystemExit(f"{name}: sessions disagree on the loss config")
     judged = {e: v for e, p in spec["judge"].items() if (v := scored_runs(p))}
+    for e in spec.get("lowest_run_only", ()):
+        if e in judged:
+            judged[e] = [min(judged[e])]
     return rows, configs[0], judged
 
 
@@ -222,7 +228,8 @@ def main():
     # across the width. Every panel shares the epoch axis.
     fig = plt.figure(figsize=(TEXTWIDTH_IN, layout["height"]))
     split = any(len(names) > 1 for names in rows_spec)
-    grid = fig.add_gridspec(len(rows_spec), 1, hspace=0.4 if split else 0.15)
+    # 0.25 between a split row and the next (was 0.4; tightened 2026-10-10 on request).
+    grid = fig.add_gridspec(len(rows_spec), 1, hspace=0.25 if split else 0.15)
     axes, first = {}, None
     for i, names in enumerate(rows_spec):
         cells = grid[i].subgridspec(1, len(names), wspace=0.35)

@@ -217,7 +217,7 @@ This appendix reports the same 103 two-speaker trials as \autoref{tab:content_ju
 system & (\%) & (\%) & (\%) & /trial & (\%) \\
 \midrule
 Floor & 63.04 & 76.70 & 62.78 & 1.59 & 38.83 \\
-Baseline & 52.71 & 62.14 & 45.73 & 1.96 & 49.02 \\
+Baseline & 48.92 & 56.31 & 36.82 & 2.10 & 48.04 \\
 Extension & 41.01 & 36.89 & 19.55 & 2.46 & 57.43 \\
 WeSep    & \textbf{29.13} & \textbf{22.33} & \textbf{12.46} & 2.02 & 54.37 \\
 Ceiling  & 1.98 & 0.00 & 0.00 & 0.45 & 8.74 \\
@@ -236,18 +236,18 @@ Epochs 21 and 27 of the extension were both judged by Gemini on the 103 two-spea
 \begin{table}[H]
 \centering
 \small
-\caption{Epoch 21 (chosen) against epoch 27 (the last) of the extension, on the 103 two-speaker validation trials. Lower is better in every row. Epoch 21 was judged three times: its mean is shown, with the SD of the three runs. Epoch 27 was judged once. The difference is epoch 21 minus epoch 27, so a negative value favours epoch 21; its 95\,\% interval and the share of draws in which epoch 21 is better come from resampling the trials in pairs (10,000 draws, seed 42). Percentages and their spreads are in percentage points; invented words are a count per trial. Judge \texttt{gemini-3.7-flash} through AI Studio, audio in and text out, prompt \texttt{d118b7d3bf30}; epoch 21 run on 2026-09-25 and twice on 2026-09-26, epoch 27 on 2026-09-25.}
+\caption{Epoch 21 (chosen) against epoch 27 (the last) of the extension, on the 103 two-speaker validation trials. Lower is better in every row.}
 \label{tab:e21_e27}
 \begin{tabular}{@{}lcccccc@{}}
 \toprule
- & Epoch 21 & SD & Epoch 27 & Difference & 95\,\% CI & Epoch 21 better \\
-measure & (3 runs) & (3 runs) & (1 run) & (21 $-$ 27) & & (\% of draws) \\
+ & Epoch 21 & Epoch 27 & Difference & 95\,\% CI & Epoch 21 better \\
+measure &  & & (21 $-$ 27) & & (\% of draws) \\
 \midrule
-LCF-WER (\%) & 39.59 & 0.34 & 39.23 & $+0.36$ & $[-3.00, +3.78]$ & 41.1 \\
-ICR@2 (\%) & 33.66 & 2.02 & 32.04 & $+1.62$ & $[-5.18, +8.41]$ & 31.5 \\
-mean leak (\%) & 23.08 & 0.97 & 20.16 & $+2.93$ & $[-0.47, +6.42]$ & 4.6 \\
-invented /trial & 2.20 & 0.11 & 2.56 & $-0.37$ & $[-0.79, +0.08]$ & 94.9 \\
-FR@2 (\%) & 46.88 & 1.98 & 55.45 & $-8.56$ & $[-16.83, 0.00]$ & 97.4 \\
+LCF-WER (\%) & 39.59  & 39.23 & $+0.36$ & $[-3.00, +3.78]$ & 41.1 \\
+ICR@2 (\%) & 33.66 & 32.04 & $+1.62$ & $[-5.18, +8.41]$ & 31.5 \\
+mean leak (\%) & 23.08 & 20.16 & $+2.93$ & $[-0.47, +6.42]$ & 4.6 \\
+invented /trial & 2.20 & 2.56 & $-0.37$ & $[-0.79, +0.08]$ & 94.9 \\
+FR@2 (\%) & 46.88 & 55.45 & $-8.56$ & $[-16.83, 0.00]$ & 97.4 \\
 \bottomrule
 \end{tabular}
 \end{table}
