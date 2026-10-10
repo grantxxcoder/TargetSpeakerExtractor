@@ -47,6 +47,10 @@
 \setlength{\intextsep}{8pt plus 2pt minus 2pt}
 \setlength{\textfloatsep}{10pt plus 2pt minus 4pt}
 \setlength{\floatsep}{8pt plus 2pt minus 2pt}
+% Let tall floats share a page with text instead of getting a page of their own.
+\renewcommand{\topfraction}{0.85}       % default 0.7
+\renewcommand{\textfraction}{0.10}      % default 0.2
+\renewcommand{\floatpagefraction}{0.80} % default 0.5; keep below \topfraction or tall floats get stuck
 \counterwithin{figure}{section}
 \newcommand*{\WaterMark}[2][0.2\paperwidth]{\AddToShipoutPicture*{\AtTextCenter{\parbox[c]{0pt}{\makebox[0pt][c]{\includegraphics[width=#1]{#2}}}}}}
 
