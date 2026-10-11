@@ -158,7 +158,7 @@ Three choices inside \eqref{eq:lmr} are worth stating. The exponent $p = 0.3$ co
 The window lengths used are \num{8}, \num{16}, \num{32} and \SI{64}{\ms}. This is with respect to the model's own \SI{32}{\ms} framing. The model builds its output by masking \SI{32}{\ms} frames and overlapping them, so the places where most errors would occur can be expected to exist at frame boundaries. The \SI{8}{\ms} and \SI{16}{\ms} windows resolve this and the \SI{64}{\ms} window catches harmonic structure that the short ones blur.
 
 \paragraph{Target absent.}
-The model should penalise any output that is not silence. This is modelled after a modified version of the absolute level loss from CARTSE \cite{li2026cartse}, where in this works the loss now contains the denominator term. 
+The model should penalise any output that is not silence. This is modelled after a modified version of the absolute level loss from CARTSE \cite{li2026cartse}, where in this work the loss now contains the denominator term. 
 
 \begin{equation}
 L_\textup{abs} = 10 \log_{10}
