@@ -29,7 +29,7 @@ invented words per trial \lowerbetter & $+0.72$ & $[+0.27,\,+1.21]$ & $-0.20$ & 
 \subsection{Content fidelity}
 \label{sec:results_content}
 The main metrics to consider for this project are the performance of our extractor system with respect to the content fidelity on a live system. The content fidelity metrics are used to measure how the live artificial intelligence system is able to interpret the audio after the extraction process. The end goal is for the extractor to isolate and process the target speaker's audio in such a way for there to be minimal loss of content fidelity. Secondly, since the live system is a black box, non-deterministic system, the stability of the interpretation of the audio is also important to consider. 
-The sections to follow consider the content fidelity for both a live judge and an offline transcriber.
+The sections to follow consider the content fidelity for a live judge on both real and the simulated data.
 
 \subsubsection{The live judge}
 \label{sec:results_content_judge}
@@ -96,7 +96,7 @@ The offline transcriber reaches the same conclusions as the live judge, but by a
 
 \subsubsection{Real recordings}
 \label{sec:results_ami}
-\autoref{tab:ami_results} shows Gemini's results on the AMI meeting recordings of \autoref{app:ami}.
+\autoref{tab:ami_results} shows Gemini's results on the AMI meeting recordings of \autoref{app:ami}. The conclusion is the same as for the simulated data: the extension improves the LCF-WER over doing nothing, although the offline WeSep system performs better for the strict extraction task. WeSep has the lowest LCF-WER (80.56\,\%), followed by the extension (91.26\,\%) and then no processing (115.51\,\%). A demonstration of how the model distorts the speech can be seen by the target words missed metric, where Gemini is able by itself without any processing to only miss 3.46\,\% of the target words, but even with WeSep, Gemini misses 27.71\,\% of the target words. This indicates how the extractor degrades the target speech at the cost of removing the background interfering speech. This is due to the artefacts introduced by the extractor, as seen in the increase in invented words per trial (1.48 to 1.83) and rate of fabrication (38.33\,\% to 49.46\,\%) for the extension. 
 \begin{table}[htbp]
 \centering
 \caption{Content recovered by Gemini on 300 real two-speaker stretches of AMI meeting recordings (\autoref{app:ami}). Lower is better in every column.}
