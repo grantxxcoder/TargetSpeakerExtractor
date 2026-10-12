@@ -1420,9 +1420,20 @@ SPLIT_MANIFESTS = {
     # scripts/build_ami_trials.py -- eval only, never trained, filtered or
     # selected on. The train half is a placeholder get_data_loaders never reads.
     "ami":   (("sir0_train", "sir0_train"), ("ami_eval",    "ami_eval")),
+    # M8, decisions-m8.md 2026-10-12. Fine-tunes from e21 on real AMI audio.
+    # amift = ami_train rows x4; amimix = the same + an equal stratified sir0
+    # sample (scripts/make_ami_manifests.py). Rows carry their own audio_dir, so
+    # the audio slot here is only the fallback. Val stays on sir0_val: the
+    # in-loop pass and probe become a forgetting monitor; the epoch is chosen
+    # by Gemini on the unprocessed ami_train windows, rendered through amitr.
+    "amift":  (("amift_train",  "ami_train"), ("sir0_val",  "sir0_val")),
+    "amimix": (("amimix_train", "ami_train"), ("sir0_val",  "sir0_val")),
+    # amitr: RENDERING ONLY. The ami_train windows as Gemini hears them, for the
+    # per-epoch check. Training under it would validate on its own train set.
+    "amitr":  (("ami_train",    "ami_train"), ("ami_train", "ami_train")),
     "full":  (("train",       "train"),       ("val",       "val")),
 }
-RENDER_ONLY_SPLITS = frozenset({"sir0pub", "sir0priv", "ami", "sir0ext"})
+RENDER_ONLY_SPLITS = frozenset({"sir0pub", "sir0priv", "ami", "sir0ext", "amitr"})
 
 
 def get_data_loaders(split, csv_path, data_path, config):

@@ -142,6 +142,11 @@ CODE = [
     # (content_wer schedule + selection, keep_stride 3, the probe). No new source
     # file: every key it sets already exists. decisions-m2.md 2026-10-07.
     "experiments/configs/bsrnn_baseline_matched.yaml",
+    # 2026-10-12, M8: e21 fine-tuned on real AMI audio, alone (amift) and 50/50
+    # with sir0 (amimix). No new model code: the loader's per-row audio_dir and
+    # remixable columns are inside dataset_loader.py. decisions-m8.md 2026-10-12.
+    "experiments/configs/bsrnn_ami_ft.yaml",
+    "experiments/configs/bsrnn_amimix_ft.yaml",
     "docs/run_times.md",   # src.run_log appends here; give it a real file
 ]
 
@@ -152,7 +157,19 @@ CODE = [
 SPLIT_FILES = {
     "mid":  [("mid_train", "train"), ("mid_val", "val")],
     "sir0": [("sir0_train", "sir0_train"), ("sir0_val", "sir0_val")],
+    # M8 (decisions-m8.md 2026-10-12): the ami_train trials, plus the two
+    # training manifests built over them. None = manifest only: its rows name
+    # their own audio_dir, either staged here or ALREADY_ON_KAGGLE. Uploaded as
+    # a SECOND dataset next to tse-audio-s0-v3 (the notebook's DATA_DIR_NEW).
+    "ami":  [("ami_train", "ami_train"), ("amift_train", None), ("amimix_train", None)],
 }
+# Audio already uploaded (tse-audio-s0-v3). A manifest-only entry may point at
+# these without staging them; anything else must be in this bundle.
+ALREADY_ON_KAGGLE = {"sir0_train", "sir0_val"}
+# The run splits (train.py SPLIT_MANIFESTS) a data bundle is verified through.
+# Default: the bundle's own name. `ami` is not a run split (it is ami_eval's
+# render-only alias), so its two arms are checked instead.
+VERIFY_RUN_SPLITS = {"ami": ["amift", "amimix"]}
 
 # the only files TrialDataset opens, plus meta.json for provenance.
 # The interferer pair is required by data.both_directions (2026-08-26): without
@@ -333,6 +350,15 @@ def stage_data(out: Path, split: str, new_only: int = 0) -> None:
             if f.exists():
                 copy_if_changed(f, out / "data/manifests" / f.name)
 
+        if audio_dir is None:
+            dirs = pd.read_csv(man)["audio_dir"].value_counts().to_dict()
+            staged = {a for _, a in SPLIT_FILES[split] if a}
+            stray = set(dirs) - staged - ALREADY_ON_KAGGLE
+            if stray:
+                sys.exit(f"{stem}: rows read audio from {sorted(stray)}, which is "
+                         f"neither staged nor already on Kaggle")
+            print(f"  {stem}: manifest only, rows by audio_dir {dirs}")
+            continue
         ids = pd.read_csv(man)["trial_id"].tolist()
         n_total = len(ids)
         if new_only and pair_idx == 0:
@@ -399,6 +425,28 @@ def check_additive(split: str, new_only: int, prefix_manifest: Path) -> None:
                  f"the current manifest's first {new_only} rows are {len(head):,}. The "
                  f"uploaded half does NOT describe the same trials -- re-upload in full.")
     print(f"  verified byte-identical to {prefix_manifest}")
+
+
+def merged_view(td: Path, data_dir: Path) -> Path:
+    """What the notebook's merge cell builds on Kaggle, built here from symlinks:
+    the staged bundle's audio and manifests, plus ALREADY_ON_KAGGLE from the
+    repo's own data/. Verifying through it checks the two datasets TOGETHER --
+    the only way a mixed manifest (amimix) can be checked before the upload."""
+    root = td / "merged"
+    for sub in ("rendered", "manifests"):
+        (root / "data" / sub).mkdir(parents=True)
+    for d in sorted((data_dir / "data/rendered").iterdir()):
+        (root / "data/rendered" / d.name).symlink_to(d.resolve())
+    for name in sorted(ALREADY_ON_KAGGLE):
+        (root / "data/rendered" / name).symlink_to((REPO / "data/rendered" / name).resolve())
+        (root / "data/manifests" / f"{name}.csv").symlink_to(
+            (REPO / "data/manifests" / f"{name}.csv").resolve())
+    for f in sorted((data_dir / "data/manifests").iterdir()):
+        target = root / "data/manifests" / f.name
+        if target.is_symlink():
+            target.unlink()             # the bundle's copy wins, as on Kaggle
+        target.symlink_to(f.resolve())
+    return root
 
 
 def write_verify_manifests(td: Path, split: str, new_only: int) -> None:
@@ -557,6 +605,8 @@ def main() -> None:
                          "Strongly advised with --new-only.")
     args = ap.parse_args()
 
+    if args.new_only and args.split in VERIFY_RUN_SPLITS:
+        sys.exit(f"--new-only is not supported for --split {args.split}")
     if args.prefix_manifest and not args.new_only:
         sys.exit("--prefix-manifest only means something with --new-only")
 
@@ -591,6 +641,13 @@ def main() -> None:
                 verify(code_dir, data_dir, args.split, Path(td))
                 for extra in args.verify_config:
                     verify(code_dir, data_dir, args.split, Path(td), config=extra)
+        elif args.split in VERIFY_RUN_SPLITS:
+            with tempfile.TemporaryDirectory() as td:
+                view = merged_view(Path(td), data_dir)
+                for run_split in VERIFY_RUN_SPLITS[args.split]:
+                    for config in ["experiments/configs/bsrnn_baseline.yaml", *args.verify_config]:
+                        print(f"  -- {run_split} x {Path(config).name}")
+                        verify(code_dir, view, run_split, config=config)
         else:
             verify(code_dir, data_dir, args.split)
             for extra in args.verify_config:

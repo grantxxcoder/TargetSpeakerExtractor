@@ -121,7 +121,7 @@ class TrialDataset(torch.utils.data.Dataset):
         mixtures and the contrast the pairing exists for would be broken.
         """
         row = self.manifest_df.iloc[idx]
-        trial_directory = self.data_root / "rendered" / self.split / row["trial_id"]
+        trial_directory = self.data_root / "rendered" / self._audio_dir(row) / row["trial_id"]
         mixture_path = trial_directory / "mixture.wav"
         number_of_frames = sf.info(str(mixture_path)).frames
 
@@ -144,7 +144,7 @@ class TrialDataset(torch.utils.data.Dataset):
         # changed them. Reported in meta so a stratified diagnostic describes the
         # audio the model actually heard rather than the audio on disk.
         sir_used, snr_used = float(row["sir_db"]), float(row["snr_db"])
-        if self.remix_gains:
+        if self.remix_gains and self._remixable(row):
             (mixture_audio, target_audio, interferer_audio,
              sir_new, snr_new) = self._remix(
                 idx, row, mixture_audio, target_audio, interferer_audio)
@@ -167,6 +167,26 @@ class TrialDataset(torch.utils.data.Dataset):
                                      sir_used, snr_used, start_offset,
                                      other_audio=target_audio))
         return out
+
+    def _audio_dir(self, row):
+        """Directory under rendered/ that holds this row's trial.
+
+        A per-row `audio_dir` column lets ONE manifest draw on several rendered
+        splits -- M8's 50/50 blend of ami_train and sir0_train
+        (decisions-m8.md 2026-10-12). Absent or empty means the dataset's own
+        split, i.e. every manifest before it.
+        """
+        value = row.get("audio_dir")
+        return value if isinstance(value, str) and value else self.split
+
+    @staticmethod
+    def _remixable(row):
+        """False only where the manifest says so. Remix rebuilds the mixture as
+        target + interferer + noise; on AMI the stems are other microphones, so
+        that identity is false and the row is left as recorded
+        (decisions-m8.md 2026-10-12). Absent column = remixable, as before."""
+        value = row.get("remixable")
+        return value is None or pd.isna(value) or int(value) != 0
 
     def _remix(self, idx, row, mixture, target, interferer):
         """Rebuild the mixture at another trial's SIR and SNR.
@@ -248,6 +268,8 @@ class TrialDataset(torch.utils.data.Dataset):
         target-relative level.
         """
         df = self.manifest_df
+        if "remixable" in df:   # AMI rows are not a sum of their stems: never donors
+            df = df[df["remixable"].fillna(1).astype(int) != 0]
         self._gain_pools = {}
         for regime, group in df.groupby("regime"):
             self._gain_pools[str(regime)] = (
@@ -371,9 +393,15 @@ class TrialDataset(torch.utils.data.Dataset):
         unreadable next to its own config -- the same reason `amp` is
         config-driven.
         """
-        first = self.manifest_df.iloc[0]["trial_id"]
-        probe = (self.data_root / "rendered" / self.split / first
-                 / "enrollment_v00.wav")
+        # One probe per audio dir: a mixed manifest draws on several splits,
+        # and each needs its own bank.
+        for _, first_row in self.manifest_df.groupby(
+                self.manifest_df.apply(self._audio_dir, axis=1), sort=False).head(1).iterrows():
+            probe = (self.data_root / "rendered" / self._audio_dir(first_row)
+                     / first_row["trial_id"] / "enrollment_v00.wav")
+            self._require_bank(probe)
+
+    def _require_bank(self, probe):
         if not probe.exists():
             raise FileNotFoundError(
                 f"enrollment_variants={self.enrollment_variants} but {probe} is "

@@ -48,3 +48,15 @@ def test_select_by_wer_refuses_every_holdout(split):
     assert run.returncode != 0
     assert "holdout" in run.stderr
 
+
+def test_m8_splits_train_on_ami_and_never_on_ami_eval():
+    """decisions-m8.md 2026-10-12: amift/amimix train on ami_train and validate
+    on sir0_val; amitr only renders ami_train for the Gemini check."""
+    from scripts.train import RENDER_ONLY_SPLITS, SPLIT_MANIFESTS, get_data_loaders
+    assert SPLIT_MANIFESTS["amift"] == (("amift_train", "ami_train"), ("sir0_val", "sir0_val"))
+    assert SPLIT_MANIFESTS["amimix"] == (("amimix_train", "ami_train"), ("sir0_val", "sir0_val"))
+    assert "amitr" in RENDER_ONLY_SPLITS
+    with pytest.raises(ValueError, match="rendering estimates only"):
+        get_data_loaders("amitr", None, None, None)
+    for (train, audio), _ in SPLIT_MANIFESTS.values():
+        assert train != "ami_eval" and audio != "ami_eval"
