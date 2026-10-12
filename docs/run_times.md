@@ -20,6 +20,9 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
+| 2026-10-12 | `scripts/build_ami_train.py --workers 6` | ami_train range fetch, 239 of 2,360 pieces | ~8 min **(stopped by hand, not completed)** | 280 kB/s, 50 pieces/min measured over 60 s; restarted with more workers. Added by hand: SIGTERM skips run_log |
+| 2026-10-12 | AMI whole-meeting download, 6 parallel wget (`meetings_train.txt`) | ~110 MB of ES2004b | ~1 min **(stopped: switched to byte-range fetch, decisions-m8.md)** | not measured. Added by hand |
+| 2026-10-12 | AMI whole-meeting download, sequential (`download.sh meetings_train.txt`) | 1 of 78 meetings (ES2004a, 5 files, 168 MB) | ~4 min **(stopped)** | ~1 MB/s measured over 60 s, vs 7.7 MB/s on 2026-10-06. Added by hand |
 | 2026-10-08 | ad-hoc `sf.info` duration scan of `data/wham_noise_16k/*/*.flac` | 28,000 clips (tr/cv/tt) | >5 min, killed by timeout | cpu; a seeded 1,000-clip sample took 4.2 s, so the full scan was I/O-bound on a cold cache |
 | 2026-10-07 | `pytest tests/test_estimates.py` | 26 tests (split tables in sync after adding sir0priv) | 2.6 min | cpu |
 | 2026-10-07 | `experiments/results/2026-10-07-ci-clustered/ci_clustered.py baseline` | 3 judge runs x 103 sir0_val `both` clips from the judge cache (0 API calls), 10,000 speaker-clustered draws | 87 s | cpu; includes VAD load. Added by hand |
@@ -40,6 +43,11 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | 2026-09-23 | `content_probe.score()` end-to-end smoke, 3 clips | 3 clips, sir0_val, untrained 1c model, cpu extraction + faster-whisper small.en int8 cpu | 3.1 min | ~16 s/clip extraction on cpu, ~4 s/clip ASR, plus ~1 min of model loading. The Kaggle figure differs: extraction moves to the T4, so the ASR sets the per-epoch cost at ~4 s/clip. Added by hand. |
 | 2026-09-21 | `pytest tests/ -q` | 515 tests | 11 min | full suite after adding eval_by_case.py. Added by hand: pytest does not use run_log.timed |
 <!-- rows appended below by src/run_log.py -->
+| 2026-10-12 | `scripts/build_ami_train.py` | 451 trials, ami_train, 0.83 GB fetched by range | 5 min | cpu, 8 fetch workers |
+| 2026-10-12 | `scripts/build_ami_train.py` | 451 trials, ami_train, 0.83 GB fetched by range | 13 min | cpu, 8 fetch workers |
+| 2026-10-12 | `scripts/build_ami_train.py` | 273 trials, ami_train, 0.83 GB fetched by range **(failed)** | 34 min | cpu, 8 fetch workers |
+| 2026-10-12 | `scripts/build_ami_train.py` | 0 trials, ami_train, 0.83 GB fetched by range **(failed)** | 33 min | cpu, 8 fetch workers |
+| 2026-10-12 | `scripts/build_ami_train.py` | 0 trials, ami_train, 0.83 GB fetched by range **(failed)** | 3 min | cpu, 16 fetch workers |
 | 2026-10-10 | `scripts/eval_by_case.py --split sir0_val --cases target_only,interferer_only,noise_only --listener judge` | 3 cases, sir0_val, listener judge | 10 min |  |
 | 2026-10-10 | `experiments/results/2026-09-27-judge-clip-swings/plot_clip_swings.py` | 5 systems x 103 sir0_val clips x 3 judge runs from the judge cache, no API calls; baseline now matched e11 | 1.9 min | cpu; run twice (second after fitting the y-axis to the data). Measured with `time`. Added by hand. |
 | 2026-10-10 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-10-08-est-baseline-matched-e11 --metrics content --listener judge --judge-rpm 10 --out experiments/results/2026-10-09-eval-baseline-matched-e11-judge-r2 --systems estimate --judge-repeat 2 | 29 min |  |

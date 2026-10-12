@@ -1,0 +1,67 @@
+# AMI TRAINING split for M8 (decisions-m8.md 2026-10-12): every usable window in
+# the 20 AMI scenario groups ami_eval does not use. ami_eval stays held out --
+# scripts/build_ami_train.py refuses any group, speaker or meeting shared with it.
+#
+# Source: AMI Meeting Corpus (Carletta et al., 2005), CC BY 4.0. Windows are found
+# exactly as ami_eval's (same `window:` block, same find_windows), so training and
+# test clips are built the same way. Construction borrowed from REAL-T (Li et al.,
+# Interspeech 2025); differences as in ami_eval.yaml.
+#
+# Audio: fetched by HTTP byte range, only the seconds used (src/data/ami_fetch.py).
+# Target: the speaker's headset aligned + rescaled + gated (src/data/ami_targets.py).
+# APPROXIMATE, never ground truth.
+
+split: ami_train
+seed: 42
+
+annotations: data/raw/ami/annotations     # ami_public_manual_1.6.2
+source_url: https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus
+segment_cache: data/raw/ami/segments      # fetched pieces + index.csv (URL, byte range, sha256)
+holdout:                                  # what the build must not touch
+  config: experiments/configs/ami_eval.yaml
+  manifest: data/manifests/ami_eval.csv
+
+groups:                                   # the 20 scenario groups not in ami_eval.yaml
+  ES: [ES2004, ES2006, ES2008, ES2009, ES2010, ES2011, ES2012, ES2013, ES2014, ES2016]
+  IS: [IS1002, IS1005, IS1006, IS1007, IS1008]   # IS1002 has no 'a', IS1005 no 'd'
+  TS: [TS3005, TS3006, TS3007, TS3008, TS3009]
+
+channels:
+  mixture: Array1-01                      # one table-mic channel, as in ami_eval
+no_trials_from: [IS1007d]                 # Array1-01 missing on the server (404, 2026-10-12),
+                                          # like IS1003b in ami_eval; enrolment source only
+
+window:                                   # identical to ami_eval.yaml
+  min_s: 10.0
+  max_s: 20.0
+  exactly_two_active: true
+  min_words_each: 5
+  edge_silence_s: 0.3
+  drop_if_marked: [gap, transformerror]
+  target_choice: random                   # designated target, for the per-epoch Gemini check;
+                                          # training uses both directions
+
+enrollment:
+  length_s: 5.0
+  from: sibling_meeting                   # same group, different meeting
+  match_on: global_name
+  solo: true
+  variants: 3                             # distinct solo stretches per speaker per trial
+                                          # (training config enrollment_variants: 3)
+
+target:                                   # src/data/ami_targets.py
+  fetch_margin_ms: 100                    # headset fetched this much wider, so it can be shifted
+  align:
+    method: gcc_phat                      # Knapp & Carter (1976)
+    max_lag_ms: 50                        # search range; a lag AT the bound is flagged
+    min_solo_s: 1.0                       # fit on own-solo samples if at least this much, else whole window
+    min_peak: 0.2                         # GCC-PHAT peak below this = not confident: use the
+                                          # speaker's meeting median of confident windows instead
+                                          # (measured on this build, decisions-m8.md 2026-10-12)
+  rescale: least_squares                  # g = <mix,h>/<h,h> over the same samples
+  gate:
+    pad_s: 0.2                            # kept either side of every own word / vocal sound
+    merge_gap_s: 0.3                      # gaps shorter than this are kept, not gated
+    fade_ms: 10                           # raised-cosine ramps inside kept spans
+
+level: as_recorded                        # mixture untouched: real levels are the point

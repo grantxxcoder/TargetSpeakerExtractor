@@ -51,3 +51,32 @@ Gating removes bleed where only the other person talks; bleed under the target's
 **Supersedes** `decisions-m0.md` 2026-08-07 "AMI eval only" for the 20 groups above. That entry's reason stands: there is no clean target.
 
 **AI-use (Stellenbosch declaration).** Claude-originated: the gating, alignment and rescale of the headset; ×4 repeat epochs; the 50/50 replay design; the `sir0_val` forgetting monitor; reusing the control fine-tune as a free control.
+
+---
+
+## 2026-10-12 — `ami_train` built: 451 trials, 1.91 h
+
+**Built.** 451 two-speaker windows from the 20 groups: 1.91 h, 78 speakers, 74 meetings (Edinburgh 259, TNO 110, IDIAP 82; 352 same-sex). 15 windows dropped because a speaker had no solo stretch in a sibling meeting to enrol from. Nothing shared with `ami_eval`: 0 people, meetings (enrolment meetings included) or groups (`tests/test_ami_splits.py`).
+
+**Differs from the plan.**
+- A separate builder, `scripts/build_ami_train.py`. `build_ami_trials.py` (ami_eval) is untouched apart from a guard refusing any non-ami_eval config, so `ami_eval` cannot change.
+- Audio fetched by HTTP byte range (`src/data/ami_fetch.py`): 0.83 GB instead of ~22 GB of whole meetings. Every piece is logged with URL, byte range and sha256 (`data/raw/ami/segments/index.csv`); a fetched piece was checked sample-identical to the whole local file.
+
+**Found while building.**
+- IS1007d has no table mic on the server (404): no trials from it; its headsets are enrolment sources only (like IS1003b for `ami_eval`).
+- ES2010d is stored stereo with bit-identical channels: read as mono, left = right checked on every piece.
+- The mirror answers 403 under ~12+ parallel requests: 8 workers, with backoff.
+- One IS1002c window's raw table mic has 7 full-scale samples (a clipped transient): kept as recorded, counted in `mixture_full_scale_samples`.
+
+**Delay rule, added after measuring.** Per-window delay estimates with a GCC-PHAT peak ≥ 0.2 agree within one speaker in one meeting to 0.5 ms (median range), and 3/480 are implausible. Below 0.1, 55/134 are implausible (negative, or > 8 ms). People mostly stay seated, so a window uses its own delay only if its peak is ≥ 0.2; otherwise it takes that speaker's median confident delay in the meeting, or the median of all their windows if none is confident.
+- Applied: 480 own, 307 speaker-meeting (confident), 115 speaker-meeting (all).
+- Implausible applied delays fell from 82 to 20 of 902. 17 of those cluster at ~10 ms and include confident estimates (a speaker ~3.5 m away), so they are kept. 3 negative remain (0.3 %), accepted.
+- Typical delay 2.4 ms (IQR 2.1–2.9), about 85 cm of extra path to the table mic.
+
+**What the targets look like.** At the table mic each speaker is a median 20 dB quieter than in their own headset (5–95 %: 10 to 43 dB). The gate silences a median 59 % of each target. The two speakers are equally loud on average at the table mic (median 0.2 dB apart; 5–95 %: ±19 dB). Median overlap per window is 5.5 %.
+
+**Manifests** (`scripts/make_ami_manifests.py`): `amift_train` 1,804 rows (451 × 4). `amimix_train` 3,608 rows: the same, plus 1,804 `sir0_train` rows stratified by condition (both 893, target-only 461, interferer-only 353, noise-only 97).
+
+**AI-use.** Byte-range fetching and the delay confidence rule are Claude-originated.
+
+**Still to check before upload:** listen to 5 trials, and the Gemini anchor pass on `ami_train` (`milestones.md` M8).
