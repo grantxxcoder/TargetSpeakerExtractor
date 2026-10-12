@@ -20,6 +20,11 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
+| 2026-10-12 | `scripts/make_kaggle_bundle.py --split ami --no-teacher` + 2 `--verify-config` (bsrnn_ami_ft, bsrnn_amimix_ft) | 451 ami_train trials, 5,788 files; 6 one-batch checks (amift, amimix x 3 configs) through a local merged view; code zip 111 MB, data zip 1,230 MB | 2.3 min | laptop. Added by hand: the script does not use run_log.timed |
+| 2026-10-12 | `pytest` 8 files (ami loader, remix, bank, crop, interference, holdouts, estimates, content-wer selection) | 100 tests | 8.2 min | PR 3 worktree. All passed. Added by hand |
+| 2026-10-12 | `pytest tests/test_holdouts.py tests/test_estimates.py tests/test_ami_splits.py` | 35 passed, 5 skipped (ami_train not yet built) | 2.6 min | all passed. Added by hand |
+| 2026-10-12 | `pytest tests/test_holdouts.py tests/test_content_wer_selection.py` | 23 tests | 2.2 min | PR 1 worktree. All passed. Added by hand |
+| 2026-10-12 | `pytest` 5 files (test_ami_loader + remix, bank, crop, interference) | 50 tests | 1.9 min | after the audio_dir / remixable loader columns. All passed. Added by hand |
 | 2026-10-12 | `scripts/build_ami_train.py --workers 6` | ami_train range fetch, 239 of 2,360 pieces | ~8 min **(stopped by hand, not completed)** | 280 kB/s, 50 pieces/min measured over 60 s; restarted with more workers. Added by hand: SIGTERM skips run_log |
 | 2026-10-12 | AMI whole-meeting download, 6 parallel wget (`meetings_train.txt`) | ~110 MB of ES2004b | ~1 min **(stopped: switched to byte-range fetch, decisions-m8.md)** | not measured. Added by hand |
 | 2026-10-12 | AMI whole-meeting download, sequential (`download.sh meetings_train.txt`) | 1 of 78 meetings (ES2004a, 5 files, 168 MB) | ~4 min **(stopped)** | ~1 MB/s measured over 60 s, vs 7.7 MB/s on 2026-10-06. Added by hand |
