@@ -48,6 +48,7 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | 2026-09-23 | `content_probe.score()` end-to-end smoke, 3 clips | 3 clips, sir0_val, untrained 1c model, cpu extraction + faster-whisper small.en int8 cpu | 3.1 min | ~16 s/clip extraction on cpu, ~4 s/clip ASR, plus ~1 min of model loading. The Kaggle figure differs: extraction moves to the T4, so the ASR sets the per-epoch cost at ~4 s/clip. Added by hand. |
 | 2026-09-21 | `pytest tests/ -q` | 515 tests | 11 min | full suite after adding eval_by_case.py. Added by hand: pytest does not use run_log.timed |
 <!-- rows appended below by src/run_log.py -->
+| 2026-10-12 | `scripts/evaluate.py` | --split ami_train_check --condition both --systems floor,ceiling --metrics content --listener judge | 48 min |  |
 | 2026-10-12 | `scripts/build_ami_train.py` | 451 trials, ami_train, 0.83 GB fetched by range | 5 min | cpu, 8 fetch workers |
 | 2026-10-12 | `scripts/build_ami_train.py` | 451 trials, ami_train, 0.83 GB fetched by range | 13 min | cpu, 8 fetch workers |
 | 2026-10-12 | `scripts/build_ami_train.py` | 273 trials, ami_train, 0.83 GB fetched by range **(failed)** | 34 min | cpu, 8 fetch workers |

@@ -80,3 +80,21 @@ Gating removes bleed where only the other person talks; bleed under the target's
 **AI-use.** Byte-range fetching and the delay confidence rule are Claude-originated.
 
 **Still to check before upload:** listen to 5 trials, and the Gemini anchor pass on `ami_train` (`milestones.md` M8).
+
+---
+
+## 2026-10-12 — Gemini check of the gated-headset targets: they pass
+
+`gemini-3.7-flash`, audio-in / text-out, aistudio, prompt `d118b7d3bf30`, run 2026-10-12, one run, speech gate on. 150 `ami_train` trials, a seeded site-proportional subset (`data/manifests/ami_train_check.csv`; Edinburgh 86, TNO 37, IDIAP 27). Anchors only, 290 calls, 48 min. `experiments/results/2026-10-12-evaluate-ami_train_check/`.
+
+| | No processing | Target alone (gated headset) |
+|---|---|---|
+| LCF-WER | 97.2 % | **12.6 %** |
+| target words missed | 2.6 % | 3.8 % |
+| other speaker passed (mean leak) | 82.0 % | **1.1 %** |
+| invented / trial | 1.52 | 0.59 |
+
+- **Gating works.** On the same trials Gemini hears 82 % of the other speaker in the raw table mic and 1.1 % in the gated target (the raw headset on `ami_eval`, different trials: 52 %).
+- **It costs the target little:** 3.8 % of target words missed.
+- **12.6 % is the ceiling on these clips**, not ~1 % as on `sir0_val`: AMI transcripts are not verbatim and the speech is conversational. Read every epoch result against it.
+- Scoring training data is allowed (`decisions-m4.md` 2026-09-15); no trial here is in a holdout. The answers are cached and reused at epoch selection.
