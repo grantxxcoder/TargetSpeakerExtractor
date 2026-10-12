@@ -4,7 +4,8 @@
 evaluate it conventionally → define the metric → second model → compare on
 the metric → report.
 
-Submission 2026-11-05; hard freeze on new experiments **2026-10-14**.
+Submission 2026-11-05. The **2026-10-14** experiment freeze was lifted on
+2026-10-12, once the report's first draft was written (M8).
 
 **Current status lives in `docs/project-state.md`.** This file holds the
 schedule and the per-milestone checklists.
@@ -702,11 +703,12 @@ week 12.
 
 ## M7 — Submitted · 2026-11-05
 
-- [ ] Experiment freeze honoured (Oct 14)
+- [x] ~~Experiment freeze honoured (Oct 14)~~ Lifted 2026-10-12, report draft
+      written; M8 runs after it
 - [ ] Every result traceable to config + commit hash + seed + date
 - [ ] Every borrowed method cited
 - [ ] Every deviation and cut recorded in the milestone decision logs
-      (`decisions-m0.md` through `decisions-m4.md`)
+      (`decisions-m0.md` through `decisions-m4.md`, and `decisions-m8.md`)
 - [ ] Approximate-ceiling caveat stated wherever AMI numbers appear
 - [ ] Modality recorded on every judge result, and the cross-modality caveat
       (`docs/data/metric-definitions.md` §3.5) stated wherever audio and text rows
@@ -717,6 +719,33 @@ week 12.
 - [ ] **Divergence from WHAMR!'s direct-path reference noted** wherever the reference
       signal is described — different task, not a better choice
 - [ ] Written, reviewed, submitted
+
+---
+
+## M8 — Real-audio fine-tune (AMI) · opened 2026-10-12
+
+Fine-tune e21 on real AMI meetings so it stops muting the target on real audio
+(45.3 % of target words missed on `ami_eval`, against 3.5 % for doing nothing).
+Decisions and reasons: `decisions-m8.md`.
+
+- [ ] Milestone docs: `decisions-m8.md`, pointer in `decisions-m0.md`, this section
+- [ ] Holdout guards: `ami_eval` and `eval_public` refused everywhere; `sir0ext`
+      render-only
+- [ ] `ami_train` built: 20 non-eval scenario groups, gated headset targets;
+      `ami_eval`'s builder left untouched
+- [ ] Target sanity: lag histogram, gated fraction, 5 trials listened to;
+      Gemini anchor pass shows the gated headset leaks far less than 52 %
+- [ ] Training wired: loader `audio_dir` / `remixable`, `amift` and `amimix`
+      manifests and splits, two configs
+- [ ] Kaggle: data and code zips uploaded, both notebooks run (3 epochs each)
+- [ ] Selection rule registered, then 6 checkpoints + e21 scored by Gemini on the
+      unprocessed `ami_train` windows
+- [ ] Winner scored once on `ami_eval`; meeting-clustered paired interval vs e21
+- [ ] Optional: matching control epoch on `ami_eval`
+
+**Proof:** one row on `ami_eval` for the selected fine-tune beside e21 and WeSep,
+with a meeting-clustered paired interval against e21. Reported as "unseen people
+and meetings from the same corpus and rooms", never as transfer.
 
 ---
 

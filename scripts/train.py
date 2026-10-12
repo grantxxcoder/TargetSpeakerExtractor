@@ -868,7 +868,7 @@ def selection_eligible(val_loss, config):
     return True if bar is None else float(val_loss["L_abs"]) <= float(bar)
 
 
-HOLDOUT_SPLITS = frozenset({"sir0_privval", "eval_private"})
+from src.holdouts import HOLDOUT_SPLITS  # noqa: E402  one list for every guard
 
 # Where the probe's data is MOUNTED, filled from --data-root / --manifest-dir by
 # main(). A location, not a training setting -- --data-root itself is not in the
@@ -1402,6 +1402,9 @@ SPLIT_MANIFESTS = {
     # `both` trials, and SIR spans [-10, +15] against sir0_val's [-10, +10] --
     # a SUPERSET, reported per SIR band, never as one blended mean.
     # decisions-m3.md 2026-09-13.
+    #
+    # RENDER-ONLY since 2026-10-12: its val half is a holdout, so training under
+    # it would select on sir0_privval. decisions-m8.md 2026-10-12.
     "sir0ext": (("sir0_train", "sir0_train"), ("sir0_privval", "sir0_privval")),
     # sir0pub: RENDERING ONLY. The public test split, so a checkpoint can be
     # scored where nothing was selected. get_data_loaders refuses it: validating
@@ -1419,7 +1422,7 @@ SPLIT_MANIFESTS = {
     "ami":   (("sir0_train", "sir0_train"), ("ami_eval",    "ami_eval")),
     "full":  (("train",       "train"),       ("val",       "val")),
 }
-RENDER_ONLY_SPLITS = frozenset({"sir0pub", "sir0priv", "ami"})
+RENDER_ONLY_SPLITS = frozenset({"sir0pub", "sir0priv", "ami", "sir0ext"})
 
 
 def get_data_loaders(split, csv_path, data_path, config):

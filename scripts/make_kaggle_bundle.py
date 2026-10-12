@@ -66,6 +66,7 @@ CODE = [
     # AMP and batch-ceiling numbers cannot be measured on the laptop.
     "scripts/profile_step.py",
     "src/run_log.py",
+    "src/holdouts.py",   # train.py imports it; 2026-10-12, decisions-m8.md
     "src/data/dataset_loader.py",
     "src/models/bands.py",
     "src/models/bsrnn.py",

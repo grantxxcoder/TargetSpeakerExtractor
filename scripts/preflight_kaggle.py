@@ -15,6 +15,7 @@ Reads: kaggle_bundle/kaggle_code.zip and notebooks/kaggle_train_mid.ipynb.
 Never imports the model, so it cannot be fooled by the local working tree.
 """
 
+import argparse
 import json
 import subprocess
 import sys
@@ -24,7 +25,11 @@ from pathlib import Path
 import yaml
 
 REPO = Path(__file__).resolve().parents[1]
+# The holdout POLICY comes from the working tree; the code under test is the zip.
+sys.path.insert(0, str(REPO))
+from src.holdouts import HOLDOUT_SPLITS  # noqa: E402
 ZIP = REPO / "kaggle_bundle/kaggle_code.zip"
+# --notebook overrides; the default is the notebook this script was written for.
 NB = REPO / "notebooks/kaggle_train_mid.ipynb"
 
 # model keys that DEFINE the arm. Anything here differing between two runs means
@@ -44,6 +49,11 @@ def notebook_knobs():
 
 
 def main():
+    global NB
+    ap = argparse.ArgumentParser(description="Check the Kaggle bundle against a notebook.")
+    ap.add_argument("--notebook", type=Path, default=NB,
+                    help="training notebook to check (default: %(default)s)")
+    NB = ap.parse_args().notebook.resolve()
     if not ZIP.exists():
         sys.exit(f"no bundle at {ZIP} -- run scripts/make_kaggle_bundle.py")
     knobs = notebook_knobs()
@@ -96,7 +106,7 @@ def main():
     if reads_wer and int(probe.get("every_n_epochs", 1)) != 1:
         sys.exit("\n  `content_wer` IS READ EVERY EPOCH BUT THE PROBE DOES NOT RUN EVERY EPOCH.\n"
                  "  Set content_probe.every_n_epochs to 1.")
-    if probe.get("enabled") and probe.get("split") in ("sir0_privval", "eval_private"):
+    if probe.get("enabled") and probe.get("split") in HOLDOUT_SPLITS:
         sys.exit(f"\n  THE PROBE WOULD STEER TRAINING ON {probe.get('split')}, A REPORTED HOLDOUT.")
     if probe.get("enabled") and train_cfg.get("keep_stride", 0) in (0, None):
         print("    NOTE keep_stride is 0, so only the top-k by score and _last.pt")

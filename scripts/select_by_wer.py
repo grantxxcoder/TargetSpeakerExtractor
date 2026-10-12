@@ -56,9 +56,10 @@ from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-# Never select on these: they are the reported holdout. CLAUDE.md, and
-# decisions-m4.md 2026-09-15 (the holdout moved from the model to the data).
-HOLDOUT_SPLITS = {"sir0_privval", "eval_private"}
+# Never select on these: they are the reported holdout. One list for every
+# guard, src/holdouts.py (decisions-m8.md 2026-10-12).
+sys.path.insert(0, str(ROOT))
+from src.holdouts import HOLDOUT_SPLITS  # noqa: E402
 
 
 def epoch_of(checkpoint_path):

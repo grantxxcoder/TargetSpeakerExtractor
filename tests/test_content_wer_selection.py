@@ -14,6 +14,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from src.holdouts import HOLDOUT_SPLITS  # noqa: E402
 from scripts.train import (  # noqa: E402
     VAL_DIAGNOSTICS, build_content_probe, history_header, history_row,
     lr_schedule_metric, selection_score)
@@ -102,7 +103,7 @@ def test_probe_is_off_unless_asked_for():
                                verbose=False) is None
 
 
-@pytest.mark.parametrize("split", ["sir0_privval", "eval_private"])
+@pytest.mark.parametrize("split", sorted(HOLDOUT_SPLITS))
 def test_the_probe_refuses_to_steer_on_a_holdout(split):
     with pytest.raises(ValueError, match="holdout"):
         build_content_probe({"content_probe": {"enabled": True, "split": split}},

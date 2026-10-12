@@ -1925,3 +1925,8 @@ scored by the LCF judge. Not comparable to REAL-T numbers.
 
 Set: 300 trials, 77.9 min, 58 meetings, 60 speakers (45 M / 15 F, 21 native
 English). Report: Appendix D, `tab:ami`.
+
+## 2026-10-12 — AMI is no longer eval-only (pointer)
+The 2026-08-07 "AMI secondary eval only" rule is superseded for the 20 AMI scenario
+groups `ami_eval` does not use: they become `ami_train` for M8. `ami_eval` stays
+held out. Decision and reasons: `decisions-m8.md` 2026-10-12.

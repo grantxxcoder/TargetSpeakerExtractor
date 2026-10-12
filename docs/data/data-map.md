@@ -61,10 +61,12 @@ enrollment, no reverb, no target-absent). ~430 GB if you run it. Don't.
 Real recorded meetings, with headset mics *and* distant mics capturing the
 same speech simultaneously.
 
-Used **only for secondary evaluation**, never training. Distant mic is the
-mixture; headset is the approximate ceiling. It answers the one question
+Used for secondary evaluation (`ami_eval`), and since 2026-10-12 for M8
+fine-tuning (`ami_train`, 20 other scenario groups, no shared speakers;
+`decisions-m8.md`). Distant mic is the mixture; headset is the approximate
+ceiling, and gated, the approximate training target. It answers the one question
 the constructed set structurally cannot: does any of this transfer to real
-audio?
+audio? For M8 models it is in-domain, not a transfer test.
 
 "Approximate" is load-bearing — the headset channel still picks up bleed
 from other speakers, so it is not a clean target. Never call it ground
@@ -95,7 +97,7 @@ are the experimental variables.
 | LibriSpeech | yes | yes | yes | — |
 | WHAM! noise | yes | yes | yes | — |
 | Generated RIRs | yes | yes | yes | — |
-| AMI | **never** | **never** | — | yes |
+| AMI | `ami_train` (M8 only) | — | — | `ami_eval` |
 
 Different speakers in every column. Speaker-disjoint, enforced by
 `experiments/configs/splits.yaml`.
