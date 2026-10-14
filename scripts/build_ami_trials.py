@@ -174,6 +174,12 @@ def main():
 
     config_path = Path(args.config)
     cfg = yaml.safe_load(config_path.read_text())
+    # This script writes ONLY ami_eval. A training config here would be cut
+    # with ami_eval's rules into ami_eval's directory; build_ami_train.py builds
+    # those. decisions-m8.md 2026-10-12.
+    if cfg.get("split", SPLIT) != SPLIT:
+        raise SystemExit(f"{config_path} is split {cfg['split']!r}; this script builds "
+                         f"{SPLIT} only. Use scripts/build_ami_train.py.")
     rng = random.Random(cfg["seed"])
     annotations, audio_root = Path(cfg["annotations"]), Path(cfg["audio"])
     out_root = Path(args.data_root) / "rendered" / SPLIT
