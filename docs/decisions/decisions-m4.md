@@ -1,158 +1,73 @@
 # Decision Log — M4 (the metric is computable end to end)
 
-Covers **LCF — Live-model Content Fidelity**, the project's primary
-contribution: the three scores (LCF-WER, ICR, NRR), the judge, the fixed prompt,
-the anchors, and the audio/text modality split. Defined in
-`docs/data/metric-definitions.md`; this log records the decisions that document
-does not fix.
+Covers **LCF (Live-model Content Fidelity)**, the primary contribution: the three scores (LCF-WER, ICR, NRR), the judge, the fixed prompt, the anchors and the audio/text modality split. `docs/data/metric-definitions.md` defines them; this log records what it does not fix.
 
 Created 2026-08-31 when the log was split by milestone. See `milestones.md` M4.
 
-**The conventional metrics are NOT here.** SI-SDR, DNSMOS, offline-WER and the
-offline ASR that produces them are M3 (`decisions-m3.md`). Keeping them apart is
-what stops the divergence result of `metric-definitions.md` 6 from being an
-argument about one instrument measuring itself.
+**The conventional metrics are not here.** SI-SDR, DNSMOS, offline-WER and the offline ASR behind them are M3 (`decisions-m3.md`). Keeping them apart stops the divergence result of `metric-definitions.md` 6 from being one instrument measuring itself.
 
-**Standing constraint on everything in this file (CLAUDE.md), amended
-2026-09-15.** The judge is NO LONGER held out from training — see the
-2026-09-15 entry below. What survives: `sir0_privval` and `eval_private` are
-never touched by training, and every judge result records the exact model ID,
-the exact prompt, the input modality and the run date, because closed models
-change silently.
+**Standing constraint (CLAUDE.md), amended 2026-09-15.** The judge is no longer held out from training (see 2026-09-15). Still binding: `sir0_privval` and `eval_private` are never touched by training, and every judge result records the exact model ID, prompt, input modality and run date, because closed models change silently.
 
 ---
 
 ## 2026-09-15 — The judge is no longer held out. Family separation withdrawn
 
-**Decision: Gemini may be used inside the training loop** — as teacher, reward
-signal, data filter or checkpoint-selection criterion. Supervisor approved
-over-optimising for a single model family. This reverses CLAUDE.md's
-"never appears in the training loop" rule and the 2026-08-31 restatement of it
-further down this file.
+**Decision: Gemini may be used inside the training loop** as a teacher, reward signal, data filter or checkpoint-selection criterion. The supervisor approved over-optimising for a single model family. This reverses the CLAUDE.md rule "never appears in the training loop" and the 2026-08-31 restatement of it further down this file.
 
-**What it costs, stated plainly.** The primary contribution was a
-*gaming-resistant* metric, and the guarantee behind that word was that the
-judge never saw training. That guarantee is gone. A system trained against
-`gemini-3.7-flash` and scored on `gemini-3.7-flash` measures how well we fitted
-one listener, not how intelligible the audio is. **Every claim must now say
-*optimised for Gemini*, never *generalises to live models*.**
+**Cost.** The primary contribution was a *gaming-resistant* metric, which relied on the judge never seeing training. That no longer holds. A system trained against `gemini-3.7-flash` and scored on `gemini-3.7-flash` measures how well we fitted one listener, not how intelligible the audio is. **Every claim must now say *optimised for Gemini*, never *generalises to live models*.**
 
-**What replaces it — the holdout moves from the model to the data.**
-`sir0_privval` (n=1421) and `eval_private` are never scored, filtered or
-selected on during training. A number on those trials is still honest about
-generalisation *across trials and speakers*, which is the only holdout claim
-left. Losing that too would leave nothing defensible, so it is now the binding
-constraint.
+**Replacement: the holdout moves from the model to the data.** `sir0_privval` (n=1421) and `eval_private` are never scored, filtered or selected on during training. A number on these trials still shows generalisation *across trials and speakers*. This is the only holdout claim left, so it is now the binding constraint.
 
-**2026-09-24:** `sir0_privval` is no longer scored at all (`decisions-m3.md`
-2026-09-24), so the selection-free number now comes from `eval_public` alone.
+**2026-09-24:** `sir0_privval` is no longer scored at all (`decisions-m3.md` 2026-09-24), so the selection-free number now comes from `eval_public` alone.
 
-**Unchanged:** Gemini still cannot be backpropagated through, so it can never
-be a loss term. Every training-time Gemini call records model ID, prompt and
-date, exactly as a judge call does.
+**Unchanged:** Gemini cannot be backpropagated through, so it can never be a loss term. Every training-time Gemini call records model ID, prompt and date, as a judge call does.
 
 ---
 
 ## 2026-09-07 — Cross-date judge comparison is treated as valid
 
-**Decision: results scored on different dates are compared directly.** The
-previous rule held that a cross-date comparison was invalid unless every system
-was re-scored together, on the grounds that a closed model can change without
-notice. That rule is withdrawn.
+**Decision: results scored on different dates are compared directly.** The old rule (cross-date comparison is invalid unless every system is re-scored together) is withdrawn.
 
-**Why.** The whole project's judge scoring falls inside a window of a few weeks.
-A closed model can in principle be updated at any time, but the risk of a
-material change inside that window does not justify the cost of enforcing the
-rule: adding one system would force a re-score of every other system, at four
-judge passes and the free-tier daily quota each time, and it would invalidate
-every judge number already written into the report each time it happened. The
-constraint was set for a general case, not this one, and it was pricing a
-hypothetical against real quota and real schedule.
+**Why.** All judge scoring falls within a few weeks. Enforcing the rule would mean re-scoring every system whenever one is added (four judge passes and the free-tier daily quota each time) and invalidating every judge number already in the report. The risk of a material model change in that window does not justify that.
 
-**What is kept.** The recording requirement is unchanged: every judge result
-still records the exact model ID, the exact prompt digest, the input modality and
-the run date. Nothing about provenance is relaxed — only the claim that different
-dates cannot be compared. Keeping the dates means the assumption stays falsifiable
-rather than invisible.
+**Kept.** Every judge result still records the exact model ID, prompt digest, input modality and run date, so the assumption stays falsifiable.
 
-**What this concedes, stated plainly.** If `gemini-3.7-flash` were silently
-updated between 2026-09-02 and the last scoring run, a difference between two
-systems could be partly the model rather than the systems, and nothing in the
-current results would reveal it. The affected comparisons are the ones spanning
-dates: the anchors and the 4,976-trial system (2026-09-02), WeSep (2026-09-03),
-and the 9,955-trial system (2026-09-06).
+**Concession.** If `gemini-3.7-flash` changed silently between 2026-09-02 and the last scoring run, part of a difference between systems could be the model, and nothing in the current results would show it. Affected: the anchors and the 4,976-trial system (2026-09-02), WeSep (2026-09-03), and the 9,955-trial system (2026-09-06).
 
-**How to check it cheaply if it is ever questioned.** The floor and ceiling
-anchors are fixed audio that no model touches, and their 2026-09-02 responses are
-cached in `experiments/results/judge_responses.csv`. Re-scoring the anchors on a
-later date and comparing against the cache measures drift directly, on the same
-clips, for the cost of 206 calls. That converts the assumption above into a
-measurement. Not run as of this entry.
+**Cheap check.** The floor and ceiling anchors are fixed audio, and their 2026-09-02 responses are cached in `experiments/results/judge_responses.csv`. Re-scoring them later and comparing with the cache measures drift directly, for 206 calls. Not run as of this entry.
 
 **Consequences.**
-- `CLAUDE.md`, `docs/data/metric-definitions.md`, `docs/project-state.md` and the
-  appendix comment in `report/appendices/appendices.tex` were amended to match.
-- The 2026-09-05 entry's cost note ("cross-date comparison stays invalid unless
-  re-run") is superseded in part by this entry.
-- The thesis limitations still carry the closed-model dependency: the judge
-  numbers are not reproducible without API access. That is unchanged and is a
-  separate point from cross-date validity.
+- `CLAUDE.md`, `docs/data/metric-definitions.md`, `docs/project-state.md` and the appendix comment in `report/appendices/appendices.tex` were amended to match.
+- The 2026-09-05 entry's cost note ("cross-date comparison stays invalid unless re-run") is partly superseded.
+- The thesis limitations still carry the closed-model dependency (judge numbers are not reproducible without API access). That is a separate point.
 
 ---
 
 ## 2026-09-02 — The judge hallucinates on silence. Speech-gate added; NRR caveated
 
-**Measured, not suspected.** Fed the clean target of an absent trial — digital
-silence, RMS **exactly 0** — `gemini-3.7-flash` returns `status=speech` and
-fabricates fluent prose. Three prompt variants, six silent clips, **0 of 6 ever
-returned `no_speech`**:
+**Measured.** On the clean target of an absent trial (digital silence, RMS exactly 0), `gemini-3.7-flash` returns `status=speech` and fabricates fluent prose. Three prompt variants, six silent clips, **0 of 6 returned `no_speech`**:
 
 | prompt | sha256[:12] | invented words |
 |---|---|---|
 | v1 | `d118b7d3bf30` | 42, 27 |
-| v2a — silence licensed as an expected outcome | `a21169a651d6` | 25, 17 |
-| v2b — adds "Be very careful... Do not hallucinate" | `64d4b994a9a2` | 29, 33 |
+| v2a: silence licensed as an expected outcome | `a21169a651d6` | 25, 17 |
+| v2b: adds "Be very careful... Do not hallucinate" | `64d4b994a9a2` | 29, 33 |
 
 `gemini-3.7-flash`, audio in / text out, AI Studio, prepay tier, 2026-09-02.
 
-**It is not misheard audio — it is generation from the language prior.** The
-clincher: on trial `sir0_val-42-000003`, v2b answered **in French** ("Ah c'est
-comme ça qu'on fait ici...") on an English-only pipeline. The three answers per
-clip share no content with each other or with either reference. The word count
-did not fall monotonically with stronger wording — v2b, the variant that
-explicitly forbids hallucination, produced MORE words than v2a. **Prompting does
-not fix this and further prompt attempts were abandoned.**
+**It is generation from the language prior, not misheard audio.** On trial `sir0_val-42-000003`, v2b answered **in French** ("Ah c'est comme ça qu'on fait ici...") on an English-only pipeline. The three answers per clip share no content with each other or with either reference. Stronger wording did not reduce the word count monotonically: v2b, which forbids hallucination, produced more words than v2a. **Prompting does not fix this, and further prompt attempts were abandoned.**
 
-**Not a Gemini quirk.** Whisper does the same, milder: `small.en` emits "you" on
-silence in 8 of 8 absent trials (`decisions-m3.md`). The literature treats it as
-a characterised failure mode of audio models and evaluates the mitigations
-head to head — Koenecke-style VAD gating, confidence thresholding, hallucination
-pattern matching, LM filtering — in *Investigation of Whisper ASR Hallucinations
-Induced by Non-Speech Audio* (arXiv:2501.11378), which finds VAD and confidence
-thresholding both give meaningful reductions and **no single method eliminates
-it**. WhisperX established VAD pre-processing as the standard fix and names
-Silero specifically.
+**Not a Gemini quirk.** `small.en` does the same, more mildly: it emits "you" on silence in 8 of 8 absent trials (`decisions-m3.md`). *Investigation of Whisper ASR Hallucinations Induced by Non-Speech Audio* (arXiv:2501.11378) compares Koenecke-style VAD gating, confidence thresholding, hallucination pattern matching and LM filtering. VAD and confidence thresholding both help, but **no single method eliminates it**. WhisperX established VAD pre-processing as the standard fix and names Silero.
 
-**Confidence thresholding is unavailable to us**, so the choice was not free:
-logprobs are missing from the Interactions API (documented parity gap with
-`generateContent`), and logprob support above Gemini 2.0 is reported as
-unreliable. Rejected on availability, not on merit.
+**Confidence thresholding is unavailable**: logprobs are missing from the Interactions API (a documented parity gap with `generateContent`), and logprob support above Gemini 2.0 is reported as unreliable. Rejected on availability, not merit.
 
 ### Decision: a speech gate in front of BOTH listeners
 
-`src/live_model_metric/speech_gate.py`. Every clip gets a speech/no-speech
-verdict before any listener sees it; a no-speech verdict returns the empty
-hypothesis without a call.
+`src/live_model_metric/speech_gate.py`. Every clip gets a speech/no-speech verdict before any listener sees it. A no-speech verdict returns the empty hypothesis without a call.
 
-**The argument, which is stronger than "workaround".** *Did the system emit
-speech?* is a **signal** question and never needed a language model. The judge is
-needed for what was **said**, and at that it is excellent — 0.0 % on clean
-targets, byte-identical five times out of five. The gate is the right instrument
-for the other question, not a patch over a broken one.
+**Why it is not a workaround.** *Did the system emit speech?* is a **signal** question and never needed a language model. The judge is needed for what was **said**, and it is excellent at that: 0.0 % on clean targets, byte-identical five times out of five.
 
-**Anchors are decided by CONSTRUCTION, not by VAD** — no new moving part in the
-instrument for information the renderer already fixed. Verified against measured
-RMS on `sir0_val`, 2026-09-02:
+**Anchors are decided by construction, not by VAD**, since the renderer already fixed them. Verified against measured RMS on `sir0_val`, 2026-09-02:
 
 | condition | n | target.wav | interferer.wav | mixture.wav |
 |---|---|---|---|---|
@@ -161,321 +76,151 @@ RMS on `sir0_val`, 2026-09-02:
 | `interferer_only` | 42 | **RMS 0** | speech | speech |
 | `noise_only` | 8 | RMS 0 | RMS 0 | **noise, no speech** |
 
-`noise_only` was not in the original silence analysis and is the more realistic
-probe of the two: real energy, not one word of speech.
+`noise_only` was not in the original silence analysis and is the more realistic probe: real energy, no speech.
 
-**`estimate.wav` is the only clip the VAD decides**, because it is the only one
-whose content is not determined by construction — and it is where the question
-matters, since collapse-to-silence is a measured failure mode of this model
-(2026-08-25). Silero VAD 6.2.1, already pinned under B2. Threshold 0.10 s of
-detected speech, about one short syllable.
+**`estimate.wav` is the only clip the VAD decides**, as its content is not fixed by construction. Collapse-to-silence is a measured failure mode of this model (2026-08-25), so this is where it matters. Silero VAD 6.2.1, already pinned under B2. Threshold 0.10 s of detected speech, about one short syllable.
 
-**Symmetry is mandatory.** The identical rule gates the judge **and** the offline
-ASR. Gate one and not the other and every judge-vs-ASR difference on a
-speech-free clip measures the gate rather than the listeners. `gated()` exists so
-the symmetric use is the natural one. Applied at scoring time for the ASR
-(transcripts already cached) and at call time for the judge (where it also saves
-money); the rule is the same at both points.
+**Symmetry is mandatory.** The same rule gates the judge **and** the offline ASR. Otherwise every judge-vs-ASR difference on a speech-free clip measures the gate. `gated()` makes symmetric use the default. It runs at scoring time for the ASR (transcripts already cached) and at call time for the judge (which also saves money).
 
-**Verified on the 24 v1-prompt answers, 2026-09-02.** 2 of 24 clips blocked — the
-two silent targets — judge 42 → 0 and 27 → 0 words, `small.en` 1 → 0. Identical
-block counts for both listeners. All 20 `both` clips passed untouched.
+**Verified on the 24 v1-prompt answers, 2026-09-02.** 2 of 24 clips blocked (the two silent targets): judge 42 and 27 words down to 0, `small.en` 1 to 0. Same block counts for both listeners. All 20 `both` clips passed untouched.
 
 ### What is logged, and why every decision and not only the blocks
 
-`experiments/results/speech_gate.csv`: date, split, trial, clip, condition,
-listener, verdict, reason, detected speech seconds. Every decision is recorded so
-the denominator is recoverable and a gate that never fires is visible as such.
+`experiments/results/speech_gate.csv`: date, split, trial, clip, condition, listener, verdict, reason, detected speech seconds. Every decision is logged so the denominator is recoverable and a gate that never fires is visible.
 
-**A gate firing on a target-PRESENT trial is a finding, not a measurement
-error** — it means the extractor destroyed the speech. It has to be auditable
-rather than folded silently into a score.
+**A gate firing on a target-present trial is a finding, not a measurement error**: the extractor destroyed the speech. It must be auditable, not folded into a score.
 
 ### The cost to NRR — CORRECTED later the same day
 
-**The first version of this entry said "NRR cannot catch the degenerate muting
-extractor it was designed to catch". That is wrong.** It holds only of the
-UNGATED pipeline. Recorded rather than edited away, because the corrected
-statement is what the metric has to be defended on.
+**The first version said "NRR cannot catch the degenerate muting extractor it was designed to catch". That is wrong**; it holds only for the ungated pipeline. Kept rather than edited away, as the metric is defended on the correction.
 
-**With the gate, NRR works.** The gate intercepts *before* the judge, so a
-muting extractor goes: VAD finds no speech → gate returns the empty hypothesis →
-`non_response_reason("")` returns `"silence"` → **NRR fires.** The gate does not
-bypass NRR, it *feeds* NRR the non-response NRR was built to detect. Without the
-gate that non-response never occurred, which is exactly why the mute went
-undetected.
+**With the gate, NRR works.** For a muting extractor the VAD finds no speech, the gate returns the empty hypothesis, `non_response_reason("")` returns `"silence"`, and **NRR fires.** Without the gate that non-response never occurred, which is why the mute went undetected.
 
-**What NRR genuinely cannot see is narrower: a judge that CONFABULATES rather
-than declines** — and this entry's own measurement is the example. The
-2026-08-31 NRR entry gives its strongest purpose as detecting judge malfunction,
-"it declined on perfect input". The malfunction this judge has is invention.
-NRR's detector is an empty response; a confabulating judge is never empty. That
-purpose is **not** served by NRR and must not be claimed for it.
+**What NRR cannot see is a judge that confabulates rather than declines**, as measured here. The 2026-08-31 NRR entry gives its strongest purpose as detecting judge malfunction ("it declined on perfect input"). This judge's malfunction is invention, and NRR's detector (an empty response) never fires on it. That purpose must **not** be claimed for NRR.
 
-**Consequence: the judge's invention rate becomes its own row**, measured on
-known speech-free audio with the gate deliberately bypassed. It characterises
-the judge, runs once, and is not part of the per-system protocol. The number
-already exists: **0 of 6 silent clips returned `no_speech`, 17–42 words invented,
-across three prompts.**
+**Consequence: the judge's invention rate becomes its own row**, measured once on known speech-free audio with the gate bypassed. It characterises the judge and is not part of the per-system protocol. Already measured: **0 of 6 silent clips returned `no_speech`, 17–42 words invented, across three prompts.**
 
-**NRR is NOT being redefined.** Rejected: widening it to "gate blocked or judge
-silent", which would quietly change the meaning of a published score. Taken:
-keep 3.3 exactly as written, and state that its mute detection *depends on the
-gate* while its judge-defect detection does not extend to confabulation.
+**NRR is not redefined.** Rejected: widening it to "gate blocked or judge silent", which would quietly change a published score. Taken: keep 3.3 as written, and state that its mute detection *depends on the gate* and its judge-defect detection does not cover confabulation.
 
-**One thing to state whenever a blocked trial is reported.** A blocked trial
-scores a **clean ICR** — ICR eligibility is driven by how much exclusive content
-the interferer had, not by the response, so an empty response is eligible with
-zero leakage. On its own that is the degenerate-strategy hole; it is closed only
-because NRR fires on the same trial. That pairing *is* the two-sidedness §4
-claims, and a reviewer will go looking for it.
+**State this whenever a blocked trial is reported.** A blocked trial scores a **clean ICR**: eligibility depends on the interferer's exclusive content, not the response, so an empty response is eligible with zero leakage. That hole is closed only because NRR fires on the same trial. This pairing is the two-sidedness §4 claims.
 
 ### Deviation from the spec, recorded
 
-`metric-definitions.md` 3.1 sends every clip to the judge. It no longer does.
-The spec needs a §3.1 amendment naming the gate as a component of the measuring
-instrument — which means a change to it invalidates comparisons, exactly as for
-the normaliser and the prompt.
+`metric-definitions.md` 3.1 sends every clip to the judge; it no longer does. The spec needs a §3.1 amendment naming the gate as part of the measuring instrument, so changing the gate invalidates comparisons, as for the normaliser and the prompt.
 
 ### This is a result, not only a fix
 
-"A live model cannot be trusted to report absence" is a metric-design finding
-with the same shape as the DNSMOS-gaming story this project cites as its
-cautionary tale (`metric-definitions.md` §4). It is reportable, and it is
-evidence for why the metric had to be designed rather than borrowed.
+"A live model cannot be trusted to report absence" is a reportable metric-design finding, of the same shape as the DNSMOS-gaming story (`metric-definitions.md` §4). It is evidence that the metric had to be designed rather than borrowed.
 
-**J2 stays open** until this entry is signed off; readings 1 and 2 of the
-candidate gate pass decisively (ceiling 1.6 % vs the offline ASR's 5.8 %; floor
-113 %, so ample dynamic range).
+**J2 stays open** until this entry is signed off. Readings 1 and 2 of the candidate gate pass decisively (ceiling 1.6 % vs the offline ASR's 5.8 %; floor 113 %, so ample dynamic range).
 
 ---
 
 ## 2026-08-31 — J1 CLOSED. The judge is audio-in / text-out, not full-duplex
 
-**Decision: the judge is an audio-in / text-out model. Full duplex is not
-required.** Closes J1 in `decisions-pending.md`. Unblocks J2 and therefore all
-of M4.
+**Decision: the judge is an audio-in / text-out model. Full duplex is not required.** Closes J1 in `decisions-pending.md` and unblocks J2, and so all of M4.
 
-**Why.** The property LCF measures is the judge's **audio encoder**, not its
-turn-taking. Nothing in LCF-WER, ICR or NRR reads duplexing, and
-`metric-definitions.md` 3.1 step 2 already makes audio *output* optional — "*if*
-the model responds in audio, transcribe the response". An audio-in / text-out
-model has exactly the learned encoder and the wide training distribution that
-the artefact hypothesis in 3.1 is about.
+**Why.** LCF measures the judge's **audio encoder**, not its turn-taking. Nothing in LCF-WER, ICR or NRR reads duplexing, and `metric-definitions.md` 3.1 step 2 already makes audio *output* optional ("*if* the model responds in audio, transcribe the response"). An audio-in / text-out model has the learned encoder and wide training distribution the artefact hypothesis in 3.1 is about.
 
-**Three consequences that are gains, not compromises.**
+**Three gains.**
 
-1. **The response-transcription ASR disappears from the measuring instrument.**
-   3.1 step 2 calls that ASR "a component of the measuring instrument, and
-   changing it invalidates comparisons". A text response deletes it, and with it
-   a whole class of invalidation. Only the *front-end* ASR of the text reference
-   condition (3.5) remains, and it belongs to the system under test.
-2. **A wider candidate field**, open and closed. Full duplex narrows the open
-   field to roughly Moshi, whose task adherence is 1.26/5 on FullDuplexBench —
-   below the bar our own ceiling gate sets.
-3. **A less noisy instrument.** A full-duplex conversational model is tuned to
-   *converse*, not to *report*. Handed "report what you heard" it may answer the
-   content or chat about it instead of repeating it. That lands in **NRR**, where
-   a degenerate judge is indistinguishable from a degenerate extractor. Removing
-   the conversational tuning removes that confound.
+1. **The response-transcription ASR leaves the measuring instrument.** 3.1 step 2 calls it "a component of the measuring instrument, and changing it invalidates comparisons". A text response removes it. Only the *front-end* ASR of the text reference condition (3.5) remains, and it belongs to the system under test.
+2. **A wider candidate field**, open and closed. Full duplex narrows the open field to roughly Moshi, whose task adherence (1.26/5 on FullDuplexBench) is below our own ceiling gate.
+3. **A less noisy instrument.** A full-duplex model is tuned to *converse*, not *report*. Handed "report what you heard", it may answer or discuss the content instead of repeating it. That lands in **NRR**, where a degenerate judge looks like a degenerate extractor.
 
-**The cost, stated plainly.** This is a deviation from the project's stated
-objective — CLAUDE.md and spec note 10 both say "live speech-to-speech model
-(Gemini Live and similar)". The defensible sentence, which must appear in the
-write-up and not merely in this log: *we used an audio-in model because the
-measurement depends on the judge's audio encoder rather than on its duplexing.*
-If that argument is not made explicitly, a reviewer is entitled to say the
-thesis measured something other than what it set out to.
+**Cost.** This deviates from the stated objective: CLAUDE.md and spec note 10 both say "live speech-to-speech model (Gemini Live and similar)". The write-up, not only this log, must say: *we used an audio-in model because the measurement depends on the judge's audio encoder rather than on its duplexing.* Without it, a reviewer can fairly say the thesis measured something else.
 
-**How the deviation gets bought off rather than argued away: a small
-full-duplex confirmation run.** The headline benchmark is audio-in / text-out.
-Alongside it, ~50 trials are scored on a genuine full-duplex live API. At the
-prices measured in J2 that is a few dollars. It converts the claim from "we
-relaxed the objective and here is why that is acceptable" into "the ranking was
-confirmed on a real full-duplex model at n=50". **Recorded here as part of the
-decision, not as an optional extra**, because the argument above is weaker
-without it.
+**Offset: a small full-duplex confirmation run.** The headline benchmark is audio-in / text-out. Alongside it, ~50 trials are scored on a genuine full-duplex live API, a few dollars at J2 prices. The claim then becomes "the ranking was confirmed on a real full-duplex model at n=50" rather than "we relaxed the objective and here is why that is acceptable". **It is part of the decision, not optional.**
 
-**What this does NOT change.** The judge is still held out from training
-absolutely — never a proxy, never a data filter (CLAUDE.md). Modality is still a
-recorded property of every trial (3.5). The open-weight reproducibility anchor
-is still required, and for reproducibility rather than cost (J2). Every judge
-result still records the exact model ID, exact prompt, modality and run date.
+**Unchanged.** The judge is still held out from training absolutely: never a proxy, never a data filter (CLAUDE.md). Modality is recorded for every trial (3.5). The open-weight reproducibility anchor is still required, for reproducibility rather than cost (J2). Every judge result records the exact model ID, prompt, modality and run date.
 
-**Still open after this:** J2a — which closed model for the headline; J2b —
-which open-weight anchor. Both are now decided by the candidate gate rather than
-by argument. J1 no longer blocks either.
+**Still open:** J2a (closed model for the headline) and J2b (open-weight anchor), now decided by the candidate gate rather than argument. J1 no longer blocks either.
 
 ---
 
 ## 2026-08-31 — ICR design: NLTK content words, ICR@k with per-k eligibility, absent trials on their own row
 
-Four decisions taken, closing most of J3. `metric-definitions.md` 3.2 fixes the
-*mechanism* — content-word overlap between the response `r` and the interferer's
-text `d`, excluding words that also appear in the target's text `t`, thresholded
-— but leaves the content-word list, the threshold and the eligibility rule
-undefined. These are those.
+Four decisions, closing most of J3. `metric-definitions.md` 3.2 fixes the *mechanism* (thresholded content-word overlap between the response `r` and the interferer's text `d`, excluding words also in the target's text `t`) but not the content-word list, threshold or eligibility rule.
 
-**Why ICR is the second metric and not a nice-to-have.** Measured on the floor at
-n=230 (`decisions-m3.md` 2026-08-31): **insertions are 30.8 of the 57.4 points**
-of LCF-WER, the largest error type. Word error rate counts an inserted word
-identically whether the other speaker leaked through or the listener hallucinated
-from noise. **So the largest single component of the headline number is
-undiagnosed, and ICR is what diagnoses it.**
+**Why ICR matters.** On the floor at n=230 (`decisions-m3.md` 2026-08-31), **insertions are 30.8 of the 57.4 points** of LCF-WER, the largest error type. WER counts an inserted word the same whether the other speaker leaked or the listener hallucinated from noise. **ICR diagnoses that largest component.**
 
 ### 1. Content words are defined by NLTK's English stopword list
 
 **Decision: NLTK, chosen for comprehensiveness over a hand-written list.**
 
-**Implementation requirement: the list is SNAPSHOTTED into the repo**, with the
-NLTK version and the retrieval date recorded beside it. Three reasons, all of
-which would otherwise break the metric rather than merely annoy:
+**The list is snapshotted into the repo**, with the NLTK version and retrieval date beside it. Otherwise:
 
-1. `nltk.corpus.stopwords` needs `nltk.download('stopwords')`, a **network
-   fetch at runtime**. Kaggle sessions run with networking off, so the metric
-   would fail there, not degrade.
-2. The list **changes between NLTK releases**. An unpinned word list inside the
-   measuring instrument silently moves every ICR number on upgrade — the same
-   failure mode the normaliser is pinned to avoid (B5).
-3. It is **1 line of code either way**, so the pinned version costs nothing.
+1. `nltk.corpus.stopwords` needs `nltk.download('stopwords')`, a **network fetch at runtime**. Kaggle sessions run offline, so the metric would fail.
+2. The list **changes between NLTK releases**, which would silently move every ICR number on upgrade (the failure mode the normaliser is pinned to avoid, B5).
+3. Pinning is **1 line of code**, so it costs nothing.
 
-**The stopword list must itself be passed through the Whisper normaliser before
-use.** NLTK's list contains apostrophe forms (`don't`, `you're`, `she's`); the
-normaliser expands and strips those on both `r` and `d`, so unnormalised entries
-would never match anything and would silently fail to filter.
+**The stopword list must pass through the Whisper normaliser first.** NLTK's list has apostrophe forms (`don't`, `you're`, `she's`), which the normaliser expands and strips on `r` and `d`, so raw entries would never match.
 
-**Known residual risk, not fixed by this choice.** NLTK's list does not contain
-`one`, and `one` was observed as an "interferer-exclusive content word" on
-`eval_public-42-000000` — a plausible-by-chance word that can fire a false
-positive. Switching from a hand-written list to NLTK does not solve that. If
-false positives show up in the pilot, the fix is a documented project-specific
-addendum to the snapshot, never a silent edit.
+**Residual risk, not fixed by NLTK.** The list lacks `one`, which was seen as an "interferer-exclusive content word" on `eval_public-42-000000`: a chance word that can fire a false positive. If false positives show up in the pilot, the fix is a documented project-specific addendum to the snapshot, never a silent edit.
 
 ### 2. The threshold is a family: ICR@k, with per-k eligibility
 
-**Decision: report ICR@k for k in {1, 2, 3, 5}, with k=2 nominated as the
-headline. Eligibility is evaluated PER k.**
+**Decision: report ICR@k for k in {1, 2, 3, 5}, with k=2 as the headline. Eligibility is per k.**
 
-`ICR@k` = the fraction of eligible trials in which **at least k**
-interferer-exclusive content words appear in the response.
+`ICR@k` = the fraction of eligible trials in which **at least k** interferer-exclusive content words appear in the response.
 
-**Per-k eligibility is the part that makes this correct, and it came out of the
-@k framing.** A trial whose interferer contributed only 1 exclusive content word
-is *structurally incapable* of scoring ICR@2. Pooling it into the denominator
-would drag ICR@3 and ICR@5 toward zero for a reason that is about the trial, not
-the system. So for ICR@k, only trials with **≥ k available** exclusive content
-words are eligible, and **n_k is reported for every k.**
+**Why per-k eligibility.** A trial whose interferer had only 1 exclusive content word *cannot* score ICR@2. Pooling it would drag ICR@3 and ICR@5 toward zero for a reason about the trial, not the system. So for ICR@k only trials with **≥ k available** exclusive content words are eligible, and **n_k is reported for every k.**
 
-**The cost of that, stated:** each ICR@k has a different denominator, so the
-curve mixes threshold strictness with a changing trial subset. It is therefore an
-interpretation aid, **not** the sensitivity analysis 3.2 asks for. The continuous
-measure in decision 3 carries the sensitivity claim instead.
+**Cost.** Each ICR@k has a different denominator, so the curve mixes threshold strictness with a changing subset. It is an interpretation aid, **not** the sensitivity analysis 3.2 asks for; decision 3's continuous measure carries that.
 
-**Why k=2 is the headline.** One shared content word is coincidence at the rate
-English repeats nouns. Two is signal.
+**Why k=2.** One shared content word is coincidence at the rate English repeats nouns. Two is signal.
 
 ### 3. A continuous leakage measure is reported alongside, and it is what systems are RANKED on
 
-**Decision: also report the mean fraction of available interferer-exclusive
-content that leaked, over trials with ≥5 exclusive words available.**
+**Decision: also report the mean fraction of available interferer-exclusive content that leaked, over trials with ≥5 exclusive words available.**
 
-A thresholded rate of trials is interpretable — "one trial in two leaks" — but it
-discards information and has poor variance at n=230, which fights 5's requirement
-to report confidence intervals. The continuous mean has the statistical power, so
-**rank on the mean and quote ICR@2 for interpretation.**
+A thresholded rate ("one trial in two leaks") is easy to read but discards information and has poor variance at n=230, which conflicts with 5's requirement for confidence intervals. **Rank on the mean; quote ICR@2 for interpretation.**
 
-The ≥5 floor is because a fraction over a tiny denominator is not a fraction: one
-leaked word out of one available is 100 %, which is noise, not a finding.
+The ≥5 floor is because one leaked word out of one is 100 %, which is noise.
 
 ### 4. Absent trials get their own ICR row, and it is the SHARPEST leakage evidence
 
-**Decision: score ICR separately on target-absent trials, and treat that row as
-the primary leakage measurement.**
+**Decision: score ICR separately on target-absent trials, and treat that row as the primary leakage measurement.**
 
-**B4's exclusion rule does not apply to ICR.** B4 keeps target-absent trials out
-of the headline because `t` is empty and word error rate against nothing is
-undefined. But **ICR's reference is `d`, not `t`** — and `d` is non-empty. So the
-trials B4 excludes are not merely scoreable here, they are the cleanest case
-available:
+**B4's exclusion rule does not apply to ICR.** B4 keeps target-absent trials out of the headline because `t` is empty and WER against nothing is undefined. **ICR's reference is `d`, not `t`**, and `d` is non-empty. These trials are the cleanest case:
 
 - the target never speaks, so the correct output is **silence**
-- `t` is empty, so **every** interferer content word is "exclusive" by definition
-- therefore any interferer content in the response is **unambiguous** leakage,
-  with no attribution difficulty at all
+- `t` is empty, so **every** interferer content word is "exclusive"
+- so any interferer content in the response is **unambiguous** leakage
 
-**The number already exists in disguise.** Floor invented-speech rate on
-`interferer_only` trials is **95.1 %**, ceiling **0.0 %** — near-total dynamic
-range, against the 52 % / 0 % of the present-trial ICR.
+**The number already exists.** Floor invented-speech rate on `interferer_only` trials is **95.1 %**, ceiling **0.0 %**: near-total dynamic range, against the 52 % / 0 % of the present-trial ICR.
 
-**Only `interferer_only` qualifies, not all absent trials.** On `noise_only`
-nobody speaks, so `d` is empty and there is no exclusive content to leak — those
-trials are ineligible for ICR entirely. In `eval_public` that is 123 eligible
-against 22 ineligible.
+**Only `interferer_only` qualifies.** On `noise_only`, `d` is empty, so those trials are ineligible. In `eval_public`: 123 eligible, 22 ineligible.
 
 ### Carried forward from J3, unchanged
 
-**Floor ICR is partly set by construction and must be labelled as such.** The
-judge never sees the enrolment, so on an unprocessed two-speaker mixture it
-cannot know which speaker is the target and will pick one — which is why floor
-ICR lands near a coin flip. That is the correct behaviour and it *is* the
-finding: doing nothing gets you the wrong speaker about half the time. But it
-must be stated wherever the floor row is quoted, and **the fixed prompt must not
-instruct the judge to choose a speaker** ("the clearest voice"), which would hand
-the extractor's job to the judge.
+**Floor ICR is partly set by construction and must be labelled so.** The judge never sees the enrolment, so on an unprocessed two-speaker mixture it picks a speaker, and floor ICR lands near a coin flip. That is correct, and is the finding: doing nothing gets the wrong speaker about half the time. State it wherever the floor row is quoted. **The fixed prompt must not tell the judge to choose a speaker** ("the clearest voice"), as that hands the extractor's job to the judge.
 
 ### What ICR does not measure
 
-It measures **leaked content**, not **detected presence**. A judge that says
-"another voice was talking" without quoting it scores 0, correctly — no content
-leaked. That is intended, and worth stating so the row is not read as "the judge
-did not notice the interferer".
+It measures **leaked content**, not **detected presence**. A judge that says "another voice was talking" without quoting it correctly scores 0, so the row must not be read as "the judge did not notice the interferer".
 
 ---
 
 ## 2026-08-31 — NRR design: an empty response is the signal, not pattern matching
 
-**Decision: the prompt instructs the judge — *if you cannot identify any speech,
-return nothing* — and a non-response is an empty response.** No sentinel token,
-no pattern list. `metric-definitions.md` 3.3 defines NRR as the "fraction of
-trials where the model declines, reports hearing nothing, returns silence, or
-produces a refusal" but does not say how that is decided. This is how.
+**Decision: the prompt tells the judge *if you cannot identify any speech, return nothing*, and a non-response is an empty response.** No sentinel token, no pattern list. `metric-definitions.md` 3.3 defines NRR as the "fraction of trials where the model declines, reports hearing nothing, returns silence, or produces a refusal" but not how that is decided.
 
-**Why emptiness and not a sentinel token.** A sentinel (`######`, checked before
-normalisation) was drafted first and rejected as needless complexity. **The
-offline ASR already returns empty on silence**, so emptiness gives ONE detection
-rule that serves both the ASR stand-in and the prompted judge; a sentinel would
-have needed two rules and a token to document, pin and defend against API
-mangling. The distinction a sentinel would have bought — telling a deliberate
-"no speech" signal apart from an empty response caused by an API error or
-truncation — **belongs at the transport layer, not in the metric**: record the
-call's finish reason, and treat a failed call as a missing measurement to retry,
-not as a trial that scored.
+**Why not a sentinel token.** A sentinel (`######`, checked before normalisation) was drafted and rejected as needless complexity. **The offline ASR already returns empty on silence**, so emptiness is one rule for both the ASR stand-in and the judge, where a sentinel needs two rules and a token to document, pin and protect from API mangling. Telling a deliberate "no speech" apart from an empty response caused by an API error or truncation **belongs at the transport layer, not in the metric**: record the call's finish reason, and retry a failed call as a missing measurement rather than scoring it.
 
 ### What NRR is for, in order of actual strength
 
-**1. It detects judge malfunction.** NRR on clean target audio *is* the judge's
-own defect rate — it declined on perfect input. Nothing else in the metric set
-can see that, and J2 warns that a degenerate judge is indistinguishable from a
-degenerate extractor in the numbers.
+**1. It detects judge malfunction.** NRR on clean target audio is the judge's own defect rate (it declined on perfect input). Nothing else sees that, and J2 warns that a degenerate judge looks like a degenerate extractor in the numbers.
 
-**2. It separates "declined" from "misheard"** — a failure mode that exists only
-because the judge is a conversational model rather than a transcriber. An ASR
-always outputs something; a live model can refuse, hit a safety filter, or judge
-the audio unusable. LCF-WER lumps those in with a bad transcription.
+**2. It separates "declined" from "misheard".** An ASR always outputs something; a live model can refuse, hit a safety filter, or judge the audio unusable. LCF-WER lumps those in with a bad transcription.
 
-**3. It stops a mute scoring perfectly on ICR** — the reason 3.3 gives, and the
-weakest of the three, because **LCF-WER already scores a mute ~100 %** (all
-deletions) and the deletion rate identifies it as suppression. Do not defend NRR
-on this ground alone; the obvious reply is "but WER already catches that".
+**3. It stops a mute scoring perfectly on ICR.** This is 3.3's reason and the weakest, because **LCF-WER already scores a mute ~100 %** (all deletions) and the deletion rate flags it as suppression. Do not defend NRR on this alone.
 
-**It is a tripwire, not a quality measure.** It will not rank two working systems
-and must never be quoted as if a one-point difference means something.
+**It is a tripwire, not a quality measure.** It will not rank two working systems, and a one-point difference means nothing.
 
 ### Why pattern matching was rejected — measured, not assumed
 
-The obvious detector searches the response for refusal phrases. Run against the
-**ground-truth texts** of `eval_public`, those phrases match **38 of 500 trials —
-7.6 %**:
+On the **ground-truth texts** of `eval_public`, refusal phrases match **38 of 500 trials (7.6 %)**:
 
 | pattern | matches in reference text |
 |---|---|
@@ -489,75 +234,43 @@ Ground truth a pattern detector would have scored as a refusal:
 > *"nothing would satisfy him that could not stand cross-examination"*
 > *"there was no man sir, his troubled blue eyes glanced…"*
 
-**The speakers say these words.** A correct, verbatim transcription would have
-been recorded as a non-response, at a false-positive rate exceeding the metric's
-entire range.
+**The speakers say these words.** A correct transcription would count as a non-response, at a false-positive rate above the metric's entire range.
 
-**CORRECTION TO A NUMBER REPORTED IN CONVERSATION.** A pattern-matching draft
-gave NRR floor **4.78 %** / ceiling **3.91 %** on `condition=both`. Re-measured,
-both are **0.00 %**. Those figures were entirely false positives — every one a
-pattern match on real speech. Do not quote them.
+**Correction to a number reported in conversation.** A pattern-matching draft gave NRR floor **4.78 %** / ceiling **3.91 %** on `condition=both`. Re-measured, both are **0.00 %**: all were pattern matches on real speech. Do not quote them.
 
 ### The rule
 
 | response | verdict |
 |---|---|
-| empty after normalising | non-response — `silence` |
-| in the artefact set (`you`, `thank you`, …) | non-response — `artefact` |
+| empty after normalising | non-response (`silence`) |
+| in the artefact set (`you`, `thank you`, …) | non-response (`artefact`) |
 | anything else | a real report; score it |
 
-**The artefact set exists only for the offline-ASR stand-in.** `small.en` cannot
-be instructed and emits `you` on digital silence, measured 8 of 8 absent trials
-(`decisions-m3.md` 2026-08-28). A prompted judge returns nothing and lands in
-`silence`.
+**The artefact set exists only for the offline-ASR stand-in.** `small.en` cannot be instructed and emits `you` on digital silence (8 of 8 absent trials, `decisions-m3.md` 2026-08-28). A prompted judge returns nothing and lands in `silence`.
 
-**NRR is per trial, not per second.** One trial, one yes/no. A trial where 2 of
-30 words came back is a real report that scores badly on LCF-WER, not a
-non-response. How much was lost is LCF-WER's deletion rate.
+**NRR is per trial, not per second.** A trial where 2 of 30 words came back is a real report that scores badly on LCF-WER, not a non-response. How much was lost is LCF-WER's deletion rate.
 
 ### Absent trials are excluded, inside the metric
 
-Where the target never speaks, reporting nothing is the **correct** answer, so
-counting it as a non-response inverts the score. An earlier draft reported
-**32.8 % NRR on clean target audio** for exactly this reason, driven entirely by
-the 145 absent trials. `compute_nrr` therefore **requires** the target texts and
-excludes empty-reference trials itself, so a caller cannot forget. Absent trials
-are measured by the invented-speech row instead (B4).
+Where the target never speaks, reporting nothing is **correct**, so counting it as a non-response inverts the score. An earlier draft reported **32.8 % NRR on clean target audio** for this reason, all from the 145 absent trials. `compute_nrr` therefore **requires** the target texts and drops empty-reference trials itself, so a caller cannot forget. Absent trials are measured by the invented-speech row instead (B4).
 
 ### Two consequences to carry
 
-**A prose refusal is NOT detected, deliberately.** A judge that ignores the
-instruction and declines in prose scores as a bad transcription. Catching it
-needs the rejected pattern list. **Non-compliance is handled by disqualifying the
-judge** — `silence_compliance()` measures it on silent input and belongs in the
-J2 candidate gate beside ceiling LCF-WER.
+**A prose refusal is deliberately not detected**; it scores as a bad transcription, and catching it needs the rejected pattern list. **Non-compliance is handled by disqualifying the judge**: `silence_compliance()` measures it on silent input and belongs in the J2 candidate gate beside ceiling LCF-WER.
 
-**NRR must be read as a delta from the ceiling.** `system_attributable_nrr()`
-names the subtraction so it is not skipped.
+**NRR must be read as a delta from the ceiling.** `system_attributable_nrr()` names the subtraction so it is not skipped.
 
 ### Status: dormant until a judge exists
 
-With the offline ASR standing in, NRR is **0.00 % on all 355 present trials at
-both floor and ceiling** — a transcriber always returns words when the audio
-contains speech. So unlike LCF-WER and ICR, **NRR carries no information until a
-real prompted judge can decline.** Built and tested; cannot be exercised before
-J2 closes. Read the zeros as "not yet measurable", not as a result.
+With the offline ASR standing in, NRR is **0.00 % on all 355 present trials at both floor and ceiling**, since a transcriber always returns words on speech. **NRR carries no information until a real prompted judge can decline.** Built and tested; cannot be exercised before J2 closes. Read the zeros as "not yet measurable".
 
-**Still open:** off-prompt chat — a judge that answers the content instead of
-reporting it ("what time is the meeting" → "I don't have access to your
-calendar"). Matches no rule, is not empty, and is not detectable without
-reintroducing the false-positive problem. To be checked by hand on the judge
-pilot and recorded as a known blind spot.
+**Still open:** off-prompt chat, where the judge answers the content instead of reporting it ("what time is the meeting" answered with "I don't have access to your calendar"). It matches no rule, is not empty, and cannot be caught without the false-positive problem. Check by hand on the judge pilot and record as a known blind spot.
 
 ## 2026-09-03 — Judge run 2: the borrowed WeSep baseline. No rank inversion
 
-The live judge did not reorder the two systems. All five instruments (SI-SDR,
-SIR, offline WER, DNSMOS `OVRL`, live judge) rank the borrowed WeSep checkpoint
-ahead of our baseline, and the judge's margin is the widest. This is M6's
-divergence test answered negatively on n=2.
+The live judge did not reorder the two systems. All five instruments (SI-SDR, SIR, offline WER, DNSMOS `OVRL`, live judge) rank the borrowed WeSep checkpoint ahead of our baseline, the judge by the widest margin. M6's divergence test is answered negatively on n=2.
 
-**Provenance** — mandatory for any judge result. Closed models change silently,
-so this is not comparable to a judge result from another date unless re-run.
+**Provenance** (mandatory). Closed models change silently, so this is not comparable to a judge result from another date unless re-run.
 
 | field | value |
 |---|---|
@@ -578,51 +291,25 @@ so this is not comparable to a judge result from another date unless re-run.
 | WeSep | **26.40** | 10.62 | 6.78 | 8.99 | **25.24** | **12.92** | 0.0 |
 | ceiling | 1.05 | 0.87 | 0.15 | 0.03 | 0.00 | 0.00 | 0.0 |
 
-Baseline for comparison (2026-09-02, same prompt and anchors): 56.72 / 62.14 /
-50.15.
+Baseline for comparison (2026-09-02, same prompt and anchors): 56.72 / 62.14 / 50.15.
 
-**Run health:** 103 calls, 0 failed, 0 gate blocks, 1 transient safety-filter hit
-that passed on retry (the same ~1-in-300 rate as 2026-09-02). Floor and ceiling
-served from cache and identical to 2026-09-02, so both systems are scored against
-the same anchors.
+**Run health:** 103 calls, 0 failed, 0 gate blocks, 1 transient safety-filter hit that passed on retry (~1-in-300, as on 2026-09-02). Floor and ceiling came from cache, identical to 2026-09-02, so both systems share anchors.
 
-**WeSep wins by removing the interferer, not by preserving the target.**
-Insertions fall 26.22 → 8.99 (the inserted words were the interferer's) while
-deletions *rise* 3.43 → 6.78, above even the floor's 5.97. Consequence: LCF-WER
-on our two-speaker mixtures is dominated by interferer suppression, and a system
-can lose more target words than doing nothing while halving the score. Any claim
-built on LCF-WER must state that.
+**WeSep wins by removing the interferer, not by preserving the target.** Insertions fall from 26.22 to 8.99 (the inserted words were the interferer's), while deletions *rise* from 3.43 to 6.78, above even the floor's 5.97. So LCF-WER on our two-speaker mixtures is dominated by interferer suppression, and a system can lose more target words than doing nothing while halving the score. Any claim built on LCF-WER must say so.
 
-**Why this does not close M6.** The systems are 30 LCF-WER points apart, half the
-metric's range. A rank inversion is a claim about systems that are *close*, so
-this negative result is honest but underpowered. The test that exercises the
-hypothesis is a near-tie pair — the argument for building system 3 (per-band
-gate, D13).
+**Why this does not close M6.** The systems are 30 LCF-WER points apart, half the metric's range. A rank inversion concerns systems that are *close*, so this negative result is underpowered. Testing the hypothesis needs a near-tie pair, which is the case for building system 3 (per-band gate, D13).
 
-Not comparable to any published REAL-TSE number: our data, metric and protocol.
-WeSep is borrowed (Wang et al., Interspeech 2024) and out of domain in every
-direction. See `project-state.md` § System 5.
+Not comparable to any published REAL-TSE number: our data, metric and protocol. WeSep is borrowed (Wang et al., Interspeech 2024) and out of domain in every direction. See `project-state.md` § System 5.
 
 ---
 
 ## 2026-09-03 — J3 SIGNED OFF. ICR threshold is `count >= 2`, and k turns out not to matter
 
-**Decision: the ICR threshold is `count >= 2`** — at least two
-interferer-exclusive content words in the response. Written into
-`metric-definitions.md` §3.2, which previously required a threshold "fixed in
-advance with its sensitivity reported" and then supplied neither.
+**Decision: the ICR threshold is `count >= 2`** (at least two interferer-exclusive content words in the response). Written into `metric-definitions.md` §3.2, which required a threshold "fixed in advance with its sensitivity reported" but supplied neither.
 
-**Why `count >= 2` and not a fraction.** One shared content word between a
-response and the interferer is coincidence at the rate English repeats nouns;
-two is signal. The fraction rule (`>= θ` of the interferer-exclusive words
-available) scales with the interferer's utterance length, which varies per trial
-**by construction** — so it moves with a property of the trial rather than of the
-system. That makes it the worse primary and the better secondary. Both are
-computed.
+**Why `count >= 2` and not a fraction.** One shared content word is coincidence at the rate English repeats nouns; two is signal. The fraction rule (`>= θ` of the available interferer-exclusive words) scales with the interferer's utterance length, which varies per trial **by construction**, so it tracks the trial rather than the system. It is therefore the secondary. Both are computed.
 
-**The sensitivity sweep says the choice is not load-bearing**, which is the
-useful part. `eval_public`, offline ASR stand-in, 2026-08-31
-(`experiments/results/2026-08-31-icr-sweep-eval_public/`):
+**The sensitivity sweep shows the choice does not matter.** `eval_public`, offline ASR stand-in, 2026-08-31 (`experiments/results/2026-08-31-icr-sweep-eval_public/`):
 
 | set | ICR@1 | ICR@2 | ICR@3 | ICR@5 |
 |---|---|---|---|---|
@@ -630,106 +317,48 @@ useful part. `eval_public`, offline ASR stand-in, 2026-08-31
 | present (`both`), ceiling | 0.0 | **0.0** | 0.0 | 0.0 |
 | absent (`interferer_only`), floor | 100.0 | **100.0** | 99.2 | 97.5 |
 
-The floor moves 14 points across the whole range while the ceiling sits at 0.0
-throughout. **Every k separates the anchors completely**, so no conclusion
-changes if k is 1, 3 or 5. §3.2's sensitivity requirement is discharged by that
-fact rather than by arguing 2 over 3 — which is the honest way to close it,
-because there is no evidence that would distinguish them.
+The floor moves 14 points across the range while the ceiling stays at 0.0. **Every k separates the anchors completely**, so no conclusion changes for k of 1, 3 or 5. That fact meets §3.2's sensitivity requirement; no evidence could separate 2 from 3 anyway.
 
-**Two things settled at the same time.**
+**Also settled.**
 
-1. **Exclusion, not zero.** Trials where the interferer said nothing exclusive
-   are excluded from ICR rather than scored clean; scoring them clean dilutes the
-   rate toward zero with trials that could never have fired. The count is
-   reported. **Currently 0 in every `eval_public` stratum** — the rule is inert on
-   this data and is kept for correctness, not because it has bitten.
-2. **The floor's ICR is partly by construction.** The judge never sees the
-   enrolment, so on an unprocessed mixture it cannot know which speaker is the
-   target and picks one; the floor tends toward a coin flip. Measured at k=2 on
-   the `eval_public` floor: **87.5 %** when the interferer is louder against
-   **37.5 %** when the target is louder. That is the task's property, not the
-   listener's failure, and it must be stated wherever the floor is quoted.
+1. **Exclusion, not zero.** Trials where the interferer said nothing exclusive are excluded from ICR, not scored clean, which would dilute the rate with trials that could never fire. The count is reported. **Currently 0 in every `eval_public` stratum**: the rule is inert here and kept for correctness.
+2. **The floor's ICR is partly by construction.** The judge never sees the enrolment, so on an unprocessed mixture it picks a speaker and the floor tends toward a coin flip. At k=2 on the `eval_public` floor: **87.5 %** when the interferer is louder, **37.5 %** when the target is louder. This is a property of the task, not the listener, and must be stated wherever the floor is quoted.
 
-**Binding consequence for the prompt.** It must never instruct the judge to
-choose a speaker — no "the clearest voice", no "the loudest speaker". That hands
-the extractor's job to the judge and turns a measurement into an instruction, and
-it would move the floor row for reasons unrelated to any system under test. The
-frozen prompt (sha256[:12] `d118b7d3bf30`) already complies; this records why it
-must continue to.
+**Binding consequence for the prompt.** It must never tell the judge to choose a speaker (no "the clearest voice", no "the loudest speaker"). That hands the extractor's job to the judge and would move the floor row for reasons unrelated to any system. The frozen prompt (sha256[:12] `d118b7d3bf30`) already complies.
 
-**Caveat carried.** The sweep is `eval_public` scored through the offline ASR, a
-STAND-IN. It establishes that the threshold choice does not change rankings; it
-is **not** a live-model result and must not be quoted as one. The judge-measured
-ICR@2 figures live in `project-state.md`'s results table on `sir0_val`.
+**Caveat carried.** The sweep scores `eval_public` through the offline ASR stand-in. It is **not** a live-model result and must not be quoted as one. The judge-measured ICR@2 figures are in `project-state.md`'s results table on `sir0_val`.
 
 ---
 
 ## 2026-09-03 — J2b cut: no open-weight judge
 
-**Cut on schedule, not on merit.** Qwen3-Omni was selected (2026-08-31) for
-encoder independence — its AuT encoder is trained from scratch, while Voxtral,
-Ultravox and Qwen2.5-Omni build on a Whisper encoder and would share lineage with
-`faster-whisper small.en`. That reasoning still holds; there is just no room for
-a T4x2 session and a second scoring pass with 6 weeks to freeze and M5 unbuilt.
+**Cut on schedule, not merit.** Qwen3-Omni was selected (2026-08-31) for encoder independence: its AuT encoder is trained from scratch, while Voxtral, Ultravox and Qwen2.5-Omni build on a Whisper encoder, sharing lineage with `faster-whisper small.en`. There is no room for a T4x2 session and a second scoring pass with 6 weeks to freeze and M5 unbuilt.
 
-**What it costs:** the judge numbers are not reproducible without API access, and
-`gemini-3.7-flash` is a closed model whose weights are not under our control.
-Goes in the thesis limitations next to A1 and the two-speaker boundary.
-**Superseded in part 2026-09-07:** cross-date comparison is no longer treated as
-invalid. See that entry.
+**Cost:** judge numbers are not reproducible without API access, and `gemini-3.7-flash` is a closed model whose weights we do not control. This goes in the thesis limitations next to A1 and the two-speaker boundary. **Superseded in part 2026-09-07:** cross-date comparison is no longer treated as invalid.
 
-**What it doesn't cost:** the harness is judge-agnostic, so adding an open-weight
-listener later is a config change, not a redesign. Prompt is frozen by hash,
-provenance is recorded per result, and the 344 raw judge responses are kept in
-`judge_responses.csv` — so the numbers can still be audited, just not regenerated.
+**Not lost:** the harness is judge-agnostic, so an open-weight listener is a later config change, not a redesign. The prompt is frozen by hash, provenance is recorded per result, and the 344 raw judge responses are kept in `judge_responses.csv`, so the numbers can be audited, though not regenerated.
 
-`metric-definitions.md` §5 downgraded from a requirement to a stated limitation;
-§7's open question closed as cut. Note that `research-plan.md`'s old contingency
-("reduce judges to one — keep the open-weight one") ends up inverted.
+`metric-definitions.md` §5 is downgraded from a requirement to a stated limitation, and §7's open question closed as cut. `research-plan.md`'s old contingency ("reduce judges to one — keep the open-weight one") ends up inverted.
 
 ---
 
 ## 2026-09-03 — Text reference condition cut: excluded on latency, not scored
 
-**The text path is ruled out rather than measured.** `metric-definitions.md` §3.5
-defined it as a reference condition (extractor → off-the-shelf ASR → text →
-judge). No text LCF number will be produced.
+**The text path is ruled out, not measured.** `metric-definitions.md` §3.5 defined it as a reference condition (extractor → off-the-shelf ASR → text → judge). No text LCF number will be produced.
 
-**Why exclusion beats scoring.** Extraction alone costs 162 ms mean / 176 ms p99
-(measured 2026-09-01) against a 200-300 ms budget, and the ASR is non-streaming —
-it needs an endpoint before it decodes, on top of that. So the text path cannot
-meet the project's own latency constraint. Scoring it would publish a content
-number for a system that cannot be deployed under the spec, and a text row would
-likely *win* on content — inviting "text wins, why not use text?" and forcing the
-answer into a footnote. **Answering the modality question with latency, which is
-measured, is cleaner than answering it with LCF and then discounting the LCF.**
+**Why.** Extraction alone costs 162 ms mean / 176 ms p99 (measured 2026-09-01) against a 200-300 ms budget, and the non-streaming ASR also needs an endpoint before it decodes. The text path cannot meet the latency constraint. Scoring it would publish a content number for a system the spec cannot deploy, and a text row would likely *win* on content, inviting "text wins, why not use text?" with the answer in a footnote. **Answering the modality question with measured latency is cleaner than scoring LCF and then discounting it.**
 
-This does not reverse the 2026-08-07 output-modality decision; it extends it. That
-decision said text would not be *built*. This says it will not be *scored* either,
-for the same reason, and states the reason as a measurement.
+This extends the 2026-08-07 output-modality decision: text would not be *built*, and now will not be *scored* either, for the same reason, stated as a measurement.
 
-**Consequences.** M6's anchor item drops to audio floor + audio ceiling. §3.5's
-two caveats are retained as the reasoning behind the exclusion — the judge is
-close to a pass-through on text so the score would mostly reflect the front-end
-ASR, and the metric is lexical so prosody and speaker identity vanish at the ASR
-boundary. Both belong in the write-up.
+**Consequences.** M6's anchor item drops to audio floor + audio ceiling. §3.5's two caveats stay as the reasoning for the exclusion, and both belong in the write-up: the judge is close to a pass-through on text, so the score would mostly reflect the front-end ASR, and the metric is lexical, so prosody and speaker identity vanish at the ASR boundary.
 
 ---
 
 ## 2026-09-03 — FR added as the third score; NRR removed
 
-**NRR is out of the protocol.** It read **0.0 % on every judge row**. Its detector
-is an empty response and `gemini-3.7-flash` never returns one — it invents
-instead. `nrr.py` said as much itself: "a tripwire, not a quality measure. It will
-not rank two working systems."
+**NRR is out of the protocol.** It read **0.0 % on every judge row**: its detector is an empty response, and `gemini-3.7-flash` never returns one; it invents instead. `nrr.py` itself says: "a tripwire, not a quality measure. It will not rank two working systems."
 
-**FR (Fabrication Rate) replaces it**: response content words appearing in
-**neither** speaker's script. This closes a hole §3.3 already named — that the
-invention rate was a property measured once *of the judge*, not per system, so a
-system whose artefacts *provoke* invention was invisible. `fabrication.py`,
-17 tests, wired into `evaluate.py`. Sweep in
-`experiments/results/2026-09-03-fr-sweep-sir0_val/` — re-analysis of the cached
-responses, no new API calls.
+**FR (Fabrication Rate) replaces it**: response content words in **neither** speaker's script. It closes a hole §3.3 already named: the invention rate was measured once, *of the judge*, so a system whose artefacts *provoke* invention was invisible. `fabrication.py`, 17 tests, wired into `evaluate.py`. Sweep in `experiments/results/2026-09-03-fr-sweep-sir0_val/`, re-analysing cached responses with no new API calls.
 
 `sir0_val` `both`, n=103, prompt `d118b7d3bf30`:
 
@@ -740,46 +369,21 @@ responses, no new API calls.
 | baseline | **1.83** | 41.7 % | 10.4 % | 17.9 |
 | WeSep | **1.80** | 38.8 % | 13.8 % | 15.1 |
 
-**Two findings.** Both extractors raise fabrication **~48 % above doing nothing**
-(1.24 → ~1.8). And **baseline and WeSep are indistinguishable** (1.83 vs 1.80)
-despite a 25-point WER gap and WeSep leaking a third as much — so fabrication is
-an axis of its own, not a by-product of extraction quality. That is the case for
-reporting it separately rather than leaving it inside insertions.
+**Two findings.** Both extractors raise fabrication **~48 % above doing nothing** (1.24 to ~1.8). **Baseline and WeSep are indistinguishable** (1.83 vs 1.80) despite a 25-point WER gap and WeSep leaking a third as much. Fabrication is its own axis, not a by-product of extraction quality, so it is reported separately rather than left inside insertions.
 
-**A trap found and closed during implementation.** The first cut reported the
-*percentage*, on which WeSep looks worse (13.8 % vs 10.4 %). That is an artefact:
-the percentage divides by the response's own length, and WeSep's responses are
-shorter (15.1 content words against 17.9), so identical fabrication inflates.
-**Cross-system claims use `invented_per_trial`; the percentage is a within-system
-reading only.** Enforced by `test_per_trial_count_is_immune_to_response_length`.
+**Pitfall found during implementation.** The first version reported the *percentage*, on which WeSep looks worse (13.8 % vs 10.4 %). That divides by the response's own length, and WeSep's responses are shorter (15.1 content words against 17.9), which inflates it. **Cross-system claims use `invented_per_trial`; the percentage is within-system only.** Enforced by `test_per_trial_count_is_immune_to_response_length`.
 
-**FR is an upper bound and its ceiling is not zero** (0.20 words/trial). A word
-absent from both scripts may be invented, misheard as a different real word, or a
-reference mismatch — only the first is fabrication. Quote FR only against its
-ceiling; the excess is what a system is responsible for. ICR has no equivalent
-problem: its ceiling genuinely is 0.0.
+**FR is an upper bound and its ceiling is not zero** (0.20 words/trial). A word absent from both scripts may be invented, misheard as another real word, or a reference mismatch; only the first is fabrication. Quote FR only against its ceiling. ICR's ceiling is 0.0, so it has no such problem.
 
-**Sensitivity.** Ordering is unchanged at k = 1, 2, 3, 5, so headline k=2 is a
-convention rather than a load-bearing choice — the same conclusion J3 reached for
-ICR the same day.
+**Sensitivity.** Ordering is unchanged at k = 1, 2, 3, 5, so headline k=2 is a convention, as J3 found for ICR the same day.
 
-**What is preserved from NRR.** It existed so a muting extractor — which scores a
-*clean* ICR because nothing came out — still trips an alarm. FR excludes empty
-responses from its own rate (otherwise muting would lower fabrication) and reports
-the count as `no_response`, so the pairing survives. `nrr.py` is kept and marked
-superseded, not deleted: historical rows in `RESULTS.md`, `project-state.md` and
-the `results.json` files carry an `nrr` column and this is the definition that
-produced them.
+**Kept from NRR.** A muting extractor scores a *clean* ICR because nothing came out, so something must still trip. FR excludes empty responses from its rate (otherwise muting would lower fabrication) and reports their count as `no_response`, keeping the pairing. `nrr.py` is kept and marked superseded: historical rows in `RESULTS.md`, `project-state.md` and the `results.json` files carry an `nrr` column produced by it.
 
 ---
 
 ## 2026-09-04 — `judge_prompt_v2.txt` CONSIDERED, NOT USED. The prompt is frozen
 
-**The instrument stays `src/live_model_metric/judge_prompt.txt`,
-sha256[:12] `d118b7d3bf30`.** `judge_prompt_v2.txt` exists in the tree, has never
-produced a recorded number, and is not to be adopted. Logged because an unused
-prompt variant sitting next to the live one is exactly the thing that gets picked
-up by mistake.
+**The instrument stays `src/live_model_metric/judge_prompt.txt`, sha256[:12] `d118b7d3bf30`.** `judge_prompt_v2.txt` is in the tree, has never produced a recorded number, and is not to be adopted. Logged because an unused variant beside the live prompt is easily used by mistake.
 
 ### What is in use
 
@@ -787,89 +391,45 @@ up by mistake.
 
     If no words are audible, leave the transcript empty and set status to no_speech.
 
-144 bytes, `d118b7d3bf30`. `judge_gate.yaml:19` points at it. Every judge result
-in the project was run with it: the baseline row 2026-09-02, the WeSep row
-2026-09-03, the ICR sweep and the FR sweep.
+144 bytes, `d118b7d3bf30`. `judge_gate.yaml:19` points at it. Every judge result was run with it: the baseline row 2026-09-02, the WeSep row 2026-09-03, the ICR sweep and the FR sweep.
 
 ### What v2 added, and why it is not an improvement
 
-385 bytes, sha256[:12] `64d4b994a9a2`. It adds a role line ("You are an audio
-transcriber"), expands the no-speech instruction, and appends two imperatives:
-"Be very careful to transcribe correctly. Do not hallucinate."
+385 bytes, sha256[:12] `64d4b994a9a2`. It adds a role line ("You are an audio transcriber"), expands the no-speech instruction, and appends "Be very careful to transcribe correctly. Do not hallucinate."
 
-**Those last two are the problem, not the fix.** Fabrication is the thing FR
-measures (`decisions-m4.md` 2026-09-03: both extractors raise it ~48 % above
-doing nothing, and the two extractors are indistinguishable on it despite a
-25-point LCF-WER gap). Instructing the judge not to hallucinate is **tuning the
-measuring instrument against the quantity it measures.** Any drop in FR afterwards
-would be unattributable between the front end and the prompt, and the metric's
-gaming-resistance claim — the primary contribution — would be weaker for it. The
-judge's listening behaviour must stay fixed while the extractor varies.
+**Those last two lines are the problem.** FR measures fabrication (`decisions-m4.md` 2026-09-03: both extractors raise it ~48 % above doing nothing, and are indistinguishable on it despite a 25-point LCF-WER gap). Telling the judge not to hallucinate **tunes the instrument against the quantity it measures.** A later drop in FR could not be attributed to the front end or the prompt, which weakens the gaming-resistance claim (the primary contribution).
 
-The no-speech wording is a real question, but it is J1's structured-field design
-that carries it (`decisions-m4.md` 2026-08-31: the signal is a structured field,
-never in-band text, because the normaliser maps `####` and `[no speech]` both to
-`''`). v2 changes the wording, not the mechanism.
+The no-speech wording is a real question, but J1's structured-field design handles it (`decisions-m4.md` 2026-08-31: the signal is a structured field, never in-band text, because the normaliser maps `####` and `[no speech]` both to `''`). v2 changes the wording, not the mechanism.
 
 ### The cost of switching, stated
 
-The prompt's sha is part of the judge cache key, by design, so that editing it
-cannot silently reuse stale answers. Pointing `judge_gate.yaml` at v2 therefore
-**re-buys every judge call at a prompt no results table refers to** — no error,
-just a full cache miss and a fresh bill, producing numbers not comparable to
-anything already recorded.
+The prompt's sha is in the judge cache key, so an edit cannot silently reuse stale answers. Pointing `judge_gate.yaml` at v2 would **re-buy every judge call at a prompt no results table refers to**: a full cache miss, a fresh bill, and numbers not comparable to anything recorded.
 
-**M4 closed 2026-09-03. Reopening it for an untested prompt variant is not
-justified**, and a prompt change late in the project would invalidate every judge
-row rather than add one.
+**M4 closed 2026-09-03. Reopening it for an untested prompt variant is not justified**; a late prompt change invalidates every judge row rather than adding one.
 
 ### Consequences to carry
 
-- `judge_prompt_v2.txt` is kept, not deleted, as the record of what was
-  considered — same treatment as `nrr.py`. It must never be pointed at by a
-  config.
-- `scripts/judge_smoke.py:52` names v2 in a `--prompt-file` help string as its
-  example. **Misleading**: change the example to `judge_prompt.txt` so a smoke
-  run cannot be made against the unused prompt by copy-paste.
-- The appendix reproduces `judge_prompt.txt` verbatim **with its hash**, which is
-  the machine-checkable form of CLAUDE.md's "record the exact prompt".
+- `judge_prompt_v2.txt` is kept as the record of what was considered (as with `nrr.py`). No config may ever point at it.
+- `scripts/judge_smoke.py:52` uses v2 as the example in a `--prompt-file` help string. **Misleading**: change it to `judge_prompt.txt` so a copy-pasted smoke run cannot use the unused prompt.
+- The appendix reproduces `judge_prompt.txt` verbatim **with its hash**, the machine-checkable form of CLAUDE.md's "record the exact prompt".
 
 ## 2026-09-26 — Judge repeats: e21 judged 3 times on the same 103 clips
 
-**Decision (Grant):** e21's `sir0_val` `both` estimates get repeats 1 and 2
-(repeat 0 is 2026-09-25), so every clip has 3 judge answers. Purpose: report how
-much the judge's score on the SAME clip changes across identical calls, on our
-model's output.
+**Decision (Grant):** e21's `sir0_val` `both` estimates get repeats 1 and 2 (repeat 0 is 2026-09-25), so every clip has 3 judge answers. Purpose: measure how much the judge's score on the same clip changes across identical calls, on our model's output.
 
-- **103 × 3, not 50 × 6.** Same cost (309 vs 300 calls). Judge noise shrinks with
-  total calls either way; clip-difficulty noise only with more clips; 103 keeps
-  it comparable with every existing row.
-- **k=3, extendable.** 1 → 3 cuts the judge-only band on one aggregate from
-  ±2.94 to ±1.70 points (2026-09-22 retest SEM 1.50, divided by √k). Repeats
-  3–4 can be added later without re-buying 0–2.
-- **Anchors not repeated.** Run-once: floor and ceiling serve their cached answer
-  at any repeat index.
-- **Settings unchanged**: server-default temperature, same model, prompt and
-  backend. The cache key excludes generation config, so a change mid-study would
-  mix two instruments silently.
-- **Interval method:** resample clips carrying all 3 answers. Not mean ± t·SD over
-  3 run totals (t = 4.30 at 2 df, and a 3-value SD is unstable).
-- **Code:** `scripts/evaluate.py --judge-repeat N`; `judge_repeat` recorded in
-  `results.json` provenance. Partly closes weak-point A4.
-- Dirs `2026-09-26-eval-cuecontext-wer-e21-judge-r1` / `-r2`. `gemini-3.7-flash`,
-  aistudio, audio-in / text-out, prompt sha `d118b7d3bf30`, run 2026-09-26.
+- **103 × 3, not 50 × 6.** Same cost (309 vs 300 calls). Judge noise shrinks with total calls either way, clip-difficulty noise only with more clips, and 103 matches every existing row.
+- **k=3, extendable.** Going from 1 to 3 cuts the judge-only band on one aggregate from ±2.94 to ±1.70 points (2026-09-22 retest SEM 1.50, divided by √k). Repeats 3–4 can be added later without re-buying 0–2.
+- **Anchors not repeated.** Run-once: floor and ceiling serve their cached answer at any repeat index.
+- **Settings unchanged**: server-default temperature, same model, prompt and backend. The cache key excludes generation config, so a mid-study change would silently mix two instruments.
+- **Interval method:** resample clips carrying all 3 answers, not mean ± t·SD over 3 run totals (t = 4.30 at 2 df; a 3-value SD is unstable).
+- **Code:** `scripts/evaluate.py --judge-repeat N`; `judge_repeat` recorded in `results.json` provenance. Partly closes weak-point A4.
+- Dirs `2026-09-26-eval-cuecontext-wer-e21-judge-r1` / `-r2`. `gemini-3.7-flash`, aistudio, audio-in / text-out, prompt sha `d118b7d3bf30`, run 2026-09-26.
 
-**An inference, not a measurement.** The single-answer bootstrap on
-between-epoch gaps (±4.2–4.5 points, `decisions-m2.md` 2026-09-26) is about the
-size of the judge-only band on a paired difference (±4.16, 2026-09-22). So most
-of that spread is probably the judge, not clip choice. Caveat: the retest was on
-mixtures, where the judge is likely noisier than on estimates. The repeats test it.
+**An inference, not a measurement.** The single-answer bootstrap on between-epoch gaps (±4.2–4.5 points, `decisions-m2.md` 2026-09-26) is about the size of the judge-only band on a paired difference (±4.16, 2026-09-22), so most of that spread is probably the judge, not clip choice. Caveat: the retest was on mixtures, where the judge is likely noisier than on estimates. The repeats test this.
 
 ### Results, 2026-09-27
 
-`experiments/results/2026-09-27-judge-repeats-e21/`. Runs: repeat 0 on
-2026-09-25, repeats 1–2 on 2026-09-26. No re-run needed: 102 of 102 judged
-clips answered on every run.
+`experiments/results/2026-09-27-judge-repeats-e21/`. Repeat 0 ran 2026-09-25, repeats 1–2 on 2026-09-26. No re-run needed: 102 of 102 judged clips answered on every run.
 
 | lower is better | run 1 | run 2 | run 3 | mean | range |
 |---|---|---|---|---|---|
@@ -877,64 +437,27 @@ clips answered on every run.
 | ICR@2 | 33.01 | 32.04 | 35.92 | 33.66 | 3.88 |
 | FR@2 | 45.10 | 46.53 | 49.02 | 46.88 | 3.92 |
 
-- **The overall score is stable; single clips are not.** The total moved 0.67
-  points across 3 runs. Per clip: 2 of 102 answers word-for-word identical,
-  46 of 102 (45 %) moved by more than 10 points, 5 by more than 50, max 100.
-  Yes/no verdicts changed on 15 of 102 clips (ICR@2) and 27 of 102 (FR@2).
-- **The judge is steadier on our output than on raw mixtures**: pooled
-  within-clip SD 12.85 vs 17.03 (2026-09-22 retest, both unbiased); judge-only
-  SEM of one run 1.24 vs 1.50 points. Confirms the caveat above.
-- **Repeats barely narrow e21's own interval**: 39.59 [33.10, 46.67], width
-  13.6, against 13.9 from one run. For one system's absolute score the width is
-  which clips, not judge noise. For a paired gap between two systems clip
-  difficulty cancels, which is where repeats pay.
-- One repeat-1 clip was refused by the safety filter on both retries and scored
-  empty (`filter_blocked` 1). Kept: part of the instrument's run-to-run behaviour.
-- **Against No processing (anchors one run so far), paired:** words wrong
-  −22.87 [−31.10, −14.98]; 2+ other-speaker words through −41.10 [−50.81, −31.72];
-  **invented 2+ words +13.87 [+3.56, +24.14], WORSE, and outside the noise.** Gap
-  closed 37.2 % [26.6, 47.0].
-- **Run-to-run SD of one run, from per-clip variation:** LCF-WER 1.24, ICR@2 2.17,
-  FR@2 2.91 points. The SD of the 3 totals (0.34 / 2.02 / 1.98) has 2 df; report
-  the per-clip figure. Speaker-block bootstrap (38 target speakers, Liu & Peng
-  2020) gives LCF-WER [33.3, 46.0] against plain [33.10, 46.67]: no understatement.
-- **Report**: per clip, the judge's answer changes on almost every call; the
-  corpus score over 103 clips moves under 1 point. Per-clip judge numbers are not
-  usable alone (as 2026-09-22); the aggregate is.
+- **The total is stable; single clips are not.** The total moved 0.67 points across 3 runs. Per clip: 2 of 102 answers word-for-word identical, 46 of 102 (45 %) moved by more than 10 points, 5 by more than 50, max 100. Yes/no verdicts changed on 15 of 102 clips (ICR@2) and 27 of 102 (FR@2).
+- **The judge is steadier on our output than on raw mixtures**: pooled within-clip SD 12.85 vs 17.03 (2026-09-22 retest, both unbiased); judge-only SEM of one run 1.24 vs 1.50 points. This confirms the caveat above.
+- **Repeats barely narrow e21's own interval**: 39.59 [33.10, 46.67], width 13.6, against 13.9 from one run. For one system's absolute score the width comes from which clips, not judge noise. Repeats pay on a paired gap between two systems, where clip difficulty cancels.
+- One repeat-1 clip was refused by the safety filter on both retries and scored empty (`filter_blocked` 1). Kept as part of the instrument's run-to-run behaviour.
+- **Against No processing (anchors one run so far), paired:** words wrong −22.87 [−31.10, −14.98]; 2+ other-speaker words through −41.10 [−50.81, −31.72]; **invented 2+ words +13.87 [+3.56, +24.14], worse, and outside the noise.** Gap closed 37.2 % [26.6, 47.0].
+- **Run-to-run SD of one run, from per-clip variation:** LCF-WER 1.24, ICR@2 2.17, FR@2 2.91 points. The SD of the 3 totals (0.34 / 2.02 / 1.98) has 2 df, so report the per-clip figure. Speaker-block bootstrap (38 target speakers, Liu & Peng 2020) gives LCF-WER [33.3, 46.0] against plain [33.10, 46.67]: no understatement.
+- **Report**: the judge's answer per clip changes on almost every call, but the corpus score over 103 clips moves under 1 point. Per-clip judge numbers are not usable alone (as 2026-09-22); the aggregate is.
 
 ## 2026-09-27 — Table 5.1 ± is the plain SD of the 3 run scores
 
-**Decision (Grant):** every row of the report's judge table (Table 5.1) now
-has 3 runs on the same 103 clips, and its ± is the plain SD (ddof=1) of the
-three published whole-run scores. The clip-by-clip SD moves to a companion table
-(`tab:judge_runs`, LCF-WER only) next to each run's score and the spread.
-Supersedes "report the per-clip figure" (2026-09-26) for this table.
+**Decision (Grant):** every row of the report's judge table (Table 5.1) now has 3 runs on the same 103 clips, and its ± is the plain SD (ddof=1) of the three published whole-run scores. The clip-by-clip SD moves to a companion table (`tab:judge_runs`, LCF-WER only) beside each run's score and the spread. Supersedes "report the per-clip figure" (2026-09-26) for this table.
 
-- **Why:** the clip-by-clip SD assumes clips vary independently. Baseline broke it:
-  its 2026-09-27 runs differ by 6.4 LCF-WER points (paired sign-flip p < 0.01,
-  below 0.05/3; 0.004–0.005 across Monte-Carlo draws), a whole-run shift. Clip-by-clip gave ±1.66; the runs spread
-  ±3.22. The plain SD shows what happened; clip-by-clip cannot see a run shift.
-- **Cost, stated:** 3 values give an unstable SD (2 df). Floor reads ±0.37
-  against clip-by-clip 1.58, and Extension ±0.34 against 1.24: the plain SD can
-  understate by luck, so the companion table carries both.
-- **Anchors now repeated** (reverses "anchors not repeated" above):
-  `--judge-repeat-anchors`, 2026-09-27. Run 0 rebuilt from cache rows dated
-  ≤ 2026-09-02 because `judge.py` `load_once_index` serves the LAST row per
-  run-once clip whatever its repeat (open bug: a plain `evaluate.py` run now
-  scores floor 62.98 / ceiling 1.14).
-- Shifts tested (sign-flip, LCF-WER, each pair of runs): only Baseline r1–r2
-  significant. Floor, ceiling, Extension (e21), WeSep: none (lowest p 0.06).
-  `2026-09-27-judge-plain-sd/run_shift.txt`.
-- `gemini-3.7-flash`, aistudio, audio-in / text-out, prompt sha `d118b7d3bf30`.
-  Run dates and dirs: `experiments/results/2026-09-27-judge-plain-sd/` and the
-  `2026-09-27-judge-repeats-{anchors,wesep,baseline}` records.
+- **Why:** the clip-by-clip SD assumes clips vary independently. Baseline broke this: its 2026-09-27 runs differ by 6.4 LCF-WER points (paired sign-flip p < 0.01, below 0.05/3; 0.004–0.005 across Monte-Carlo draws), a whole-run shift. Clip-by-clip gave ±1.66; the runs spread ±3.22. Clip-by-clip cannot see a run shift.
+- **Cost:** 3 values give an unstable SD (2 df). Floor reads ±0.37 against clip-by-clip 1.58, and Extension ±0.34 against 1.24, so the plain SD can understate by luck. The companion table carries both.
+- **Anchors now repeated** (reverses "anchors not repeated" above): `--judge-repeat-anchors`, 2026-09-27. Run 0 was rebuilt from cache rows dated ≤ 2026-09-02, because `judge.py` `load_once_index` serves the last row per run-once clip whatever its repeat (open bug: a plain `evaluate.py` run now scores floor 62.98 / ceiling 1.14).
+- Shifts tested (sign-flip, LCF-WER, each pair of runs): only Baseline r1–r2 is significant. Floor, ceiling, Extension (e21), WeSep: none (lowest p 0.06). `2026-09-27-judge-plain-sd/run_shift.txt`.
+- `gemini-3.7-flash`, aistudio, audio-in / text-out, prompt sha `d118b7d3bf30`. Run dates and dirs: `experiments/results/2026-09-27-judge-plain-sd/` and the `2026-09-27-judge-repeats-{anchors,wesep,baseline}` records.
 
 ## 2026-09-28 — Four-case judge results; a missing API key had passed for perfect silence
 
-Judge `gemini-3.7-flash`, audio-in / text-out, prompt sha `d118b7d3bf30`, run
-2026-09-28, one run. `sir0_val`, cases `target_only` (47), `interferer_only`
-(42), `noise_only` (8). `experiments/results/2026-09-28-case-suite-judge-{baseline-e6,e21,wesep}/`;
-e21 and WeSep renders `2026-09-28-est-*-cases`. `judge_failed` 0 in every row.
+Judge `gemini-3.7-flash`, audio-in / text-out, prompt sha `d118b7d3bf30`, run 2026-09-28, one run. `sir0_val`, cases `target_only` (47), `interferer_only` (42), `noise_only` (8). `experiments/results/2026-09-28-case-suite-judge-{baseline-e6,e21,wesep}/`; e21 and WeSep renders `2026-09-28-est-*-cases`. `judge_failed` 0 in every row.
 
 | | target only, LCF-WER % | other speaker only, words/trial | silenced (of 42) | suppression dB |
 |---|---|---|---|---|
@@ -944,26 +467,14 @@ e21 and WeSep renders `2026-09-28-est-*-cases`. `judge_failed` 0 in every row.
 | WeSep | 5.40 | 17.95 | 7 | −9.7 |
 | Target alone | 1.46 | — | — | — |
 
-- **Target only:** every system costs 2–4 words per 100 against doing nothing.
-  One run, n=47: not a ranking.
-- **Other speaker only is the largest remaining failure.** Baseline passes 82 %
-  of the stranger's words, e21 54 %, WeSep 58 %. **e21 is all-or-nothing:**
-  silences 18 clips, and on the other 24 Gemini hears 28.9 words, nearly the
-  raw mixture's 30.7. Its −27 dB mean is carried by the silenced clips.
-- **Noise only:** 0 words for every system, all 8 gated. The gate's verdict,
-  not a listener's; n=8.
-- **Instrument bug, fixed:** the first pass ran with `GEMINI_API_KEY` unset;
-  every uncached clip failed and was scored "". The absent-case path did not
-  record failures, so it read as perfect silence. Now `MissingCredentials`
-  aborts the run (`judge.py`, `evaluate._listen`), absent rows record
-  `judge_failed`, and `results.txt` warns on any failure. Tests added.
+- **Target only:** every system costs 2–4 words per 100 against doing nothing. One run, n=47: not a ranking.
+- **Other speaker only is the largest remaining failure.** Baseline passes 82 % of the stranger's words, e21 54 %, WeSep 58 %. **e21 is all-or-nothing:** it silences 18 clips, and on the other 24 Gemini hears 28.9 words, nearly the raw mixture's 30.7. Its −27 dB mean comes from the silenced clips.
+- **Noise only:** 0 words for every system, all 8 gated. The gate's verdict, not a listener's; n=8.
+- **Instrument bug, fixed:** the first pass ran with `GEMINI_API_KEY` unset, so every uncached clip failed and was scored "". The absent-case path did not record failures, so this read as perfect silence. Now `MissingCredentials` aborts the run (`judge.py`, `evaluate._listen`), absent rows record `judge_failed`, and `results.txt` warns on any failure. Tests added.
 
 ## 2026-09-29 — Case 3 on `eval_public`: e21 beats WeSep, selection-free
 
-Judge `gemini-3.7-flash`, audio-in / text-out, prompt sha `d118b7d3bf30`, run
-2026-09-29, one run. `eval_public` `interferer_only`, n=123. Renders via the new
-render-only split `sir0pub` (`scripts/train.py` refuses to train on it).
-`experiments/results/2026-09-29-{est-public-*-case3,case-suite-judge-public-*}/`.
+Judge `gemini-3.7-flash`, audio-in / text-out, prompt sha `d118b7d3bf30`, run 2026-09-29, one run. `eval_public` `interferer_only`, n=123. Rendered via the new render-only split `sir0pub` (`scripts/train.py` refuses to train on it). `experiments/results/2026-09-29-{est-public-*-case3,case-suite-judge-public-*}/`.
 
 | | words/trial | stranger's words passed | silenced (of 123) |
 |---|---|---|---|
@@ -973,23 +484,16 @@ render-only split `sir0pub` (`scripts/train.py` refuses to train on it).
 | WeSep | 19.55 | 70 % | 11 |
 
 Paired bootstrap over clips, 10,000 draws, seed 42:
-- **e21 − WeSep −3.64 [−5.67, −1.65]**, beyond noise. `sir0_val`'s −1.45
-  [−7.05, +4.10] was the same effect, under-powered at n=42.
-- e21 − baseline −9.80 [−12.25, −7.41]; WeSep − baseline −6.24 [−8.45, −4.10]
-  (n=122: baseline clip `eval_public-42-000149` got a 400 invalid-argument,
-  audio normal; excluded, not scored as silence).
-- Silenced: 47 e21-only vs 2 WeSep-only, exact McNemar p = 4e-12. Deterministic
-  (VAD), needs no repeats.
+- **e21 − WeSep −3.64 [−5.67, −1.65]**, beyond noise. `sir0_val`'s −1.45 [−7.05, +4.10] was the same effect, under-powered at n=42.
+- e21 − baseline −9.80 [−12.25, −7.41]; WeSep − baseline −6.24 [−8.45, −4.10] (n=122: baseline clip `eval_public-42-000149` got a 400 invalid-argument with normal audio, and was excluded rather than scored as silence).
+- Silenced: 47 e21-only vs 2 WeSep-only, exact McNemar p = 4e-12. Deterministic (VAD), so no repeats needed.
 
 - **First selection-free result for e21.** Word it that way.
-- **Still all-or-nothing:** unsilenced e21 clips carry 29.2 words vs the
-  floor's 28.0. The gain is silencing more often, not partial suppression.
+- **Still all-or-nothing:** unsilenced e21 clips carry 29.2 words vs the floor's 28.0. The gain comes from silencing more often, not partial suppression.
 - **`eval_public` is now seen.** Nothing may be selected or tuned on it.
 
 ## 2026-10-06 — AMI: WeSep and e21 through the judge
-Judge `gemini-3.7-flash`, audio-in / text-out, prompt sha `d118b7d3bf30`, run
-2026-10-06, one run. `ami_eval` `both`, n=300. Construction: decisions-m0.md
-2026-10-06. Numbers and paths: `experiments/results/2026-10-06-ami-summary/`.
+Judge `gemini-3.7-flash`, audio-in / text-out, prompt sha `d118b7d3bf30`, run 2026-10-06, one run. `ami_eval` `both`, n=300. Construction: decisions-m0.md 2026-10-06. Numbers and paths: `experiments/results/2026-10-06-ami-summary/`.
 
 | | No processing | WeSep | e21 | Target's headset |
 |---|---|---|---|---|
@@ -1000,56 +504,30 @@ Judge `gemini-3.7-flash`, audio-in / text-out, prompt sha `d118b7d3bf30`, run
 | gate-blocked | 0 | 38 | 110 | 0 |
 
 - **Ranking holds on real audio:** WeSep ahead of e21, as on `sir0_val`.
-- **Floor > 100 %:** the judge transcribes both talkers; the other speaker's words
-  are insertions against a ~14-word target.
-- **Headset is not a ceiling here:** median 20.9 dB bleed separation, 52 % leak. Do
-  not report "share of headroom": the gap is small because the headset is poor.
-- **e21 near-mutes real audio:** 110/300 outputs blocked, median 25.9 dB below its
-  input; speech still present (110/110 found after levelling). Real behaviour, not a
-  gate artefact. Suspected cause: AMI input (~−48 dB RMS) far quieter than training.
-- **WeSep's 38 blocks are mostly a gate artefact:** ~7 dB below input, 38/38 speech
-  after levelling. Its 80.6 is pessimistic.
+- **Floor > 100 %:** the judge transcribes both talkers, and the other speaker's words are insertions against a ~14-word target.
+- **Headset is not a ceiling here:** median 20.9 dB bleed separation, 52 % leak. Do not report "share of headroom": the gap is small because the headset is poor.
+- **e21 near-mutes real audio:** 110/300 outputs blocked, median 25.9 dB below its input, yet speech is still present (110/110 found after levelling). Real behaviour, not a gate artefact. Suspected cause: AMI input (~−48 dB RMS) is far quieter than training.
+- **WeSep's 38 blocks are mostly a gate artefact:** ~7 dB below input, 38/38 speech after levelling. Its 80.6 is pessimistic.
 - **e21 invents less:** +24 % over the floor vs +79 % for WeSep.
-- **10 × 400 invalid-argument** across both passes, audio normal; all succeeded on
-  retry. Final runs have 0 failures.
+- **10 × 400 invalid-argument** across both passes, audio normal; all succeeded on retry. Final runs have 0 failures.
 
-Open: meeting-clustered bootstrap on e21 − WeSep; e21 with the 110 inputs levelled
-(local diagnostic) to test the quiet-input explanation.
+Open: meeting-clustered bootstrap on e21 − WeSep; e21 with the 110 inputs levelled (local diagnostic) to test the quiet-input explanation.
 
 ## 2026-10-07 — eval_private scored ONCE for the selection-free headline
 
-**Decided 2026-10-07 (Grant), after all selection on `sir0_val` is finished.** Baseline
-10000-e6, e21 and WeSep are rendered on `eval_private` `both` (249 trials, 20 speakers
-never trained, tuned or selected on) and judged once each: `gemini-3.7-flash`,
-aistudio, audio-in / text-out, prompt `d118b7d3bf30`, run date recorded per result.
-Driver `eval_private.sh` (render, then judge); render-only split `sir0priv` added to
-`scripts/train.py` and `scripts/make_estimates_wesep.py` (training on it is refused).
+**Decided 2026-10-07 (Grant), after all selection on `sir0_val` is finished.** Baseline 10000-e6, e21 and WeSep are rendered on `eval_private` `both` (249 trials, 20 speakers never trained, tuned or selected on) and judged once each: `gemini-3.7-flash`, aistudio, audio-in / text-out, prompt `d118b7d3bf30`, run date recorded per result. Driver `eval_private.sh` (render, then judge); render-only split `sir0priv` added to `scripts/train.py` and `scripts/make_estimates_wesep.py` (training on it is refused).
 
-**Why.** Both blind reviews (`docs/reports/2026-10-07-blind-examiner-review*.md`) rank
-"checkpoints chosen on the reported trials" as the top problem. This is the protocol
-`select_by_wer.py` always stated: select on `sir0_val`, report on `eval_private`.
+**Why.** Both blind reviews (`docs/reports/2026-10-07-blind-examiner-review*.md`) rank "checkpoints chosen on the reported trials" as the top problem. This is the protocol `select_by_wer.py` always stated: select on `sir0_val`, report on `eval_private`.
 
-**Reporting rule, fixed now:** the methods say checkpoints were selected on
-`sir0_val` and the headline is reported on `eval_private`. `eval_private` uses the
-original level distribution (target usually louder), so it is easier than `sir0_val`;
-report both, and per SIR band if space allows.
+**Reporting rule, fixed now:** the methods say checkpoints were selected on `sir0_val` and the headline is reported on `eval_private`. `eval_private` uses the original level distribution (target usually louder), so it is easier than `sir0_val`. Report both, and per SIR band if space allows.
 
-**Consequences:** `eval_private` is now seen. Nothing may be selected or tuned on it
-from here on (CLAUDE.md limit (a) still holds for training). The matched baseline,
-once selected on `sir0_val`, is scored here the same way.
+**Consequences:** `eval_private` is now seen. Nothing may be selected or tuned on it from here on (CLAUDE.md limit (a) still holds for training). The matched baseline, once selected on `sir0_val`, is scored here the same way.
 
 ## 2026-10-08 — eval_private results; trial 000372 removed for every system
 
-Judge `gemini-3.7-flash`, aistudio, audio-in / text-out, prompt `d118b7d3bf30`, run
-2026-10-08, one run, speech gate on. `eval_private` `both`. First pass + retry:
-`experiments/results/2026-10-08-eval-private-*-judge{,-retry}/`.
+Judge `gemini-3.7-flash`, aistudio, audio-in / text-out, prompt `d118b7d3bf30`, run 2026-10-08, one run, speech gate on. `eval_private` `both`. First pass + retry: `experiments/results/2026-10-08-eval-private-*-judge{,-retry}/`.
 
-**Removed (Grant):** `eval_private-42-000372`, for all systems and both anchors. Gemini
-refused the baseline and e21 outputs of that clip twice with HTTP 400 "Request blocked
-due to copyright/recitation content"; WeSep, mixture and target were answered. A filter
-decision cannot be retried, and scoring it empty for two systems only biases against
-them. Taken after seeing results, so report the n = 249 numbers alongside. Scored from
-cache, no new calls: `experiments/results/2026-10-08-eval-private-excl-000372/`.
+**Removed (Grant):** `eval_private-42-000372`, for all systems and both anchors. Gemini refused the baseline and e21 outputs of that clip twice with HTTP 400 "Request blocked due to copyright/recitation content"; WeSep, mixture and target were answered. A filter decision cannot be retried, and scoring it empty for two systems only biases against them. Decided after seeing results, so report the n = 249 numbers alongside. Scored from cache, no new calls: `experiments/results/2026-10-08-eval-private-excl-000372/`.
 
 | n = 248, lower is better | No processing | Baseline e6 | e21 | WeSep | Target alone |
 |---|---|---|---|---|---|
@@ -1058,7 +536,5 @@ cache, no new calls: `experiments/results/2026-10-08-eval-private-excl-000372/`.
 | invented / trial | **1.48** | 1.97 | 2.26 | 2.07 | 0.29 |
 | empty responses | 0 | 0 | 5 (gate) | 1 (gate) | 0 |
 
-- Ranking unchanged from n = 249 (49.11 / 42.17 / 33.87): removal moves no system by
-  more than 0.4 points.
-- The recitation refusal reached the code as `judge_failed`, not `filter_blocked`: a
-  400 bypasses the filter classifier. Open: classify recitation 400s as filter blocks.
+- Ranking unchanged from n = 249 (49.11 / 42.17 / 33.87): removal moves no system by more than 0.4 points.
+- The recitation refusal reached the code as `judge_failed`, not `filter_blocked`, because a 400 bypasses the filter classifier. Open: classify recitation 400s as filter blocks.
