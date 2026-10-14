@@ -121,7 +121,7 @@ silenced (of 300) \lowerbetter     & 0 & 110 & \textbf{38} & 0 \\
 
 \subsection{Error composition}
 \label{sec:results_errors}
-The LCF-WER metric is a combination of three different types of errors to form the word error rate: substitution, deletion and insertion. The metric is useful for breaking down the weaknesses of the extractor system and to better understand how the system is introducing error. For example, a system with high deletions is indicative of over suppression of the target speaker's content, a system with high insertions is indicative of hallucination or leakage, and finally a system with high substitutions is indicative of misinterpretation of the target speaker's content. The error composition for both the live judge and the offline transcriber is shown in \autoref{tab:error_split}.
+The LCF-WER metric is a combination of three different types of errors to form the word error rate: substitution, deletion and insertion. A system with high deletions is indicative of over suppression of the target speaker's content, a system with high insertions is indicative of hallucination or leakage, and finally a system with high substitutions is indicative of misinterpretation of the target speaker's content. The error composition for both the live judge and the offline transcriber is shown in \autoref{tab:error_split}.
 \begin{table}[htbp]
 \centering
 \caption{Substitution (S), deletion (D) and insertion (I) rates for each listener. Lower is better.}

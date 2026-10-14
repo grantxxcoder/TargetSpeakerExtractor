@@ -20,7 +20,16 @@
 
 % Headings
 \usepackage[raggedright,sf,bf]{titlesec}
+% Tighter headings for the page budget (titlesec defaults: before 3.5/3.25ex, after 2.3/1.5ex)
+\titlespacing*{\section}{0pt}{2.5ex plus 0.5ex minus 0.2ex}{1.2ex plus 0.2ex}
+\titlespacing*{\subsection}{0pt}{2ex plus 0.5ex minus 0.2ex}{0.8ex plus 0.2ex}
+\titlespacing*{\subsubsection}{0pt}{1.5ex plus 0.5ex minus 0.2ex}{0.5ex plus 0.1ex}
+\titlespacing*{\paragraph}{0pt}{1ex plus 0.5ex minus 0.2ex}{0.8em}
+
 \usepackage[margin=\the\parindent,small,bf,sf]{caption}
+% Captions at 11 pt: the fonts are scaled by 0.96, so 11.46 pt nominal prints at 11.0 pt (\small would print at 10.5).
+\DeclareCaptionFont{elevenpt}{\fontsize{11.46pt}{13.75pt}\selectfont}
+\captionsetup{font+=elevenpt}
 \titlelabel{\thetitle.\ }
 \makeatletter
 \let\originall@section\l@section
