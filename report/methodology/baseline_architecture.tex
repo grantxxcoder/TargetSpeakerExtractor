@@ -24,7 +24,7 @@ X(f, t) = \sum_{n=0}^{N-1} x[tH + n]\,h[n]\,e^{-\mathrm{j}2\pi fn/N},
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\textwidth]{figures/bandplan-wesep.png}
-\caption{The band plan used here, shown against a four-second mixture from the training set. Left: the band boundaries drawn over the spectrogram, closely spaced at the bottom where the speech structure is and widening upwards. Right: the width of each band in hertz.}
+\caption{The band plan used here, shown against a four-second mixture from the training set. The right graph shows the width of each band in hertz.}
 \label{fig:bandplan}
 \end{figure}
 
@@ -32,26 +32,17 @@ X(f, t) = \sum_{n=0}^{N-1} x[tH + n]\,h[n]\,e^{-\mathrm{j}2\pi fn/N},
 \subsubsection{Per-band normalisation}
 \label{sec:subbandnorm}
 
- Normalisation is applied across the values of a band \emph{within a single frame}. This is a deliberate design choice that \emph{opposes} Yu et al.\ \cite{yu2023high}, who use batch normalisation for their online configuration. The opposition is for the following reasons: \textit{(i)} during training, the mean and variance are computed from the current batch, but during inference, these statistics are computed from the entire training set. The function that is optimised during training is therefore not the function that is deployed. \textit{(ii)} The variability of the data does not give a reliable estimate of the true distribution. The statistics of a batch therefore depend on what was drawn, and a silent crop normalised alongside loud ones is not normalised as it would be at inference. \textit{(iii)} Single frame normalisation carries no state and is unaffected by the amount of audio processed, so a four-second training chunk is normalised exactly as a stream that has been running for a minute.
+ Normalisation is applied across the values of a band \emph{within a single frame}. This is a deliberate design choice that \emph{opposes} Yu et al.\ \cite{yu2023high}, who use batch normalisation for their online configuration. The opposition is for the following reasons: \textit{(i)} during training, the mean and variance are computed from the current batch, but during inference, these statistics are computed from the entire training set. The function that is optimised during training is therefore not the function that is deployed. \textit{(ii)} The variability of the data does not give a reliable estimate of the true distribution. The statistics of a batch therefore depend on what was drawn where trials that will not reflect the statistics seen at inference. \textit{(iii)} Single frame normalisation carries no state and is unaffected by the amount of audio processed, so a four-second training chunk is normalised exactly as a stream that has been running for a minute.
 
-
-\subsubsection{Residual LSTM block}
+ \subsubsection{Residual LSTM block}
 \label{sec:resrnn}
 
-Two kinds of sequential structures are modelled: time and frequency. Time is unidirectional, but frequency is bidirectional, as all of the bands of a frame are available at the same instant and can be traversed in either direction. The block is used for both kinds of modelling, with the same structure but different parameters.
-
-At inference time, since the model is running in a streaming fashion, the LSTM's internal state is preserved between frames and information can be carried forward indefinitely. The LSTM is therefore a natural fit for the task, and it is used in the same way for both the time and frequency sequences.
-
-Each block completed the following taking inspiration from \cite{luo2023music}: the input is normalised, passed through the LSTM, and projected back to the original width. Finally, the input is added back to the output of the projection, forming a residual connection. 
-
-A single LSTM layer is given a width of 192, which is Yu et al.'s \cite{yu2023high} choice for their \SI{16}{\kHz} model. The input to the block is 128 wide, which is projected to 192 for the LSTM and then projected back to 128 for the residual addition. 
+Two kinds of sequential structures are modelled: time and frequency. Time is unidirectional, but frequency is bidirectional, as all of the bands of a frame are available at the same instant and can be traversed in either direction. The block is used for both kinds of modelling, with the same structure but different parameters. At inference time, since the model is running in a streaming fashion, the LSTM's internal state is preserved between frames and information can be carried forward indefinitely. The LSTM is therefore a natural fit for the task, and it is used in the same way for both the time and frequency sequences. Each block completed the following taking inspiration from \cite{luo2023music}: the input is normalised, passed through the LSTM, and projected back to the original width. Finally, the input is added back to the output of the projection, forming a residual connection. A single LSTM layer is given a width of 192, which is Yu et al.'s \cite{yu2023high} choice for their \SI{16}{\kHz} model. The input to the block is 128 wide, which is projected to 192 for the LSTM and then projected back to 128 for the residual addition. 
 
 \subsubsection{Band and sequence model}
 \label{sec:bsnet}
 
-The band and sequence model is the implementation of the residual LSTM block of Section~\ref{sec:resrnn} in a stack of six blocks, using the input from Section~\ref{sec:subbandnorm}. After the per-band normalisation and projection, there are 32 bands of 128 features each.
-
-Each of these blocks make two passes: over the time dimension (unidirectional), and then make a pass over the frequency dimension (bidirectional). Pairing the two passes in a single block is the design of Luo and Yu \cite{luo2023music}, who motivate it by analogy with dual-path recurrent networks for speech separation rather than by an argument specific to bands. Stacking six such blocks follows Yu et al.\ \cite{yu2023high}, where their \SI{16}{\kHz} model uses that specific number of blocks. The effect of stacking the blocks is to allow for the accumulation of evidence over longer time spans.
+The band and sequence model is the implementation of the residual LSTM block of Section~\ref{sec:resrnn} in a stack of six blocks again following Yu et al.\ \cite{yu2023high}, using the input from Section~\ref{sec:subbandnorm}. After the per-band normalisation and projection, there are 32 bands of 128 features each. Each of these blocks make two passes: over the time dimension (unidirectional), and then make a pass over the frequency dimension (bidirectional). Pairing the two passes in a single block is the design of Luo and Yu \cite{luo2023music}, who motivate it by analogy with dual-path recurrent networks for speech separation rather than by an argument specific to bands. The effect of stacking the blocks is to allow for the accumulation of evidence over longer time spans.
 
 \subsubsection{Estimation module}
 \label{sec:estimator}
@@ -172,7 +163,7 @@ L = (1 - w) \operatorname*{mean}_{\textup{target present}}
 
 \paragraph{Weights.} 
 
-The weight $w$ on the silent branch is derived rather than chosen. Silent crops make up a measured \num{0.297} of the training crops and, following \cite{li2026cartse}, each silent crop is counted twice ($\eta = 2$). The present branch then carries $1 - p = 0.703$ and the absent branch $\eta p = 0.594$, and normalising the two to sum to one gives
+The weight $w$ on the silent branch is derived rather than chosen. Silent crops make up a measured $p = 0.297$ of the training crops and, following \cite{li2026cartse}, each silent crop is counted twice ($\eta = 2$). The present branch then carries $1 - p = 0.703$ and the absent branch $\eta p = 0.594$, and normalising the two to sum to one gives
   \begin{equation*}
   w = \frac{\eta p}{(1 - p) + \eta p} = \frac{0.594}{1.297} = 0.458 .
   \end{equation*}

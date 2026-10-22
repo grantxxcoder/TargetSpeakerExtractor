@@ -1,9 +1,6 @@
 # Sources for lit review §"How extraction is evaluated"
 
-Compiled 2026-09-29. Every row verified by fetching its abstract page (numbers
-from full text where noted). `[pre]` = preprint/tech report. `[unv]` = lead only.
-Already in `references.bib`: Vincent 2006, Le Roux 2019, Zmolikova 2023,
-Reddy 2021/2022, ITU P.835/P.808, REAL-TSE (Wang 2026), Fela & Mowlaee 2026.
+Compiled 2026-09-29. Every row was verified by fetching its abstract page (numbers from the full text where noted). `[pre]` = preprint/tech report. `[unv]` = lead only. Already in `references.bib`: Vincent 2006, Le Roux 2019, Zmolikova 2023, Reddy 2021/2022, ITU P.835/P.808, REAL-TSE (Wang 2026), Fela & Mowlaee 2026.
 
 ## 1. Signal metrics (SDR / SI-SDR) vs recognition and listeners
 

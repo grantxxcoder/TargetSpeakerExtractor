@@ -1,0 +1,122 @@
+# PRESENCE GATE, "postfilter" mode: the gate learned on top of e21, e21 untouched.
+# Maths: docs/extra/variational-presence-gate.md (eq. 12 with the first term at the mean output, eq. 21).
+# Decision log: decisions-m2.md 2026-10-18. Diagnosis of arm A that led here: decisions-pending.md 2026-10-14 entry.
+#
+# WHAT DIFFERS FROM ARM A (bsrnn_presence_gate.yaml), and why each:
+#   model.presence_mode: postfilter   the gate reads DETACHED separator features and multiplies a DETACHED spectrum.
+#                                     Arm A's gated loss shielded the mask from the frames the gate muted (the
+#                                     extractor lost 2.4 dB of interferer-only suppression vs e21, idx 25), and its
+#                                     gate's log-loss was 0.18 nats/frame on training crops against 0.53-0.74 on
+#                                     validation, so the path from the gate's terms into the separator is closed and
+#                                     the extractor trains on its own output alone. No Concrete draw: the
+#                                     gain is floor + (1 - floor) * pi in training and inference alike, so tau and its
+#                                     per-resume restart are gone.
+#   model.presence_floor: 0.05        z = 0 attenuates by 26 dB instead of muting (Zhang, Wu & Li 2026,
+#                                     arXiv:2609.30774, attenuate to 0.05). Protects against a confidently wrong "off".
+#   training.init_weights: e21        the registered protocol (the note: "a 6-epoch fine-tune from e21"). Viable now
+#                                     that the gate layer-normalises its input (it saturated on e21's features before).
+#   training.freeze_extractor: true   only the gate's 129 weights train. The extractor IS e21, so gate-on vs e21 is a
+#                                     paired comparison on identical weights, and an epoch costs the forward pass
+#                                     only. The D10 control (bsrnn_interf_ft_control.yaml, 6 epochs of e21's own
+#                                     objective from e21) moved the judge by -0.99 [-5.08, +2.89], so letting the
+#                                     extractor train would buy nothing measurable. Set false for the joint variant:
+#                                     the extractor then trains on its UNGATED output (e21's objective) and nothing
+#                                     else changes.
+#   loss.presence.beta / lam          re-anchored on the GATE's parameters: with the input detached the KL and BCE
+#                                     have no extractor gradient, so the old extractor-share rule is undefined.
+#   training.lr 1.25e-4, epochs 6, no w_schedule: as every fine-tune from e21 (D10 control, C6).
+# Everything else is arm A's config, which is e21's config plus the gate.
+
+seed: 42
+
+data:
+  sample_rate: 16000
+  chunk_s: 4.008
+  both_directions: true
+  enrollment_variants: 3
+  remix_gains: true
+  num_workers: 0          # the Kaggle notebook raises this
+  batch_size: 3           # the Kaggle notebook sets this from GPU memory
+  state_index_dir: data/index   # per-frame labels v_t, state_<split>.csv (scripts/build_state_labels.py)
+
+model:
+  bands:
+    plan: wesep_16k
+  separator:
+    feature_dim: 128
+    num_repeat: 6
+    lstm_hidden: 192
+    causal: true
+    norm: cLN
+  mask:
+    mlp_hidden: 384
+    residual_branch: true
+  stft:
+    n_fft: 512
+    hop: 128
+  lookahead_frames: 0
+  tfmap_scale: 16.0
+  context_embedding: true
+  context_embedding_dim: 192
+  context_normalise: true
+  tfmap_part_scales: [6.9402, 0.5073, 1.2803]
+  tfmap_parts: true
+  presence_gate: true
+  presence_mode: postfilter
+  presence_floor: 0.05
+
+loss:
+  w: 0.458
+  # w_schedule DELETED: a fine-tune from e21 must not hold the silence term at 0 for 6,632 steps (D10 control header).
+  w_m: 9.62
+  w_g: 1.69
+  gain_delta_db: 3.0
+  ablate_w_g: [0.0, 1.69, 2.30]
+  tau_pres: 0.001
+  tau_abs: 0.01
+  p: 0.3
+  windows_ms: [8, 16, 32, 64]
+  complex_term: real_plus_imag
+  reduction: mean
+  ablate_w_m: [0.0, 2.89, 9.62]
+  w_struct: 0.0
+  struct_floor_db: -40.0
+  log_struct: true        # inert with the gate on: the model cannot return the mask and the gate together
+  ablate_w_struct: [0.0]
+  presence:
+    # 15 % gradient share, D14's rule, measured on the GATE's 129 weights against the gated loss, e21 anchor, mean of
+    # 64 per-batch shares (experiments/results/2026-10-15-presence-weights/meta.yaml, per_batch.e21, "gate" norms:
+    # KL share 197.7, BCE share 50.2 at weight 1). CAVEAT: that measurement used arm A's forward (Concrete draw at
+    # tau 1, features not detached). Re-measure with
+    #   scripts/derive_presence_weights.py --config experiments/configs/bsrnn_presence_postfilter.yaml --share-on gate
+    # (notebooks/kaggle_presence_weights.ipynb, minutes on a T4) and overwrite these two lines if the shares move.
+    beta: 0.0007587       # KL weight
+    lam: 0.002987         # supervised-term weight
+    d_on: 596             # mean speech run, frames (experiments/results/2026-10-14-activity-runs.json, sim D14 label)
+    d_off: 490            # mean silence run, frames (same file)
+
+training:
+  amp: true
+  lr: 0.000125            # e21's own lr at epoch 21 (D10 control)
+  epochs: 6
+  init_weights: models/model_sir0_cuecontext-wer-e21.pt   # weights only, fresh optimiser; gate weights keep their seeded init
+  freeze_extractor: true
+  patience: 10
+  grad_clip: 5.0
+  weight_decay: 1.0e-4
+  lr_schedule_on: content_wer
+  lr_factor: 0.5
+  lr_patience: 3
+  select_on: content_wer
+  select_abs_max: -10.0
+  keep_stride: 1          # every epoch kept: 6 weights-only checkpoints, choose on the judge
+  keep_top_k: 3
+
+content_probe:
+  enabled: true
+  split: sir0_val
+  condition: both
+  n_trials: 40
+  every_n_epochs: 1
+  asr_device: cpu
+  ema_span: 3

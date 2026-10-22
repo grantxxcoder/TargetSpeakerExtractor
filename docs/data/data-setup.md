@@ -1,15 +1,10 @@
 # Data acquisition runbook (M0)
 
-**Written 2026-08-10.** Companion to `docs/decisions/milestones.md` §M0 and
-`docs/decisions/decisions-m0.md` (2026-08-07, "Data: constructed primary, AMI secondary").
+**Written 2026-08-10.** Companion to `docs/decisions/milestones.md` §M0 and `docs/decisions/decisions-m0.md` (2026-08-07, "Data: constructed primary, AMI secondary").
 
-Covers **acquiring and preparing source material only**. Writing the mixture
-generator is the next job and is not in this document.
+Covers **acquiring and preparing source material only**. The mixture generator is the next job.
 
-**How to use this document.** Every command is a single line with no inline
-comments, so it is safe to paste one line at a time. Each section states which
-directory you must be in first — `cd` there yourself before pasting. Paths are
-relative to that directory, so nothing depends on an environment variable.
+**How to use this document.** Every command is one line with no inline comments, safe to paste one at a time. Each section names the directory to `cd` into first, and paths are relative to it, so nothing depends on an environment variable.
 
 Directory layout this runbook assumes, all under the repo root:
 
@@ -24,61 +19,30 @@ LibriMix/              read-only reference clone
 
 ## What we are building, in one paragraph
 
-One generator, one consumer. **Every split is rendered to disk from the same
-code** — LibriSpeech speech + WHAM! noise + a seeded synthetic RIR — and frozen
-as fixed audio files. Eval must be byte-stable for the judge; training is
-rendered too because with B7 off its draws are fixed anyway.
+One generator, one consumer. **Every split is rendered to disk from the same code** (LibriSpeech speech + WHAM! noise + a seeded synthetic RIR) and frozen as fixed audio files. Eval must be byte-stable for the judge; training is rendered too, since with B7 off its draws are fixed anyway.
 
-> **Changed 2026-08-15.** Training mixtures were previously synthesised on the
-> fly, on the grounds that the set would "cost no disk and never repeat". B7
-> turned the repetition off the same day, so on-the-fly regeneration produced
-> byte-identical audio every epoch — recomputation, not variety — while risking
-> a CPU-bound dataloader starving the GPU on a 4-vCPU Kaggle instance. It also
-> moves *more* data, not less: a rendered trial needs no corpora on the training
-> machine. See `docs/decisions/decisions-m0.md` 2026-08-15. Byte-stability is *implied* by the pin-and-date
-rule at `docs/data/metric-definitions.md:209` and the private-split requirement at
-`:198-200`, but is nowhere stated outright — add it explicitly to
-`metric-definitions.md` §4. Everything is speaker-disjoint.
+> **Changed 2026-08-15.** Training mixtures were previously synthesised on the fly, on the grounds that the set would "cost no disk and never repeat". B7 turned repetition off the same day, so on-the-fly regeneration produced byte-identical audio every epoch while risking a CPU-bound dataloader starving the GPU on a 4-vCPU Kaggle instance. It also moved *more* data: a rendered trial needs no corpora on the training machine. See `docs/decisions/decisions-m0.md` 2026-08-15. Byte-stability is *implied* by the pin-and-date rule at `docs/data/metric-definitions.md:186` and the private-split requirement at `:186`, but never stated; add it to `metric-definitions.md` §4. Everything is speaker-disjoint.
 
-We are **not** following CARTSE's or PS4's data recipes. Both build corpora of
-real conversational audio with pseudo-labels, which cannot supply the clean
-target signal or the exact verbatim `t` and `d` our metric requires. We borrow
-two cheap, separable components from CARTSE (target-absent examples,
-channel-gap enrollment EQ) and REAL-T's construction method for the AMI set.
-See `docs/decisions/decisions-m0.md`.
+We are **not** following CARTSE's or PS4's data recipes. Both build real conversational corpora with pseudo-labels, which cannot supply the clean target signal or the exact verbatim `t` and `d` our metric needs. We borrow two cheap, separable components from CARTSE (target-absent examples, channel-gap enrollment EQ) and REAL-T's construction method for the AMI set. See `docs/decisions/decisions-m0.md`.
 
 ## Before you start
 
 - [ ] Branch: `git checkout -b m0-data-setup`. Never commit to main.
 - [ ] Confirm `data/`, `reference/` and `LibriMix/` are in `.gitignore`.
-- [ ] **≥70 GB free** on the volume holding the repo. Global peak is ~58 GB if
-      you follow the step order; steady state is ~36 GB.
+- [ ] **≥70 GB free** on the volume holding the repo. The global peak is ~58 GB if you follow the step order; steady state is ~36 GB.
 - [ ] Have `wget`, `md5sum`, `unzip` and `ffmpeg` installed.
 
-**Order matters.** WHAM! goes first because it has the largest transient
-(52 GB) and shrinks the most (to ~6 GB). Doing it first means the LibriSpeech
-extraction never overlaps with it.
+**Order matters.** WHAM! goes first: it has the largest transient (52 GB) and shrinks the most (to ~6 GB), so the LibriSpeech extraction never overlaps with it.
 
 ---
 
 ## Step 1 — WHAM! noise
 
-The 17 GB archive unpacks to 35 GB of **32-bit float stereo** WAV at 16 kHz.
-We work in 16-bit mono, so that is 4× more bytes than we can use. Convert on
-ingest and delete the originals — the single biggest storage win available.
+The 17 GB archive unpacks to 35 GB of **32-bit float stereo** WAV at 16 kHz, 4× more bytes than our 16-bit mono can use. Convert on ingest and delete the originals, the biggest storage saving available.
 
-**Why 16 kHz.** Nyquist gives 8 kHz of bandwidth, which covers essentially all
-of the content that determines word identity; only the upper energy of sibilant
-fricatives sits above it. More decisively, every frozen model in our loop —
-ASR/SSL proxy encoders, speaker encoder, VAD — is a 16 kHz model, and the live
-judge takes raw 16-bit PCM at 16 kHz. Any other rate means an uncontrolled
-resample sits between the extractor and the evaluator, which is a confound in a
-benchmark measuring what the judge hears. See `docs/data/definitions.md:60`.
+**Why 16 kHz.** Its 8 kHz Nyquist bandwidth covers almost all content that determines word identity; only the upper energy of sibilant fricatives sits above it. More importantly, every frozen model in our loop (ASR/SSL proxy encoders, speaker encoder, VAD) is a 16 kHz model, and the live judge takes raw 16-bit PCM at 16 kHz. Any other rate puts an uncontrolled resample between extractor and evaluator, a confound in a benchmark measuring what the judge hears. See `docs/data/definitions.md:60`.
 
-Note that the 4× saving here is **not** from the sample rate: WHAM! noise is
-already 16 kHz, so `-ar 16000` below is a no-op guard. The reduction comes
-entirely from `-ac 1` (stereo → mono) and `-sample_fmt s16` (32-bit float →
-16-bit).
+The 4× saving is **not** from the sample rate (WHAM! is already 16 kHz, so `-ar 16000` below is a no-op guard). It comes entirely from `-ac 1` (stereo to mono) and `-sample_fmt s16` (32-bit float to 16-bit).
 
 ### 1a. Download — from `data/raw/`
 
@@ -92,9 +56,7 @@ wget -c https://my-bucket-a8b4b49c25c811ee9a7e8bba05fa24c7.s3.amazonaws.com/wham
 md5sum wham_noise.zip
 ```
 
-The output must be `d5af15645d521d3920e01954c6cd7594`. Do not continue if it
-differs. A truncated download often still extracts without error and shows up
-much later as silent data loss.
+The output must be `d5af15645d521d3920e01954c6cd7594`. Otherwise stop: a truncated download often still extracts without error and surfaces much later as silent data loss.
 
 ### 1c. Extract, then delete the archive — from `data/raw/`
 
@@ -106,8 +68,7 @@ unzip -q wham_noise.zip -d .
 rm wham_noise.zip
 ```
 
-Delete the zip now rather than after conversion. That is what holds the peak at
-~52 GB instead of ~58 GB.
+Delete the zip before conversion to hold the peak at ~52 GB instead of ~58 GB.
 
 ### 1d. Create the output directory — from `data/`
 
@@ -121,9 +82,7 @@ mkdir -p wham_noise_16k
 find . -name '*.wav' -print0 | while IFS= read -r -d '' f; do out="../../wham_noise_16k/${f#./}"; mkdir -p "$(dirname "$out")"; ffmpeg -nostdin -loglevel error -i "$f" -ac 1 -ar 16000 -sample_fmt s16 "${out%.wav}.flac"; done
 ```
 
-This takes a while — 28,000 files. `-nostdin` is load-bearing: without it
-`ffmpeg` swallows the `find` pipe, the loop exits after one file, and you get a
-single output with no error message.
+This takes a while (28,000 files). `-nostdin` is required: without it `ffmpeg` swallows the `find` pipe and the loop silently exits after one file.
 
 ### 1f. Check the count — from `data/wham_noise_16k/`
 
@@ -139,14 +98,12 @@ Expect `28000`, split 20,000 `tr` / 5,000 `cv` / 3,000 `tt`.
 rm -rf wham_noise
 ```
 
-Ends at ~6 GB. Keep WHAM!'s own tr/cv/tt split and map it onto our
-train/val/eval splits — mixing noise across that boundary leaks.
+Ends at ~6 GB. Map WHAM!'s own tr/cv/tt split onto our train/val/eval splits; mixing noise across that boundary leaks.
 
 
 ## Step 2 — WHAMR! scripts (not the data)
 
-4.8 MB. We want the room-parameter distributions and reverb recipe, then
-synthesise our own RIRs with `pyroomacoustics`.
+4.8 MB. We want the room-parameter distributions and reverb recipe, then synthesise our own RIRs with `pyroomacoustics`.
 
 ### From `data/raw/`
 
@@ -168,18 +125,13 @@ tar -xzf whamr_scripts.tar.gz
 rm whamr_scripts.tar.gz
 ```
 
-**Do not** build the actual WHAM!/WHAMR! mixtures. They require wsj0-2mix,
-which needs the LDC WSJ0 licence — paid, and we do not have it. We need none of
-it: the noise archive is standalone and we generate reverb ourselves.
+**Do not** build the WHAM!/WHAMR! mixtures. They need wsj0-2mix and so the paid LDC WSJ0 licence, which we do not have. We need neither: the noise archive is standalone and we generate reverb ourselves.
 
-Read `whamr_scripts/` for the room-size, absorption and source/mic placement
-ranges. Cite Maciejewski et al. 2020, and note in a code comment that the RIRs
-are ours, generated to their published distributions, not their released RIRs.
+Read `whamr_scripts/` for the room-size, absorption and source/mic placement ranges. Cite Maciejewski et al. 2020, and note in a code comment that the RIRs are ours, generated to their published distributions, not their released RIRs.
 
 ## Step 3 — LibriSpeech
 
-Download all four archives, verify in one pass, then extract and delete one at
-a time so the tars never coexist with their own extracts.
+Download all four archives, verify in one pass, then extract and delete one at a time so no tar coexists with its own extract.
 
 ### 3a. Create the directory — from `data/`
 
@@ -217,20 +169,13 @@ wget -c https://openslr.trmal.net/resources/12/md5sum.txt
 md5sum -c md5sum.txt --ignore-missing
 ```
 
-`--ignore-missing` checks only the archives you actually downloaded. Every line
-printed must end in `OK`. Do not continue otherwise.
+`--ignore-missing` checks only the archives you downloaded. Every line must end in `OK`; otherwise stop.
 
 ### 3d. Extract and delete, one at a time — from `data/librispeech/`
 
-**Be in `data/librispeech/`, not one level deeper.** Each tarball contains its
-own top-level `LibriSpeech/` directory, so all four extract into a shared
-`data/librispeech/LibriSpeech/`. If you `cd` into that directory first and
-extract there, you get `data/librispeech/LibriSpeech/train-clean-360/LibriSpeech/train-clean-360/…`
-— a nested duplicate that wastes tens of GB and leaves the real speakers
-somewhere `make_splits.py` won't find them. Check with `pwd` before each `tar`.
+**Be in `data/librispeech/`, not one level deeper.** Each tarball has its own top-level `LibriSpeech/` directory, so all four extract into a shared `data/librispeech/LibriSpeech/`. Extracting from inside it gives `data/librispeech/LibriSpeech/train-clean-360/LibriSpeech/train-clean-360/…`, a nested duplicate that wastes tens of GB and hides the real speakers from `make_splits.py`. Check `pwd` before each `tar`.
 
-If it has already happened, don't delete either tree — merge the nested one
-upward, because it may hold speakers the outer one lacks:
+If it has already happened, do not delete either tree. Merge the nested one upward, as it may hold speakers the outer one lacks:
 
 ```
 rsync -a --remove-source-files data/librispeech/LibriSpeech/train-clean-360/LibriSpeech/train-clean-360/ data/librispeech/LibriSpeech/train-clean-360/
@@ -273,19 +218,11 @@ tar -xzf test-clean.tar.gz
 rm test-clean.tar.gz
 ```
 
-All four extract into a shared `LibriSpeech/` subdirectory. **~30 GB. Peak
-~58 GB during the 360 extraction** — 52 GB of LibriSpeech plus the ~6 GB of
-converted WHAM! already on disk. Deleting each tar before extracting the next
-is what keeps it there.
+LibriSpeech takes **~30 GB, peaking at ~58 GB during the 360 extraction** (52 GB of LibriSpeech plus ~6 GB of converted WHAM!). Deleting each tar before the next extraction keeps it there.
 
-Do **not** download `train-other-500` (30 GB): "other" is lower-quality audio
-and we need clean targets for the ceiling condition. Nor `original-mp3` (87 GB)
-or `intro-disclaimers`.
+Do **not** download `train-other-500` (30 GB): "other" is lower-quality audio, and the ceiling condition needs clean targets. Skip `original-mp3` (87 GB) and `intro-disclaimers` too.
 
-The per-chapter `.trans.txt` files are your verbatim `t` and `d`. They are
-uppercase with no punctuation. Decide now whether your metric's text normaliser
-matches that convention, because the judge outputs punctuation and casing and
-the comparison has to be fair.
+The per-chapter `.trans.txt` files are your verbatim `t` and `d`, uppercase with no punctuation. The judge outputs punctuation and casing, so decide now whether your metric's text normaliser makes the comparison fair.
 
 ## Step 4 — Python environment
 
@@ -303,8 +240,7 @@ source .venv/bin/activate
 pip install numpy scipy soundfile pyroomacoustics tqdm pyyaml
 ```
 
-`pyroomacoustics` is the RIR synthesiser. `soundfile` reads FLAC directly, so
-nothing needs decoding to WAV on disk.
+`pyroomacoustics` is the RIR synthesiser. `soundfile` reads FLAC directly, so nothing is decoded to WAV on disk.
 
 ## Step 5 — LibriMix, reference only
 
@@ -314,36 +250,19 @@ nothing needs decoding to WAV on disk.
 git clone https://github.com/JorisCos/LibriMix
 ```
 
-(If you already cloned it to the repo root, that's where it is — `LibriMix/`
-is gitignored, so it won't be committed either way.)
+(If already cloned to the repo root, leave it there; `LibriMix/` is gitignored.)
 
-**Do not run `generate_librimix.sh`.** It emits ~430 GB for Libri2Mix alone,
-and produces the wrong artefact: 100% overlap, no partial overlap, no
-target-absent examples, no enrollment segment, no reverberation. Every one of
-those is a variable our metric needs controllable per trial.
+**Do not run `generate_librimix.sh`.** It emits ~430 GB for Libri2Mix alone and produces the wrong artefact: 100% overlap, no partial overlap, no target-absent examples, no enrollment segment, no reverberation. Our metric needs each of these controllable per trial.
 
-Read it for two things: the LUFS loudness-normalisation logic, and the
-metadata/CSV schema, which is a sane starting shape for our manifest. The real
-normalisation (pyloudnorm, target loudness, gain computation) lives in
-`scripts/create_librimix_metadata.py` — `create_librimix_from_metadata.py` only
-applies gains already computed there. Cite Cosentino et al. 2020 for anything
-borrowed.
+Read it for two things: the LUFS loudness-normalisation logic, and the metadata/CSV schema, a sensible starting shape for our manifest. The real normalisation (pyloudnorm, target loudness, gain computation) is in `scripts/create_librimix_metadata.py`; `create_librimix_from_metadata.py` only applies those gains. Cite Cosentino et al. 2020 for anything borrowed.
 
-One nuance: "100% overlap" is exact in LibriMix `min` mode; in `max` mode the
-shorter source is zero-padded, giving a non-overlapping tail. Either way there
-is no *controllable* overlap ratio, which is the property we need.
+One nuance: "100% overlap" is exact in LibriMix `min` mode; `max` mode zero-pads the shorter source, leaving a non-overlapping tail. Neither gives a *controllable* overlap ratio, which is what we need.
 
 ## Step 6 — Freeze the split assignment BEFORE generating anything
 
-**What this means.** Decide, right now, which LibriSpeech *speakers* belong to
-training and which to evaluation — and write that decision to a file that
-everything downstream reads. Not folders, not files: speakers. If speaker 1272
-appears in both training and eval, the model has heard that voice before and
-your eval number is inflated. It will not error, it will not look wrong, and
-you will not find out.
+**What this means.** Decide now which LibriSpeech *speakers* (not folders or files) belong to training and which to evaluation, and write it to a file everything downstream reads. If speaker 1272 is in both training and eval, the model has heard that voice before and your eval number is silently inflated.
 
-This is cheap now and unrecoverable later, which is why it happens before the
-generator exists rather than after.
+This is cheap now and unrecoverable later.
 
 `scripts/make_splits.py` does it. Run once, from the repo root:
 
@@ -351,9 +270,7 @@ generator exists rather than after.
 python scripts/make_splits.py
 ```
 
-It reads `SPEAKERS.TXT` (ships with LibriSpeech), assigns every speaker, asserts
-the splits are disjoint, and writes `experiments/configs/splits.yaml` with the
-seed, the git commit and a checksum of its input.
+It reads `SPEAKERS.TXT` (ships with LibriSpeech), assigns every speaker, asserts the splits are disjoint, and writes `experiments/configs/splits.yaml` with the seed, git commit and a checksum of its input.
 
 The assignment it makes:
 
@@ -366,11 +283,7 @@ The assignment it makes:
 | `smoke_train` | subset of train | 20 | laptop prototyping |
 | `smoke_val` | subset of val | 5 | laptop prototyping |
 
-`eval_public` / `eval_private` exists because
-`docs/data/metric-definitions.md:198-200` requires holding a split back from
-publication, so headline numbers can't be overfitted to trials anyone can
-inspect. The two halves are stratified by sex so a difference between them
-means something.
+`eval_public` / `eval_private` exists because `docs/data/metric-definitions.md:186` requires a split held back from publication, so headline numbers can't be overfitted to trials anyone can inspect. The halves are stratified by sex so a difference between them means something.
 
 Then:
 
@@ -382,89 +295,44 @@ git add experiments/configs/splits.yaml
 git commit -m "Pin speaker-disjoint splits (seed 42)"
 ```
 
-**Commit it before generating any data.** After mixtures exist, re-running with
-a different seed silently redefines what "eval" means and invalidates every
-number you have already produced.
+**Commit it before generating any data.** Once mixtures exist, re-running with a different seed silently redefines "eval" and invalidates every number already produced.
 
 ## Step 7 — Prototype locally, train elsewhere
 
-**Your laptop cannot train this model, and that is fine.** An i5 with Iris Xe
-integrated graphics and 16 GB RAM has no NVIDIA GPU, so no CUDA. Intel's own
-path is real — `torch.xpu` has been in PyTorch since 2.5, plus Intel Extension
-for PyTorch — but Gen12 *integrated* Iris Xe is not on Intel's supported
-hardware list, it shares your 16 GB of system RAM rather than having its own,
-and it delivers on the order of 1–2 TFLOPS FP32. Usable for smoke-test
-inference; not for a training run. (DirectML is Windows-only, so irrelevant on
-Linux; OpenVINO is inference-only but could speed up local listening tests.) A
-causal BSRNN at ~25 M parameters is a 40–70 hour job on a proper GPU; here it
-is not hours-slower, it is not-going-to-finish slower.
+**Your laptop cannot train this model.** An i5 with Iris Xe integrated graphics and 16 GB RAM has no NVIDIA GPU, so no CUDA. Intel's path exists (`torch.xpu` in PyTorch since 2.5, plus Intel Extension for PyTorch), but Gen12 *integrated* Iris Xe is not on Intel's supported hardware list, shares the 16 GB of system RAM, and gives on the order of 1–2 TFLOPS FP32: enough for smoke-test inference, not training. (DirectML is Windows-only; OpenVINO is inference-only but could speed up local listening tests.) A causal BSRNN at ~25 M parameters is a 40–70 hour job on a proper GPU; here it would never finish.
 
-So split the work by what each machine is actually good at:
+**On the laptop: everything except the training run.** Downloading and preparing corpora. Writing and debugging the generator. Generating a handful of mixtures and *listening to them*, the highest-value debugging step in the project (no GPU needed). Building the manifest. Writing the metric harness. Running the judge (an API call, run on Google's servers). Every unit test.
 
-**On the laptop — everything except the training run.** Downloading and
-preparing corpora. Writing and debugging the generator. Generating a handful of
-mixtures and *listening to them*, which is the single highest-value debugging
-step in this whole project and needs no GPU. Building the manifest. Writing the
-metric harness. Running the judge (it's an API call — the work happens on
-Google's servers, not yours). Every unit test.
+Use `smoke_train` / `smoke_val` for this: 25 speakers total, a few hundred mixtures, a model shrunk to a couple of layers. The goal is a pipeline that runs end to end, not a result. If the smoke config trains for 50 steps without crashing and the loss moves, the code is right and only compute is missing.
 
-Use `smoke_train` / `smoke_val` for this: 25 speakers total, a few hundred
-mixtures, a model shrunk to a couple of layers. The goal is proving the pipeline
-runs end to end, not producing a result. If the smoke config trains for 50 steps
-without crashing and the loss moves, the code is right and the only thing
-missing is compute.
-
-**On the HPC or GCP — the training run only.** Same code, different config file.
+**On the HPC or GCP: the training run only.** Same code, different config file.
 
 ### Getting the data onto the cluster
 
-You do **not** re-run this runbook there, and you do not upload 36 GB from home
-broadband. Two better options, in order:
+Do **not** re-run this runbook there or upload 36 GB from home broadband. Two better options, in order:
 
-1. **Re-download on the cluster.** LibriSpeech and WHAM! come from public URLs
-   at university-datacentre bandwidth — likely faster than your upload speed,
-   and it costs you nothing but a job script. Copy `docs/data/data-setup.md` steps
-   1–3 into a shell script and run it there once. Many HPC sites also already
-   host LibriSpeech in a shared read-only dataset directory; ask before
-   downloading anything.
-2. **`rsync` what can't be re-downloaded.** That is `experiments/configs/`,
-   your code, and the frozen val/eval audio (~2–5 GB) — the eval set must be
-   byte-identical everywhere or your numbers aren't comparable across machines.
+1. **Re-download on the cluster.** LibriSpeech and WHAM! are public URLs, and university-datacentre bandwidth likely beats your upload, for the cost of a job script. Copy `docs/data/data-setup.md` steps 1–3 into a shell script and run it once there. Many HPC sites already host LibriSpeech in a shared read-only dataset directory, so ask first.
+2. **`rsync` what can't be re-downloaded**: `experiments/configs/`, your code, and the frozen val/eval audio (~2–5 GB). The eval set must be byte-identical everywhere, or numbers are not comparable across machines.
 
-Exclude the re-downloadable corpora and the local virtualenv, but **keep**
-`data/eval/` — that is the frozen audio that must be byte-identical on both
-machines:
+Exclude the re-downloadable corpora and the local virtualenv, but **keep** the frozen audio in `data/eval/`:
 
 ```
 rsync -avP --exclude .venv/ --exclude LibriMix/ --exclude reference/ --exclude data/raw/ --exclude data/librispeech/ --exclude data/wham_noise_16k/ ~/Documents/University/Masters/Project/TargetSpeakerExtractor/ user@cluster:~/tse/
 ```
 
-A bare `--exclude data/` would drop the frozen eval set along with the
-corpora, which is exactly the file you cannot regenerate identically. Exclude
-the corpus subdirectories by name instead. `.venv/` is excluded because a
-virtualenv built on your laptop is broken anywhere else — rebuild it there.
+A bare `--exclude data/` would also drop the frozen eval set, which cannot be regenerated identically, so exclude the corpus subdirectories by name. `.venv/` is excluded because a laptop-built virtualenv breaks anywhere else; rebuild it there.
 
-**Since 2026-08-15 the rendered training audio is what you move, and the corpora
-are what you leave behind.** A rendered trial is self-contained, so the training
-machine needs no LibriSpeech and no WHAM! at all — ship ~26 GB of rendered audio
-instead of ~36 GB of corpora. Exclude `data/librispeech/`, `data/wham_noise_16k/`
-and `data/raw/` by name; include `data/rendered/` and `data/manifests/`.
+**Since 2026-08-15, move the rendered training audio and leave the corpora behind.** A rendered trial is self-contained, so ship ~26 GB of rendered audio instead of ~36 GB of corpora. Exclude `data/librispeech/`, `data/wham_noise_16k/` and `data/raw/` by name; include `data/rendered/` and `data/manifests/`.
 
 ### The one thing that makes this painless
 
-Never hardcode a path. Every script takes the corpus root as an argument or
-reads it from the config, so laptop and cluster differ by one line in a YAML
-file and nothing else. `make_splits.py` already works this way
-(`--librispeech-root`). Keep that discipline in the generator.
+Never hardcode a path. Every script takes the corpus root as an argument or from the config, so laptop and cluster differ by one YAML line. `make_splits.py` already does this (`--librispeech-root`); keep that discipline in the generator.
 
-Google Cloud adds one wrinkle: machines are ephemeral, so put the corpora in a
-persistent disk or GCS bucket rather than the VM's boot disk, or you will
-re-download them every session and pay for it each time.
+Google Cloud machines are ephemeral: keep the corpora on a persistent disk or GCS bucket, not the VM's boot disk, or you will pay to re-download them every session.
 
 ## Step 8 — AMI (defer to a gap week)
 
-Off the critical path — `docs/decisions/milestones.md:30` says start it whenever there is
-a gap. Zero GPU cost, slow download.
+Off the critical path: `docs/decisions/milestones.md:20` says start it whenever there is a gap. Zero GPU cost, slow download.
 
 ### Annotations first — from `data/raw/`
 
@@ -472,25 +340,15 @@ a gap. Zero GPU cost, slow download.
 wget -c https://groups.inf.ed.ac.uk/ami/AMICorpusAnnotations/ami_public_manual_1.6.2.zip
 ```
 
-22 MB, NXT XML, CC BY 4.0. Carries the segment and speaker annotations that
-drive REAL-T-style trial construction (Li et al., Interspeech 2025).
+22 MB, NXT XML, CC BY 4.0. Carries the segment and speaker annotations for REAL-T-style trial construction (Li et al., Interspeech 2025).
 
 ### Signals
 
-From the chooser at <https://groups.inf.ed.ac.uk/ami/download/>, which emits a
-`wget` script for your selection. Select **Individual headsets** (~120 MB per
-meeting, our approximate ceiling) and **Microphone array** (~360 MB per
-meeting, our mixture). At ~170 meetings that is ~80 GB for the full corpus, so
-take 20–30 meetings first and expand only if the transfer check looks
-informative. Skip all video streams.
+Use the chooser at <https://groups.inf.ed.ac.uk/ami/download/>, which emits a `wget` script. Select **Individual headsets** (~120 MB per meeting, our approximate ceiling) and **Microphone array** (~360 MB per meeting, our mixture). The full corpus of ~170 meetings is ~80 GB, so take 20–30 meetings first and expand only if the transfer check looks informative. Skip all video streams.
 
-Remember the mandatory caveat (`docs/decisions/decisions-m0.md:139`): the AMI ceiling is
-**approximate**, computed from IHM, which has cross-talk bleed and a different
-channel response from the distant mic. Never label it ground truth.
+Mandatory caveat (`docs/decisions/decisions-m0.md:62`): the AMI ceiling is **approximate**, computed from IHM, which has cross-talk bleed and a different channel response from the distant mic. Never label it ground truth.
 
-Before writing an NXT XML parser, check whether a community repo already
-packages AMI's diarisation annotations usably — the pyannote AMI diarisation
-setup is the one to look at first. *(Unverified as of 2026-08-10.)*
+Before writing an NXT XML parser, check whether a community repo already packages AMI's diarisation annotations usably, starting with the pyannote AMI diarisation setup. *(Unverified as of 2026-08-10.)*
 
 ---
 
@@ -505,41 +363,30 @@ setup is the one to look at first. *(Unverified as of 2026-08-10.)*
 | Frozen val + eval audio, added later | ~2–5 GB |
 | Training mixtures, rendered once | ~26 GB (decisions-m0.md 2026-08-15) |
 
-Global peak ~58 GB during setup, then ~67 GB steady state once training audio is
-rendered. **Budget ~90 GB free**, not the 70 GB this section previously assumed —
-that figure predated the 2026-08-15 decision to render training audio to disk.
+Global peak ~58 GB during setup, then ~67 GB steady state once training audio is rendered. **Budget ~90 GB free**, not the 70 GB assumed before the 2026-08-15 decision to render training audio to disk.
 
 ## Do not delete the source corpora afterwards
 
-Tempting once the audio is rendered, but it breaks the project. `CLAUDE.md`
-requires that a config plus a seed reproduces a run, and the rendered audio is
-downstream of the corpora, not a replacement for them: **any manifest rebuild
-invalidates every rendered file and needs the sources to re-render.** B2's
-rebuild is one such, and it will not be the last. Delete them and the seed
-reconstructs nothing.
+`CLAUDE.md` requires that a config plus a seed reproduces a run, and rendered audio is downstream of the corpora, not a replacement: **any manifest rebuild invalidates every rendered file and needs the sources to re-render.** B2's rebuild is one such case, and will not be the last.
 
-Safe to delete: every archive after checksum verification, and the 32-bit float
-WHAM! originals after conversion. Nothing else.
+Safe to delete: every archive after checksum verification, and the 32-bit float WHAM! originals after conversion. Nothing else.
 
 ## Verification before you call M0 sources done
 
 - [X] Every checksum matched. Checked, not assumed.
 - [X] `data/wham_noise_16k/` holds 28,000 FLAC files across tr/cv/tt.
-- [ ] LibriSpeech speaker counts: 251 (train-clean-100), 921 (train-clean-360),
-      40 (dev-clean), 40 (test-clean).
-- [ ] Spot-check ten converted noise files: 16 kHz, 1 channel, audibly
-      identical to source.
-- [ ] `experiments/configs/splits.yaml` committed, disjointness asserted in
-      code rather than eyeballed.
+- [ ] LibriSpeech speaker counts: 251 (train-clean-100), 921 (train-clean-360), 40 (dev-clean), 40 (test-clean).
+- [ ] Spot-check ten converted noise files: 16 kHz, 1 channel, audibly identical to source.
+- [ ] `experiments/configs/splits.yaml` committed, with disjointness asserted in code rather than eyeballed.
 - [X] WHAM! CC BY-NC licence note added to `docs/decisions/decisions-m0.md`.
 - [ ] `git status` shows no audio staged.
 - [ ] PR opened. Small and single-purpose.
 
 ## Sources
 
-- LibriSpeech (CC BY 4.0) — <https://www.openslr.org/12>
-- WHAM! / WHAMR! (CC BY-NC 4.0) — <http://wham.whisper.ai/>
-- WHAMR! generation docs — <https://wham.whisper.ai/WHAMR_README.html>
-- LibriMix — <https://github.com/JorisCos/LibriMix>
-- AMI corpus (CC BY 4.0) — <https://groups.inf.ed.ac.uk/ami/download/>
-- AMI licence — <https://groups.inf.ed.ac.uk/ami/corpus/license.shtml>
+- LibriSpeech (CC BY 4.0): <https://www.openslr.org/12>
+- WHAM! / WHAMR! (CC BY-NC 4.0): <http://wham.whisper.ai/>
+- WHAMR! generation docs: <https://wham.whisper.ai/WHAMR_README.html>
+- LibriMix: <https://github.com/JorisCos/LibriMix>
+- AMI corpus (CC BY 4.0): <https://groups.inf.ed.ac.uk/ami/download/>
+- AMI licence: <https://groups.inf.ed.ac.uk/ami/corpus/license.shtml>

@@ -1,108 +1,26 @@
 # Checkpoints
 
-`.pt` files are gitignored, so this file is the only record of which is which.
+`.pt` files are gitignored, so this file is the only record of which is which. Each checkpoint carries its own `config` dict: `torch.load(p, weights_only=False)`, then `["config"]` and `["best_row"]`. **full** = model + optimiser + scheduler (resumable); otherwise weights only.
 
-**Every checkpoint here is load-bearing — none is a spare.** The `_last.pt`
-duplicates were deleted 2026-08-30 (248 MB): for those three runs best_val WAS the
-last epoch, so `_last` held the same weights as the best file. `model_sir0_e50es_last.pt`
-is NOT such a duplicate (best 14, last 24) and stays.
-Every one carries its own `config` dict — `torch.load(p, weights_only=False)`
-then read `["config"]` and `["best_row"]` if this file goes stale.
+**Pruned 2026-10-17 to the thesis set: 125 files (6.1 GB) to 22 (1.3 GB).** Kept: every checkpoint the report rests on, their resume parents, and the live runs. The 103 deleted files (superseded arms, unselected epochs, and weights-only files whose weights were identical to a `-full` file) are listed with md5 in `deleted-2026-10-17.md5`. Not recoverable without retraining. Their histories, configs and judge results stay in `experiments/results/`; their notes are in `decisions-m2.md` and in this file's git history.
 
-| file | run | epoch | `w_g` | enrolment sensitivity | what it is |
-|---|---|---|---|---|---|
-| `model_sir0.pt` | `2026-08-28-train-sir0-e10` | 9 | 1.69 | **-4.25 dB (37.6 %)** | **current best.** The `L_gain` run. Default for `pass_a_test_case_through.py`. |
-| `model_sir0_amp-e10.pt` | `2026-08-29-train-sir0-e10-amp` | 9 | 1.69 | -4.96 dB (31.9 %) | the AMP + `chunk_s` 4.008 rerun. Trains 7.2x faster; scores within noise of `model_sir0.pt` (see below). |
-| `model_sir0_wg0-e7.pt` | `2026-08-27-train-sir0` | 7 | none | -8.25 dB (14.9 %) | **the control.** No `L_gain`, and it MUTED — output sits ~22 dB below the mixture where the target is at ~-3.9. Keep: it is the comparison arm for the `L_gain` claim, not a spare. |
-| `model_sir0_e50es.pt` | `2026-08-29-train-sir0-e50-resume` | 14 | 1.69 | -3.80 dB (41.7 %) | best epoch of the resumed run, and the lowest `val_total` on record (-2.178). **Overfit — read the note below before using it.** |
-| `model_sir0_e50es_last.pt` | same | 24 | 1.69 | -0.98 dB (79.9 %) — **not a win, see note** | last epoch before early stop. Val extraction ended WORSE than passing the mixture through. |
-| **`model_sir0_C-bankremix-e11.pt`** | `2026-08-30-train-sir0-C-bank-remix` | **11** | 1.69 | — | **BEST HELD-OUT SEPARATION on record, 2.35 dB.** Arm C: `enrollment_variants` 4 + `remix_gains`. Use for estimates and evaluation. |
-| `model_sir0_A-remix-e14.pt` | `2026-08-30-train-sir0-A-remix` | 14 | 1.69 | — | Arm A: `remix_gains` only. **1.13 dB, and NOT representative of its own run** — epoch 10 reached 2.36 dB and was never saved. |
+**Not in this folder.** Ext. (C+S+G) session 2 (idx 13-25, selected idx 25) is in `kaggle_out/session2/models/`; see `experiments/results/2026-10-16-train-sir0-presence-gate-A-resume/NOTES.txt`. WeSep is in `../wesep_pretrained/`.
 
-Both runs: `sir0`, seed 42, batch 3, `chunk_s` 4.0, fp32 (pre-speed-fix).
-Neither used AMP. decisions-m2.md 2026-08-28.
-
-**`model_sir0.pt` vs `model_sir0_amp-e10.pt`.** The fp32 run scores better on
-every headline (val_total -1.673 vs -1.413, enrolment 37.6 vs 31.9 %), so it stays
-the default. But the gap is **inside run noise** — mean between-run difference 2.9
-points against a mean within-run epoch-to-epoch swing of 8.3, and the sign flips
-(AMP ahead at epochs 6-8, behind at 5 and 9). Do not claim either is the better
-model on this evidence.
-
-## `model_sir0_e50es*` — the overfitting run
-
-Resumed at epoch 10, early-stopped at 24, best epoch 14. Requested 50 epochs, ran 15.
-
-**Both of these memorised the training set.** Train extraction improved the whole
-way (`L_pres` -2.97 -> -5.51, i.e. 4.8 % -> 13.8 % of the way from do-nothing to
-oracle) while val went backwards (-1.52 -> **+0.17**). Do-nothing scores -1.59, so
-by epoch 24 the model was a worse estimate of the target than the untouched
-mixture. Val speakers are properly held out (1 of 41 shared with train), so this
-is a real generalisation failure, not a split leak.
-
-**Do not read the enrolment-sensitivity column as progress on this run.** It climbs
--3.66 -> -0.98 dB (43 % -> 80 % output movement on an enrolment swap), which looks
-like the conditioning finally working. It is not. The diagnostic saturates: an
-ideal extractor handed a stranger's enrolment outputs silence and scores exactly
-**0.00 dB**, and an output that depends on the enrolment *arbitrarily* scores
-**+3.01 dB**. Everything from 0 dB up is ambiguous, and -0.98 dB sits in it.
-`val_L_pres` is the tiebreaker and says the output is worse than doing nothing:
-strongly enrolment-dependent and strongly wrong.
-
-`model_sir0.pt` is still the default for `pass_a_test_case_through.py`. `e50es` has
-the better `val_total`, but `val_total` is not a safe ranking here — most of the
-gap is the absent branch, not extraction. Decide deliberately before switching.
-
-## Why each survivor is kept — read before deleting any of these
-
-| file | why it cannot go |
-|---|---|
-| `model_sir0.pt` | the default checkpoint `scripts/pass_a_test_case_through.py` loads. Deleting it breaks that script. |
-| `model_sir0_amp-e10.pt` | **the parent of the current baseline.** `model_sir0_e50es.pt` was produced by resuming from this file at epoch 9 (`best_val -1.4126`, see `session.log`). Without it the baseline's provenance chain is broken and the run cannot be reproduced. |
-| `model_sir0_wg0-e7.pt` | **the control arm for the `L_gain` claim** — the last run without the term. The "`L_gain` closed the mute" result is a comparison against this and nothing else. |
-| `model_sir0_e50es.pt` | the current baseline, epoch 14. |
-| `model_sir0_e50es_last.pt` | epoch 24, the fully-overfit endpoint. The *evidence* for the overfitting result: the numbers are in `history.csv`, but demonstrating a model that scores worse than pass-through needs the weights. |
-| `model_sir0_C-bankremix-e11.pt` | **the best separator the project has produced.** The one to point evaluation at. |
-| `model_sir0_A-remix-e14.pt` | the remix-only ablation arm's only surviving weights. Weak, and kept for that reason: it is the *demonstration* of the checkpoint-selection bug, not a model to use. |
-
-
-## The 2026-08-30 augmentation arms, and a warning about arm A
-
-Both bundles (`kaggle_out/`, `kaggle_out_c/`) were deleted 2026-08-30 after the
-histories, configs and run-time rows were preserved into
-`experiments/results/2026-08-30-train-sir0-{A-remix,C-bank-remix}/`.
-
-| checkpoint | epoch | held-out sep | that run's actual PEAK |
-|---|---|---|---|
-| `model_sir0_C-bankremix-e11.pt` | 11 | **2.35 dB** | 2.35 dB — epoch 11, the rule got this one right |
-| `model_sir0_e50es.pt` (control) | 14 | 2.14 dB | 2.23 dB at epoch 5 |
-| `model_sir0_A-remix-e14.pt` | 14 | 1.13 dB | **2.40 dB at epoch 10 — never saved** |
-
-**Do not score `model_sir0_A-remix-e14.pt` as "what the remix achieves".** It was
-selected by the pre-2026-08-30 `val_total` rule, which the entry above already
-warns is not a safe ranking — most of the gap is the absent branch, not
-extraction. On arm A that cost a full dB. `training.select_on` and
-`training.keep_top_k` now prevent it; the lost epoch needs a re-run to recover.
-
-**And neither augmentation raised the ceiling.** Peaks of 2.23 / 2.40 / 2.35 dB
-across control / A / C sit inside the epoch-to-epoch swing (0.31-0.52 dB). The
-result is negative and is logged as such in decisions-m2.md 2026-08-30.
-
-## Item 1a, cue parts: 2026-09-23 (`experiments/results/2026-09-23-train-sir0-cueparts/`)
-
-| file | epoch | why it is kept |
+| file | run (`experiments/results/`) | why it is kept |
 |---|---|---|
-| `model_sir0_cueparts-e9.pt` | 9 | the epoch training selected, and the control 1c is registered against. Scores no better than the baseline on word error. |
-| `model_sir0_cueparts-e15.pt` | 15 | the last epoch, best of ours on sir0_val word error (ASR 52.76, judge 45.23), reached by cutting harder. Clean speech: Whisper 11.2 % vs 5.3 %, but judge 2.86 % vs 4.00 %. Chosen post hoc. **sir0_privval (ASR): 47.38 vs baseline 48.90, inside the noise**; leakage halved. |
-| `model_sir0_cueparts-e2.pt`, `-e4.pt` | 2, 4 | weights only. The only other surviving epochs of a run whose selection misranked. |
-| `model_sir0_cueparts-probe-e1.pt` | 1 | the 2026-09-22 2-epoch probe, UNSCALED. The evidence for the LayerNorm-gain rebalancing measurement in decisions-m2.md 2026-09-22. Never compare with a scaled run. |
+| `model_sir0_baseline-matched-e11.pt` | `2026-10-07-train-sir0-baseline-matched-s1` | **Report: Baseline.** Lowest judge LCF-WER of its judged epochs. |
+| `model_sir0_baseline-matched-e13-full.pt` | same | last epoch, full: the resume point. |
+| `model_sir0_cuecontext-wer-e13.pt` | `2026-09-24-train-sir0-cuecontext-wer` | full. End of session 1, the parent of the resume that produced e21. Loaded by `demo_live.yaml`. |
+| `model_sir0_cuecontext-wer-e18.pt` | `2026-09-24-train-sir0-cuecontext-wer-resume` | full. The in-loop Whisper pick, overruled by the judge. |
+| `model_sir0_cuecontext-wer-e21.pt` | same | **Report: Ext. (C+S).** Judge pick 2026-09-26. Parent of every fine-tune below. |
+| `model_sir0_cuecontext-wer-e27.pt` | same | full. Last epoch; the e21-vs-e27 appendix. |
+| `model_sir0_interf-ft-{e3,e5-full}.pt` | `2026-10-02-train-sir0-interf-ft` | **Report: leak-weight fine-tune** (`tab:metric_evidence`). e5 primary, e3 secondary (D10 rule). |
+| `model_sir0_artif-ft-{e3,e5-full}.pt` | `2026-10-03-train-sir0-artif-ft` | **Report: artefact-weight fine-tune.** Same rule. |
+| `model_sir0_interf-ft-control-{e3,e5-full}.pt` | `2026-10-02-train-sir0-interf-ft-control` | the control for both fine-tunes, and for wm-ft. |
+| `model_sir0_interf-artif-ft-{e3,e5-full}.pt` | `2026-10-03-train-sir0-interf-artif-ft` | the both-weights cell of the 2x2. |
+| `model_sir0_presence-gate-A-e12.pt` | `2026-10-16-train-sir0-presence-gate-A` | Ext. (C+S+G) session 1 pick; parent of session 2. |
+| `model_sir0_wm-ft-{e3,e4,e5,e5-full}.pt` | `2026-10-17-train-sir0-wm-ft` | C6 `w_m` re-derivation, live. `e5.pt` duplicates `e5-full`'s weights; kept because `eval_wm_ft.sh` loads it. |
+| `model_sir0_10000-e6.pt` | `2026-09-04-train-sir0-10000` | the report baseline until 2026-10-07; most decision-log numbers before then use it. Default `--checkpoint` of `probe_state_features.py`, `diagnose_mask_structure.py`, `plot_mask_grid.py`. |
+| `state_detector_{notebook,tuned}.pt` | `2026-09-11-train-sir0-state` | the speaker-state teacher (`state_teacher` in `bsrnn_state.yaml`). 3 MB. |
 
-## Item 1c-wer resume: 2026-09-24/25 (`experiments/results/2026-09-24-train-sir0-cuecontext-wer-resume/`)
-
-| file | epoch | why it is kept |
-|---|---|---|
-| `model_sir0_cuecontext-wer-e18.pt` | 18 | the epoch the in-loop Whisper probe selected. Full checkpoint, resumable. |
-| `model_sir0_cuecontext-wer-e27.pt` | 27 | last epoch. Full checkpoint. |
-| `model_sir0_cuecontext-wer-e15.pt` | 15 | weights only. Best held-out separation of the run (val L_pres -4.64). |
-| `model_sir0_cuecontext-wer-e21.pt` | 21 | weights only. **Selected 2026-09-26 as the project's best model**, on the judge: ties e27 on word error (39.23), fewer invented words (FR@2 45.1 vs 55.4). decisions-m2.md 2026-09-26. |
-| `model_sir0_cuecontext-wer-e17/-e24.pt` | 17, 24 | weights only. The rest of the stride/top-k set, for re-scoring on the judge. |
+**Default checkpoint deleted, pass `--checkpoint`:** `pass_a_test_case_through.py` (`model_sir0.pt`), `measure_rtf.py` (`model_sir0_5000-e7.pt`).

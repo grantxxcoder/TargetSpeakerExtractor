@@ -4,7 +4,7 @@
 
 \subsubsection{Transcripts and references}
 \label{sec:transcripts}
-When a system produces output, either the offline or the live model with the prompt of \autoref{app:prompt}, it gives a transcript $y_{\hat{s}}$. The two anchors get transcribed as well to give the untouched mixture as $y_{x}$ and the clean target as $y_{s}$. Every transcript is scored against the LibriSpeech reference transcript of the target speaker $y^\star_s$, and the interferer speaker $y^\star_d$. Before scoring, each transcript is normalised using Whisper's \texttt{EnglishTextNormalizer} \cite{whisper_normalizer,radford2023whisper}. This includes lowercasing, removing punctuation, contractions expanded and numbers written consistently.
+When a system produces output, either the offline or the live model with the prompt of \autoref{app:prompt}, it gives a transcript. The two anchors get transcribed as well to give the untouched mixture and the clean target. Every transcript is scored against the LibriSpeech reference transcript of the target speaker, and the interferer speaker. Before scoring, each transcript is normalised using Whisper's \texttt{EnglishTextNormalizer} \cite{whisper_normalizer,radford2023whisper}. This includes lowercasing, removing punctuation, contractions expanded and numbers written consistently.
 
 \subsubsection{Live-model Content Fidelity Word Error Rate}
 \label{sec:lcfwer}
@@ -17,7 +17,7 @@ where $S$ is the number of substitutions, $D$ is the number of deletions, $I$ is
 
 \subsubsection{Interferer Content Rate}
 \label{sec:icr}
-The Interferer Content Rate (ICR) is the first metric used to highlight one particular nuance of the LCF-WER metric: when the live model transcribes a word that the target never said, that word was either invented by the model or heard from the interfering speaker. The Interferer Content Rate (ICR) measures the second case.
+The Interferer Content Rate (ICR) is the first metric used to highlight one particular nuance of the LCF-WER metric: when the live model transcribes a word that the target never said, that word was either invented by the model or heard from the interfering speaker. The Interferer Content Rate (ICR) measures the second case [\ref{ai:metrics}].
 
 \paragraph{Content Words.} The ICR metric needs to identify which words are likely to be words that are not filler words that a model can easily hallucinate. Firstly, the words that are not considered content words are removed from consideration using a stopword list, taken from the NLTK English stopword corpus \cite{bird2009nltk}. Function words are removed because almost any two English sentences share them, so an overlap counted over these words would rather count as grammatical issues than content. These content words will be used to make an interferer-exclusive bag of words, which indicates which words the model picks up from the interfering speaker. Specifically, a content word is \emph{available to leak} on trial $i$ if the interfering speaker said it and the target did not. Each word is counted once per trial: $a_i$ is the number of words available to leak on trial $i$, and $\ell_i$ the number of those that leaked.
 
@@ -27,7 +27,7 @@ The Interferer Content Rate (ICR) is the first metric used to highlight one part
 \qquad\mathcal{T}_k = \{\, i \in \mathcal{T} \;:\; a_i \ge k \,\},
 \label{eq:icrk}
 \end{equation}
-where $\mathcal{T}$ is the set of trials being scored, $i$ indexes a trial in it, $k$ is the number of leaked words at which a trial counts as leaking, and $\mathcal{T}_k$ is the subset of trials with at least $k$ words available to leak.
+where $\mathcal{T}$ is the set of trials being scored, $i$ indexes a trial in it, $\ell_i$ is the number of leaked words on trial $i$, $a_i$ is the number of words available to leak on trial $i$, $k$ is the number of leaked words at which a trial counts as leaking, and $\mathcal{T}_k$ is the subset of trials with at least $k$ words available to leak.
 Only trials with at least $k$ available words are eligible, since a trial with a single available word can never reach $\textup{ICR}@2$ and would only dilute the rate. This work uses $k = 2$: one shared content word can be coincidence, while two is a signal. The choice does not change any conclusion, as every $k$ from 1 to 5 fully separates the no-processing and target-alone reference points (\autoref{sec:anchors}). The second rate asks how much leaks, as the share of the available words that reached the transcript, expressed as a percentage:
 \begin{equation}
 \textup{mean leak} = \frac{1}{|\mathcal{T}|} \sum_{i \in \mathcal{T}} \frac{\ell_i}{a_i},
@@ -46,7 +46,7 @@ Over the set $\mathcal{T}$ of trials with a non-empty response, the statistic is
     \textup{FR}_{\textup{count}} = \frac{1}{|\mathcal{T}|} \sum_{i \in \mathcal{T}} \big| \mathcal{I}_i \big|,
     \label{eq:frcount}
 \end{equation}
-where $\mathcal{I}_i$ is the set of words in the $i$-th trial's output that are not present in either the target or interferer. A rate of fabrication is also defined by whether a trial contains at least $k$ invented words as defined in Equation~\ref{eq:frk}.  
+where $\mathcal{I}_i$ is the set of words in the $i$-th trial's output that are not present in either the target or interferer [\ref{ai:metrics}]. A rate of fabrication is also defined by whether a trial contains at least $k$ invented words as defined in Equation~\ref{eq:frk}.  
 \begin{equation}
     \textup{FR}@k = \frac{1}{|\mathcal{T}|} \sum_{i \in \mathcal{T}} \mathbb{1}\! \left[\, \big| \mathcal{I}_i \big| \ge k \,\right],
     \qquad k = 2 \text{ chosen in this work.}
@@ -60,7 +60,7 @@ DNSMOS \cite{reddy2021dnsmos,reddy2022dnsmos835} is a neural network that predic
 
 \subsubsection{Signal to Distortion/Interference/Artefact Ratios}
 \label{sec:sdiar}
-The ratios are used in the following manner: SDR is used to measure how wrong the output audio is in total, and the SIR and SAR are used to measure in which direction the output audio is wrong. The SIR measures how much real audio that is not target speech is present in the output audio such as an interfering speaker or background noise, and the SAR measures how much of the output audio is not real audio, such as artefacts from the model. The output is split by orthogonal projection \cite{vincent2006bsseval} into the target part $s_\textup{proj}$ of Equation~\ref{eq:alpha}, the interference $e_\textup{int}$ explained by the other speaker $d$ and the noise, and the artefact $e_\textup{art}$ explained by none of the sources, so that $\hat{s} = s_\textup{proj} + e_\textup{int} + e_\textup{art}$:
+SDR is used to measure how wrong the output audio is in total, and the SIR and SAR are used to measure in which direction the output audio is wrong. The SIR measures how much real audio that is not target speech is present in the output audio such as an interfering speaker or background noise, and the SAR measures how much of the output audio is not real audio, such as artefacts from the model. The output is split by orthogonal projection \cite{vincent2006bsseval} into the target part $s_\textup{proj}$ of Equation~\ref{eq:alpha}, the interference $e_\textup{int}$ explained by the other speaker $d$ and the noise, and the artefact $e_\textup{art}$ explained by none of the sources, so that $\hat{s} = s_\textup{proj} + e_\textup{int} + e_\textup{art}$:
 \begin{equation}
 \textup{SDR} = 10\log_{10} \dfrac{\lVert s_\textup{proj}\rVert^2}{\lVert e_\textup{int} + e_\textup{art}\rVert^2}
 \end{equation}
@@ -70,7 +70,7 @@ The ratios are used in the following manner: SDR is used to measure how wrong th
 \begin{equation}
 \textup{SAR} = 10\log_{10} \dfrac{\lVert s_\textup{proj} + e_\textup{int}\rVert^2}{\lVert e_\textup{art}\rVert^2}
 \end{equation}
-which are all measured in decibels (dB) where the higher ratio means better extraction of the target from the other audio in question. When training the model, the Scale-Invariant Signal-to-Distortion Ratio (SI-SDR) introduced by Le Roux et al. \cite{leroux2019sisdr} is used as the loss function which takes inspiration from the SDR metric and was defined earlier in Equation~\ref{eq:lpres}. 
+which are all measured in decibels (dB) where the higher ratio means better extraction of the target from the other audio in question. 
 
 \subsubsection{Anchors}                                  
 \label{sec:anchors}

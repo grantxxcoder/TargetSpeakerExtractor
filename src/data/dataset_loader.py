@@ -39,6 +39,9 @@ import soundfile as sf
 import torch
 from torch.utils.data._utils.collate import default_collate
 
+from src.data import state_labels, vad
+from src.models.stft import STFT
+
 
 # A6's clip ceiling. MUST equal src/data/render.CLIP_CEILING -- the remix re-runs
 # the renderer's final step, and a mismatch would silently rescale every crop it
@@ -61,7 +64,8 @@ def collate_pairs(batch):
 class TrialDataset(torch.utils.data.Dataset):
     def __init__(self, manifest_csv, data_root, split, chunk_s, sample_rate, seed,
                  random_crop=True, both_directions=False, enrollment_variants=1,
-                 remix_gains=False):
+                 remix_gains=False, state_index=None, label_n_fft=None,
+                 label_hop=None):
         self.data_root    = Path(data_root)
         self.split        = split                   
         self.chunk_s      = chunk_s        
@@ -98,6 +102,17 @@ class TrialDataset(torch.utils.data.Dataset):
         # the crop and the cue are. decisions-m2.md 2026-08-30.
         self.remix_gains = bool(remix_gains) and random_crop
 
+        # PRESENCE-GATE LABELS v_t (docs/extra/variational-presence-gate.md).
+        # None = no labels, i.e. every run before the gate: examples carry no
+        # `v` key at all. The frame count comes from the model's own STFT, so
+        # the label can never be a frame longer or shorter than the gate's output.
+        self.label_spans = None
+        if state_index is not None:
+            self.label_hop_s = label_hop / sample_rate
+            self.label_frames = STFT(label_n_fft, label_hop, sample_rate)._n_frames(
+                self.chunk_frames)
+            self.label_spans = self._read_state_index(state_index)
+
         self.manifest_df = pd.read_csv(manifest_csv)
         if self.enrollment_variants > 1:
             self._check_bank()
@@ -121,7 +136,7 @@ class TrialDataset(torch.utils.data.Dataset):
         mixtures and the contrast the pairing exists for would be broken.
         """
         row = self.manifest_df.iloc[idx]
-        trial_directory = self.data_root / "rendered" / self.split / row["trial_id"]
+        trial_directory = self.data_root / "rendered" / self._audio_dir(row) / row["trial_id"]
         mixture_path = trial_directory / "mixture.wav"
         number_of_frames = sf.info(str(mixture_path)).frames
 
@@ -144,7 +159,7 @@ class TrialDataset(torch.utils.data.Dataset):
         # changed them. Reported in meta so a stratified diagnostic describes the
         # audio the model actually heard rather than the audio on disk.
         sir_used, snr_used = float(row["sir_db"]), float(row["snr_db"])
-        if self.remix_gains:
+        if self.remix_gains and self._remixable(row):
             (mixture_audio, target_audio, interferer_audio,
              sir_new, snr_new) = self._remix(
                 idx, row, mixture_audio, target_audio, interferer_audio)
@@ -167,6 +182,26 @@ class TrialDataset(torch.utils.data.Dataset):
                                      sir_used, snr_used, start_offset,
                                      other_audio=target_audio))
         return out
+
+    def _audio_dir(self, row):
+        """Directory under rendered/ that holds this row's trial.
+
+        A per-row `audio_dir` column lets ONE manifest draw on several rendered
+        splits -- M8's 50/50 blend of ami_train and sir0_train
+        (decisions-m8.md 2026-10-12). Absent or empty means the dataset's own
+        split, i.e. every manifest before it.
+        """
+        value = row.get("audio_dir")
+        return value if isinstance(value, str) and value else self.split
+
+    @staticmethod
+    def _remixable(row):
+        """False only where the manifest says so. Remix rebuilds the mixture as
+        target + interferer + noise; on AMI the stems are other microphones, so
+        that identity is false and the row is left as recorded
+        (decisions-m8.md 2026-10-12). Absent column = remixable, as before."""
+        value = row.get("remixable")
+        return value is None or pd.isna(value) or int(value) != 0
 
     def _remix(self, idx, row, mixture, target, interferer):
         """Rebuild the mixture at another trial's SIR and SNR.
@@ -248,6 +283,8 @@ class TrialDataset(torch.utils.data.Dataset):
         target-relative level.
         """
         df = self.manifest_df
+        if "remixable" in df:   # AMI rows are not a sum of their stems: never donors
+            df = df[df["remixable"].fillna(1).astype(int) != 0]
         self._gain_pools = {}
         for regime, group in df.groupby("regime"):
             self._gain_pools[str(regime)] = (
@@ -278,7 +315,7 @@ class TrialDataset(torch.utils.data.Dataset):
         # manifest's clip-level label. A phantom interferer is silent for the
         # whole clip, so this is exactly zero and the example is absent.
         crop_absent = bool(target_audio.abs().max() == 0)
-        return {
+        example = {
             "mixture": mixture_audio,
             "target": target_audio,
             "other": (other_audio if other_audio is not None
@@ -310,6 +347,44 @@ class TrialDataset(torch.utils.data.Dataset):
                                     and which == "interferer",
             },
         }
+        if self.label_spans is not None:
+            example["v"], example["v_valid"] = self._frame_labels(row, which, crop_start)
+        return example
+
+    def _frame_labels(self, row, which, crop_start):
+        """v_t for this crop and direction: 1 where THIS direction's target speaks.
+
+        (label_frames,) float32, plus True if the trial has labels. A trial with
+        none (an AMI row in a mixed manifest) gets zeros and False, so the loss
+        can mask it out rather than train the gate towards silence.
+
+        Spans are on the trial timeline; they are shifted to the crop and cut at
+        its end, so a frame whose own hop step lies past the audio is 0. Frame t
+        covers [t*hop, (t+1)*hop) of the crop, which is the newest hop of the
+        model's causal STFT frame t (src/models/stft.py pads n_fft - hop on the
+        left), and is the convention spans_to_mask uses.
+        """
+        spans = self.label_spans.get(str(row["trial_id"]))
+        if spans is None:
+            return torch.zeros(self.label_frames), False
+        start_s = crop_start / self.sample_rate
+        own = spans[0] if which == "target" else spans[1]
+        own = state_labels.clip_spans([(a - start_s, b - start_s) for a, b in own],
+                                      self.chunk_s)
+        mask = state_labels.spans_to_mask(own, self.label_frames, self.label_hop_s)
+        return torch.from_numpy(mask.astype(np.float32)), True
+
+    @staticmethod
+    def _read_state_index(path):
+        """data/index/state_<split>.csv -> {trial_id: (target_spans, interferer_spans)}.
+
+        Built by scripts/build_state_labels.py: placement + Silero VAD (Silero Team, 2021), tails
+        extended by 1.0 x t60 (its .meta.yaml records the multiplier).
+        """
+        df = pd.read_csv(path, dtype=str, keep_default_na=False)
+        parse = lambda text: vad.parse_segments(text.strip(vad.SEG_SEP))
+        return {tid: (parse(t), parse(i)) for tid, t, i in
+                zip(df["trial_id"], df["target_spans"], df["interferer_spans"])}
 
 
     def _read_in_wav(self, path, start=0, frames=-1):
@@ -371,9 +446,15 @@ class TrialDataset(torch.utils.data.Dataset):
         unreadable next to its own config -- the same reason `amp` is
         config-driven.
         """
-        first = self.manifest_df.iloc[0]["trial_id"]
-        probe = (self.data_root / "rendered" / self.split / first
-                 / "enrollment_v00.wav")
+        # One probe per audio dir: a mixed manifest draws on several splits,
+        # and each needs its own bank.
+        for _, first_row in self.manifest_df.groupby(
+                self.manifest_df.apply(self._audio_dir, axis=1), sort=False).head(1).iterrows():
+            probe = (self.data_root / "rendered" / self._audio_dir(first_row)
+                     / first_row["trial_id"] / "enrollment_v00.wav")
+            self._require_bank(probe)
+
+    def _require_bank(self, probe):
         if not probe.exists():
             raise FileNotFoundError(
                 f"enrollment_variants={self.enrollment_variants} but {probe} is "

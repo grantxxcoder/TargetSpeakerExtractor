@@ -2676,3 +2676,153 @@ architecture and matched − e6 isolates the protocol.
 trials, as e21 was; the selection-free check is `eval_public` Case 3.
 
 **AI assistance:** config, registration and bundle prepared with Claude. Declare.
+
+## 2026-10-17 — C6 REGISTERED before running: the reconstruction weight `w_m` re-derived on `sir0`
+
+**What.** `w_m` (weight on `L_MR` inside the present branch) goes from 9.62 to **3.39**. Same rule as
+2026-08-20, `w_m = 0.3 |L_pres| / L_MR`, but measured at e21's output instead of the do-nothing output:
+e21's own validation row (`2026-09-24-train-sir0-cuecontext-wer-resume/history.csv`, epoch 21) gives
+`L_pres` -3.1720, `L_MR` 0.2808 -> 3.389 (epochs 18-22: 3.42-3.93).
+
+**Why the anchor moved.** At the do-nothing output `L_pres` is near zero on `sir0` (equal-level voices),
+so the old rule divides by noise: -1.593 (`derive_w_g.py`, target direction) gives 1.75; -0.9307
+(`measure_passthrough_val.py`, the validation loop's 261 present crops, measured 2026-10-17) gives 1.03;
+~-0.18 gives ~0.2. 9.62 itself came from the abandoned `train` split (-5.909 / 0.1842). Weak-points
+register C6. Also measured: e21's `L_MR` (0.2808) is no better than the do-nothing output's (0.2704).
+
+**Run.** `bsrnn_wm_ft.yaml` = `bsrnn_interf_ft_control.yaml` with `loss.w_m` changed and nothing else
+(checked key by key). From e21 (md5 `1dfca8f492d9c4aac86c11ebf8723ee9`), fresh optimiser, lr 1.25e-4,
+6 epochs, seed 42, batch 3, constant w. Notebook `kaggle_train_wm_ft.ipynb`. ~4.8 h (D10's arms, measured).
+The control is the D10 control already trained and judged (2026-10-02/03); no new control run.
+
+**Comparison rule, fixed now (D10's).** Judge epoch 5 primary, epoch 3 secondary, vs the control at the
+same epoch; same 103 `sir0_val` `both` clips, judge `gemini-3.7-flash`, prompt `d118b7d3bf30`; paired
+bootstrap over clips (10,000 draws, seed 42) from `scripts/per_trial_judge_counts.py`. Not the
+probe-selected `model_sir0.pt`. Also reported by overlap third (`overlap_achieved`, as 2026-10-17).
+
+**Prediction, arm vs control:** LCF-WER falls or holds; mean leaked % falls, most in the mid and high
+overlap thirds; `L_MR` may rise (less reconstruction pressure).
+
+**Failure signs, watched not assumed:** more invented words (FR@2, invented/trial), more substitutions,
+an output level drift (`L_gain` up), more silenced clips.
+
+**Limits:** one seed; the control was trained on 2026-10-02 code (`478cd60`). Checked 2026-10-17, not
+assumed: its config values are unchanged, and e21 under the control config gives bit-identical batches,
+total and parts on two `sir0_train` batches under `478cd60` and under today's code.
+
+**AI assistance:** the anchor change (e21's output instead of the do-nothing output), the protocol
+measurement and this registration were prepared with Claude. Declare on the SU form.
+
+**Launched 2026-10-17** on Kaggle (T4), code from dataset `gbooysen/tse-code-v2`, checked against the
+12:17 `kaggle_code.zip`: all 56 files match by size; the config, `losses.py`, `train.py` and the
+commit stamp byte-identical. Batch 3 fitted (peak 6.67 GiB, AMP).
+
+## 2026-10-18 — PRESENCE GATE REGISTERED before running: "postfilter" mode, the gate learned on a frozen e21
+
+**What arm A did (bsrnn_presence_gate.yaml, from scratch, idx 0-38, 2026-10-15..18).** Two faults, both
+measured on idx 25 (`scripts/diagnose_presence_gate.py`, 30 `sir0_val` `both` clips, whole clip,
+`2026-10-18-diagnose-presence-gate-A-e25`; session 235d44b2).
+1. *The gated loss shielded the mask.* Output level in interferer-only frames relative to target-only
+   frames (lower is better): e21 -2.8 dB; arm A with its gate removed -0.4 dB; with the gate -0.6 dB. Joint
+   training cost the extractor 2.4 dB of interferer suppression and the gate won back 0.2 dB. In the loop the
+   same shows as val separation -1.1 to -2.3 dB against e21's run's -3.2 to -4.6 at the same epochs.
+2. *The gate fits the training crops far beyond what it knows.* Log-loss per frame 0.18 nats on training
+   crops (history.csv `L_bce` / 501) against 0.53 on the 30 whole validation clips and 0.74 on the in-loop
+   validation crops (0.69 = always 50 %). The gate has 129 weights; the gap is the separator's.
+   On validation the gate is NOT random: mean pi 0.03 on silence, 0.85 target-only, 0.33 interferer-only,
+   0.88 both; AUC target-only vs interferer-only 0.85. Its errors are bimodal by clip: on interferer-only
+   frames 61 % have pi < 0.1 and 27 % have pi > 0.9, and in 10 of 30 clips the gate is mostly ON for the
+   interferer. Those are the clips where the extractor follows the wrong voice (e21 SI-SDR -2.4 dB there,
+   +1.9 on the rest). The gate reads the same evidence as the mask, so it fails where the mask fails.
+   Idx 15 (`2026-10-18-diagnose-presence-gate-A-e15`, same 30 clips) is the same picture: AUC target-only vs
+   interferer-only 0.86, mean pi 0.87 target-only / 0.46 interferer-only, and the extractor with its gate
+   removed already at -0.3 dB against e21's -2.8. The suppression loss is there from the start of joint
+   training, not a late drift. Whole-clip SI-SDR, 30 clips: e21 +0.46 dB; idx 15 gate on +0.29, gate off
+   +0.71; idx 25 gate on +0.36, gate off +0.47. The gate lowers SI-SDR at both epochs.
+   On 15 `sir0_train` clips (`2026-10-18-diagnose-presence-gate-A-e25-train`, session 235d44b2) idx 25's gate
+   has AUC target-only vs interferer-only 0.93 and log-loss 0.31 nats/frame, against 0.85 and 0.53 on the
+   30 unseen clips: a real but moderate gap. The in-loop 0.18 vs 0.74 overstates it, because those are 4 s
+   crops over every condition, target-only and noise-only included. **The dominant fault is not
+   memorisation:** the gate is mostly ON for the interferer in 5 of 15 training clips and 10 of 30 unseen
+   ones, the same third, so it follows the extractor's voice choice wherever that is wrong.
+   The extractor's loss is the larger one: interferer-only vs target-only level e21 -10.7 dB, arm A gate off
+   -4.9, gate on -5.2; SI-SDR e21 +5.18 dB, arm A gate off +3.30, gate on +3.12. Joint training cost the mask
+   5.8 dB of suppression on the clips it trained on (2.4 dB unseen). The postfilter run fixes this fault by
+   construction (the extractor is e21) and cannot fix the coincident wrong-voice errors.
+Judge, paired on 98-102 `sir0_val` `both` clips: +12.3 (idx 12), +10.4 (idx 18), +8.4 (idx 25) LCF-WER
+points worse than e21, all outside the interval; the extra errors are substitutions and leaked words, not
+deletions (`2026-10-17-paired-presence-gate-A-e12`, `2026-10-18-paired-presence-gate-A-s2`). Arm A is a
+negative result. (An earlier 2-clip smoke, pi 0.19 on target-only, was unrepresentative; disregard it.)
+
+**Decision: close every path from the gate into the separator, keep e21.** `model.presence_mode: postfilter`
+(src/models/bsrnn.py): the gate reads DETACHED separator features and multiplies a DETACHED copy of the
+spectrum, so no gradient of the gated loss, the KL or the BCE reaches the separator; the extractor's loss is
+computed on its ungated output (e21's objective, unchanged, logged as `*_ungated`). No Concrete draw: the
+gain is `floor + (1 - floor) * pi` in training and inference alike (eq. 21 at the mean; the first term of eq.
+12 is evaluated at the mean output instead of one sample), so tau and its per-resume restart are gone.
+`model.presence_floor: 0.05` (Zhang, Wu & Li 2026, arXiv:2609.30774): an "off" frame is attenuated 26 dB,
+not deleted. `training.init_weights: e21` (the note's registered protocol; viable since the gate
+layer-normalises its input) and `training.freeze_extractor: true`: only the gate's 129 weights train, the
+extractor IS e21, so gate-on vs e21 is a paired comparison on identical weights and the D10 control
+(6 epochs of e21's objective from e21: LCF-WER -0.99 [-5.08, +2.89] vs e21) says letting it train buys
+nothing. `beta`/`lam` re-anchored on the GATE's parameters (the extractor share is undefined once detached):
+KL share 197.7, BCE share 50.2 at weight 1, e21 anchor, `2026-10-15-presence-weights` per-batch "gate"
+norms, 15 % rule -> beta 7.587e-4, lam 2.987e-3; caveat and re-measure command in the config.
+Config `bsrnn_presence_postfilter.yaml` = arm A's config with those keys and the D10 fine-tune keys
+(lr 1.25e-4, 6 epochs, no w_schedule), checked key by key against `bsrnn_interf_ft_control.yaml`.
+Tests: `tests/test_presence_postfilter.py` (ungated output bit-identical to the gate-less model; zero
+gradient from any gate term into the separator; gated loss reaches the gate; train = eval; loss total).
+Verified on one `sir0_val` batch with e21 loaded: 129 trainable weights, ungated output equal to e21's
+forward to the bit.
+
+**Run.** `notebooks/kaggle_train_presence_postfilter.ipynb`, Kaggle T4, batch 3, seed 42. Grant's test
+budget is 4 epochs; the config says 6 and keeps every epoch. Per-epoch time is NOT known: a full fine-tune
+from e21 measured 2,886 s/epoch; with no extractor backward it should be less. Measure, do not project.
+
+**Comparison rule, fixed now.** Judge (`gemini-3.7-flash`, prompt `d118b7d3bf30`, audio-in) the last epoch
+and the probe's pick on the 103 `sir0_val` `both` clips against e21's cached 2026-09-25 answers, paired
+bootstrap (10,000 draws, seed 42). Gate-off on the same checkpoint IS e21, so no gate-off render is needed.
+Gate quality: `scripts/diagnose_presence_gate.py` on the chosen epoch, `sir0_val` and `sir0_train`.
+
+**Predictions.** (i) The gate's validation log-loss stays within 0.05 nats/frame of its training log-loss
+and below 0.60 (a 129-weight probe on fixed features cannot overfit 9,955 trials; the frozen-feature probe of
+2026-09-11 had none-recall 93 %, target 72 %, interferer 40 %). (ii) `L_pres_ungated`/`L_abs_ungated` on
+validation are constant across epochs and equal e21's row: the extractor is frozen, so this is a free in-run
+check that nothing else moved. (iii) Judge, gate-on vs e21 on the same 103 clips: LCF-WER inside the paired
+interval (P4 of the note passes); mean leak falls a little, on the clips where e21 follows the right voice;
+no change on the wrong-voice clips, because the gate cannot fix the extractor's voice choice, only stop
+doing harm; silenced clips not higher. (iv) P1/P2 of the note (ECE, switch rate) become measurable on this
+gate against arm A's. **Not predicted:** an LCF-WER gain over e21. The gate can only attenuate, and
+single-voice frames need speaker verification the features carry weakly (same-gender probe 53 %,
+2026-09-11). P3 (`ami_eval` silences) cannot be met by a multiplicative gate and is dropped for this run.
+
+**Failure signs.** Mean pi on target-only validation frames below 0.5 (the gate still turns the target
+down); `gate_blocked` clips above e21's 1/103; validation log-loss above 0.69.
+
+**Limits.** One seed. beta/lam are anchored on arm A's forward (Concrete draw, undetached), not this one.
+Freezing the extractor forfeits the joint-training reading of eq. (12); `freeze_extractor: false` is the
+one-flag joint variant (extractor on its ungated loss), untested.
+
+**AI assistance.** The diagnosis (the mask shielded by the gated loss; the gate following the extractor's voice choice), the
+"postfilter" design (both detaches, the mean-output term, the frozen-extractor run), the gate-parameter
+anchor for beta/lam and this registration were prepared with Claude (two sessions, 2026-10-18). Declare on
+the SU form.
+
+**Added 2026-10-18, after registration (session 235d44b2). Two measurements; predictions above unchanged.**
+- *Arm A idx 38 (session 3's last), judge* (`gemini-3.7-flash`, prompt `d118b7d3bf30`, audio-in, 2026-10-18), paired on 99 clips, cache only (`2026-10-18-paired-presence-gate-A-e38/`): LCF-WER **+8.8** vs e21 [+3.4, +15.1]; mean leak +8.8 [+3.8, +14.2]. Vs idx 25: LCF-WER +0.7 [-3.3, +5.3]; mean leak **+4.3** [+0.8, +8.1]. Session 3 bought nothing and leaked more.
+- *Ceiling for any presence gate on e21* (`scripts/oracle_gate_ceiling.py`): the TRUE activity labels as the gate on e21's rendered output, floor 0.05, 103 clips. e21 follows the requested voice (SI-SDR to target above SI-SDR to interferer) on 90/103. **Offline ASR stand-in only, not the judge** (`2026-10-18-paired-oracle-gate-asr/`): perfect gate on the 90 right-voice clips (the postfilter's reachable ceiling, since it agrees with e21's voice choice): LCF-WER 56.72 -> 53.14, -3.6 [-13.0, +8.3], inside the noise (the ASR's loops widen it); mean leak 15.8 -> 8.4 %, **-7.2 [-10.6, -4.2]**. Perfect gate on all 103: -7.3 [-20.2, +6.0]; leak -8.1 [-11.6, -5.0]. A perfect gate halves the leaked words and moves word error by less than the ASR can resolve. The judge hears more leakage than the ASR (anchors), so the judge's ceiling may be larger: `2026-10-18-est-e21-oracle-gate-right` is rendered for a judge run.
+- *The same ceiling on the judge* (`gemini-3.7-flash`, aistudio, audio-in / text-out, prompt `d118b7d3bf30`, run 2026-10-18; e21 cached 2026-09-25), perfect gate on the right-voice clips, paired on 97 clips (6 oracle timeouts dropped from both; `2026-10-18-paired-oracle-gate-judge/`): LCF-WER 39.24 -> 34.72, **-4.5 [-9.3, -0.2]**, other sign in 1.9 % of resamples; mean leak **-4.8 [-8.7, -1.4]**; the gain is mostly fewer insertions (13.2 -> 10.0, -3.2 [-7.4, +0.4]); deletions unchanged (-0.1). On the 84 right-voice clips alone 35.0 -> 29.2. The 13 untouched wrong-voice clips were re-judged (rewritten bytes) and moved 68.3 -> 72.4: judge run-to-run noise, which dilutes the total. **Reading:** a gate that knew exactly when the target speaks would close ~12 % of e21's remaining gap to the clean target (4.5 of 38.1 points), just beyond the noise. The postfilter's gate is imperfect (unseen AUC 0.85 for arm A's gate, with confident errors), so its gain should be a fraction of this and is not predicted to clear the interval, consistent with prediction (iii).
+
+**RESULT 2026-10-18 (session 235d44b2): the postfilter gate is harmless within the noise and gains nothing.** Run `2026-10-18-train-sir0-presence-postfilter` (6 epochs, 3.1 h; all 506 non-gate tensors bit-identical to e21 in every checkpoint, so prediction (ii) holds by inspection; the `*_ungated` keys were computed but never written to history). Judge `gemini-3.7-flash`, aistudio, audio-in / text-out, prompt `d118b7d3bf30`, run 2026-10-18 (e21 cached 2026-09-25); paired on 98 `sir0_val` `both` clips, 5 gate timeouts dropped from all (`2026-10-18-paired-presence-postfilter/`).
+
+| vs e21, points, lower is better | epoch 2 (probe pick) | epoch 5 (last) |
+|---|---|---|
+| LCF-WER (e21 38.71) | +2.0 [-1.2, +5.3] | +3.0 [-0.6, +7.3] |
+| mean leak (e21 21.86) | -0.9 [-3.7, +2.3] | -0.8 [-4.0, +2.7] |
+| substitutions (e21 16.45) | **+2.8 [+0.2, +5.5]** | **+2.4 [+0.1, +4.7]** |
+| deletions (e21 9.36) | -0.4 [-3.9, +3.4] | -0.7 [-3.8, +2.8] |
+| insertions (e21 12.90) | -0.4 [-2.9, +2.0] | +1.3 [-1.8, +5.1] |
+| empty responses (e21 1) | 3 | 2 |
+
+Against the predictions: (iii) LCF-WER inside the interval, met (P4 passes: below +8); mean leak "falls a little", direction only, not established; silenced clips higher (gate_blocked 2 vs e21's 1): the registered failure sign fired, by one clip. (i) Validation log-loss 0.57-0.60, below 0.60 at the picked epoch, but not within 0.05 of training (0.37). No gain, as predicted. The perfect-gate ceiling on the same judge is -4.5 [-9.3, -0.2]; the trained gate captures none of it. The extra errors are substitutions: target words misheard, not removed, consistent with the gated output's lower separation on validation (L_pres -2.43 vs e21 -3.17). **Reading:** on frozen e21 features the gate's frame decisions on unseen voices are wrong often enough to distort target speech, so it removes no measurable leakage and makes target words slightly harder to hear. Selection by e21's rule (lowest LCF-WER, ties to fewer invented words): epoch 2. **Claim:** *on two-speaker mixtures, optimised for Gemini, a presence gate trained on a frozen extractor leaves LCF-WER within the noise of the extractor alone (+2.0 [-1.2, +5.3]); training it jointly cost 8-12 points; a perfect gate would gain 4.5.* AI assistance: analysis with Claude. Declare.
+- *New gate vs the old one, paired directly* (98 clips, cache only, `2026-10-18-paired-postfilter-vs-gate-A/`): postfilter epoch 2 minus arm A idx 25: LCF-WER -4.8 [-11.3, +1.7], mean leak -5.5 [-11.1, +0.0]; minus arm A idx 38: LCF-WER -5.5 [-11.8, +0.3], mean leak **-9.8 [-15.1, -4.9]**. The word-error gain over arm A is a direction (the interval touches zero); what is established is that arm A is worse than e21 beyond the noise and the postfilter is not. Only signal-level gain over e21: on validation crops the output is 4.5 dB quieter when the target is absent (pres_abs_gap 25.0 vs 20.4 dB); the judge's clips always contain the target, so this is not measured on content.

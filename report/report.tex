@@ -122,7 +122,7 @@
 
 % Pseudo-code
 \usepackage{algpseudocode}  % should go after \usepackage{hyperref}
-\renewcommand{\thealgorithm}{\arabic{section}.\arabic{algorithm}}
+\renewcommand{\thealgorithm}{\thesection.\arabic{algorithm}}
 \captionsetup[algorithm]{labelfont={bf,sf},font=small,labelsep=colon}
 
 % Bibliography
@@ -144,8 +144,6 @@
 \pagenumbering{roman}
 \input{frontmatter/abstract}
 \clearpage
-\input{frontmatter/acknowledgements}
-\clearpage
 \tableofcontents
 \clearpage
 %\listoffigures
@@ -161,6 +159,9 @@
 \input{experiments/experiments}
 \input{results/results}
 \input{conclusion/conclusion}
+
+\input{frontmatter/acknowledgements}
+\clearpage
 
 % Bibliography
 \phantomsection  % contents link lands on References, not the Conclusion
