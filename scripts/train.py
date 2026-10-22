@@ -33,18 +33,29 @@ from src.run_log import timed  # noqa: E402
 
 
 # Experiment options removed 2026-10-22. Neither final model (baseline-matched e11, extension e21) uses any of them, and
-# git history before that date has them. A config that still switches one on is refused, never silently ignored.
+# git history before that date has them. Each maps to the one value the finals use: a config asking for anything else is
+# refused, never silently ignored.
 REMOVED_OPTIONS = {
-    ("model", "state_head"): False, ("model", "presence_gate"): False, ("model", "tfmap_inject"): False,
-    ("loss", "w_state"): 0.0, ("loss", "w_struct"): 0.0, ("loss", "w_interf"): 1.0, ("loss", "w_artif"): 1.0,
-    ("training", "data_parallel"): False, ("training", "init_weights"): None, ("training", "freeze_extractor"): False,
+    "model.state_head": False, "model.presence_gate": False, "model.tfmap_inject": False,
+    "model.lookahead_frames": 0, "model.separator.causal": True, "model.mask.residual_branch": True,
+    "loss.w_state": 0.0, "loss.w_struct": 0.0, "loss.w_interf": 1.0, "loss.w_artif": 1.0,
+    "training.data_parallel": False, "training.init_weights": None, "training.freeze_extractor": False,
+    "content_probe.cap_errors_at_spoken": False, "content_probe.asr_model": "small.en",
 }
 
 
-def refuse_removed_options(config, blocks=("model", "loss", "training")):
-    """Raise if `config` switches on any REMOVED_OPTIONS entry in the given blocks."""
-    on = [f"{block}.{key}" for (block, key), off in REMOVED_OPTIONS.items()
-          if block in blocks and (config.get(block) or {}).get(key, off) not in (off, None)]
+def refuse_removed_options(config, blocks=None):
+    """Raise if `config` sets any REMOVED_OPTIONS entry (in the given top-level blocks, default all) to another value."""
+    on = []
+    for path, kept in REMOVED_OPTIONS.items():
+        keys = path.split(".")
+        if blocks is not None and keys[0] not in blocks:
+            continue
+        value = config
+        for key in keys:
+            value = value.get(key) if isinstance(value, dict) else None
+        if value is not None and value != kept:
+            on.append(path)
     if on:
         raise ValueError(f"{on}: experiment options removed 2026-10-22; only the final baseline and extension remain")
 
@@ -206,23 +217,12 @@ def build_model(config):
         feature_dim=config["model"]["separator"]["feature_dim"],
         hidden_dim=config["model"]["separator"]["lstm_hidden"],
         num_repeat=config["model"]["separator"]["num_repeat"],
-        causal=config["model"]["separator"]["causal"],
         mlp_hidden=config["model"]["mask"]["mlp_hidden"],
         n_hidden=int(config["model"]["mask"].get("n_hidden", 1)),  # 1 deviates from the WeSep reference's 2 (Wang et al., 2024; decisions-m1.md 2026-08-19)
-        residual_branch=config["model"]["mask"]["residual_branch"],
-        lookahead_frames=config["model"]["lookahead_frames"],
-        tfmap_scale=_tfmap_scale(config),
+        tfmap_scale=float(config["model"]["tfmap_scale"]),
         tfmap_parts=bool(config["model"].get("tfmap_parts", False)),  # item 1a: +66,820 params, not parameter-matched
         tfmap_part_scales=config["model"].get("tfmap_part_scales"),  # from scripts/derive_cue_scales.py; absent = all ones
     )
-
-
-def _tfmap_scale(config):
-    # Absent = 1.0, the pre-2026-08-25 behaviour: right for an old checkpoint, wrong for a new run.
-    if "tfmap_scale" in config["model"]:
-        return float(config["model"]["tfmap_scale"])
-    print("WARNING: config has no model.tfmap_scale -- assuming 1.0, the pre-2026-08-25 behaviour. Correct for an old checkpoint, WRONG for a new run: add the key to the config.", file=sys.stderr)
-    return 1.0
 
 
 def amp_ctx(enabled):
@@ -319,21 +319,21 @@ def comparable_config(config):
 def build_content_probe(config, verbose=True):
     """The in-loop validation WER probe, or None unless content_probe.enabled.
 
-    Optional keys: split (never a holdout), n_trials, every_n_epochs, asr_device, ema_span, cap_errors_at_spoken, asr_model.
+    Optional keys: split (never a holdout), n_trials, every_n_epochs, asr_device, ema_span.
     Cost is mostly the CPU ASR: 40 clips took ~2.7 min per epoch (measured 2026-09-23).
     """
+    refuse_removed_options(config, blocks=("content_probe",))
     block = config.get("content_probe") or {}
     if not block.get("enabled", False):
         return None
-    from src.live_model_metric.content_probe import ASR_MODEL_SIZE, ContentProbe, load_probe_trials
+    from src.live_model_metric.content_probe import ContentProbe, load_probe_trials
 
     split = str(block.get("split", "sir0_val"))
     if split in HOLDOUT_SPLITS:
         raise ValueError(f"content_probe.split={split!r} is a reported holdout. Steering training on it would destroy the only clean number the project has. CLAUDE.md; decisions-m4.md 2026-09-15.")
     data_root = Path(block.get("data_root", "data"))
     trials = load_probe_trials(Path(block.get("manifest_dir", "data/manifests")) / f"{split}.csv", data_root / "rendered" / split, limit=int(block.get("n_trials", 40)), condition=str(block.get("condition", "both")))
-    # cap_errors_at_spoken absent = off, so an older run resumes under the rule it was scored by.
-    probe = ContentProbe(trials, model_size=str(block.get("asr_model", ASR_MODEL_SIZE)), device=str(block.get("asr_device", "cpu")), ema_span=int(block.get("ema_span", 3)), cap_errors_at_spoken=bool(block.get("cap_errors_at_spoken", False)))
+    probe = ContentProbe(trials, device=str(block.get("asr_device", "cpu")), ema_span=int(block.get("ema_span", 3)))
     if verbose:
         print(f"  content probe ON: {probe.describe()}, split {split}, every {int(block.get('every_n_epochs', 1))} epoch(s)")
     return probe

@@ -71,7 +71,7 @@ VAL_SPLITS = {
     # Private test split, rendering only, scored once after selection.
     # decisions-m4.md 2026-10-07.
     "sir0priv": ("eval_private", "eval_private"),
-    # AMI real-audio transfer set, rendering only (scripts/build_ami_trials.py).
+    # AMI real-audio transfer set, rendering only.
     "ami":   ("ami_eval",    "ami_eval"),
 }
 

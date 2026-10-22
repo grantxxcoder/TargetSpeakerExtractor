@@ -11,7 +11,7 @@ stream has to carry exactly three things from one chunk to the next:
 With those carried, streamed output equals whole-clip output up to float
 rounding (tests/test_streaming.py). That is the property a live demo needs: it
 runs the model that was evaluated, not an approximation of it. Independent
-chunks are NOT equivalent -- pass_a_test_case_through.py measured the seams.
+chunks are NOT equivalent -- the seams were measured 2026-08-24.
 
 The enrolment's spectrogram and speaker embedding are computed once, before
 the first chunk, as a deployed system would.
@@ -86,12 +86,6 @@ class StreamingExtractor:
     def __init__(self, model, enrollment, enrol_embedding=None):
         if model.training:
             raise ValueError("call model.eval() first")
-        if model.lookahead_frames:
-            raise NotImplementedError(
-                "lookahead_frames > 0 needs a k-frame delay line; no checkpoint "
-                "uses it (decisions-m1.md 2026-08-18)")
-        if any(b.time_rnn.rnn.bidirectional for b in model.separator.blocks):
-            raise ValueError("non-causal model: its time LSTM reads the future")
         self.model = model
         stft = model.stft
         self.n_fft, self.hop, self.pad = stft.n_fft, stft.hop_length, stft.padding

@@ -19,11 +19,11 @@ class STFT(nn.Module):
         self.register_buffer("window", torch.hann_window(n_fft), persistent=False)
     
           
-    def latency_ms(self, lookahead_frames=0):
-        """Algorithmic latency. Convention: window fill + emit hop + lookahead.
+    def latency_ms(self):
+        """Algorithmic latency. Convention: window fill + emit hop.
         State the convention when you quote it -- CARTSE counts window - hop
         instead, so their 24 ms and our 40 ms describe the same framing."""
-        samples = self.n_fft + self.hop_length + lookahead_frames * self.hop_length
+        samples = self.n_fft + self.hop_length
         return 1000 * samples / self.sample_rate 
 
     def _n_frames(self, T):

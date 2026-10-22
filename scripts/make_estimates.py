@@ -10,9 +10,7 @@ by its model and by nothing else. Anything that would change the comparison
 belongs in the runner; anything specific to loading a torch checkpoint of ours
 belongs here.
 
-Batch counterpart to scripts/pass_a_test_case_through.py, which does ONE trial
-per invocation and reloads the model each time. At 500 trials that is 500
-process launches and 500 model loads; here the model is built once.
+The model is built once and reused for every trial.
 """
 
 import argparse

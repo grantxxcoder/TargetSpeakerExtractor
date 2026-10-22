@@ -41,13 +41,12 @@ scheduler on the SMOOTHED value; read the raw one.
 """
 
 import math
-from pathlib import Path
 
 import numpy as np
 import soundfile as sf
 
 from src.estimates.runner import read_trials
-from src.live_model_metric.lcf_wer import count_errors, normalise_text
+from src.live_model_metric.lcf_wer import count_errors
 
 # Identical to src/live_model_metric/evaluate.py. Changing either without the
 # other silently makes the training signal and the reported score two different
@@ -60,40 +59,6 @@ ASR_DECODE = dict(language="en", beam_size=1, temperature=0.0,
 def _read_mono(path):
     audio, _ = sf.read(str(path), dtype="float32", always_2d=False)
     return audio.mean(axis=1) if audio.ndim > 1 else audio
-
-
-def words_spoken(trial_directory):
-    """Words BOTH speakers said in this clip, after the scorer's normaliser."""
-    import json
-    meta = json.loads((Path(trial_directory) / "meta.json").read_text())
-    return sum(len(normalise_text(meta.get(key) or "").split())
-               for key in ("target_text", "interferer_text"))
-
-
-def clip_errors(counts, spoken=None):
-    """S + D + I for one clip, optionally capped at the words spoken in it.
-
-    THE LOOP GUARD, added 2026-09-24. `small.en` sometimes falls into a
-    repetition loop and writes many times more words than anyone said -- on
-    sir0_val-42-000098 it transcribed the target correctly, then repeated one
-    clause seven more times (166 words for a 55-word target). One such clip
-    moved the 40-clip score by ~12 points, and the same checkpoint on the same
-    40 clips read 53.66 on Kaggle and 66.19 locally because the loop fired in
-    one place and not the other. decisions-m2.md 2026-09-24.
-
-    WHY THIS CAP AND NOT ANOTHER. The error count is an edit distance, so it
-    never exceeds max(reference words, transcript words). The reference is part
-    of what was spoken, so a transcript no longer than everything spoken --
-    however wrong, including one that is entirely the OTHER speaker -- can
-    never reach the cap. It binds ONLY when the transcript holds more words
-    than both speakers said together, i.e. on words nobody said. Leakage is
-    still charged in full.
-
-    `spoken=None` is the uncapped rule: identical to metric-definitions.md 3.1
-    and to the reported LCF-WER.
-    """
-    errors = counts.substitutions + counts.deletions + counts.insertions
-    return errors if spoken is None else min(errors, spoken)
 
 
 def load_probe_trials(manifest_csv, audio_root, limit=40, condition="both"):
@@ -128,18 +93,10 @@ class ContentProbe:
 
     def __init__(self, trials, sample_rate=16000, model_size=ASR_MODEL_SIZE,
                  device="cpu", compute_type="int8", ema_span=3,
-                 transcriber=None, cap_errors_at_spoken=False):
+                 transcriber=None):
         if not trials:
             raise ValueError("content probe got no trials")
         self.trials = trials
-        # OFF by default, so a run started before 2026-09-24 -- or resumed from
-        # one -- keeps the rule its history was scored under. A curve must never
-        # mix the two rules; the config comparison refuses a resume across it.
-        self.cap_errors_at_spoken = bool(cap_errors_at_spoken)
-        self._spoken = ({trial_id: words_spoken(Path(mixture).parent)
-                         for trial_id, mixture, _enrolment, _text in trials}
-                        if self.cap_errors_at_spoken else {})
-        self.capped = []                     # (clips capped, errors removed) per epoch
         self.sample_rate = sample_rate
         self.model_size = model_size
         self.device = device
@@ -152,8 +109,7 @@ class ContentProbe:
 
     def describe(self):
         return (f"faster-whisper {self.model_size} {self.compute_type} "
-                f"{self.device} greedy, {len(self.trials)} clips"
-                + (", errors capped at words spoken" if self.cap_errors_at_spoken else ""))
+                f"{self.device} greedy, {len(self.trials)} clips")
 
     def _transcribe(self, audio):
         if self._transcriber is not None:
@@ -174,27 +130,20 @@ class ContentProbe:
         utterance lengths differ, and the harness reports the corpus form.
         """
         errors = reference_words = 0
-        n_capped = removed = 0
-        for trial_id, mixture_path, enrolment_path, text in self.trials:
+        for _trial_id, mixture_path, enrolment_path, text in self.trials:
             mixture = _read_mono(mixture_path)
             enrolment = _read_mono(enrolment_path)
             estimate = extract(mixture, enrolment, self.sample_rate)
             counts = count_errors(text, self._transcribe(estimate))
             if counts.reference_word_count == 0:
                 continue
-            raw = clip_errors(counts)
-            kept = clip_errors(counts, self._spoken.get(trial_id))
-            if kept < raw:
-                n_capped += 1
-                removed += raw - kept
-            errors += kept
+            errors += counts.substitutions + counts.deletions + counts.insertions
             reference_words += counts.reference_word_count
         if reference_words == 0:
             return float("nan")
         wer = 100.0 * errors / reference_words
         self.history.append(wer)
         self.smoothed.append(self._ema())
-        self.capped.append((n_capped, removed))
         return wer
 
     def warm_start(self, history):
@@ -258,11 +207,5 @@ class ContentProbe:
             state = "GETTING WORSE -- past the useful epochs"
         else:
             state = "FLAT -- no headroom visible"
-        # A capped clip is a listener loop, not the model: say so on the line
-        # the epoch is read from, so a jump is never mistaken for a regression.
-        loop = ""
-        if self.capped and self.capped[-1][0]:
-            loop = (f" [loop guard: {self.capped[-1][0]} clip(s), "
-                    f"{self.capped[-1][1]} invented words not counted]")
         return (f"content: WER {latest:.2f} (best {best:.2f}, "
-                f"slope {slope:+.2f}/epoch) {state}{loop}")
+                f"slope {slope:+.2f}/epoch) {state}")

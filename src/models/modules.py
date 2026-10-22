@@ -50,13 +50,13 @@ class SubbandNorm(nn.Module):
 
     This is where the architecture earns its keep. Speech energy falls ~6 dB per octave, so normalising all 257 bins together would leave the high bands numerically invisible. Each band gets its OWN normalisation and its own projection, so a quiet 6 kHz band reaches the RNN with the same representational budget as a loud 200 Hz one.
     """
-    def __init__(self, band_widths, in_channels, feature_dim, causal=True):
+    def __init__(self, band_widths, in_channels, feature_dim):
         super().__init__()
         self.band_widths, self.feature_dim = list(band_widths), feature_dim
         self.blocks = nn.ModuleList()
         for bw in self.band_widths:
             d = bw * in_channels
-            norm = ChannelWiseLayerNorm(d) if causal else nn.GroupNorm(1, d)
+            norm = ChannelWiseLayerNorm(d)
             self.blocks.append(nn.Sequential(norm, nn.Conv1d(d, feature_dim, 1)))
         
     def forward(self, bands):
@@ -78,9 +78,9 @@ class ResRNN(nn.Module):
 
     AXIS-AGNOSTIC. The caller decides whether the sequence is time or band by how it reshapes before calling. `bidirectional` MUST be False on the time axis (a backward pass reads the future) and should be True on the band axis (frequency is not a causal dimension).
     """ 
-    def __init__(self, feature_dim, hidden_dim, bidirectional=False, causal_norm=True):
+    def __init__(self, feature_dim, hidden_dim, bidirectional=False):
         super().__init__()
-        self.norm = (ChannelWiseLayerNorm(feature_dim) if causal_norm else nn.GroupNorm(1, feature_dim))
+        self.norm = ChannelWiseLayerNorm(feature_dim)
         self.rnn  = nn.LSTM(
             feature_dim, 
             hidden_dim, 
@@ -110,14 +110,14 @@ class BSNet(nn.Module):
 
     (wesep names these band_rnn / band_comm; time_rnn / band_rnn is clearer.)
     """
-    def __init__(self, feature_dim, hidden_dim, causal=True):
+    def __init__(self, feature_dim, hidden_dim):
         super().__init__()
-        # TIME axis: unidirectional when causal -- a backward pass reads the future.
-        self.time_rnn = ResRNN(feature_dim, hidden_dim,  bidirectional=not causal, causal_norm=causal)
+        # TIME axis: unidirectional -- a backward pass reads the future.
+        self.time_rnn = ResRNN(feature_dim, hidden_dim,  bidirectional=False)
         # BAND axis: ALWAYS bidirectional, even in the causal model. Frequency is
         # not a causal dimension and all bands of a frame arrive together.
         # This is correct, not an oversight.
-        self.band_rnn = ResRNN(feature_dim, hidden_dim,  bidirectional=True, causal_norm=causal)
+        self.band_rnn = ResRNN(feature_dim, hidden_dim,  bidirectional=True)
 
 
     def forward(self, x):
@@ -139,10 +139,10 @@ class BSNet(nn.Module):
       
 class BandSequenceModel(nn.Module):
     """The six-layer stack (Yu et al., Interspeech 2023 §4.2)."""
-    def __init__(self, feature_dim, hidden_dim, num_repeat=6, causal=True):
+    def __init__(self, feature_dim, hidden_dim, num_repeat=6):
         super().__init__()
         self.blocks = nn.ModuleList(
-            [BSNet(feature_dim, hidden_dim, causal) for _ in range(num_repeat)]
+            [BSNet(feature_dim, hidden_dim) for _ in range(num_repeat)]
         )
 
     def forward(self, x):
@@ -159,16 +159,14 @@ class Estimator(nn.Module):
 
     The wesep reference omits the residual branch -- including it is deliberate.
     """
-    def __init__(self, band_widths, feature_dim, mlp_hidden=384, n_hidden=2, causal=True, residual_branch=True):
+    def __init__(self, band_widths, feature_dim, mlp_hidden=384, n_hidden=2):
         super().__init__()
         self.band_widths = list(band_widths)
-        self.residual_branch = residual_branch
         self.trunks, self.mask_heads = nn.ModuleList(), nn.ModuleList()
-        self.res_heads = nn.ModuleList() if residual_branch else None # we need the additional prediction head to predict the residual spectrogram 
+        self.res_heads = nn.ModuleList()  # the additional head that predicts the residual spectrogram R
         
         for bw in self.band_widths:
-            layers = [ChannelWiseLayerNorm(feature_dim) if causal
-                    else nn.GroupNorm(1, feature_dim)]
+            layers = [ChannelWiseLayerNorm(feature_dim)]
             d = feature_dim
             for _ in range(n_hidden):
                 layers += [nn.Conv1d(d, mlp_hidden, 1), nn.Tanh()]
@@ -176,8 +174,7 @@ class Estimator(nn.Module):
             self.trunks.append(nn.Sequential(*layers))
             # 4*bw = (value, gate) x (real, imag) x bw bins
             self.mask_heads.append(nn.Conv1d(mlp_hidden, 4 * bw, 1))
-            if residual_branch:
-                self.res_heads.append(nn.Conv1d(mlp_hidden, 2 * bw, 1))
+            self.res_heads.append(nn.Conv1d(mlp_hidden, 2 * bw, 1))
 
     # use this method to actually move the features through the model and get the output complex spectrogram
     def forward(self, feats, mix_bands):
@@ -190,8 +187,7 @@ class Estimator(nn.Module):
             # need to do the GLU activation here to BOUND an unstable mask
             raw  = self.mask_heads[i](h)                        # (B, 4*bw, T)
             masks.append(F.glu(raw, dim=1).reshape(B, 2, bw, T))
-            if self.residual_branch:
-                residuals.append(self.res_heads[i](h).reshape(B, 2, bw, T))
+            residuals.append(self.res_heads[i](h).reshape(B, 2, bw, T))
 
         mask = torch.cat(masks, dim=2)                          # (B, 2, F, T)
         mix  = torch.cat(mix_bands, dim=-2)                     # (B, F, T) complex
@@ -200,36 +196,6 @@ class Estimator(nn.Module):
         xr, xi = mix.real, mix.imag
         er = xr * mr - xi * mi               # S = M (x) X, complex multiply
         ei = xr * mi + xi * mr
-        if self.residual_branch:
-            r = torch.cat(residuals, dim=2)
-            er, ei = er + r[:, 0], ei + r[:, 1]
+        r = torch.cat(residuals, dim=2)
+        er, ei = er + r[:, 0], ei + r[:, 1]
         return torch.complex(er, ei)
-
-
-
-def lookahead_shift(h, k):
-    """Give the mask head k frames of future context.
-
-    h: (B, K, N, T) features out of the causal sequence stack.
-    Returns h' where h'[..., t] == h[..., t + k], the last k frames edge-padded.
-
-    The mask for frame t is then built from a hidden state that has consumed
-    frames up to t + k, i.e. k * hop of lookahead -- while the mask itself stays
-    aligned to mixture frame t, which is required because a multiplicative mask
-    cannot shift energy in time. See decisions-m1.md 2026-08-18.
-
-    Module-level function, not a method: it is stateless and is called from the
-    model's forward between the separator and the estimator.
-    """
-    if k == 0:
-        return h
-    # PAD SPEC MUST BE 4 LONG, NOT 2. h is 4-D (B, K, N, T) and F.pad's
-    # `replicate` mode requires the pad tuple to cover every spatial dim it
-    # treats as spatial -- a 2-tuple on a 4-D input raises
-    # "NotImplementedError: Padding size 2 is not supported for 4D input
-    # tensor", so EVERY non-zero lookahead_frames crashed. Fixed 2026-09-21;
-    # the latency ablation documented since decisions-m1.md 2026-08-18 had been
-    # silently un-runnable the whole time, which is why no run ever used k > 0.
-    # (0, k, 0, 0) pads the LAST dim (time) on the right by k and the
-    # second-to-last (N) by nothing, which is the intended behaviour.
-    return F.pad(h[..., k:], (0, k, 0, 0), mode="replicate")

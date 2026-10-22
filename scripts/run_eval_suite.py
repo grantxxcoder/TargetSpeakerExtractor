@@ -24,8 +24,7 @@ THE ORDER IS NOT ARBITRARY.
   4. content (judge) the project metric, LCF. LAST, because it costs API calls
                     and because a mistake in 1-3 is cheaper to find first
   5. rtf            latency, independent of the estimates
-  6. cue            enrolment sensitivity, independent of the estimates
-  7. leakage        reads the transcripts step 3 produced
+  6. leakage        reads the transcripts step 3 produced
 
 RUN IT IN TWO STAGES, NOT ONE. THE GATE IS `asr`.
 -------------------------------------------------
@@ -45,7 +44,7 @@ does not optimise, so neither should run before the cheap question is answered.
           floor (raw mixture)   65.22 / 66.99 % / 51.30 %
           ceiling (clean target) 5.85 /  0.00 % /  0.00 %
 
-  STAGE 2, ~31 min + API:   --steps judge,rtf,cue
+  STAGE 2, ~31 min + API:   --steps judge,rtf
       Only if stage 1 moved. `signal` is optional and least informative -- it
       scores SI-SDR and DNSMOS, which is the axis a leakage-targeted arm is
       expected to lose on and which the project does not optimise anyway.
@@ -59,8 +58,7 @@ or do not judge it.
 WALL TIMES ARE MEASURED, NOT ESTIMATED -- every one is a row in
 docs/run_times.md from the 2026-09-04/06 baseline evaluation on this machine.
 `--dry-run` prints them with the commands so a session can be planned before it
-is started. `diagnose_cue.py` has no recorded row and is printed as unknown
-rather than guessed.
+is started.
 """
 
 from __future__ import annotations
@@ -77,14 +75,13 @@ REPO = Path(__file__).resolve().parents[1]
 PYTHON = sys.executable
 
 # (name, measured wall time, needs the estimate directory, needs the judge API)
-STEPS = ("estimates", "signal", "asr", "judge", "rtf", "cue", "leakage")
+STEPS = ("estimates", "signal", "asr", "judge", "rtf", "leakage")
 MEASURED = {
     "estimates": "27 min",    # 2026-09-04, 200 trials, cpu, whole-clip
     "signal":    "17 min",    # 2026-09-06, signal,perceptual
     "asr":       "6 min",     # 2026-09-04, content, cached transcripts
     "judge":     "12 min",    # 2026-09-06, content --listener judge --judge-rpm 10
     "rtf":       "2 min",     # 2026-09-06, chunk 80 ms, 4 threads, cpu
-    "cue":       "unmeasured",
     "leakage":   "1.2 s",     # 2026-09-11, reads cached transcripts only
 }
 
@@ -140,13 +137,6 @@ def build(args):
             "--chunk-ms", "80", "--threads", "4", "--device", "cpu",
             "--out", str(results / f"{today}-rtf-{args.tag}")),
          "streaming latency against the 200-300 ms budget"),
-
-        ("cue", script(
-            "diagnose_cue.py", *common,
-            "--checkpoint", args.checkpoint, "--config", args.config,
-            "--n-crops", "200",
-            "--out-dir", str(results / f"{today}-cue-{args.tag}")),
-         "enrolment sensitivity, gender-stratified. Never report it pooled"),
 
         ("leakage", script("analyse_leakage_share.py"),
          "how much of the content error is the interferer's words"),

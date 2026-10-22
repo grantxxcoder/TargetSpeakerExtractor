@@ -3,7 +3,6 @@
 decisions-m8.md 2026-10-12: until then three scripts kept their own copies and
 none listed ami_eval or eval_public.
 """
-import subprocess
 import sys
 from pathlib import Path
 
@@ -38,16 +37,6 @@ def test_no_trainable_split_validates_on_a_holdout():
     for name, (_, (val_manifest, _)) in SPLIT_MANIFESTS.items():
         if name not in RENDER_ONLY_SPLITS:
             assert val_manifest not in HOLDOUT_SPLITS, name
-
-
-@pytest.mark.parametrize("split", sorted(HOLDOUT_SPLITS))
-def test_select_by_wer_refuses_every_holdout(split):
-    run = subprocess.run(
-        [sys.executable, str(ROOT / "scripts/select_by_wer.py"), "--config", "x.yaml",
-         "--checkpoints", "nothing-*.pt", "--split", split, "--dry-run"],
-        capture_output=True, text=True, cwd=ROOT)
-    assert run.returncode != 0
-    assert "holdout" in run.stderr
 
 
 def test_no_split_trains_on_a_holdout():

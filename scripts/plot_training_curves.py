@@ -8,7 +8,7 @@ report figure (2026-10-18): the target-present loss split into its three
 weighted terms, L_pres, w_m L_MR and w_g L_gain, side by side, which add up to
 the loss; word error below; and a last row with the two terms the presence gate
 ADDS to the objective, kappa KL(q || p) and lambda BCE (eq. (obj) of the report's
-"Target presence gate" section; eq. 12 of docs/extra/variational-presence-gate.md),
+"Target presence gate" section),
 from the jointly trained gate run (arm A, GATE below). `terms-wer` is the same
 figure without the gate row (the report figure 2026-10-08 to 2026-10-17). `full`
 is the earlier three-row figure (the loss, then L_abs with the silence bar, then

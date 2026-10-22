@@ -60,12 +60,6 @@ def test_streamed_equals_whole_clip(context, sizes):
     assert (streamed - whole).abs().max() < 1e-5 * whole.abs().max().clamp_min(1e-3)
 
 
-def test_refuses_non_causal():
-    model = BSRNN_TFMAP(**{**KW, "causal": False}).eval()
-    with pytest.raises(ValueError):
-        StreamingExtractor(model, torch.zeros(800))
-
-
 def test_causal_stft_matches_whole_clip_frames():
     """The demo draws its output spectrogram with this, so it must frame a
     stream exactly as STFT.forward frames the finished clip."""

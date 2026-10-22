@@ -35,9 +35,10 @@ Decisions, all in docs/decisions/decisions-m1.md:
               causal at any acceptable latency.
   2026-10-22  every experiment arm the final baseline and extension do not use
               was removed (cue re-injection D4a, state head D14, presence gate,
-              inference-time mask switches). None of them is in either final
-              checkpoint, so both still load with strict=True. Git history
-              before this date has them.
+              inference-time mask switches, look-ahead > 0, the non-causal
+              mode, the no-residual-branch path). None of them is in either
+              final checkpoint, so both still load with strict=True. Git
+              history before this date has them.
 
 Deliberate omissions from Yu et al.: BSRNN-S's bidirectional sub-8 kHz band
 modelling (inapplicable at 16 kHz, where Nyquist IS 8 kHz), and their MetricGAN
@@ -54,7 +55,6 @@ from src.models.modules import (
     BandSplit,
     Estimator,
     SubbandNorm,
-    lookahead_shift,
 )
 from src.models.stft import STFT
 
@@ -70,11 +70,9 @@ class BSRNN_TFMAP(nn.Module):
 
     def __init__(self, sample_rate=16000, n_fft=512, hop=128, band_segments=None,
                  feature_dim=128, hidden_dim=192, num_repeat=6, mlp_hidden=384,
-                 n_hidden=1, lookahead_frames=0, causal=True,
-                 residual_branch=True, in_channels=3, tfmap_scale=16.0,
+                 n_hidden=1, in_channels=3, tfmap_scale=16.0,
                  tfmap_parts=False, tfmap_part_scales=None):
         super().__init__()
-        self.lookahead_frames = lookahead_frames
         self.band_widths = band_plan(sample_rate, n_fft, band_segments)
 
         # ITEM 1a. The cue contributes 3 channels instead of 1 (direction,
@@ -97,10 +95,9 @@ class BSRNN_TFMAP(nn.Module):
         self.tfmap        = TFMap(scale=tfmap_scale, return_parts=tfmap_parts,
                                   part_scales=tfmap_part_scales)
         self.split        = BandSplit(self.band_widths)
-        self.subband_norm = SubbandNorm(self.band_widths, in_channels, feature_dim, causal)
-        self.separator    = BandSequenceModel(feature_dim, hidden_dim, num_repeat, causal)
-        self.estimator    = Estimator(self.band_widths, feature_dim, mlp_hidden,
-                                      n_hidden, causal, residual_branch)
+        self.subband_norm = SubbandNorm(self.band_widths, in_channels, feature_dim)
+        self.separator    = BandSequenceModel(feature_dim, hidden_dim, num_repeat)
+        self.estimator    = Estimator(self.band_widths, feature_dim, mlp_hidden, n_hidden)
 
     def _fuse_context(self, z, context):
         """No-op in the base class. See BSRNN_TFMAP_CONTEXT."""
@@ -127,7 +124,6 @@ class BSRNN_TFMAP(nn.Module):
         # paths drift apart.
         z = self._fuse_context(z, context)
         z = self.separator(z)
-        z = lookahead_shift(z, self.lookahead_frames)    # no-op at k=0
 
         return self.stft.inverse(self.estimator(z, mix_bands), n)   # M * X + R
 

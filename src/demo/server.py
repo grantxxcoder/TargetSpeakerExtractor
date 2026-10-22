@@ -281,7 +281,7 @@ class Demo:
         heard = CausalSTFT(stft)       # spectrogram of the audio actually emitted
         n = len(mix)
         vmin, vmax = tr["vmin_db"], tr["vmax_db"]
-        lookahead_ms = stft.latency_ms(self.model.lookahead_frames)
+        lookahead_ms = stft.latency_ms()
         send({"type": "start", "n_samples": n, "sr": sr, "chunk": chunk, "hop": stft.hop_length,
               "n_frames": -(-(n + stft.padding) // stft.hop_length),
               "bins": stft.n_fft // 2 + 1, "playout_delay_ms": self.cfg["stream"]["playout_delay_ms"],
