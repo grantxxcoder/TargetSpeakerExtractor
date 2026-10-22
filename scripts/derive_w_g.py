@@ -1,7 +1,7 @@
 """Measure L_gain at four anchors and derive w_g. decisions-m2.md 2026-08-28.
 
     ../tse_venv/bin/python scripts/derive_w_g.py --split sir0 \
-        --checkpoint kaggle_out/models/model_sir0.pt
+        --checkpoint models/model_sir0_baseline-matched-e11.pt
 
 Writes experiments/results/<date>-wg-anchor-<split>/{per_crop.csv,meta.yaml}.
 
