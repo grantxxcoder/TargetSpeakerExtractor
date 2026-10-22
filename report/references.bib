@@ -928,6 +928,21 @@
   doi     = {10.1109/5.18626}
 }
 
+% Closed-form KL to the Markov prior, eq. (16): the mean-field cross term
+% E[z_{t-1} z_t] = pi_{t-1} pi_t is their eq. (C.7), Sec. 3.4 "Completely
+% factorized variational inference", Appendix C. Checked 2026-10-22 against the
+% preprint text; volume, issue, pages and DOI checked against Crossref.
+@article{ghahramani1997factorial,
+  author  = {Ghahramani, Zoubin and Jordan, Michael I.},
+  title   = {Factorial Hidden {Markov} Models},
+  journal = {Machine Learning},
+  volume  = {29},
+  number  = {2--3},
+  pages   = {245--273},
+  year    = {1997},
+  doi     = {10.1023/A:1007425814087}
+}
+
 % Supervised BCE term of the presence-gate objective: their eq. (9) adds a
 % classification loss so the label posterior also learns from labelled data.
 % Checked 2026-10-15 against the arXiv:1406.5298v2 text and the NeurIPS

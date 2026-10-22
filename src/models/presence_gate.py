@@ -15,7 +15,7 @@ class PresenceGate(nn.Module):
     Returns logits; pi = sigmoid(logits).
 
     Eq. (2): the amortised posterior q(z | x, e) (Kingma & Welling, 2014). The band-average + linear design is
-    Claude-originated; the band mean follows the D14 state head (src/models/state_head.py).
+    Claude-originated; the band mean follows the D14 state head (removed 2026-10-22; in git history).
 
     LN is layer normalisation over the N features of frame t (Ba, Kiros & Hinton, 2016, "Layer Normalization"), for
     the same reason BSRNN's Estimator normalises this separator output before its mask MLP (src/models/modules.py):

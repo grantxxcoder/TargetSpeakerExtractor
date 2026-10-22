@@ -37,10 +37,9 @@ Decisions, all in docs/decisions/decisions-m1.md:
               parameter-matched to its control -- unlike the state head, this one
               does carry a (small) capacity confound.
   2026-09-11  optional auxiliary speaker-state head (decisions-pending.md D14
-              piece A), 516 params, OFF by default, training-only and deleted at
-              inference -- so with state_head=False this file is arithmetically
-              the frozen 2026-08-28 architecture and every earlier checkpoint
-              still loads with strict=True.
+              piece A), 516 params, OFF by default. REMOVED 2026-10-22 with the
+              rest of the state-teacher arm; no kept checkpoint was trained with
+              it, so every checkpoint still loads with strict=True.
 
 Deliberate omissions from Yu et al.: BSRNN-S's bidirectional sub-8 kHz band
 modelling (inapplicable at 16 kHz, where Nyquist IS 8 kHz), and their MetricGAN
@@ -59,7 +58,6 @@ from src.models.modules import (
     SubbandNorm,
     lookahead_shift,
 )
-from src.models.state_head import AuxStateHead
 from src.models.stft import STFT
 from src.models.presence_gate import apply_gate, gain_from_logits, PresenceGate, soft_on_off_draw
 
@@ -117,7 +115,6 @@ class BSRNN_TFMAP(nn.Module):
                  feature_dim=128, hidden_dim=192, num_repeat=6, mlp_hidden=384,
                  n_hidden=1, lookahead_frames=0, causal=True,
                  residual_branch=True, in_channels=3, tfmap_scale=16.0,
-                 state_head=False, state_head_detach=False,
                  tfmap_inject=False, tfmap_gate_init=0.0, mask_floor=0.0,
                  tfmap_parts=False, tfmap_part_scales=None, presence_gate=False,
                  presence_mode="joint", presence_floor=0.0):
@@ -169,14 +166,6 @@ class BSRNN_TFMAP(nn.Module):
                           gate_init=tfmap_gate_init)
             if tfmap_inject else None)
 
-        # Head A, decisions-pending.md D14. OFF by default, and the attribute is
-        # None rather than absent so a caller can test for it without try/except.
-        # Constructed LAST and under a forked RNG (see AuxStateHead), so turning
-        # it on leaves every other weight in this model, and the dataloader's
-        # shuffle, bit-identical to the baseline.
-        self.state_head = (AuxStateHead(feature_dim, detach_features=state_head_detach)
-                           if state_head else None)
-
         # Presence gate, docs/extra/variational-presence-gate.md. OFF by default, and the attribute is
         # None rather than absent so a caller can test for it without try/except.
         self.presence_gate = (PresenceGate(feature_dim) if presence_gate else None)
@@ -203,14 +192,8 @@ class BSRNN_TFMAP(nn.Module):
         """No-op in the base class. See BSRNN_TFMAP_CONTEXT."""
         return z
 
-    def forward(self, mixture, enrollment, return_state=False, return_mask=False, *, context=None, return_gate=False):
-        """(B, T_samples), (B, T_enroll) -> (B, T_samples)
-
-        With `return_state=True`, returns `(waveform, state_logits)` where the
-        logits are `(B, 4, T_frames)`. The default return type is unchanged, so
-        every existing caller -- eval, latency, the streaming runner -- is
-        untouched and the head is invisible to them.
-        """
+    def forward(self, mixture, enrollment, return_mask=False, *, context=None, return_gate=False):
+        """(B, T_samples), (B, T_enroll) -> (B, T_samples)"""
         n = mixture.shape[-1]
 
         X  = self.stft(mixture)                          # (B, F, Tx) complex
@@ -239,17 +222,10 @@ class BSRNN_TFMAP(nn.Module):
         z = self._fuse_context(z, context)
         z = self.separator(z, cue=cue, gates=gates)
 
-        # BEFORE lookahead_shift, deliberately. The shift moves frame t's
-        # features to position t-k so the MASK for t is built from a state that
-        # has seen t+k; the state LABEL for t is still about t. Reading the head
-        # off the shifted tensor would train it on frame t's label against frame
-        # t+k's features -- invisible at the current lookahead_frames: 0, and a
-        # silent k-frame misalignment the moment that config key is raised.
-        state_logits = None if self.state_head is None else self.state_head(z)
-
-        # Presence gate, eq. (2), the amortised posterior (Kingma & Welling, 2014): READ here, from the separator features, before
-        # lookahead_shift for the same reason as head A. APPLIED below, to the
-        # output spectrum. None when off.
+        # Presence gate, eq. (2), the amortised posterior (Kingma & Welling, 2014): READ here, from the separator features, BEFORE
+        # lookahead_shift, deliberately. The shift moves frame t's features to position t-k so the MASK for t is built from a
+        # state that has seen t+k; the presence LABEL for t is still about t. Reading the gate off the shifted tensor would
+        # train it on frame t's label against frame t+k's features. APPLIED below, to the output spectrum. None when off.
         gate_logits = None
         if self.presence_gate is not None:
             # "postfilter": z.detach() closes the only path by which the KL, the BCE and the gated loss could reshape
@@ -284,42 +260,23 @@ class BSRNN_TFMAP(nn.Module):
         if return_gate:
             if gate_logits is None:
                 raise RuntimeError("return_gate=True but this model was built without a presence gate. ")
-            if return_state or return_mask:
-                raise RuntimeError("return_gate=True is incompatible with return_state or return_mask. ")
+            if return_mask:
+                raise RuntimeError("return_gate=True is incompatible with return_mask. ")
             if self.presence_mode == "postfilter":
                 # Three outputs: the system's (gated) waveform, the gate's logits, and the extractor's own (ungated)
                 # waveform, which the loss trains the extractor on. Callers without return_gate see the gated one only.
                 return waveform, gate_logits, ungated_waveform
             return waveform, gate_logits
-        if return_mask and not return_state:
+        if return_mask:
             return waveform, mask
-        if return_mask and return_state:
-            # Three-tuple ONLY when both are asked for, so neither existing
-            # caller's return shape changes. Same guard as the state-only path.
-            if state_logits is None:
-                raise RuntimeError(
-                    "return_state=True but this model was built without head A. "
-                    "Construct BSRNN_TFMAP(state_head=True), or set "
-                    "model.state_head: true in the config.")
-            return waveform, state_logits, mask
-
-        if not return_state:
-            return waveform
-        if state_logits is None:
-            # Loud, because the alternative is a training run that quietly adds
-            # nothing and is then reported as head A having had no effect.
-            raise RuntimeError(
-                "return_state=True but this model was built without head A. "
-                "Construct BSRNN_TFMAP(state_head=True), or set "
-                "model.state_head: true in the config.")
-        return waveform, state_logits
+        return waveform
 
 
 class BSRNN_TFMAP_CONTEXT(BSRNN_TFMAP):
     """BSRNN_TFMAP plus a frozen speaker embedding modulating the features.
 
-    Item 1c, ranked-next-steps.md. A SUBCLASS IN ITS OWN CLASS for the reason
-    `losses_state_head.py` gives for being one: the parent is untouched, so
+    Item 1c (decisions-m2.md 2026-09-23). A SUBCLASS IN ITS OWN CLASS so that
+    the parent is untouched, so
     every run predating this arm reproduces BY CONSTRUCTION rather than by a
     flag being false, and `build_model()` returns the parent unless the config
     asks for `context_embedding` -- an old config cannot reach this code path.
@@ -341,7 +298,7 @@ class BSRNN_TFMAP_CONTEXT(BSRNN_TFMAP):
         super().__init__(*args, **kwargs)
         # Constructed LAST so that turning this arm on leaves every other weight
         # in the model, and the dataloader's shuffle, bit-identical to the 1a
-        # control -- the same discipline AuxStateHead follows.
+        # control.
         self.context = ContextFusion(embedding_dim, self.subband_norm.feature_dim)
 
     def _fuse_context(self, z, context):
@@ -352,11 +309,11 @@ class BSRNN_TFMAP_CONTEXT(BSRNN_TFMAP):
                 "forward was bypassed.")
         return self.context(z, context)
 
-    def forward(self, mixture, enrollment, return_state=False, return_mask=False, return_gate=False, *, enrol_embedding):
+    def forward(self, mixture, enrollment, return_mask=False, return_gate=False, *, enrol_embedding):
         """(B, T), (B, T_enroll), (B, D) -> (B, T).
 
         `enrol_embedding` comes from ContextEncoder.embed(), computed ONCE per
         utterance. It is not recomputed per chunk, which is what keeps the
         per-frame cost of this arm at exactly zero.
         """
-        return super().forward(mixture, enrollment, return_state=return_state, return_mask=return_mask, return_gate=return_gate, context=enrol_embedding)
+        return super().forward(mixture, enrollment, return_mask=return_mask, return_gate=return_gate, context=enrol_embedding)

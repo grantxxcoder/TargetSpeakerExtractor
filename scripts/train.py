@@ -58,7 +58,8 @@ def build_loss_fn(config):
     if w_artif != 1.0:
         assert config["data"].get("both_directions", False) or config["data"].get("remix_gains", False), "loss.w_artif != 1 needs data.both_directions or data.remix_gains, or the other speaker's stem is never loaded"
 
-    w_state = float(config["loss"].get("w_state", 0.0))
+    # The D14 state-teacher arm was removed 2026-10-22 (git history has it). Refuse its keys rather than silently ignore them.
+    assert not config["loss"].get("w_state") and not config.get("model", {}).get("state_head"), "loss.w_state / model.state_head: the state-teacher arm was removed 2026-10-22"
 
     # Presence gate, eq. (12) of docs/extra/variational-presence-gate.md. Imported here so runs without the gate never need it.
     if config.get("model", {}).get("presence_gate", False):
@@ -66,15 +67,7 @@ def build_loss_fn(config):
         g = config["loss"]["presence"]
         return LossBSRNNPresence(wm=wm, w=w, tau_pres=tau_pres, tau_abs=tau_abs, p=p, windows=windows, sample_rate=sample_rate, wg=wg, gain_delta_db=gain_delta_db, beta=float(g["beta"]), lam=float(g["lam"]), d_on=float(g["d_on"]), d_off=float(g["d_off"]))
 
-    if w_state <= 0.0:
-        return LossBSRNN(wm=wm, w=w, tau_pres=tau_pres, tau_abs=tau_abs, p=p, windows=windows, sample_rate=sample_rate, wg=wg, gain_delta_db=gain_delta_db, w_struct=w_struct, struct_floor_db=struct_floor_db, w_interf=w_interf, w_artif=w_artif)
-
-    # D14 state term. Imported here: the teacher pulls in speechbrain and a 21 M-parameter checkpoint.
-    from src.models.losses_state import LossBSRNNState
-    from src.models.state_teacher import StateTeacher
-    teacher_path = config["loss"].get("state_teacher")
-    teacher = StateTeacher(teacher_path, config["loss"].get("ecapa_dir", "../ecapa_pretrained"), device=config["loss"].get("state_device", "cpu"))
-    return LossBSRNNState(wm=wm, w=w, tau_pres=tau_pres, tau_abs=tau_abs, p=p, windows=windows, sample_rate=sample_rate, wg=wg, gain_delta_db=gain_delta_db, w_struct=w_struct, struct_floor_db=struct_floor_db, teacher=teacher, w_state=w_state)
+    return LossBSRNN(wm=wm, w=w, tau_pres=tau_pres, tau_abs=tau_abs, p=p, windows=windows, sample_rate=sample_rate, wg=wg, gain_delta_db=gain_delta_db, w_struct=w_struct, struct_floor_db=struct_floor_db, w_interf=w_interf, w_artif=w_artif)
 
 
 # Absent-branch weight schedule (decisions-m2.md 2026-08-25). With L_abs on from the start the model learns silence before it
@@ -256,11 +249,9 @@ def build_model(config):
         residual_branch=config["model"]["mask"]["residual_branch"],
         lookahead_frames=config["model"]["lookahead_frames"],
         tfmap_scale=_tfmap_scale(config),
-        state_head=bool(config["model"].get("state_head", False)),  # D14 head A, training-only
         presence_gate=bool(config["model"].get("presence_gate", False)),  # docs/extra/variational-presence-gate.md
         presence_mode=str(config["model"].get("presence_mode", "joint")),  # "postfilter": detached gate, decisions-m2.md 2026-10-18
         presence_floor=float(config["model"].get("presence_floor", 0.0)),
-        state_head_detach=bool(config["model"].get("state_head_detach", False)),
         tfmap_inject=bool(config["model"].get("tfmap_inject", False)),  # D4a: +37,698 params, not parameter-matched to its control
         tfmap_gate_init=float(config["model"].get("tfmap_gate_init", 0.0)),
         tfmap_parts=bool(config["model"].get("tfmap_parts", False)),  # item 1a: +66,820 params, not parameter-matched

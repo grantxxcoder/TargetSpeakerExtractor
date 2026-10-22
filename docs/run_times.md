@@ -8,6 +8,8 @@ Machine unless stated: laptop, Intel i5-1135G7, **4 physical cores / 8 threads**
 
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
+| 2026-10-22 | `pytest tests/ -q` | full suite, 652 tests, after the clean-up (state-teacher arm and Kaggle tooling removed) | 15.1 min | cpu, 4 cores, alongside a 29-script `--help` loop. Added by hand |
+| 2026-10-22 | `pytest` on 6 files (holdouts, dataparallel_unwrap, ami_splits, ami_loader, w_schedule, estimates) | 74 tests, scratch copy of the code with the clean-up deletions applied | 2.4 min | cpu, 4 cores. Added by hand |
 | 2026-10-18 | `scripts/diagnose_presence_gate.py --gate-checkpoint kaggle_out/session2/models/model_sir0_e015.pt --reference-checkpoint models/model_sir0_cuecontext-wer-e21.pt --n 30` | 30 `sir0_val` `both` clips x 3 forward passes (gate on, gate off, e21), whole clip | 23.5 min | cpu, 4 cores, alongside the peer session's e25 run of the same script. Added by hand |
 | 2026-10-18 | `pytest tests/ -q -x --ignore=tests/test_presence_labels.py` | 709 tests, after the presence-gate postfilter patch | 5.0 min | cpu, 4 cores, alongside one diagnose run. Added by hand |
 | 2026-10-18 | `scripts/train.py --split sir0 --epochs 6 --config experiments/configs/bsrnn_presence_postfilter.yaml` | 9,955 trials x 6 epochs (idx 0-5), sir0, `bsrnn_presence_postfilter.yaml` (gate only, e21 frozen) | 3.1 h | batch 3, cuda (T4), **1,855 s/epoch**, no extractor backward. From the run's meta.yaml (kaggle_out/ALL-sir0-bsrnn_presence_postfilter-e6). Added by hand |

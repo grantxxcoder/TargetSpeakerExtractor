@@ -68,7 +68,7 @@ import yaml  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
 from matplotlib.ticker import MultipleLocator  # noqa: E402
 
-# House style, copied from scripts/plot_state_teacher_cost.py.
+# House style for every report figure.
 mpl.rcParams.update({
     "font.family": "serif",
     "font.serif": ["Times New Roman", "Nimbus Roman", "DejaVu Serif"],
