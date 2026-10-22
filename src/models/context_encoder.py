@@ -18,13 +18,8 @@ cannot. That is the single property being imported.
 
 WHY IT IS OUTSIDE THE MODEL
 ---------------------------
-Weighed 2026-09-22 and recorded in decisions-m2.md. Four reasons, in order:
+Weighed 2026-09-22 and recorded in decisions-m2.md. Three reasons, in order:
 
-  * `nn.DataParallel` re-replicates a module on EVERY forward, so 20.77 M
-    frozen weights would be scattered to each card every step for no benefit.
-    (MEASURED 2026-09-22 from the loaded snapshot, not taken from the WeSep
-    config -- its 14.597 M `spk_ft` is a DIFFERENT frontend and conflating the
-    two would understate this by 30 %.)
   * The checkpoint stays small: ~83 MB per saved epoch, times the three kept,
     for weights that never change and are already hash-pinned on disk.
   * The fusion is testable with a synthetic 192-vector -- no speechbrain import,
@@ -67,23 +62,10 @@ BACKBONE_FILES = ("embedding_model.ckpt", "mean_var_norm_emb.ckpt",
 
 
 def resolve_ecapa_dir(ecapa_dir):
-    """Find the snapshot, or fail naming every place that was tried.
-
-    THE BUG THIS EXISTS FOR, found 2026-09-22 before it cost a session. The
-    Kaggle bundle stages the snapshot INSIDE the code tree
-    (kaggle_bundle/code/ecapa_pretrained -> /kaggle/working/repo/ecapa_pretrained)
-    while every config says `../ecapa_pretrained`, which from the repo root --
-    train.py's working directory there -- is /kaggle/working/ecapa_pretrained.
-    Different directory. Locally the sibling path is right; on Kaggle it is not,
-    and nothing in the notebook rewrites it.
-
-    Resolving in code rather than per-config because a path that is correct in
-    one environment and silently absent in the other is exactly the shape of
-    failure that gets discovered after the upload.
-    """
+    """Find the snapshot -- the configured path (relative to the working directory),
+    else the repo's sibling directory -- or fail naming every place that was tried."""
     tried = []
     for candidate in (Path(ecapa_dir),
-                      Path(__file__).resolve().parents[2] / "ecapa_pretrained",
                       Path(__file__).resolve().parents[3] / "ecapa_pretrained"):
         tried.append(str(candidate))
         if (candidate / "embedding_model.ckpt").exists():
@@ -91,8 +73,7 @@ def resolve_ecapa_dir(ecapa_dir):
     raise FileNotFoundError(
         "no ECAPA snapshot with embedding_model.ckpt. Tried:\n  "
         + "\n  ".join(tried)
-        + "\nStage it with scripts/make_kaggle_bundle.py, or set "
-          "model.ecapa_dir.")
+        + "\nPut the snapshot beside the repo, or set model.ecapa_dir.")
 
 
 def file_hashes(ecapa_dir):

@@ -28,8 +28,8 @@ F_BINS, T_MIX, T_ENROL = 257, 40, 60
 
 
 def tiny_model(**kwargs):
-    """Same fixture as tests/test_tfmap_inject.py: every module the shipped
-    model has, narrow instead of wide, so a ctor test costs milliseconds."""
+    """Every module the shipped model has, narrow instead of wide, so a ctor
+    test costs milliseconds."""
     return BSRNN_TFMAP(sample_rate=8000, n_fft=128, hop=32, num_repeat=2,
                        band_segments={"uniform": 5}, feature_dim=16,
                        hidden_dim=16, mlp_hidden=16, **kwargs)
@@ -128,13 +128,6 @@ def test_model_input_width_is_derived_not_configured():
 def test_a_wrong_in_channels_is_refused_not_silently_fixed():
     with pytest.raises(ValueError, match="in_channels"):
         tiny_model(in_channels=4)
-
-
-def test_parts_and_inject_together_are_refused():
-    """The injector asserts a 1-channel cue. Fail at construction, not six
-    frames deep in a Kaggle log."""
-    with pytest.raises(NotImplementedError, match="tfmap_inject"):
-        tiny_model(tfmap_parts=True, tfmap_inject=True)
 
 
 def test_forward_runs_end_to_end_and_the_default_path_is_untouched():

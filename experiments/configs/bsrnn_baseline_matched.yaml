@@ -1,5 +1,5 @@
 # MATCHED-PROTOCOL BASELINE, registered 2026-10-07 (decisions-m2.md 2026-10-07).
-# The baseline MODEL of bsrnn_baseline.yaml (single TF-Map cue channel, no speaker
+# The baseline MODEL of record (single TF-Map cue channel, no speaker
 # embedding, 7.19 M params) trained under e21's PROTOCOL (bsrnn_cue_context.yaml):
 #   training.lr_schedule_on: content_wer   (baseline of record: `total`)
 #   training.select_on:      content_wer   (baseline of record: present_branch)
@@ -68,8 +68,8 @@ data:
                         # notebook sets 4) or the wav reads starve the device.
   batch_size: 3        # decisions-m1.md 2026-08-18, provisional on GPU memory
                        # and should be 12. Still 3: the laptop has no usable GPU
-                       # (docs/run_times.md). Raise to 12 when running `--split
-                       # mid` or `full` on Kaggle -- and note w's absent-rate
+                       # (docs/run_times.md). Raise to 12 on a GPU with room -- and
+                       # note w's absent-rate
                        # calibration assumed batch 12, where ~1.5 % of batches
                        # have no absent crop at the measured 0.297 absent rate.
    
@@ -152,9 +152,6 @@ loss:
                         # NOTE dB, NOT percent: 10 % amplitude is 0.83 dB, which
                         # is tighter than a listener can resolve. +-3 dB is an
                         # amplitude range of 0.71x-1.41x.
-  ablate_w_g:   [0.0, 1.69, 2.30]   # 0 arm required. 1.69 = shipped value,
-                                    # 2.30 = the ceiling, i.e. the point past
-                                    # which level outweighs content
   tau_pres: 0.001       # floor inside L_pres only: caps the present reward at
                         # 30 dB. Was a single `tau` shared by both halves;
                         # split 2026-08-25.
@@ -170,29 +167,6 @@ loss:
                                  # leaves the complex term uncompressed
   reduction:    mean             # over (F, N) only, never over the batch --
                                  # the masked means need per-example values
-  ablate_w_m:   [0.0, 2.89, 9.62]   # the 0 arm is required
-
-  # ---- D17: the mask-structure term. decisions-pending.md 2026-09-13 ----
-  # MEASURED: 84.2 % of the mask's variance is one number per frame, and it
-  # varies 6.5x less across frequency than the ideal mask -- a broadband volume
-  # knob, which cannot separate two voices overlapping in time and frequency.
-  # Measured 2026-09-13 across ~2k / ~5k / ~10k training trials: MORE DATA MAKES
-  # IT WORSE (freq/time -0.162 [-0.205, -0.118] at matched epoch), so this is the
-  # objective's own optimum and not a data shortage.
-  #
-  # SHIPPED AT 0.0. The term is COMPUTED and LOGGED at zero weight (log_struct)
-  # but contributes no gradient, exactly as L_gain was shipped off while
-  # derive_w_g.py read it. Set this from scripts/derive_w_struct.py against a
-  # measured anchor -- never by hand, and never before that script has run.
-  w_struct: 0.0
-  struct_floor_db: -40.0   # a mixture bin this far under the clip's peak is
-                           # treated as silent and excluded. |target|/|mixture|
-                           # is meaningless where the denominator is noise.
-  log_struct: true         # compute and log L_struct even at w_struct 0. One
-                           # extra STFT pair per batch; measure the step-time
-                           # cost before quoting it.
-  ablate_w_struct: [0.0]   # filled in once the weight is derived. The 0 arm is
-                           # the baseline and is required.
 
 training:
   amp: true             # Automatic Mixed Precision: fp16 for the model forward,

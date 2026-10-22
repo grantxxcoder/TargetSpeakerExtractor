@@ -1,7 +1,7 @@
 """Measure L_gain at four anchors and derive w_g. decisions-m2.md 2026-08-28.
 
     ../tse_venv/bin/python scripts/derive_w_g.py --split sir0 \
-        --checkpoint kaggle_out/models/model_sir0.pt
+        --checkpoint models/model_sir0_baseline-matched-e11.pt
 
 Writes experiments/results/<date>-wg-anchor-<split>/{per_crop.csv,meta.yaml}.
 
@@ -139,7 +139,7 @@ def main():
     ap.add_argument("--checkpoint", default=None,
                     help="the collapsed checkpoint. Without it only the two "
                          "reference anchors are measured and no w_g is derived.")
-    ap.add_argument("--config", default="experiments/configs/bsrnn_baseline.yaml")
+    ap.add_argument("--config", default="experiments/configs/bsrnn_cue_context.yaml")
     ap.add_argument("--n-crops", type=int, default=300,
                     help="matches the 300-crop 2026-08-20 loss anchor")
     ap.add_argument("--batch-size", type=int, default=4)

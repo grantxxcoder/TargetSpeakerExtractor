@@ -68,11 +68,14 @@ def test_lower_wer_wins():
            selection_score(worse, cfg("content_wer"))
 
 
-def test_the_old_modes_are_untouched():
-    val = {"L_pres": -4.102, "L_MR": 0.29844, "L_gain": 3.28383, "total": 1.0}
-    assert selection_score(val, cfg("present_branch")) == pytest.approx(4.319, abs=1e-3)
-    assert selection_score(val, cfg("separation")) == pytest.approx(-4.102)
-    assert selection_score(val, cfg("total")) == pytest.approx(1.0)
+@pytest.mark.parametrize("mode", ["present_branch", "separation", "total"])
+def test_the_removed_signal_modes_are_refused(mode):
+    """Removed 2026-10-22: neither final model was selected or scheduled on them."""
+    val = {"content_wer_ema": 55.10, "L_pres": -4.102, "L_MR": 0.29844, "L_gain": 3.28383, "total": 1.0}
+    with pytest.raises(ValueError, match="removed"):
+        selection_score(val, cfg(mode))
+    with pytest.raises(ValueError, match="removed"):
+        lr_schedule_metric(val, {"training": {"lr_schedule_on": mode}})
 
 
 def test_unknown_mode_names_the_new_one():
@@ -90,8 +93,7 @@ def test_history_carries_the_new_columns():
 def test_a_row_without_the_probe_is_still_writable():
     """Every run before 2026-09-23 has no probe; those rows must still build."""
     fields = {"total": 1.0, "L_pres": -1.0, "L_MR": 0.2, "L_gain": 3.0,
-              "L_abs": -11.0, "L_state": float("nan"), "L_struct": float("nan"),
-              "n_present": 261, "n_absent": 139}
+              "L_abs": -11.0, "n_present": 261, "n_absent": 139}
     va = {**fields, "epoch": 3, "lr": 0.00025, "w": 0.458}
     row = history_row(fields, va)
     assert len(row) == len(history_header())

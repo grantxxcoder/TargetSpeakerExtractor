@@ -65,12 +65,7 @@ from src.run_log import timed  # noqa: E402
 # asserts this stays identical to train.py's copy, so a divergence fails a test
 # rather than silently rendering the wrong audio against the right manifest.
 VAL_SPLITS = {
-    "smoke": ("smoke_val", "smoke_val"),
-    "mid":   ("mid_val",   "val"),
     "sir0":  ("sir0_val",  "sir0_val"),
-    # The expanded dev split added 2026-09-13, so WeSep can be scored on the
-    # same wider set as our own model. decisions-m3.md 2026-09-13.
-    "sir0ext": ("sir0_privval", "sir0_privval"),
     # Public test split, rendering only (scripts/train.py RENDER_ONLY_SPLITS).
     "sir0pub": ("eval_public", "eval_public"),
     # Private test split, rendering only, scored once after selection.
@@ -78,13 +73,6 @@ VAL_SPLITS = {
     "sir0priv": ("eval_private", "eval_private"),
     # AMI real-audio transfer set, rendering only (scripts/build_ami_trials.py).
     "ami":   ("ami_eval",    "ami_eval"),
-    # M8 (decisions-m8.md 2026-10-12): the two fine-tune arms validate on
-    # sir0_val; amitr renders the ami_train windows for the Gemini check.
-    "amift":  ("sir0_val",  "sir0_val"),
-    "amimix": ("sir0_val",  "sir0_val"),
-    "amitr":  ("ami_train", "ami_train"),
-    "amitrchk": ("ami_train_check", "ami_train_check"),
-    "full":  ("val",       "val"),
 }
 
 

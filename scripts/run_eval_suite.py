@@ -1,8 +1,8 @@
 """Run the whole evaluation battery on one checkpoint, in the right order.
 
-    ../tse_venv/bin/python scripts/run_eval_suite.py --tag state-e6 \
-        --checkpoint models/model_sir0_state-e6.pt \
-        --config experiments/configs/bsrnn_state.yaml --dry-run
+    ../tse_venv/bin/python scripts/run_eval_suite.py --tag e21 \
+        --checkpoint models/model_sir0_cuecontext-wer-e21.pt \
+        --config experiments/configs/bsrnn_cue_context.yaml --dry-run
 
 WHY A DRIVER AND NOT A README. Six scripts have to run in a fixed order, three
 of them consume the output directory of the first, and every one of them needs
@@ -159,10 +159,10 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--checkpoint", required=True)
     ap.add_argument("--tag", required=True,
-                    help="short name for this system, e.g. state-e6. Goes into "
+                    help="short name for this system, e.g. e21. Goes into "
                          "every output directory name, so it is how the run is "
                          "found again six weeks later")
-    ap.add_argument("--config", default="experiments/configs/bsrnn_baseline.yaml",
+    ap.add_argument("--config", default="experiments/configs/bsrnn_cue_context.yaml",
                     help="the config the checkpoint was TRAINED with. Only used "
                          "for the drift check and by measure_rtf; build_model "
                          "always reads the config stored inside the checkpoint")
