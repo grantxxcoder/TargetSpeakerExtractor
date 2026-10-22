@@ -24,12 +24,13 @@ def test_train_uses_the_shared_list_not_a_copy():
     assert train.HOLDOUT_SPLITS is HOLDOUT_SPLITS
 
 
-def test_sir0ext_is_render_only_because_its_val_half_is_a_holdout():
+@pytest.mark.parametrize("split", ["sir0pub", "sir0priv", "ami"])
+def test_test_splits_are_render_only_because_their_val_half_is_a_holdout(split):
     from scripts.train import RENDER_ONLY_SPLITS, SPLIT_MANIFESTS, get_data_loaders
-    assert SPLIT_MANIFESTS["sir0ext"][1][0] in HOLDOUT_SPLITS
-    assert "sir0ext" in RENDER_ONLY_SPLITS
+    assert SPLIT_MANIFESTS[split][1][0] in HOLDOUT_SPLITS
+    assert split in RENDER_ONLY_SPLITS
     with pytest.raises(ValueError, match="rendering estimates only"):
-        get_data_loaders("sir0ext", None, None, None)
+        get_data_loaders(split, None, None, None)
 
 
 def test_no_trainable_split_validates_on_a_holdout():
@@ -49,15 +50,7 @@ def test_select_by_wer_refuses_every_holdout(split):
     assert "holdout" in run.stderr
 
 
-def test_m8_splits_train_on_ami_and_never_on_ami_eval():
-    """decisions-m8.md 2026-10-12: amift/amimix train on ami_train and validate
-    on sir0_val; amitr only renders ami_train for the Gemini check."""
-    from scripts.train import RENDER_ONLY_SPLITS, SPLIT_MANIFESTS, get_data_loaders
-    assert SPLIT_MANIFESTS["amift"] == (("amift_train", "ami_train"), ("sir0_val", "sir0_val"))
-    assert SPLIT_MANIFESTS["amimix"] == (("amimix_train", "ami_train"), ("sir0_val", "sir0_val"))
-    for split in ("amitr", "amitrchk"):
-        assert split in RENDER_ONLY_SPLITS
-        with pytest.raises(ValueError, match="rendering estimates only"):
-            get_data_loaders(split, None, None, None)
+def test_no_split_trains_on_a_holdout():
+    from scripts.train import SPLIT_MANIFESTS
     for (train, audio), _ in SPLIT_MANIFESTS.values():
-        assert train != "ami_eval" and audio != "ami_eval"
+        assert train not in HOLDOUT_SPLITS and audio not in HOLDOUT_SPLITS

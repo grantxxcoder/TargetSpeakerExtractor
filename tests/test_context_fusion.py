@@ -126,8 +126,8 @@ def test_a_different_speaker_changes_the_output_once_gamma_is_nonzero():
 
 
 def test_the_encoder_is_not_a_submodule():
-    """It must be absent from state_dict, parameters and DataParallel's
-    per-forward replication -- the whole reason it lives outside."""
+    """It must be absent from state_dict and parameters -- the reason it
+    lives outside."""
     m = tiny()
     keys = " ".join(m.state_dict())
     assert "ecapa" not in keys.lower() and "embedding_model" not in keys

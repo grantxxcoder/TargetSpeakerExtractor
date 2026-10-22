@@ -289,14 +289,7 @@ def test_call_rejects_a_present_crop_whose_target_is_silent(loss):
 def test_call_parts_dict_has_a_stable_key_set(loss):
     """The logger's schema must not change between batches, or a missing half
     becomes a missing column instead of a gap in the curve."""
-    # L_struct joined the set on 2026-09-13 (D17). It is NaN when no mask is
-    # supplied -- a gap in the curve, not a zero -- but the KEY is always
-    # present, which is what this test is about. This test caught the addition,
-    # which is what it is for. L_pres_w and interf_share joined on 2026-10-02
-    # (D10), NaN when no other speaker's stem is passed; artif_share on
-    # 2026-10-03 (AB-SDR), NaN on the same condition.
-    keys = {"L_pres", "L_MR", "L_gain", "L_abs", "L_struct",
-            "L_pres_w", "interf_share", "artif_share", "n_present", "n_absent", "total"}
+    keys = {"L_pres", "L_MR", "L_gain", "L_abs", "n_present", "n_absent", "total"}
     for idx in ((), (2, 5, 9), tuple(range(12))):
         s, x, absent = batch(absent_idx=idx)
         assert set(loss(s, x, x, absent)[1]) == keys

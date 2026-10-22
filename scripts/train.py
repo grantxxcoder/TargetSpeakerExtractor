@@ -277,7 +277,7 @@ def lr_schedule_metric(val_loss, config):
     """The number ReduceLROnPlateau watches (training.lr_schedule_on): the same smoothed validation WER the selector uses."""
     mode = str(config["training"].get("lr_schedule_on", "content_wer"))
     if mode != "content_wer":
-        raise ValueError(f"training.lr_schedule_on: {mode!r} was removed 2026-10-22; only content_wer remains.")
+        raise ValueError(f"training.lr_schedule_on: {mode!r} is not available; the signal-loss modes were removed 2026-10-22 and only content_wer remains.")
     return selection_score(val_loss, config)
 
 
@@ -289,7 +289,7 @@ def selection_score(val_loss, config):
     """
     mode = str(config["training"].get("select_on", "content_wer"))
     if mode != "content_wer":
-        raise ValueError(f"training.select_on: {mode!r} was removed 2026-10-22; only content_wer remains.")
+        raise ValueError(f"training.select_on: {mode!r} is not available; the signal-loss modes were removed 2026-10-22 and only content_wer remains.")
     value = val_loss.get("content_wer_ema", val_loss.get("content_wer"))
     if value is None or value != value:
         raise ValueError("select_on/lr_schedule_on is `content_wer` but no validation WER was computed this epoch. Enable the probe with a `content_probe:` block, and set `every_n_epochs: 1` -- the scheduler needs a number every epoch.")
