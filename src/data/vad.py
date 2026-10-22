@@ -167,7 +167,7 @@ def merge(segs):
 
     Silero's own output is already disjoint, so nothing in B2 needed this. It is
     needed once segments are WIDENED -- extending each one by a reverberation
-    tail (see scripts/build_state_labels.py) makes neighbouring segments run into
+    tail makes neighbouring segments run into
     each other, and `total_speech` would then double-count the overlap.
     """
     if not segs:

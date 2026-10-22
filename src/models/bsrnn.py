@@ -3,9 +3,11 @@
 Assembly only -- every component lives in its own module and is wired together
 here. Two model classes:
 
-  BSRNN        mixture path only. A causal speech *enhancer*: it will clean up a
-               two-voice mixture but has no notion of which voice to keep.
-  BSRNN_TFMAP  adds TF-Map conditioning, which is what makes it an *extractor*.
+  BSRNN_TFMAP          the BASELINE: a causal band-split RNN with TF-Map speaker
+                       conditioning, which is what makes it an *extractor*.
+  BSRNN_TFMAP_CONTEXT  the EXTENSION: the same, with the cue handed over as its
+                       parts (item 1a, `tfmap_parts`) and a frozen speaker
+                       embedding modulating the features (item 1c).
 
 Provenance, four papers:
   band splitting and the dual-path alternation
@@ -31,15 +33,11 @@ Decisions, all in docs/decisions/decisions-m1.md:
   2026-08-19  TF-Map uses Spectral Similarity (eq. 2); Embedding Similarity
               (eq. 3) needs frame-level embeddings of the live mixture, not
               causal at any acceptable latency.
-  2026-09-11  optional per-block TF-Map re-injection (decisions-pending.md D4a),
-              OFF by default. +37,698 params (+0.52 %) when on, zero-initialised
-              gates so the arm starts as exactly the baseline function. NOT
-              parameter-matched to its control -- unlike the state head, this one
-              does carry a (small) capacity confound.
-  2026-09-11  optional auxiliary speaker-state head (decisions-pending.md D14
-              piece A), 516 params, OFF by default. REMOVED 2026-10-22 with the
-              rest of the state-teacher arm; no kept checkpoint was trained with
-              it, so every checkpoint still loads with strict=True.
+  2026-10-22  every experiment arm the final baseline and extension do not use
+              was removed (cue re-injection D4a, state head D14, presence gate,
+              inference-time mask switches). None of them is in either final
+              checkpoint, so both still load with strict=True. Git history
+              before this date has them.
 
 Deliberate omissions from Yu et al.: BSRNN-S's bidirectional sub-8 kHz band
 modelling (inapplicable at 16 kHz, where Nyquist IS 8 kHz), and their MetricGAN
@@ -50,7 +48,7 @@ import torch
 import torch.nn as nn
 
 from src.models.bands import band_plan
-from src.models.conditioning import ContextFusion, TFMap, TFMapInjector
+from src.models.conditioning import ContextFusion, TFMap
 from src.models.modules import (
     BandSequenceModel,
     BandSplit,
@@ -59,65 +57,22 @@ from src.models.modules import (
     lookahead_shift,
 )
 from src.models.stft import STFT
-from src.models.presence_gate import apply_gate, gain_from_logits, PresenceGate, soft_on_off_draw
-
-
-class BSRNN(nn.Module):
-    """Causal band-split RNN, mixture path only (no speaker conditioning)."""
-
-    def __init__(self, sample_rate=16000, n_fft=512, hop=128, band_segments=None,
-                 feature_dim=128, hidden_dim=192, num_repeat=6, mlp_hidden=384,
-                 n_hidden=1, lookahead_frames=0, causal=True,
-                 residual_branch=True, in_channels=2):
-        super().__init__()
-        self.lookahead_frames = lookahead_frames
-        self.band_widths = band_plan(sample_rate, n_fft, band_segments)
-
-        self.stft = STFT(n_fft, hop, sample_rate)
-        self.split = BandSplit(self.band_widths)
-        self.subband_norm = SubbandNorm(self.band_widths, in_channels, feature_dim, causal)
-        self.separator = BandSequenceModel(feature_dim, hidden_dim, num_repeat, causal)
-        self.estimator = Estimator(self.band_widths, feature_dim, mlp_hidden, n_hidden, causal, residual_branch)
-
-    def forward(self, mixture):
-        """(B, T_samples) -> (B, T_samples)"""
-        n = mixture.shape[-1]        # STFT pads, so inverse() cannot infer this
-
-        X   = self.stft(mixture)                        # (B, F, T) complex
-        Xri = torch.stack([X.real, X.imag], dim=1)      # (B, 2, F, T) real
-
-        mix_bands  = self.split(X)      # complex -- what the mask multiplies into
-        feat_bands = self.split(Xri)    # real    -- what the network consumes
-
-        z = self.subband_norm(feat_bands)                # (B, K, N, T)
-        z = self.separator(z)                            # (B, K, N, T)
-        z = lookahead_shift(z, self.lookahead_frames)    # no-op at k=0
-
-        return self.stft.inverse(self.estimator(z, mix_bands), n)
 
 
 class BSRNN_TFMAP(nn.Module):
     """Causal band-split RNN with TF-Map speaker conditioning.
 
-    Identical to BSRNN except that the enrollment's magnitude spectrogram is
-    turned into a TF-Map feature and concatenated as a third input channel, so
-    in_channels defaults to 3. The mask is still applied to the *complex*
-    mixture: TF-Map only enters the network's input, never the thing being masked.
-
-    With `tfmap_inject=True` (D4a) the same TF-Map is additionally re-projected
-    and handed back to every separator block. That changes where the cue is
-    READ, never what is masked -- the mask still multiplies the unconditioned
-    complex mixture, so the arm cannot smuggle the enrollment into the output
-    except through the mask the separator predicts.
+    The enrollment's magnitude spectrogram is turned into a TF-Map feature and
+    concatenated with the mixture's real and imaginary parts as extra input
+    channels. The mask is still applied to the *complex* mixture: TF-Map only
+    enters the network's input, never the thing being masked.
     """
 
     def __init__(self, sample_rate=16000, n_fft=512, hop=128, band_segments=None,
                  feature_dim=128, hidden_dim=192, num_repeat=6, mlp_hidden=384,
                  n_hidden=1, lookahead_frames=0, causal=True,
                  residual_branch=True, in_channels=3, tfmap_scale=16.0,
-                 tfmap_inject=False, tfmap_gate_init=0.0, mask_floor=0.0,
-                 tfmap_parts=False, tfmap_part_scales=None, presence_gate=False,
-                 presence_mode="joint", presence_floor=0.0):
+                 tfmap_parts=False, tfmap_part_scales=None):
         super().__init__()
         self.lookahead_frames = lookahead_frames
         self.band_widths = band_plan(sample_rate, n_fft, band_segments)
@@ -138,17 +93,6 @@ class BSRNN_TFMAP(nn.Module):
         self.tfmap_parts = tfmap_parts
         in_channels = derived
 
-        # D4a re-projects the cue assuming ONE channel (TFMapInjector asserts
-        # C == 1). Parts make it three, so the two arms cannot run together
-        # until the injector is generalised -- refused loudly rather than
-        # tripping an assert six frames deep in a Kaggle log.
-        if tfmap_parts and tfmap_inject:
-            raise NotImplementedError(
-                "tfmap_parts and tfmap_inject cannot both be on: the injector "
-                "projects a 1-channel cue. decisions-pending.md D4 says run "
-                "D4a before D4b; item 1b is ranked after this arm for the same "
-                "reason.")
-
         self.stft         = STFT(n_fft, hop, sample_rate)
         self.tfmap        = TFMap(scale=tfmap_scale, return_parts=tfmap_parts,
                                   part_scales=tfmap_part_scales)
@@ -156,43 +100,13 @@ class BSRNN_TFMAP(nn.Module):
         self.subband_norm = SubbandNorm(self.band_widths, in_channels, feature_dim, causal)
         self.separator    = BandSequenceModel(feature_dim, hidden_dim, num_repeat, causal)
         self.estimator    = Estimator(self.band_widths, feature_dim, mlp_hidden,
-                                      n_hidden, causal, residual_branch,
-                                      mask_floor=mask_floor)
-        # D4a, decisions-pending.md D4. OFF by default: with tfmap_inject=False
-        # the cue enters once as an input channel, which is the architecture
-        # frozen on 2026-08-28 as the baseline of record.
-        self.tfmap_inject = (
-            TFMapInjector(self.band_widths, feature_dim, num_repeat, causal,
-                          gate_init=tfmap_gate_init)
-            if tfmap_inject else None)
-
-        # Presence gate, docs/extra/variational-presence-gate.md. OFF by default, and the attribute is
-        # None rather than absent so a caller can test for it without try/except.
-        self.presence_gate = (PresenceGate(feature_dim) if presence_gate else None)
-        self.gate_tau = None
-        # HOW the gate meets the extractor (decisions-m2.md 2026-10-18).
-        #   "joint"      arm A/B as trained 2026-10-15..18: the gate reads live separator features, a binary Concrete
-        #                draw multiplies the spectrum in training, pi at inference, and the gated loss trains both.
-        #   "postfilter" the gate reads DETACHED features and multiplies a DETACHED spectrum, so no gradient of any
-        #                gate term reaches the separator and the extractor trains on the ungated output alone (e21's
-        #                objective, unchanged). The gain is floor + (1 - floor) * pi in training AND inference
-        #                (eq. 21, no draw). Measured reason (arm A, idx 25, 2026-10-18): the gated loss shielded the
-        #                mask from the frames the gate muted, so the extractor lost 2.4 dB of interferer-only
-        #                suppression against e21 (-0.4 vs -2.8 dB relative to target-only frames) and the gate won
-        #                back 0.2 dB; and the gate's log-loss was 0.18 nats/frame on training crops against 0.53-0.74
-        #                on validation, a gap the 129-weight gate cannot produce on its own.
-        if presence_mode not in ("joint", "postfilter"):
-            raise ValueError(f"presence_mode must be 'joint' or 'postfilter', got {presence_mode!r}")
-        self.presence_mode = presence_mode
-        self.presence_floor = float(presence_floor)
-        if self.presence_floor and presence_mode == "joint":
-            raise ValueError("presence_floor is only defined for presence_mode 'postfilter'")
+                                      n_hidden, causal, residual_branch)
 
     def _fuse_context(self, z, context):
         """No-op in the base class. See BSRNN_TFMAP_CONTEXT."""
         return z
 
-    def forward(self, mixture, enrollment, return_mask=False, *, context=None, return_gate=False):
+    def forward(self, mixture, enrollment, *, context=None):
         """(B, T_samples), (B, T_enroll) -> (B, T_samples)"""
         n = mixture.shape[-1]
 
@@ -206,80 +120,25 @@ class BSRNN_TFMAP(nn.Module):
         mix_bands  = self.split(X)          # complex, unconditioned -- for the mask
         feat_bands = self.split(feats_in)   # 2 + C channels -- for the network
 
-        # D4a: the same TF-Map, band-split again and projected on its own, handed
-        # back to every block inside the stack. None when the arm is off, and
-        # BandSequenceModel then skips the addition entirely.
-        cue = gates = None
-        if self.tfmap_inject is not None:
-            cue = self.tfmap_inject(self.split(tf))
-            gates = self.tfmap_inject.gates
-
         z = self.subband_norm(feat_bands)
-        # Item 1c's insertion point. The base class ignores `context` entirely,
-        # so every pre-2026-09-22 call is bit-identical; BSRNN_TFMAP_CONTEXT
-        # overrides `_fuse_context`. A hook rather than a duplicated forward:
-        # copying thirty lines to insert one is how two paths drift apart.
+        # Item 1c's insertion point. The base class ignores `context` entirely;
+        # BSRNN_TFMAP_CONTEXT overrides `_fuse_context`. A hook rather than a
+        # duplicated forward: copying thirty lines to insert one is how two
+        # paths drift apart.
         z = self._fuse_context(z, context)
-        z = self.separator(z, cue=cue, gates=gates)
+        z = self.separator(z)
+        z = lookahead_shift(z, self.lookahead_frames)    # no-op at k=0
 
-        # Presence gate, eq. (2), the amortised posterior (Kingma & Welling, 2014): READ here, from the separator features, BEFORE
-        # lookahead_shift, deliberately. The shift moves frame t's features to position t-k so the MASK for t is built from a
-        # state that has seen t+k; the presence LABEL for t is still about t. Reading the gate off the shifted tensor would
-        # train it on frame t's label against frame t+k's features. APPLIED below, to the output spectrum. None when off.
-        gate_logits = None
-        if self.presence_gate is not None:
-            # "postfilter": z.detach() closes the only path by which the KL, the BCE and the gated loss could reshape
-            # the separator's features (the memorisation channel). The gate's own 129 weights still learn.
-            gate_logits = self.presence_gate(z.detach() if self.presence_mode == "postfilter" else z)
-
-        z = lookahead_shift(z, self.lookahead_frames)
-        # D17: ask the estimator to keep the mask in the graph BEFORE the call,
-        # and clear the flag after, so a caller that does not want the mask
-        # never pays for a retained tensor.
-        self.estimator.keep_mask_grad = bool(return_mask)
-        spectrum = self.estimator(z, mix_bands)            # (B, F, T): M * X + R
-        ungated_waveform = None
-        if gate_logits is not None and self.presence_mode == "postfilter":
-            # The extractor's output, untouched: what its loss is computed on. The gated branch multiplies a DETACHED
-            # copy, so the gated loss can move the gate but never the mask. Same gain in training and inference.
-            ungated_waveform = self.stft.inverse(spectrum, n)
-            spectrum = apply_gate(spectrum.detach(), gain_from_logits(gate_logits, self.presence_floor))
-        elif gate_logits is not None:
-            # Eq. (20) in training: binary Concrete soft draw (Maddison et al., 2017; Jang et al., 2017). Eq. (21) at inference: pi itself.
-            if self.training:
-                gate = soft_on_off_draw(gate_logits, self.gate_tau)
-            else:
-                gate = torch.sigmoid(gate_logits)
-            spectrum = apply_gate(spectrum, gate)
-
-        waveform = self.stft.inverse(spectrum, n)
-        mask = self.estimator.last_mask_grad if return_mask else None
-        self.estimator.keep_mask_grad = False
-        self.estimator.last_mask_grad = None
-
-        if return_gate:
-            if gate_logits is None:
-                raise RuntimeError("return_gate=True but this model was built without a presence gate. ")
-            if return_mask:
-                raise RuntimeError("return_gate=True is incompatible with return_mask. ")
-            if self.presence_mode == "postfilter":
-                # Three outputs: the system's (gated) waveform, the gate's logits, and the extractor's own (ungated)
-                # waveform, which the loss trains the extractor on. Callers without return_gate see the gated one only.
-                return waveform, gate_logits, ungated_waveform
-            return waveform, gate_logits
-        if return_mask:
-            return waveform, mask
-        return waveform
+        return self.stft.inverse(self.estimator(z, mix_bands), n)   # M * X + R
 
 
 class BSRNN_TFMAP_CONTEXT(BSRNN_TFMAP):
     """BSRNN_TFMAP plus a frozen speaker embedding modulating the features.
 
     Item 1c (decisions-m2.md 2026-09-23). A SUBCLASS IN ITS OWN CLASS so that
-    the parent is untouched, so
-    every run predating this arm reproduces BY CONSTRUCTION rather than by a
-    flag being false, and `build_model()` returns the parent unless the config
-    asks for `context_embedding` -- an old config cannot reach this code path.
+    the parent is untouched: the baseline reproduces BY CONSTRUCTION rather
+    than by a flag being false, and `build_model()` returns the parent unless
+    the config asks for `context_embedding`.
 
     `enrol_embedding` IS REQUIRED AND KEYWORD-ONLY, deliberately. The encoder
     lives outside the model (see src/models/context_encoder.py for why), which
@@ -290,8 +149,8 @@ class BSRNN_TFMAP_CONTEXT(BSRNN_TFMAP):
     decisions-pending.md E8.
 
     The encoder itself is NOT a submodule, so it is absent from state_dict(),
-    from parameters(), from the optimiser, and from DataParallel's per-forward
-    replication. The only weights this class adds are the fusion's projection.
+    from parameters() and from the optimiser. The only weights this class adds
+    are the fusion's projection.
     """
 
     def __init__(self, *args, embedding_dim=192, **kwargs):
@@ -309,11 +168,11 @@ class BSRNN_TFMAP_CONTEXT(BSRNN_TFMAP):
                 "forward was bypassed.")
         return self.context(z, context)
 
-    def forward(self, mixture, enrollment, return_mask=False, return_gate=False, *, enrol_embedding):
+    def forward(self, mixture, enrollment, *, enrol_embedding):
         """(B, T), (B, T_enroll), (B, D) -> (B, T).
 
         `enrol_embedding` comes from ContextEncoder.embed(), computed ONCE per
         utterance. It is not recomputed per chunk, which is what keeps the
         per-frame cost of this arm at exactly zero.
         """
-        return super().forward(mixture, enrollment, return_mask=return_mask, return_gate=return_gate, context=enrol_embedding)
+        return super().forward(mixture, enrollment, context=enrol_embedding)

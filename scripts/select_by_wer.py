@@ -2,8 +2,8 @@
 """Pick the checkpoint by WORD ERROR RATE, not by the signal-domain score.
 
     ../tse_venv/bin/python scripts/select_by_wer.py \
-        --config experiments/configs/bsrnn_cue_parts.yaml \
-        --checkpoints 'models/model_sir0_cueparts-e*.pt' \
+        --config experiments/configs/bsrnn_cue_context.yaml \
+        --checkpoints 'models/model_sir0_cuecontext-wer-e*.pt' \
         --split sir0_val --limit 103 --dry-run
 
 WHY THIS EXISTS, AND WHY REWEIGHTING THE OLD RULE WAS NOT ENOUGH.
@@ -111,7 +111,7 @@ def main():
     # one to the other fails with "invalid choice", which is how this was found.
     ap.add_argument("--run-split", default="sir0",
                     help="RUN split, what scripts/make_estimates.py wants "
-                         "(sir0, sir0ext, mid, full, smoke). Its VAL manifest "
+                         "(sir0). Its VAL manifest "
                          "must be the --split above.")
     ap.add_argument("--condition", default="both")
     ap.add_argument("--limit", type=int, default=None,

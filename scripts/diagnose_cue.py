@@ -129,7 +129,7 @@ def main():
     ap.add_argument("--checkpoint", default=None,
                     help="without it only the CUE half is measured -- TFMap has "
                          "no parameters, so that half needs no trained model.")
-    ap.add_argument("--config", default="experiments/configs/bsrnn_baseline.yaml")
+    ap.add_argument("--config", default="experiments/configs/bsrnn_cue_context.yaml")
     ap.add_argument("--n-crops", type=int, default=200,
                     help="B6's floor for a scored measurement is 200")
     ap.add_argument("--batch-size", type=int, default=4)

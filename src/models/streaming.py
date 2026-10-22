@@ -155,13 +155,8 @@ class StreamingExtractor:
         tf = m.tfmap(X.abs(), self.enrol_mag)
         feats_in = torch.cat([torch.stack([X.real, X.imag], dim=1), tf], dim=1)
         mix_bands, feat_bands = m.split(X), m.split(feats_in)
-        cue = gates = None
-        if m.tfmap_inject is not None:
-            cue, gates = m.tfmap_inject(m.split(tf)), m.tfmap_inject.gates
         z = m._fuse_context(m.subband_norm(feat_bands), self.context)
         for i, block in enumerate(m.separator.blocks):
-            if cue is not None:
-                z = z + gates[i].view(1, -1, 1, 1) * cue
             z, self._states[i] = _bsnet_step(block, z, self._states[i])
         return m.estimator(z, mix_bands)
 

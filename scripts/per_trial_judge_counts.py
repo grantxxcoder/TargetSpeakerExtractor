@@ -2,8 +2,8 @@
 """Per-clip judge error counts for scripts/bootstrap_difference.py, from CACHED judge answers only.
 
     ../tse_venv/bin/python scripts/per_trial_judge_counts.py \
-        --run "gate A, epoch 13=experiments/results/2026-10-16-est-presence-gate-A-e12" \
-        --run "no gate, epoch 13=experiments/results/2026-09-24-est-cuecontext-wer-e13" \
+        --run "extension e21=experiments/results/2026-09-25-est-cuecontext-wer-e21" \
+        --run "baseline e11=experiments/results/2026-10-08-est-baseline-matched-e11" \
         --exclude sir0_val-42-000116 --out experiments/results/<date>-paired-<name>/per_trial.json
 
 evaluate.py reports corpus totals only; the paired bootstrap needs each clip's substitutions, deletions,

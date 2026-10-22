@@ -139,7 +139,7 @@ def main():
     ap.add_argument("--checkpoint", default=None,
                     help="the collapsed checkpoint. Without it only the two "
                          "reference anchors are measured and no w_g is derived.")
-    ap.add_argument("--config", default="experiments/configs/bsrnn_baseline.yaml")
+    ap.add_argument("--config", default="experiments/configs/bsrnn_cue_context.yaml")
     ap.add_argument("--n-crops", type=int, default=300,
                     help="matches the 300-crop 2026-08-20 loss anchor")
     ap.add_argument("--batch-size", type=int, default=4)

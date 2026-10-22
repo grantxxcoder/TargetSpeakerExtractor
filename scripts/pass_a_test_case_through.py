@@ -177,7 +177,7 @@ def main():
                        help="row in the val manifest (default 0)")
     group.add_argument("--trial-id", default=None,
                        help="pick by trial_id instead of row number")
-    ap.add_argument("--config", default="experiments/configs/bsrnn_baseline.yaml")
+    ap.add_argument("--config", default="experiments/configs/bsrnn_cue_context.yaml")
     ap.add_argument("--checkpoint", default=None,
                     help="default models/model_<split>.pt")
     ap.add_argument("--data-root", default="data")

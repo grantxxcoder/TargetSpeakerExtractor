@@ -72,7 +72,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--checkpoint", default="models/model_sir0_5000-e7.pt")
-    parser.add_argument("--config", default="experiments/configs/bsrnn_baseline.yaml")
+    parser.add_argument("--config", default="experiments/configs/bsrnn_cue_context.yaml")
     parser.add_argument("--chunk-ms", type=float, default=80.0)
     parser.add_argument("--audio-seconds", type=float, default=60.0,
                         help="how much audio to push through, per repeat")

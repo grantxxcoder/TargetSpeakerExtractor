@@ -10,23 +10,8 @@ class LossBSRNN:
     (pred, target) convention, so keep it consistent. The reference is the
     target for the present term and the mixture for the absent one.
     """
-    # Whether __call__ takes `s_other`. The state-loss subclasses have their own
-    # __call__ signatures and set this False, so train.py asks rather than guesses.
-    ACCEPTS_OTHER = True
-
     def __init__(self, wm, w, p=0.3, tau_pres=0.001, tau_abs=0.01, windows=(8, 16, 32, 64),
-                 sample_rate=16000, wg=0.0, gain_delta_db=3.0,
-                 w_struct=0.0, struct_floor_db=-40.0, w_interf=1.0, w_artif=1.0):
-        # D10, the interference weight. How much MORE an error that sounds like
-        # the other speaker costs than any other error in L_pres. DEFAULTS TO
-        # 1.0 = L_pres exactly as before, so every existing config reproduces its
-        # old numbers byte for byte. decisions-m2.md 2026-10-02.
-        self.w_interf = w_interf
-        # The artefact weight (AB-SDR, Ochiai et al. 2024). How much MORE error
-        # that no source explains costs. An ENERGY weight, like w_interf: Ochiai's
-        # alpha multiplies the error inside the norm, so their alpha = 2 is
-        # w_artif = 4 here. DEFAULTS TO 1.0 = unchanged. decisions-m2.md 2026-10-03.
-        self.w_artif = w_artif
+                 sample_rate=16000, wg=0.0, gain_delta_db=3.0):
         self.tau_pres = tau_pres
         self.tau_abs = tau_abs
         self.wm = wm            # weight on L_MR, inside the present branch
@@ -35,14 +20,6 @@ class LossBSRNN:
                                 # DEFAULTS TO 0.0 = term disabled, so an existing
                                 # config reproduces its old numbers byte for byte.
         self.gain_delta_db = gain_delta_db   # L_gain deadzone half-width, in dB
-        # D17, the mask-structure term. DEFAULTS TO 0.0 = disabled, so every
-        # config written before 2026-09-13 reproduces its old numbers exactly.
-        self.w_struct = w_struct
-        # A mixture bin this far below the clip's peak is treated as silent and
-        # excluded: the ideal mask is |target| / |mixture| and that ratio is
-        # meaningless where the denominator is noise. Without this the term
-        # trains the model to copy the quietest, least reliable cells.
-        self.struct_floor_db = struct_floor_db
         self.p = p
         self.sample_rate = sample_rate
         # windows are MILLISECONDS. A tuple, not a list: a mutable default is
@@ -53,25 +30,12 @@ class LossBSRNN:
         # sum of squared samples, per example. (B, T) -> (B,)
         return x.pow(2).sum(dim=-1)
 
-    def _loss_target_present(self, s_target, s_output, tau_pres=0.001,
-                             s_other=None, w_interf=1.0, s_noise=None, w_artif=1.0):
+    def _loss_target_present(self, s_target, s_output, tau_pres=0.001):
         """L_pres, floored SI-SDR. CARTSE eq (1). (B, T) -> (B,)
 
         Lower is better. Range [-30, inf): -30 when s_output == s_target.
         MUST be masked to crops where the target speaks -- when s_target is all
         zero, alpha is 0/0 and the NaN destroys every weight in the model.
-
-        With `s_other` and `w_interf != 1`, the part of the error that sounds
-        like the OTHER speaker is counted w_interf times instead of once (D10):
-
-            denominator = ||error||^2 + (w_interf - 1) * ||e_interf||^2
-
-        With `s_noise` (and `s_other`) and `w_artif != 1`, the part that NO
-        source explains is counted w_artif times (AB-SDR):
-
-            ... + (w_artif - 1) * ||e_artif||^2
-
-        At unit weights (or no stems) the arithmetic is unchanged.
         """
         # alpha: the one volume knob that best explains the output as "the
         # target, turned up or down". keepdim so it broadcasts back over T.
@@ -83,120 +47,9 @@ class LossBSRNN:
         # Flooring on ||s_proj||^2 makes numerator and floor scale together.
         numerator = self.energy(s_projected)
         error_energy = self.energy(s_output - s_projected)
-        if s_other is not None and w_interf != 1.0:
-            # Never below zero: ||e_interf||^2 is an exact share of error_energy
-            # (see _interference_part), so the sum is >= w_interf * ||e_interf||^2.
-            error_energy = error_energy + (w_interf - 1.0) * self.energy(
-                self._interference_part(s_target, s_output, s_other))
-        if s_noise is not None and w_artif != 1.0:
-            # Never below zero for w_artif > 0, by the same exact-share argument.
-            error_energy = error_energy + (w_artif - 1.0) * self.energy(
-                self._artefact_part(s_target, s_output, s_other, s_noise))
         denominator = error_energy + tau_pres * numerator
 
         return -10 * torch.log10((numerator + 1e-12) / (denominator + 1e-12))
-
-    def _interference_part(self, s_target, s_output, s_other, eps=1e-12):
-        """e_interf: the part of the output that the OTHER speaker explains and
-        the target does not. (B, T) -> (B, T). decisions-m2.md 2026-10-02, D10.
-
-        The interference term of the BSS_EVAL decomposition (Vincent, Gribonval
-        & Fevotte, IEEE TASLP 14(4), 2006), which is what AB-SDR re-weights
-        (Ochiai et al., IEEE/ACM TASLP 32, 2024). BORROWED WITH A DIFFERENCE:
-        AB-SDR boosts the ARTEFACT term; here the INTERFERENCE term is boosted,
-        because for a live listener the other speaker's words are the worst
-        error -- they are transcribed as if the target said them. The noise
-        stem is not needed: only the interference part is weighted.
-
-        Gram-Schmidt rather than a least-squares solve. Take the target's
-        direction out of the other stem, then project the output onto what is
-        left. That remainder is orthogonal to the target, so
-
-            s_output - P_target(s_output) = e_interf + rest,  <e_interf, rest> = 0
-
-        and ||e_interf||^2 is an exact share of L_pres's error energy.
-
-        A silent other stem (target_only trials, a phantom interferer, a crop
-        where the other speaker is quiet) gives e_interf = 0 exactly: every dot
-        product is 0 and eps keeps the division finite.
-        """
-        target_energy = self.energy(s_target).unsqueeze(-1)
-        other_perp = s_other - ((s_other * s_target).sum(dim=-1, keepdim=True)
-                                / (target_energy + eps)) * s_target
-        coef = ((s_output * other_perp).sum(dim=-1, keepdim=True)
-                / (self.energy(other_perp).unsqueeze(-1) + eps))
-        return coef * other_perp
-
-    def _interference_share(self, s_target, s_output, s_other, eps=1e-12):
-        """Fraction of L_pres's error energy that is the other speaker. (B,).
-
-        In [0, 1]. LOGGED, never optimised: it says whether a weight on the
-        interference term is moving the thing it targets, and it is computed at
-        w_interf = 1 too, so the control run shows the same column.
-        """
-        alpha = (s_output * s_target).sum(dim=-1, keepdim=True) / self.energy(s_target).unsqueeze(-1)
-        error_energy = self.energy(s_output - alpha * s_target)
-        interf_energy = self.energy(self._interference_part(s_target, s_output, s_other))
-        return interf_energy / (error_energy + eps)
-
-    def _noise_part(self, s_target, s_output, s_other, s_noise, eps=1e-12):
-        """e_noise: the part of the output the NOISE explains and neither speaker
-        does. (B, T) -> (B, T). decisions-m2.md 2026-10-03.
-
-        The noise term of BSS_EVAL (Vincent et al. 2006), the same Gram-Schmidt
-        steps as _interference_part one level further: take the target's
-        direction out of the noise stem, then other_perp's, then project the
-        output onto what is left. That remainder is orthogonal to the target AND
-        to other_perp, so e_noise is orthogonal to e_interf and the error splits
-        exactly:
-
-            s_output - P_target(s_output) = e_interf + e_noise + e_artif
-
-        A silent noise stem gives e_noise = 0 exactly, as for _interference_part.
-        """
-        target_energy = self.energy(s_target).unsqueeze(-1)
-        other_perp = s_other - ((s_other * s_target).sum(dim=-1, keepdim=True)
-                                / (target_energy + eps)) * s_target
-        noise_perp = s_noise - ((s_noise * s_target).sum(dim=-1, keepdim=True)
-                                / (target_energy + eps)) * s_target
-        # Modified Gram-Schmidt: project the ALREADY target-free noise, not the
-        # raw stem, onto other_perp -- the stabler of the two orderings.
-        noise_perp = noise_perp - ((noise_perp * other_perp).sum(dim=-1, keepdim=True)
-                                   / (self.energy(other_perp).unsqueeze(-1) + eps)) * other_perp
-        coef = ((s_output * noise_perp).sum(dim=-1, keepdim=True)
-                / (self.energy(noise_perp).unsqueeze(-1) + eps))
-        return coef * noise_perp
-
-    def _artefact_part(self, s_target, s_output, s_other, s_noise):
-        """e_artif: the part of the output that NO source explains -- not the
-        target, not the other speaker, not the noise. (B, T) -> (B, T).
-
-        The artefact term of BSS_EVAL (Vincent et al. 2006), the term AB-SDR
-        boosts (Ochiai et al., IEEE/ACM TASLP 32, 2024, eq. 18). BORROWED WITH
-        TWO DIFFERENCES: (1) it sits inside this project's floored SI-SDR
-        (L_pres, tau floor on ||s_proj||^2), not plain SDR; (2) the weight is an
-        ENERGY weight, (w_artif - 1) * ||e_artif||^2, which by orthogonality is
-        exactly Ochiai's ||e_interf + e_noise + alpha * e_artif||^2 with
-        w_artif = alpha^2. Iwamoto et al. (2022) found this error type hurts ASR
-        more than residual noise of the same energy.
-
-        Whatever is left of the error once the target, the other speaker and the
-        noise have each explained what they can. The three parts are mutually
-        orthogonal, so ||e_artif||^2 is an exact share of the error energy.
-        """
-        alpha = (s_output * s_target).sum(dim=-1, keepdim=True) / self.energy(s_target).unsqueeze(-1)
-        return (s_output - alpha * s_target
-                - self._interference_part(s_target, s_output, s_other)
-                - self._noise_part(s_target, s_output, s_other, s_noise))
-
-    def _artefact_share(self, s_target, s_output, s_other, s_noise, eps=1e-12):
-        """Fraction of L_pres's error energy that is artefact. (B,). In [0, 1].
-        LOGGED, never optimised, at every w_artif -- the artefact twin of
-        _interference_share. 1 - interf_share - artif_share is the noise share."""
-        alpha = (s_output * s_target).sum(dim=-1, keepdim=True) / self.energy(s_target).unsqueeze(-1)
-        error_energy = self.energy(s_output - alpha * s_target)
-        artif_energy = self.energy(self._artefact_part(s_target, s_output, s_other, s_noise))
-        return artif_energy / (error_energy + eps)
 
     def _loss_target_absent(self, x_input, s_output, tau_abs=0.01):
         """L_abs, push-to-silence. CARTSE eq (2), normalised. (B, T) -> (B,)
@@ -292,83 +145,7 @@ class LossBSRNN:
 
         return summation / len(windows)         # the 1/I in eq (3)
 
-    def _loss_mask_shape(self, mask, oracle, mixture_mag):
-        """L_struct: match the mask's FREQUENCY SHAPE to the ideal mask's.
-
-        mask, oracle, mixture_mag: (B, F, T). Returns (B,).
-
-        WHY THIS TERM EXISTS. MEASURED 2026-09-12/13: 84.2 % of our mask's
-        variance is explained by a single number per frame, and it varies 6.5x
-        less across frequency than the ideal mask. The model applies a broadband
-        gain -- loud when the target speaks, quiet when it does not -- which is
-        voice activity detection, not extraction. Two voices overlapping in time
-        occupy the same frequencies, so only a per-cell decision can separate
-        them and a broadband gain cannot do it even in principle.
-
-        Nothing in the M2 objective opposes this. L_pres is scale-invariant SI-SDR
-        over the waveform; L_gain and L_abs are broadband; L_MR has frequency
-        resolution but sums over bins, so matching the loud low-frequency bins
-        captures most of it. None of the four ever asks which BIN the gain went
-        into. The flat mask is not a failure to reach the objective -- it IS the
-        objective's cheapest optimum.
-
-        AND IT IS NOT A DATA PROBLEM. Measured 2026-09-13 across checkpoints at
-        ~1,989 / ~4,976 / ~9,955 training trials: doubling the data at a matched
-        epoch left the volume-knob share unchanged (-0.003, inside noise) and
-        made the frequency/time ratio significantly WORSE (-0.162
-        [-0.205, -0.118]). More epochs do the same. Both axes converge the model
-        ONTO the knob. Scaling the training set is refuted as a fix.
-
-        THE PER-FRAME MEAN IS REMOVED FROM BOTH SIDES, and that is the whole
-        design. The model's per-frame gain is roughly right already, and three
-        existing terms (L_pres, L_gain, L_abs) argue about level. Supervising the
-        raw mask would spend most of the gradient re-teaching what is not broken
-        and add a fourth voice to an argument about loudness, making any result
-        unattributable. What is left after the subtraction is pure shape across
-        frequency -- which bins get more than their frame's average and which get
-        less. This mirrors postprocess_mask.py, which holds each frame's level
-        fixed for exactly the same reason.
-
-        BORROWED WITH A DIFFERENCE. Supervising a mask against the ideal ratio
-        mask is standard (Wang, Narayanan & Wang, IEEE/ACM TASLP 2014, "On
-        training targets for supervised speech separation"). There the ideal
-        ratio mask is the WHOLE training target and the acceptance test is signal
-        quality. Here it is an auxiliary shape-only constraint at a small derived
-        weight, the primary objective stays signal-domain, and the acceptance
-        test is downstream content fidelity (LCF-WER per SIR band). The
-        difference matters: mask approximation weights an error in an inaudible
-        bin the same as one in a loud bin, which is why it is NOT allowed to
-        become the objective.
-
-        ENERGY WEIGHTED, and bins below struct_floor_db excluded. The ideal mask
-        is |target| / |mixture| and that explodes where the mixture is near
-        silent. Unweighted, this term's largest gradients would come from the
-        least trustworthy cells in the spectrogram.
-        """
-        # Bins where the mixture carries real energy. Per clip, not per batch:
-        # a loud clip would otherwise set the threshold for a quiet one.
-        peak = mixture_mag.amax(dim=(1, 2), keepdim=True).clamp_min(1e-8)
-        floor = peak * (10.0 ** (self.struct_floor_db / 20.0))
-        weight = (mixture_mag >= floor).to(mask.dtype)
-
-        # Per-frame mean over the SELECTED bins only -- including excluded bins
-        # in the mean would let silence drag the shape of a loud frame.
-        counts = weight.sum(dim=1, keepdim=True).clamp_min(1.0)
-        mask_mean = (mask * weight).sum(dim=1, keepdim=True) / counts
-        oracle_mean = (oracle * weight).sum(dim=1, keepdim=True) / counts
-
-        shape_ours = (mask - mask_mean) * weight
-        shape_ideal = (oracle - oracle_mean) * weight
-
-        # Energy weighting on top of selection: a loud bin's shape matters more
-        # than a barely-audible one's. Normalised per clip so the term does not
-        # scale with input level.
-        energy = mixture_mag * weight
-        energy = energy / energy.sum(dim=(1, 2), keepdim=True).clamp_min(1e-8)
-        return ((shape_ours - shape_ideal).abs() * energy).sum(dim=(1, 2))
-
-    def __call__(self, s_target, s_output, x_input, crop_absent,
-                 mask=None, oracle_mask=None, mixture_mag=None, s_other=None):
+    def __call__(self, s_target, s_output, x_input, crop_absent):
         """The full M2 objective. decisions-m2.md 2026-08-20.
 
             L = (1 - w) * mean_present[ L_pres + wm * L_MR + wg * L_gain ] + w * mean_absent[ L_abs ]
@@ -380,31 +157,7 @@ class LossBSRNN:
         `both`/`target_only` crops land entirely in target silence
         (decisions-m1.md 2026-08-18), and an all-zero target down the L_pres
         path is a NaN.
-
-        `s_other` is the OTHER speaker's stem for each example (D10). With
-        w_interf != 1 the present branch optimises the interference-weighted
-        L_pres instead of the plain one. `parts["L_pres"]` stays the PLAIN value
-        either way, so every curve stays comparable with the control and with
-        every earlier run; the optimised value is `parts["L_pres_w"]`.
-
-        The artefact weight (w_artif) needs the NOISE stem as well. It is not
-        passed in: the loader guarantees mixture = target + other + noise on
-        every example, after any remix and clip guard (dataset_loader._remix,
-        render.render_trial), so it is recovered here as x_input - target - other.
         """
-        # An arm configured for the term but handed no stem would train the
-        # plain objective and still look like the arm. Refuse rather than
-        # degrade -- the failure decisions-pending.md E8 guards against.
-        if self.w_interf != 1.0 and s_other is None:
-            raise ValueError(
-                f"w_interf = {self.w_interf} but no s_other was passed, so the "
-                f"interference weighting cannot be applied. Pass batch['other'].")
-        # Without the other stem the recovered "noise" would contain the other
-        # speaker, and his leakage would be priced as noise, not artefact.
-        if self.w_artif != 1.0 and s_other is None:
-            raise ValueError(
-                f"w_artif = {self.w_artif} but no s_other was passed, so the noise "
-                f"stem cannot be recovered. Pass batch['other'].")
         crop_absent = crop_absent.bool()
         present = ~crop_absent
 
@@ -418,8 +171,6 @@ class LossBSRNN:
         # Constant key set: a missing half is a gap in the curve, not a
         # missing column.
         parts = {"L_pres": nan, "L_MR": nan, "L_gain": nan, "L_abs": nan,
-                 "L_struct": nan, "L_pres_w": nan, "interf_share": nan,
-                 "artif_share": nan,
                  "n_present": n_present, "n_absent": n_absent}
 
         if n_present:
@@ -431,56 +182,20 @@ class LossBSRNN:
                 "a crop flagged present has an all-zero target stem -- "
                 "crop_absent disagrees with s_target. Use the loader's "
                 "crop_absent, not the manifest condition label.")
-            other_p = None if s_other is None else s_other[present]
-            noise_p = None if other_p is None else x_input[present] - target_p - other_p
-            if other_p is not None and (self.w_interf != 1.0 or self.w_artif != 1.0):
-                # D10 / AB-SDR. The optimised term is the weighted one; the plain
-                # value is computed without a graph, for the log only.
-                loss_present_opt = self._loss_target_present(
-                    target_p, output_p, self.tau_pres, other_p, self.w_interf,
-                    noise_p, self.w_artif).mean()
-                with torch.no_grad():
-                    loss_present = self._loss_target_present(target_p, output_p, self.tau_pres).mean()
-            else:
-                loss_present = self._loss_target_present(target_p, output_p, self.tau_pres).mean()
-                loss_present_opt = loss_present
+            loss_present = self._loss_target_present(target_p, output_p, self.tau_pres).mean()
             loss_mr = self._loss_multi_res_stft(target_p, output_p, self.windows, self.p).mean()
             # Computed even at wg = 0 so it is logged before being weighted --
             # scripts/derive_w_g.py reads that to derive wg.
             loss_gain = self._loss_gain_match(target_p, output_p, self.gain_delta_db).mean()
-            total = total + (1 - self.w) * (loss_present_opt + self.wm * loss_mr + self.wg * loss_gain)
+            total = total + (1 - self.w) * (loss_present + self.wm * loss_mr + self.wg * loss_gain)
             parts["L_pres"] = float(loss_present.detach())
-            if other_p is not None:
-                # Logged at w_interf = 1 too, so the control run has the column.
-                parts["L_pres_w"] = float(loss_present_opt.detach())
-                with torch.no_grad():
-                    parts["interf_share"] = float(
-                        self._interference_share(target_p, output_p, other_p).mean())
-                    parts["artif_share"] = float(
-                        self._artefact_share(target_p, output_p, other_p, noise_p).mean())
             parts["L_MR"] = float(loss_mr.detach())
             parts["L_gain"] = float(loss_gain.detach())
-
-            # D17. PRESENT BRANCH ONLY: on a target-absent crop the ideal mask is
-            # |silence| / |mixture|, which is noise divided by signal, and
-            # supervising against it would teach the model to reproduce a random
-            # pattern. The absent case is already handled by L_abs.
-            #
-            # Computed whenever the tensors are supplied, even at w_struct = 0,
-            # so it is LOGGED before it is weighted -- that is what a derivation
-            # script reads to set the weight, exactly as L_gain is computed at
-            # wg = 0 for derive_w_g.py.
-            if mask is not None and oracle_mask is not None:
-                loss_struct = self._loss_mask_shape(
-                    mask[present], oracle_mask[present], mixture_mag[present]).mean()
-                parts["L_struct"] = float(loss_struct.detach())
-                if self.w_struct:
-                    total = total + (1 - self.w) * self.w_struct * loss_struct
 
         if n_absent:
             loss_absent = self._loss_target_absent(x_input[crop_absent],
                                                    s_output[crop_absent], self.tau_abs).mean()
-            total = total + self.w * loss_absent    
+            total = total + self.w * loss_absent
             parts["L_abs"] = float(loss_absent.detach())
 
         # Both guards are required: at batch 12 and a 0.297 absent rate ~1.5 %

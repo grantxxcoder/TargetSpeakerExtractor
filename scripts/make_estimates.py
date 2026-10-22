@@ -1,8 +1,7 @@
 """Write estimate.wav for every trial in a split, using OUR BSRNN checkpoint.
 
-    python scripts/make_estimates.py --split smoke --checkpoint kaggle_out/models/model_sir0.pt
-    python scripts/make_estimates.py --split sir0  --out experiments/results/2026-09-03-est-sir0
-    python scripts/make_estimates.py --split sir0  --condition both   # the 103 scored trials only
+    python scripts/make_estimates.py --split sir0 --checkpoint models/model_sir0_cuecontext-wer-e21.pt \
+        --config experiments/configs/bsrnn_cue_context.yaml --condition both   # the 103 scored trials
 
 This is the OUR-MODEL front-end. The walk over trials, the audio conventions
 and the provenance file live in src/estimates/runner.py, shared with
@@ -42,19 +41,16 @@ def resolve_checkpoint(given, split):
         if p.exists():
             return p
         found = sorted(str(q) for q in Path(".").rglob("model_*.pt")
-                       if ".git" not in q.parts and "kaggle_bundle" not in q.parts)
+                       if ".git" not in q.parts)
         raise SystemExit(f"no checkpoint at {given!r}.\nCheckpoints on disk:\n  "
                          + "\n  ".join(found or ["(none)"]))
-    for cand in (Path("models") / f"model_{split}.pt",
-                 Path("kaggle_out/models") / f"model_{split}.pt"):
-        if cand.exists():
-            return cand
-    raise SystemExit(f"no checkpoint for --split {split}: looked in "
-                     f"models/ and kaggle_out/models/ for model_{split}.pt")
+    cand = Path("models") / f"model_{split}.pt"
+    if cand.exists():
+        return cand
+    raise SystemExit(f"no checkpoint for --split {split}: looked for {cand}")
 
 
-def build_extractor(checkpoint_path, config, device, mask_floor=0.0,
-                    mask_hysteresis=None, residual_scale=1.0):
+def build_extractor(checkpoint_path, config, device):
     """Load the checkpoint and return (extractor, checkpoint dict, drift dict).
 
     The model is built from the CHECKPOINT's config so the weights always fit;
@@ -64,24 +60,11 @@ def build_extractor(checkpoint_path, config, device, mask_floor=0.0,
     ckpt = torch.load(checkpoint_path, map_location=device, weights_only=False)
     model = build_model(ckpt["config"])
     model.load_state_dict(ckpt["model"])
-    # SET AFTER LOADING, deliberately. The floor is an inference-time clamp on a
-    # model trained without it, so it must not be part of the architecture the
-    # state dict is matched against -- that keeps every existing checkpoint
-    # loading with strict=True and keeps floor 0.0 bit-identical to the
-    # published result.
-    if mask_floor:
-        model.estimator.mask_floor = float(mask_floor)
-    if mask_hysteresis:
-        model.estimator.mask_hysteresis = tuple(mask_hysteresis)
-    # Same argument as the floor: set after loading, so residual_scale 1.0 is
-    # bit-identical to every published result and no checkpoint changes shape.
-    if residual_scale != 1.0:
-        model.estimator.residual_scale = float(residual_scale)
     model.to(device).eval()
 
     # ITEM 1c. Built from the CHECKPOINT's config, like the model itself, so an
     # eval cannot silently use different encoder settings from the run it is
-    # scoring. None for every other arm, and context_kwargs() is then a no-op.
+    # scoring. None for the baseline, and context_kwargs() is then a no-op.
     encoder = build_context_encoder(ckpt["config"], device)
 
     # Report model-config drift rather than refusing: it does not stop the
@@ -107,9 +90,8 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--split", required=True, choices=sorted(SPLIT_MANIFESTS))
     ap.add_argument("--checkpoint", default=None,
-                    help="default: models/model_<split>.pt, else "
-                         "kaggle_out/models/model_<split>.pt")
-    ap.add_argument("--config", default="experiments/configs/bsrnn_baseline.yaml")
+                    help="default: models/model_<split>.pt")
+    ap.add_argument("--config", default="experiments/configs/bsrnn_cue_context.yaml")
     ap.add_argument("--out", default=None,
                     help="default experiments/results/<today>-est-<split>")
     ap.add_argument("--manifest-dir", default="data/manifests")
@@ -122,30 +104,6 @@ def main():
                          "being compared -- a system rendered on a different "
                          "subset is not comparable.")
     ap.add_argument("--limit", type=int, default=None, help="first N trials only")
-    ap.add_argument("--mask-floor", type=float, default=0.0,
-                    help="smallest magnitude the mask may take, applied at "
-                         "INFERENCE on an already-trained model. 0.0 = off, "
-                         "which is every result before 2026-09-12. See "
-                         "Estimator.mask_floor.")
-    ap.add_argument("--mask-hysteresis", default=None, metavar="HI,LO,DOWN",
-                    help="region-grow the mask across frequency at inference, "
-                         "e.g. 1.5,0.5,0.0. HI and LO are multiples of the "
-                         "frame's own mean gain; DOWN is what a bin that fails "
-                         "to survive is multiplied by. MEASURED 2026-09-12: "
-                         "1.5,0.5,0.0 raises the mask's frequency variation "
-                         "0.0238 -> 0.0596 against the ideal mask's 0.1725, and "
-                         "drops the share explained by one number per frame from "
-                         "82.5 %% to 2.0 %%. Milder settings barely move either "
-                         "and cannot test the hypothesis.")
-    ap.add_argument("--residual-scale", type=float, default=1.0,
-                    help="scale on the additive residual branch R, applied at "
-                         "INFERENCE. 1.0 = off (the trained model unchanged, "
-                         "every result before 2026-09-13); 0.0 deletes R so the "
-                         "output is the masked mixture alone. R is the only "
-                         "path that can place energy in a bin the microphone "
-                         "never recorded, which is what an invented word IS. "
-                         "See Estimator.residual_scale for what this cannot "
-                         "settle.")
     ap.add_argument("--force", action="store_true",
                     help="re-render every trial even if estimate.wav is already "
                          "there. OFF by default: a pass resumes, keeping the "
@@ -155,11 +113,6 @@ def main():
                          "outright rather than resumed, so --force is not "
                          "needed for that.")
     args = ap.parse_args()
-    if args.mask_hysteresis:
-        args.mask_hysteresis = [float(v) for v in args.mask_hysteresis.split(",")]
-        assert len(args.mask_hysteresis) == 3, "--mask-hysteresis wants HI,LO,DOWN"
-        assert args.mask_hysteresis[1] < args.mask_hysteresis[0], \
-            "LO must be below HI or there is no hysteresis, only a threshold"
 
     config = yaml.safe_load(open(args.config))
     seed = int(config["seed"])
@@ -168,10 +121,7 @@ def main():
 
     checkpoint = resolve_checkpoint(args.checkpoint, args.split)
     print(f"  checkpoint: {checkpoint}")
-    extract, ckpt, drift = build_extractor(checkpoint, config, device,
-                                          mask_floor=args.mask_floor,
-                                          mask_hysteresis=args.mask_hysteresis,
-                                          residual_scale=args.residual_scale)
+    extract, ckpt, drift = build_extractor(checkpoint, config, device)
     if drift:
         print(f"  WARNING: model config drift, output does not reflect training: {drift}")
 
@@ -205,11 +155,6 @@ def main():
                 "system": "ours-bsrnn",
                 "seed": seed,
                 "config": args.config,
-                # A floored run is NOT the same system as an unfloored one, and
-                # the directory name may not say so. Record it.
-                "mask_floor": float(args.mask_floor),
-                "mask_hysteresis": list(args.mask_hysteresis) if args.mask_hysteresis else None,
-                "residual_scale": float(args.residual_scale),
                 "split": args.split,
                 "manifest": val_manifest,
                 "condition": args.condition,
