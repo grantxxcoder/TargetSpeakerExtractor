@@ -1,0 +1,92 @@
+# Presence gate, from scratch. e21's config (bsrnn_cue_context.yaml) plus the gate, nothing else changed.
+# Maths: docs/extra/variational-presence-gate.md. Decision log: decisions-m2.md 2026-10-14.
+# Arm A of the note. Arm B (beta = 0) is bsrnn_presence_gate_b.yaml, identical otherwise.
+
+seed: 42
+
+data:
+  sample_rate: 16000
+  chunk_s: 4.008
+  both_directions: true
+  enrollment_variants: 3
+  remix_gains: true
+  num_workers: 0          # the Kaggle notebook raises this
+  batch_size: 3           # the Kaggle notebook sets this from GPU memory
+  state_index_dir: data/index   # per-frame labels v_t, state_<split>.csv (scripts/build_state_labels.py)
+
+model:
+  bands:
+    plan: wesep_16k
+  separator:
+    feature_dim: 128
+    num_repeat: 6
+    lstm_hidden: 192
+    causal: true
+    norm: cLN
+  mask:
+    mlp_hidden: 384
+    residual_branch: true
+  stft:
+    n_fft: 512
+    hop: 128
+  lookahead_frames: 0
+  tfmap_scale: 16.0
+  context_embedding: true
+  context_embedding_dim: 192
+  context_normalise: true
+  tfmap_part_scales: [6.9402, 0.5073, 1.2803]
+  tfmap_parts: true
+  presence_gate: true
+
+loss:
+  w: 0.458
+  w_schedule:
+    w_start: 0.0
+    warmup_steps: 6632
+    ramp_steps: 4974
+  w_m: 9.62
+  w_g: 1.69
+  gain_delta_db: 3.0
+  ablate_w_g: [0.0, 1.69, 2.30]
+  tau_pres: 0.001
+  tau_abs: 0.01
+  p: 0.3
+  windows_ms: [8, 16, 32, 64]
+  complex_term: real_plus_imag
+  reduction: mean
+  ablate_w_m: [0.0, 2.89, 9.62]
+  w_struct: 0.0
+  struct_floor_db: -40.0
+  log_struct: true        # inert with the gate on: the model cannot return the mask and the gate together
+  ablate_w_struct: [0.0]
+  presence:
+    beta: 0.01274         # KL weight: 15 % gradient share, mean of per-batch shares (experiments/results/2026-10-15-presence-weights, init anchor, 64 batches of 3)
+    lam: 0.04689          # supervised-term weight: same measurement and rule
+    d_on: 596             # mean speech run, frames (experiments/results/2026-10-14-activity-runs.json, sim D14 label)
+    d_off: 490            # mean silence run, frames (same file)
+    tau_start: 1.0        # soft-draw temperature, eq. (20), annealed linearly per epoch
+    tau_end: 0.5
+
+training:
+  amp: true
+  lr: 0.0005
+  epochs: 100
+  patience: 10
+  grad_clip: 5.0
+  weight_decay: 1.0e-4
+  lr_schedule_on: content_wer
+  lr_factor: 0.5
+  lr_patience: 3
+  select_on: content_wer
+  select_abs_max: -10.0
+  keep_stride: 3
+  keep_top_k: 3
+
+content_probe:
+  enabled: true
+  split: sir0_val
+  condition: both
+  n_trials: 40
+  every_n_epochs: 1
+  asr_device: cpu
+  ema_span: 3

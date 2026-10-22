@@ -78,6 +78,12 @@ VAL_SPLITS = {
     "sir0priv": ("eval_private", "eval_private"),
     # AMI real-audio transfer set, rendering only (scripts/build_ami_trials.py).
     "ami":   ("ami_eval",    "ami_eval"),
+    # M8 (decisions-m8.md 2026-10-12): the two fine-tune arms validate on
+    # sir0_val; amitr renders the ami_train windows for the Gemini check.
+    "amift":  ("sir0_val",  "sir0_val"),
+    "amimix": ("sir0_val",  "sir0_val"),
+    "amitr":  ("ami_train", "ami_train"),
+    "amitrchk": ("ami_train_check", "ami_train_check"),
     "full":  ("val",       "val"),
 }
 

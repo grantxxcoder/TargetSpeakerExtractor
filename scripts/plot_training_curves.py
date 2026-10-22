@@ -3,12 +3,29 @@
     ../tse_venv/bin/python scripts/plot_training_curves.py \
         --out report/figures/training_curves.pdf [--layout terms-wer|full|loss-wer|sisdr-wer]
 
-`--layout` picks the panels (LAYOUTS). The default, `terms-wer`, is the report
-figure (chosen 2026-10-08): the target-present loss split into its three
+`--layout` picks the panels (LAYOUTS). The default, `terms-wer-gate`, is the
+report figure (2026-10-18): the target-present loss split into its three
 weighted terms, L_pres, w_m L_MR and w_g L_gain, side by side, which add up to
-the loss; then word error below. `full` is the earlier three-row figure (the
-loss, then L_abs with the silence bar, then word error); `loss-wer` keeps the
-loss alone and `sisdr-wer` shows L_pres as SI-SDR (dB).
+the loss; word error below; and a last row with the two terms the presence gate
+ADDS to the objective, kappa KL(q || p) and lambda BCE (eq. (obj) of the report's
+"Target presence gate" section; eq. 12 of docs/extra/variational-presence-gate.md),
+from the jointly trained gate run (arm A, GATE below). `terms-wer` is the same
+figure without the gate row (the report figure 2026-10-08 to 2026-10-17). `full`
+is the earlier three-row figure (the loss, then L_abs with the silence bar, then
+word error); `loss-wer` keeps the loss alone and `sisdr-wer` shows L_pres as
+SI-SDR (dB).
+
+The gate row draws ONLY the gate run, in the extension's blue and with no legend
+entry of its own (author's choice 2026-10-18; the row's titles name the gate):
+its three Kaggle sessions (epoch
+index 0-12, 13-25, 26-38) are cut at the extension's last epoch so the row shares
+the figure's epoch axis, and its own session breaks are the dotted lines in that
+row. KL and BCE are sums over the ~500 frames of a 4 s crop (losses_presence.py),
+so the weights, read from the run's own config copy, are small. The chosen-epoch
+and lowest-loss lines of the other two runs are not drawn in the gate row: they
+belong to different weights. No gate epoch was adopted (decisions-m2.md
+2026-10-18). The gate's expected-loss term (the gated output's target-present
+loss) and its judge runs are not drawn (author's request 2026-10-18).
 
 Every panel shares the epoch axis (never a twin y-axis -- the panels have
 different units). Colour is the run (baseline orange, extension blue); line
@@ -80,6 +97,19 @@ JUDGED_EPOCHS = (13, 15, 18, 21, 27)   # e21's judged set; the matched run reuse
 BASELINE_EXTRA_JUDGED = (4, 5, 11)
 RESUME = 13.5                          # both runs' second Kaggle session starts at 14
 
+# The jointly trained presence gate, arm A of bsrnn_presence_gate.yaml
+# (decisions-m2.md 2026-10-14 to 2026-10-18). Drawn in the gate row only. The
+# aborted Colab start (2026-10-15-...-s1, 3 epochs) is not a session: the
+# 2026-10-16 run began from scratch.
+GATE = {
+    "label": "Extension + presence gate",   # not in the legend; kept for log lines
+    "colour": ACCENT,
+    "history": ["2026-10-16-train-sir0-presence-gate-A",
+                "2026-10-16-train-sir0-presence-gate-A-resume",
+                "2026-10-18-train-sir0-presence-gate-A-resume2"],
+    "resumes": (12.5, 25.5),           # sessions 2 and 3 start at index 13 and 26
+}
+
 # The figure's inputs. `judge` maps epoch -> glob patterns under RES.
 # Drawn in this order; on an epoch both runs scored, the first is nudged left.
 RUNS = {
@@ -128,7 +158,13 @@ PANELS = {
            "f": lambda r, p, c: float(c["loss"]["w_m"]) * float(r[p + "L_MR"])},
     "gain": {"title": r"Level, $w_\mathrm{g} L_\mathrm{gain}$", "marker": "o",
              "f": lambda r, p, c: float(c["loss"].get("w_g", 0.0)) * float(r[p + "L_gain"])},
+    # The two terms the presence gate adds, each with its weight (GATE run only).
+    "gkl": {"title": r"Gate prior, $\kappa\,\mathrm{KL}(q\,\|\,p)$", "marker": "o",
+            "f": lambda r, p, c: float(c["loss"]["presence"]["beta"]) * float(r[p + "L_kl"])},
+    "gbce": {"title": r"Gate labels, $\lambda\,\mathrm{BCE}$", "marker": "o",
+             "f": lambda r, p, c: float(c["loss"]["presence"]["lam"]) * float(r[p + "L_bce"])},
 }
+GATE_PANELS = ("gkl", "gbce")
 
 # Figure layouts: rows top to bottom, "wer" = the word-error panel. `notes` is
 # the panel carrying the session-2 and lowest-loss labels, `chosen` the one
@@ -143,6 +179,8 @@ LAYOUTS = {
                   "height": 4.0},
     "terms-wer": {"rows": [["pres", "mr", "gain"], ["wer"]], "notes": "wer", "chosen": "wer",
                   "height": 4.1, "ylabel": "Loss term\n(lower is better)"},
+    "terms-wer-gate": {"rows": [["pres", "mr", "gain"], ["wer"], ["gkl", "gbce"]], "notes": "wer",
+                       "chosen": "wer", "height": 5.3, "ylabel": "Loss term\n(lower is better)"},
 }
 
 
@@ -180,7 +218,7 @@ def load(name, spec):
     for c in configs[1:]:
         if (c["loss"], c["training"]["select_abs_max"]) != (configs[0]["loss"], configs[0]["training"]["select_abs_max"]):
             raise SystemExit(f"{name}: sessions disagree on the loss config")
-    judged = {e: v for e, p in spec["judge"].items() if (v := scored_runs(p))}
+    judged = {e: v for e, p in spec.get("judge", {}).items() if (v := scored_runs(p))}
     for e in spec.get("lowest_run_only", ()):
         if e in judged:
             judged[e] = [min(judged[e])]
@@ -209,7 +247,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--preview", type=Path, default=None, help="also write a PNG here")
-    parser.add_argument("--layout", choices=sorted(LAYOUTS), default="terms-wer",
+    parser.add_argument("--layout", choices=sorted(LAYOUTS), default="terms-wer-gate",
                         help="which panels to draw (LAYOUTS); default is the report figure")
     args = parser.parse_args()
     layout = LAYOUTS[args.layout]
@@ -237,11 +275,14 @@ def main():
             axes[panel] = fig.add_subplot(cells[0, k], sharex=first)
             first = first or axes[panel]
     wer = axes["wer"]
-    loss_panels = [p for names in rows_spec for p in names if p != "wer"]
+    gate_axes = {p: axes[p] for p in GATE_PANELS if p in axes}
+    run_axes = {p: ax for p, ax in axes.items() if p not in gate_axes}   # the two compared runs
+    loss_panels = [p for names in rows_spec for p in names if p != "wer" and p not in gate_axes]
+    bottom = axes[rows_spec[-1][0]]           # the row carrying the epoch label
     notes = axes[layout["notes"]]
     notes_on_top = layout["notes"] != "wer"   # the word-error panel is empty at the bottom
 
-    for ax in axes.values():
+    for ax in run_axes.values():
         for e in failing:
             ax.axvspan(e - 0.5, e + 0.5, color=SHADE, lw=0, zorder=0)
         ax.axvline(RESUME, color=MUTED, lw=0.6, ls=(0, (1, 2)), zorder=1)
@@ -273,7 +314,7 @@ def main():
 
         chosen = spec["chosen"]
         if chosen is not None:
-            for ax in axes.values():
+            for ax in run_axes.values():
                 ax.axvline(chosen, color=c, lw=0.8, zorder=2)
             chosen_labels.append((chosen, f"{name.lower()} chosen ({chosen})"))
         if spec["lowest_marker"]:
@@ -281,7 +322,7 @@ def main():
             # the panels show; the circle sits on the first loss panel.
             val_pb = [present_branch(r, "val_", config) for r in rows]
             j = min(range(len(ep)), key=lambda k: val_pb[k])
-            for ax in axes.values():
+            for ax in run_axes.values():
                 ax.axvline(ep[j], color=c, lw=0.7, ls="--", zorder=2)
             p0 = loss_panels[0]
             axes[p0].plot(ep[j], PANELS[p0]["f"](rows[j], "val_", config), "o", ms=7,
@@ -295,6 +336,27 @@ def main():
             marks.setdefault(e, []).append((i, name, values))
         print(f"{name}: epochs {ep[0]}-{ep[-1]}, chosen {chosen}, judged "
               + ", ".join(f"e{e} {[round(v, 2) for v in judged[e]]}" for e in sorted(judged)))
+
+    # The gate row: the gate run alone, cut at the figure's last epoch, with its
+    # own session breaks. Its silence-bar failures are not shaded: the shading
+    # above belongs to the two compared runs.
+    if gate_axes:
+        gate_rows, gate_cfg, _ = load("Gate", GATE)
+        if "presence" not in gate_cfg["loss"]:
+            raise SystemExit("gate run's config has no loss.presence block")
+        gate_rows = [r for r in gate_rows if int(r["epoch"]) <= last_ep]
+        gep = [int(r["epoch"]) for r in gate_rows]
+        for p, ax in gate_axes.items():
+            for x in GATE["resumes"]:
+                if x < last_ep:
+                    ax.axvline(x, color=MUTED, lw=0.6, ls=(0, (1, 2)), zorder=1)
+            f = PANELS[p]["f"]
+            ax.plot(gep, [f(r, "train_", gate_cfg) for r in gate_rows], "--", color=GATE["colour"],
+                    lw=1.1, zorder=3)
+            ax.plot(gep, [f(r, "val_", gate_cfg) for r in gate_rows], PANELS[p]["marker"] + "-",
+                    color=GATE["colour"], lw=1.3, ms=2.6, zorder=3)
+        print(f"Gate: epochs {gep[0]}-{gep[-1]} of {int(load('Gate', GATE)[0][-1]['epoch'])} drawn, "
+              f"kappa {gate_cfg['loss']['presence']['beta']}, lambda {gate_cfg['loss']['presence']['lam']}")
 
     # With two chosen lines the earlier one is labelled on its left, so the two
     # labels share the top line without touching. In the word-error panel a lone
@@ -343,19 +405,22 @@ def main():
                                   f"{mean(values):.1f}", ha="right" if left else "left",
                                   va="center", **label))
 
-    wer.set_xlabel("Epoch")
+    for p in rows_spec[-1]:
+        axes[p].set_xlabel("Epoch")
     wer.xaxis.set_major_locator(MultipleLocator(2 if last_ep < 16 else 4))
     wer.xaxis.set_minor_locator(MultipleLocator(1))
     wer.set_xlim(-0.5, right_edge)
     wer.set_ylim(15, 80)
     separate(texts, wer)
-    for p in loss_panels:
+    for p in [*loss_panels, *gate_axes]:
         if "ylabel" in PANELS[p]:
             axes[p].set_ylabel(PANELS[p]["ylabel"])
         if "title" in PANELS[p]:
             axes[p].set_title(PANELS[p]["title"], fontsize=8)
     if "ylabel" in layout:
         axes[rows_spec[0][0]].set_ylabel(layout["ylabel"])
+        if gate_axes:
+            axes[rows_spec[-1][0]].set_ylabel(layout["ylabel"])
     wer.set_ylabel("Word error rate\n(%, lower is better)")
     for names in rows_spec[:-1]:
         if len(names) == 1:                    # a split row keeps its own epoch ticks
@@ -367,16 +432,18 @@ def main():
         legend_y = 0.035
     else:
         fig.canvas.draw()                      # lay out tick labels before measuring
-        label = wer.xaxis.label.get_window_extent(fig.canvas.get_renderer())
+        label = bottom.xaxis.label.get_window_extent(fig.canvas.get_renderer())
         legend_y = fig.transFigure.inverted().transform((0, label.y0))[1] - 0.01
     # Three columns of two, filled top to bottom: runs | line styles | word error.
+    # The gate row has no entry: it is one run, named by its panel titles.
+    runs = list(RUNS.values())
     fig.legend(handles=[*(Line2D([], [], color=spec["colour"], ls="-", marker="o", ms=2.6, lw=1.3)
-                          for spec in RUNS.values()),
+                          for spec in runs),
                         Line2D([], [], color=INK, ls="-", lw=1.3),
                         Line2D([], [], color=INK, ls="--", lw=1.1),
                         Line2D([], [], color=MUTED, lw=0.8),
                         Line2D([], [], color=MUTED, ls="none", marker="D", ms=4.5, mew=0)],
-               labels=[*(spec["label"] for spec in RUNS.values()),
+               labels=[*(spec["label"] for spec in runs),
                        "Validation", "Training",
                        "Whisper in training (40 clips)", "Gemini, one per run (103 trials)"],
                loc="upper center", bbox_to_anchor=(0.5, legend_y), ncol=3, frameon=False,

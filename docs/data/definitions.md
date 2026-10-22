@@ -1,8 +1,8 @@
 # Online Target Speaker Extraction — Glossary & Reference
 
-A newcomer's reference for the terminology that papers in this field assume you already know. ML basics are skipped. Terms marked **★** are the ones you will hit constantly in *your* project specifically.
+A newcomer's reference for terms papers in this field assume you know. ML basics are skipped. Terms marked **★** come up constantly in *your* project.
 
-Both spellings **enrollment** (US) and **enrolment** (UK) appear in the literature; they mean the same thing.
+**Enrollment** (US) and **enrolment** (UK) both appear in the literature and mean the same.
 
 ---
 
@@ -10,21 +10,21 @@ Both spellings **enrollment** (US) and **enrolment** (UK) appear in the literatu
 
 | Term | Plain meaning |
 |---|---|
-| **TSE** | Target Speaker Extraction — pull one chosen person's voice out of a noisy mixture. Your task. |
+| **TSE** | Target Speaker Extraction: pull one chosen person's voice out of a noisy mixture. Your task. |
 | **Mixture** | The messy input audio containing everyone and everything. |
 | **Target** | The person you want. **Interference** = other people. **Noise** = non-speech sounds. |
-| **Enrollment** | A separate short clip of the target speaking alone, used to tell the model *which* person to extract. |
-| **Causal** | The model only uses audio it has already heard — never the future. Required for live use. |
+| **Enrollment** | A separate short clip of the target speaking alone, which tells the model *which* person to extract. |
+| **Causal** | The model only uses audio it has already heard, never the future. Required for live use. |
 | **Streaming** | Processing audio continuously as it arrives, rather than waiting for the whole file. |
 | **Latency** | The delay between sound arriving and the processed output coming out. |
-| **STFT** | Short-Time Fourier Transform — converts audio into a picture of frequency over time. |
+| **STFT** | Short-Time Fourier Transform. Converts audio into a picture of frequency over time. |
 | **Mask** | The model's output: a per-pixel "keep this / discard this" multiplier applied to that picture. |
 | **SI-SDR** | The standard signal-quality score in dB. Higher = better. Needs a clean reference. |
 | **WER / CER / TER** | Word/Character/Term error rate when transcribing the output. **Lower = better.** |
-| **DNSMOS** | An AI that predicts how good audio sounds to a human. No reference needed. However this can be gamified by tricks to trick the AI into thinking the audio sounds better than what it is which is what some teams did. |
+| **DNSMOS** | An AI that predicts how good audio sounds to a human. No reference needed. However, it can be gamed with tricks that make it think the audio sounds better than it is, which some teams did. |
 | **Speaker embedding** | A fixed-length vector summarising a voice's identity. |
 | **Simulated vs real** | Artificially added-together clips vs genuine recordings of real conversations. |
-| **Pseudo-label** | A fake "correct answer" produced by a bigger model, used to train on real data that has no answer key. The idea behind this it to train one massive model on the combined audio streams and to separate the different targets noisily so that there is more realistic input. This is an offline method fed into an online model potentially.|
+| **Pseudo-label** | A fake "correct answer" produced by a bigger model, used to train on real data that has no answer key. The idea is to train one large model on the combined audio streams and separate the targets noisily, so that the input is more realistic. It is an offline method that could feed an online model. |
 
 ---
 
@@ -33,13 +33,13 @@ Both spellings **enrollment** (US) and **enrolment** (UK) appear in the literatu
 | Acronym | Full name | What it is |
 |---|---|---|
 | **TSE** ★ | Target Speaker Extraction | Extract one enrolled speaker from a mixture. Your task. |
-| **TSS / TSES** | Target Speech Extraction / Separation | Same thing, different naming convention. Papers use these interchangeably with TSE. |
+| **TSS / TSES** | Target Speech Extraction / Separation | Same thing, different naming. Papers use these interchangeably with TSE. |
 | **BSS** | Blind Source Separation | Separate *all* speakers at once, without being told who to look for. |
 | **SS** | Speech Separation | Usually synonymous with BSS in this literature. |
 | **SE** | Speech Enhancement | Remove *noise* (not other speakers) from one voice. |
 | **PSE** ★ | Personalized Speech Enhancement | Industry term for TSE. Common in Microsoft/Tencent papers and the DNS Challenge. |
 | **CSS** | Continuous Speech Separation | Separating a long, continuous meeting recording into speaker streams. |
-| **SD** | Speaker Diarization | "Who spoke when" — segment a recording by speaker, without extracting audio. |
+| **SD** | Speaker Diarization | "Who spoke when": segment a recording by speaker, without extracting audio. |
 | **VAD** ★ | Voice Activity Detection | Detect when *anyone* is speaking vs silence. |
 | **PVAD** ★ | Personal VAD | Detect when the *target* speaker specifically is speaking. Relevant to your interruption goal. |
 | **TS-VAD** | Target Speaker VAD | Same idea, common in diarization papers. |
@@ -47,8 +47,8 @@ Both spellings **enrollment** (US) and **enrolment** (UK) appear in the literatu
 | **TS-ASR** | Target Speaker ASR | Transcribe only the target speaker directly, skipping extraction. |
 | **SV** | Speaker Verification | Decide whether two clips are the same person. Where speaker embeddings come from. |
 | **KWS** | Keyword Spotting | Detecting a wake word. |
-| **Cocktail party problem** | — | The classic framing: humans can follow one voice in a crowded room; machines struggle. |
-| **Permutation problem / permutation ambiguity** | — | In BSS, if you output two voices you don't know which output is which person. **TSE avoids this entirely** — a key selling point you'll see stated in every intro. |
+| **Cocktail party problem** | — | The classic framing: humans can follow one voice in a crowded room, machines struggle. |
+| **Permutation problem / permutation ambiguity** | — | In BSS, if you output two voices you don't know which output is which person. **TSE avoids this entirely**, a selling point stated in every intro. |
 | **Informed separation** | — | Separation guided by a cue. TSE is a form of informed separation. |
 
 ---
@@ -57,26 +57,26 @@ Both spellings **enrollment** (US) and **enrolment** (UK) appear in the literatu
 
 | Term | Meaning |
 |---|---|
-| **Sample rate** ★ | Samples per second. **16 kHz** is standard in this field. 8 kHz = narrowband/telephone, 44.1/48 kHz = fullband/music. Always check — mismatched sample rates silently ruin experiments. |
+| **Sample rate** ★ | Samples per second. **16 kHz** is standard in this field. 8 kHz = narrowband/telephone, 44.1/48 kHz = fullband/music. Always check, since mismatched sample rates silently ruin experiments. |
 | **Waveform** | The raw audio signal over time. Also called the **time domain**. |
 | **T-F domain** ★ | Time-Frequency domain. The audio represented as frequency content changing over time. |
-| **STFT** ★ | Short-Time Fourier Transform. Chop audio into short overlapping chunks, take the frequency content of each. Output is a **spectrogram**. |
+| **STFT** ★ | Short-Time Fourier Transform. Chop audio into short overlapping chunks and take the frequency content of each. The output is a **spectrogram**. |
 | **iSTFT** ★ | Inverse STFT. Converts back to audio. |
 | **Window (length)** ★ | How long each STFT chunk is. E.g. 512 samples = 32 ms at 16 kHz. |
-| **Hop (length) / frame shift / stride** ★ | How far you slide along between chunks. E.g. 128 samples = 8 ms. Window minus hop determines your latency. |
+| **Hop (length) / frame shift / stride** ★ | How far you slide between chunks. E.g. 128 samples = 8 ms. Window minus hop determines your latency. |
 | **Frame** | One STFT time-slice. Models process frame by frame when streaming. |
-| **Frequency bin** ★ | One horizontal row of the spectrogram. A 512-point STFT gives **257** bins (you'll see this number constantly). |
+| **Frequency bin** ★ | One horizontal row of the spectrogram. A 512-point STFT gives **257** bins (a number you will see constantly). |
 | **Magnitude / phase** | A spectrogram value is a complex number: magnitude = how loud, phase = timing alignment. Early models predicted magnitude only and reused the noisy phase. |
-| **Complex spectrogram / RI** ★ | Real and Imaginary parts, stacked as 2 channels. Modern models use this so they can fix phase too. |
+| **Complex spectrogram / RI** ★ | Real and Imaginary parts stacked as 2 channels. Modern models use this so they can fix phase too. |
 | **Overlap-add (OLA)** | Standard way to reassemble audio from overlapping processed frames. |
 | **Overlap-save** | Alternative that (per the challenge rules) adds **no** extra algorithmic latency. |
-| **Mel / filterbank / log-mel** | A perceptually-spaced compressed version of the spectrogram, common as an ASR input and in loss functions. |
+| **Mel / filterbank / log-mel** | A perceptually spaced, compressed version of the spectrogram. Common as an ASR input and in loss functions. |
 | **CMVN** | Cepstral Mean and Variance Normalisation. Standard per-utterance feature normalisation. |
 | **dB (decibel)** | Logarithmic loudness/ratio scale. All the quality scores are in dB. |
 | **Monaural / single-channel** ★ | One microphone. Your setting. |
 | **Multichannel / array** | Multiple mics, which lets you use direction. Often 8-channel in meeting corpora. |
-| **Beamforming** | Using a mic array to spatially focus on one direction. Classical (non-neural) technique. |
-| **MVDR / GEV** | Specific beamformer types you'll see named in multichannel papers. |
+| **Beamforming** | Using a mic array to focus spatially on one direction. Classical (non-neural) technique. |
+| **MVDR / GEV** | Specific beamformer types named in multichannel papers. |
 
 ### Room acoustics
 
@@ -84,13 +84,13 @@ Both spellings **enrollment** (US) and **enrolment** (UK) appear in the literatu
 |---|---|
 | **Reverberation** ★ | Echo from room surfaces. Smears speech and badly degrades separation. |
 | **RIR** ★ | Room Impulse Response. A recording of a room's echo signature; convolving clean speech with an RIR simulates that room. |
-| **RT60 / T60** ★ | Reverberation time — how long for sound to decay by 60 dB. ~0.05–0.3 s = dry, ~1 s = very echoey. |
+| **RT60 / T60** ★ | Reverberation time: how long sound takes to decay by 60 dB. ~0.05–0.3 s = dry, ~1 s = very echoey. |
 | **Anechoic** | No echo at all. Lab conditions. |
 | **Dereverberation** | Removing echo. |
 | **Near-field / close-talk** ★ | Mic near the mouth (headset, phone at your face). Clean. |
-| **Far-field / distant** ★ | Mic across the room. Echoey and noisy. **This is where models fail** — the challenge found the farthest mic was consistently worst. |
+| **Far-field / distant** ★ | Mic across the room. Echoey and noisy. **This is where models fail**: the challenge found the farthest mic was consistently worst. |
 | **Channel / device mismatch** ★ | Enrollment recorded on one device, mixture on another. Different frequency responses confuse the model. Central to your project's microphone-quality concern. |
-| **EQ (equalisation) / band-limiting** | Boosting/cutting certain frequencies, or cutting off high/low ends. Used to *simulate* cheap microphones during training. |
+| **EQ (equalisation) / band-limiting** | Boosting/cutting certain frequencies, or cutting off the high/low ends. Used to *simulate* cheap microphones in training. |
 
 ### Ratios
 
@@ -102,7 +102,7 @@ Both spellings **enrollment** (US) and **enrolment** (UK) appear in the literatu
 | **SDR** | Signal-to-Distortion Ratio. Overall quality; combines the above. |
 | **Overlap ratio** ★ | Fraction of the mixture where more than one person talks. REAL-TSE averages ~0.5. |
 | **Target ratio** ★ | Fraction of the mixture where the target is speaking at all. REAL-TSE ~0.75. Strongly predicts difficulty. |
-| **Fully overlapped** | Both speakers talk the entire time. LibriMix is like this — unrealistic. |
+| **Fully overlapped** | Both speakers talk the entire time. LibriMix is like this, which is unrealistic. |
 | **Sparsely overlapped** | Realistic conversation with pauses and turn-taking. |
 
 ---
@@ -112,24 +112,24 @@ Both spellings **enrollment** (US) and **enrolment** (UK) appear in the literatu
 | Term | Meaning |
 |---|---|
 | **Causal** ★ | Uses only past and present audio. Required for streaming. |
-| **Non-causal / offline** ★ | Allowed to see the whole recording, including the future. Performs better; can't run live. |
+| **Non-causal / offline** ★ | Allowed to see the whole recording, including the future. Performs better but can't run live. |
 | **Lookahead / future context** ★ | Peeking a small number of frames into the future. Improves quality, costs latency. |
 | **Algorithmic latency** ★ | Delay inherent to the maths: STFT window − hop, plus any lookahead. Example: 32 ms window with 8 ms hop = **24 ms**. |
-| **Buffering latency** ★ | Delay from having to collect a block of samples before processing. Equals the hop size. |
+| **Buffering latency** ★ | Delay from collecting a block of samples before processing. Equals the hop size. |
 | **End-to-end / effective latency** ★ | The total real-world delay. The challenge caps this at **100 ms** and verifies it by perturbing the input and measuring when the output changes. |
 | **Chunk-wise / frame-wise** | Processing in small blocks vs one frame at a time. |
 | **RTF** ★ | Real-Time Factor. Processing time ÷ audio duration. **Must be < 1** to keep up; 0.25 means 4× faster than real time. |
-| **Unidirectional vs bidirectional** ★ | A one-directional RNN only looks backwards (causal). Bidirectional looks both ways (not causal). **Key trick:** in band-split models the *frequency* direction can stay bidirectional because frequency isn't time — only the time axis must be causal. |
-| **cLN / gLN** ★ | Cumulative vs Global Layer Normalisation. Global normalisation uses statistics from the whole utterance, which secretly breaks causality. Causal models must use cumulative (running) statistics. A classic hidden bug. |
+| **Unidirectional vs bidirectional** ★ | A one-directional RNN only looks backwards (causal). A bidirectional one looks both ways (not causal). **Key trick:** in band-split models the *frequency* direction can stay bidirectional, because frequency isn't time. Only the time axis must be causal. |
+| **cLN / gLN** ★ | Cumulative vs Global Layer Normalisation. Global normalisation uses whole-utterance statistics, which secretly breaks causality, so causal models must use cumulative (running) statistics. A classic hidden bug. |
 | **State / cache** | What a streaming model carries between frames. Fixed-size is good; growing is bad. |
-| **MACs / GMAC/s** ★ | Multiply-Accumulate operations, i.e. compute cost. Reported per second of audio. Proxy for whether it fits on-device. |
+| **MACs / GMAC/s** ★ | Multiply-Accumulate operations, i.e. compute cost, reported per second of audio. A proxy for whether it fits on-device. |
 | **Params** ★ | Parameter count, i.e. model size. REAL-TSE online systems were 15–27 M; a hearable chip wants far less. |
-| **QAT** | Quantization-Aware Training. Training the model to survive being squashed to low-precision integers for cheap hardware. |
+| **QAT** | Quantization-Aware Training. Training the model to survive being reduced to low-precision integers for cheap hardware. |
 | **Knowledge distillation** ★ | Training a small model to imitate a big one. |
-| **Endpointing** ★ | Deciding that the speaker has finished, so the recognised text can be sent onward. A text output path cannot emit anything until this fires, which is why it is slower than just streaming audio. |
-| **Cascade** ★ | Chaining separate models (extractor → ASR → downstream model) instead of one end-to-end system. Each stage adds its own latency, and errors made early cannot be undone later. Your text reference condition is a cascade. |
+| **Endpointing** ★ | Deciding that the speaker has finished, so the recognised text can be sent on. A text output path cannot emit anything until this fires, which is why it is slower than streaming audio. |
+| **Cascade** ★ | Chaining separate models (extractor → ASR → downstream model) instead of one end-to-end system. Each stage adds its own latency, and early errors cannot be undone later. Your text reference condition is a cascade. |
 | **On-device / edge** | Running locally rather than in the cloud. |
-| **NPU / DSP / MCU** | Neural Processing Unit / Digital Signal Processor / Microcontroller — the tiny chips you'd deploy on. |
+| **NPU / DSP / MCU** | Neural Processing Unit / Digital Signal Processor / Microcontroller: the tiny chips you would deploy on. |
 | **GAP9** | A specific ultra-low-power chip used in hearing-device research (TF-MLPNet targets it). **GAPFlow** is its compiler. |
 
 ---
@@ -139,18 +139,18 @@ Both spellings **enrollment** (US) and **enrolment** (UK) appear in the literatu
 | Term | Meaning |
 |---|---|
 | **Enrollment / reference / cue / clue** ★ | The clip of the target speaking alone. All four words mean this. |
-| **Conditioning** ★ | Feeding the speaker information into the separation network. *How* and *where* you do this is the main design question in TSE. |
+| **Conditioning** ★ | Feeding the speaker information into the separation network. *How* and *where* this is done is the main design question in TSE. |
 | **Speaker embedding** ★ | Fixed-length vector (often 192 or 256 dims) summarising a voice. |
-| **i-vector / d-vector / x-vector** | Successive generations of speaker embedding: statistical factor analysis → early neural → TDNN-based. Mostly historical context now. |
-| **ECAPA-TDNN** ★ | *Emphasized Channel Attention, Propagation and Aggregation in Time-Delay Neural Network.* The current default speaker embedding model. Used in the REAL-TSE baselines. |
+| **i-vector / d-vector / x-vector** | Successive generations of speaker embedding: statistical factor analysis → early neural → TDNN-based. Mostly historical now. |
+| **ECAPA-TDNN** ★ | *Emphasized Channel Attention, Propagation and Aggregation in Time-Delay Neural Network.* The current default speaker embedding model, used in the REAL-TSE baselines. |
 | **ResNet34 (speaker)** | Alternative embedding architecture. The challenge computes its official SpkSim metric with a WeSpeaker ResNet-34. |
 | **Global vs frame-level conditioning** ★ | One vector for the whole enrollment (cheap, loses detail) vs a value per time-frame (expensive, keeps detail). |
 | **TF-Map** ★ | Time-Frequency Map. A spectrogram-shaped conditioning signal built from enrollment × mixture magnitudes. Used by the best REAL-TSE baseline and the winner. |
 | **Multi-level speaker representation** ★ | Using raw spectral features *and* contextual features *and* a neural embedding together. |
 | **Fusion** ★ | The mechanism combining speaker info with audio features. Common types: **concatenation**, **element-wise multiplication**, **FiLM**, **cross-attention**, **speaker token**. |
-| **FiLM** | Feature-wise Linear Modulation. Conditioning by learned per-channel scale and shift. |
-| **Cross-attention** ★ | Let the mixture "query" the enrollment and retrieve the most relevant parts. The basis of embedding-free methods. |
-| **Embedding-free / speaker-encoder-free** ★ | Skipping the pre-trained speaker model entirely; use cross-attention on the raw enrollment instead. (USEF-TSE, SEF-Net, SEF-PNet.) |
+| **FiLM** | Feature-wise Linear Modulation. Conditioning by a learned per-channel scale and shift. |
+| **Cross-attention** ★ | The mixture "queries" the enrollment and retrieves the most relevant parts. The basis of embedding-free methods. |
+| **Embedding-free / speaker-encoder-free** ★ | Skipping the pre-trained speaker model entirely and using cross-attention on the raw enrollment instead (USEF-TSE, SEF-Net, SEF-PNet). |
 | **Speaker token / prefix token** | Injecting speaker info as an extra token in the sequence. |
 | **Attractor** | A learned vector that "pulls out" one source. Diarization/separation term. |
 | **Adaptation layer** | Older SpeakerBeam term for the layer where the speaker embedding is injected. |
@@ -160,11 +160,11 @@ Both spellings **enrollment** (US) and **enrolment** (UK) appear in the literatu
 | Term | Meaning |
 |---|---|
 | **Speaker confusion** ★ | The model extracts the *wrong* person. The signature TSE failure. |
-| **Target-absent** ★ | Stretches where the target isn't speaking at all. The model should output **silence**. |
-| **False alarm** ★ | Outputting speech during target-absent regions — usually leaking an interfering speaker. Directly relevant to your "handles interruptions" goal. |
-| **Over-suppression** | Being so aggressive that you cut the target's own speech. |
+| **Target-absent** ★ | Stretches where the target isn't speaking. The model should output **silence**. |
+| **False alarm** ★ | Outputting speech in target-absent regions, usually leaking an interfering speaker. Directly relevant to your "handles interruptions" goal. |
+| **Over-suppression** | Being so aggressive that the target's own speech is cut. |
 | **Leakage / bleed** | Residual interfering speaker audible in the output. |
-| **Musical noise / artefacts** | Unnatural warbling introduced by the processing itself. Often what tanks perceptual quality even when SI-SDR looks fine. |
+| **Musical noise / artefacts** | Unnatural warbling introduced by the processing itself. Often what ruins perceptual quality even when SI-SDR looks fine. |
 
 ---
 
@@ -172,21 +172,21 @@ Both spellings **enrollment** (US) and **enrolment** (UK) appear in the literatu
 
 | Name | What it is |
 |---|---|
-| **TasNet / Conv-TasNet** | Early, influential time-domain separation network using a learned encoder + temporal convolutions. The historical baseline. |
-| **TCN** | Temporal Convolutional Network. Stack of dilated causal convolutions. Fixed receptive field. |
+| **TasNet / Conv-TasNet** | Early, influential time-domain separation network using a learned encoder and temporal convolutions. The historical baseline. |
+| **TCN** | Temporal Convolutional Network. A stack of dilated causal convolutions with a fixed receptive field. |
 | **DPRNN** | Dual-Path RNN. Introduced the "split the sequence and model along two axes alternately" idea. |
-| **Dual-path** ★ | The general pattern: alternate a module along one axis (e.g. frequency) with a module along another (e.g. time). Nearly every modern model is dual-path. |
+| **Dual-path** ★ | The general pattern: alternate a module along one axis (e.g. frequency) with one along another (e.g. time). Nearly every modern model is dual-path. |
 | **SepFormer** | Transformer-based separation. |
 | **TF-GridNet** ★ | Strong time-frequency separation model combining full-band and sub-band modelling. One of the two backbone families in the challenge. |
 | **BSRNN** ★ | Band-Split RNN. Splits the spectrum into non-uniform frequency bands, then alternates a band-axis RNN with a time-axis RNN. **The backbone of every top REAL-TSE online system.** |
-| **Band-split / sub-band** ★ | Grouping frequency bins into bands — narrow at low frequencies (where voice identity lives), wide at high frequencies (to save compute). |
+| **Band-split / sub-band** ★ | Grouping frequency bins into bands: narrow at low frequencies (where voice identity lives), wide at high frequencies (to save compute). |
 | **Full-band vs sub-band** | Modelling all frequencies jointly vs in groups. |
 | **U-Net** | Encoder–decoder with skip connections. Common in enhancement. |
-| **SSM / S4 / Mamba** ★ | State Space Model. A sequence model with a **fixed-size** running state — attractive for streaming because memory doesn't grow. **Mamba** is the popular "selective" variant. |
+| **SSM / S4 / Mamba** ★ | State Space Model. A sequence model with a **fixed-size** running state, which suits streaming because memory doesn't grow. **Mamba** is the popular "selective" variant. |
 | **MLP-Mixer** | All-fully-connected architecture that replaces sequential layers with parallel ones. Used by TF-MLPNet for hardware friendliness. |
 | **LSTM / GRU / BLSTM** | Recurrent layers. B = bidirectional (not causal). |
 | **SSL** ★ | Self-Supervised Learning. Large models pre-trained on unlabelled audio: **WavLM**, **HuBERT**, **wav2vec 2.0**. Used as feature extractors. |
-| **Generative TSE** | Instead of masking the mixture, *generate* clean speech. Sub-approaches: **diffusion**, **flow matching**, **autoregressive (AR) language models** over audio tokens, **vocoder** reconstruction. Higher perceptual quality, risk of inventing words that weren't said. |
+| **Generative TSE** | Instead of masking the mixture, *generate* clean speech. Sub-approaches: **diffusion**, **flow matching**, **autoregressive (AR) language models** over audio tokens, **vocoder** reconstruction. Higher perceptual quality, but a risk of inventing words that weren't said. |
 | **Neural codec / discrete tokens** | Representing audio as a sequence of discrete symbols so language-model techniques apply. |
 | **Vocoder** | Converts a compressed/spectral representation back to a waveform. |
 
@@ -195,7 +195,7 @@ Both spellings **enrollment** (US) and **enrolment** (UK) appear in the literatu
 | Term | Meaning |
 |---|---|
 | **Mask** ★ | Per-bin multiplier applied to the mixture spectrogram to keep the target. |
-| **Ratio mask (IRM) / cIRM** | Ideal Ratio Mask / complex Ideal Ratio Mask. The theoretical best mask; used as an upper bound. |
+| **Ratio mask (IRM) / cIRM** | Ideal Ratio Mask / complex Ideal Ratio Mask. The theoretical best mask, used as an upper bound. |
 | **Complex mask** ★ | A mask with real and imaginary parts, so it can correct phase. |
 | **Oracle** ★ | A hypothetical system given perfect information (e.g. the ideal mask). Used as a performance ceiling. |
 
@@ -205,15 +205,15 @@ Both spellings **enrollment** (US) and **enrolment** (UK) appear in the literatu
 
 | Term | Meaning |
 |---|---|
-| **SI-SDR / SI-SNR** ★ | Scale-Invariant Signal-to-Distortion (or -Noise) Ratio. **The default loss and metric.** "Scale-invariant" = doesn't punish you for output volume. Used interchangeably in practice. |
-| **SI-SDRi / SI-SNRi** ★ | The **improvement** over the unprocessed mixture. The honest number to report. |
-| **PIT / uPIT** | (Utterance-level) Permutation Invariant Training. Solves the "which output is which speaker" problem in BSS. **Not needed in TSE** — a stated advantage. |
-| **MRSTFT** ★ | Multi-Resolution STFT loss. Compare magnitude spectrograms at several window sizes. Standard companion to SI-SDR. |
+| **SI-SDR / SI-SNR** ★ | Scale-Invariant Signal-to-Distortion (or -Noise) Ratio. **The default loss and metric.** "Scale-invariant" = doesn't punish output volume. Used interchangeably in practice. |
+| **SI-SDRi / SI-SNRi** ★ | The **improvement** over the unprocessed mixture. The number that should be reported. |
+| **PIT / uPIT** | (Utterance-level) Permutation Invariant Training. Solves the "which output is which speaker" problem in BSS. **Not needed in TSE**, a stated advantage. |
+| **MRSTFT** ★ | Multi-Resolution STFT loss. Compares magnitude spectrograms at several window sizes. The standard companion to SI-SDR. |
 | **Perceptual loss** | Any loss that targets how it *sounds* rather than sample-exact accuracy. |
 | **PESQ loss** | Differentiable approximation of the PESQ metric, used directly as a loss (e.g. `torch-pesq`). |
 | **Speaker consistency loss** ★ | Penalise the output's speaker embedding for drifting from the enrollment's. |
-| **DNSMOS loss** ★ | Directly maximise a frozen DNSMOS predictor. Effective, and exactly how metric-gaming starts. |
-| **ASR / CE loss** ★ | Feed output into a frozen ASR and penalise transcription error. Makes output optimised for machine readability — very relevant to your live-model metric. |
+| **DNSMOS loss** ★ | Directly maximise a frozen DNSMOS predictor. Effective, and how metric gaming starts. |
+| **ASR / CE loss** ★ | Feed the output into a frozen ASR and penalise transcription error. This optimises the output for machine readability, which is very relevant to your live-model metric. |
 | **Feature-matching loss** | Match intermediate activations of a frozen network (e.g. an ASR encoder) rather than the waveform. |
 | **VAD / activity loss** ★ | Penalise speaking when the target is silent. Targets the false-alarm failure mode. |
 | **Scenario-aware loss** ★ | Apply *different* losses to target-active vs target-silent regions (maximise quality when present, force silence when absent). |
@@ -222,7 +222,7 @@ Both spellings **enrollment** (US) and **enrolment** (UK) appear in the literatu
 | **Teacher–student** ★ | A big "teacher" model supervises a small "student". |
 | **Self-training** | Use your own model's outputs as training labels, iteratively. |
 | **Fine-tuning / domain adaptation** ★ | Continue training a pre-trained model on data closer to the real target conditions. |
-| **On-the-fly mixing** ★ | Generating training mixtures during training rather than pre-writing files. Gives effectively infinite variety. |
+| **On-the-fly mixing** ★ | Generating training mixtures during training rather than pre-writing files, giving effectively infinite variety. |
 | **Model soup / weight averaging** | Averaging the weights of several fine-tuned models. |
 
 ---
@@ -236,7 +236,7 @@ Both spellings **enrollment** (US) and **enrolment** (UK) appear in the literatu
 | **SI-SDR / SI-SDRi** ★ | dB, higher better | Signal accuracy. The field's default. |
 | **SDR / SIR / SAR** | dB, higher better | From the older BSS_EVAL toolkit. Distortion / interference / artefacts separately. |
 | **PESQ** ★ | ~−0.5 to 4.5, higher better | Predicted perceptual quality (ITU-T P.862). Wideband and narrowband variants. |
-| **STOI / ESTOI** ★ | 0–1, higher better | Short-Time Objective Intelligibility — predicted understandability. E = Extended. |
+| **STOI / ESTOI** ★ | 0–1, higher better | Short-Time Objective Intelligibility (predicted understandability). E = Extended. |
 
 ### Non-intrusive / reference-free (no clean reference needed) ★
 
@@ -248,8 +248,8 @@ Both spellings **enrollment** (US) and **enrolment** (UK) appear in the literatu
 | **SIG / BAK / OVRL** ★ | higher better | DNSMOS **P.835** sub-scores: **SIG**nal quality, **BAK**ground noise, **OVR**a**L**. |
 | **P808** ★ | higher better | DNSMOS variant following ITU-T P.808 crowdsourcing. **The challenge's official metric**, because OVRL got gamed. |
 | **DNSMOS Pro** | higher better | A smaller probabilistic variant. |
-| **MOS** ★ | 1–5, higher better | Mean Opinion Score — the *actual human* rating that all the above try to predict. |
-| **Subjective listening test** | — | Real humans rating clips. The ground truth for quality. Expensive. |
+| **MOS** ★ | 1–5, higher better | Mean Opinion Score: the *actual human* rating that all the above try to predict. |
+| **Subjective listening test** | — | Real humans rating clips. The ground truth for quality, but expensive. |
 
 ### Downstream / task-based ★
 
@@ -258,9 +258,9 @@ Both spellings **enrollment** (US) and **enrolment** (UK) appear in the literatu
 | **WER** ★ | **lower better** | Word Error Rate from an ASR system. Word-level; used for English. |
 | **CER** ★ | **lower better** | Character Error Rate. Used for Mandarin (no word boundaries). |
 | **TER** ★ | **lower better** | Token Error Rate. The challenge's umbrella term: WER for English, CER for Mandarin. |
-| **SpkSim / SIM** ★ | 0–1, higher better | Cosine similarity between speaker embeddings of output and **enrollment**. Note: measured against enrollment, not a clean target — so it's sensitive to device mismatch. |
+| **SpkSim / SIM** ★ | 0–1, higher better | Cosine similarity between speaker embeddings of the output and the **enrollment**. Because it is measured against the enrollment, not a clean target, it is sensitive to device mismatch. |
 | **EER** | lower better | Equal Error Rate. Standard speaker-verification metric. |
-| **Timing precision / recall / F1** ★ | higher better | Did you emit speech when — and *only* when — the target was actually talking? Your false-alarm/interruption measure. |
+| **Timing precision / recall / F1** ★ | higher better | Did you emit speech when, and *only* when, the target was actually talking? Your false-alarm/interruption measure. |
 
 ### Meta-metrics (for evaluating metrics — relevant to your contribution)
 
@@ -272,43 +272,41 @@ Both spellings **enrollment** (US) and **enrolment** (UK) appear in the literatu
 
 ### This project's own vocabulary ★
 
-Defined in full in `docs/data/metric-definitions.md`. These are terms you will use
-constantly and will not find in any paper, because they are yours.
+Defined in full in `docs/data/metric-definitions.md`. These are your own terms, so no paper uses them.
 
 | Term | Meaning |
 |---|---|
-| **Judge** ★ | The live speech-to-speech model that scores you by reporting what it understood. **No longer held out from training (2026-09-15)** — it may now be teacher, reward, filter or selection criterion. It still can never be a loss, because you cannot backpropagate through an API. The holdout moved to the DATA: `sir0_privval` and `eval_private` are never trained on. |
+| **Judge** ★ | The live speech-to-speech model that scores you by reporting what it understood. **No longer held out from training (2026-09-15)**: it may now be teacher, reward, filter or selection criterion. It can still never be a loss, because you cannot backpropagate through an API. The holdout moved to the data: `sir0_privval` and `eval_private` are never trained on. |
 | **LCF** ★ | Live-model Content Fidelity. The metric family: how much of what the target actually said the judge recovered. |
 | **LCF-WER** ★ | The headline score. Word error rate of the judge's report against the target's true words. **Lower better.** |
-| **ICR** ★ | Interferer Content Rate. How often the judge reports words the *other* speaker said. Stops you scoring well by passing everything through. **Lower better.** |
-| **NRR** ★ | Non-Response Rate. How often the judge declines, hears nothing, or returns silence. Stops you scoring well by outputting silence. **Lower better.** |
-| **Floor / ceiling** ★ | Mandatory reference rows: the unprocessed mixture (doing nothing) and the clean target (the best extraction could ever do on this judge). A system that doesn't beat the floor is worthless; a score above the ceiling means something is wrong with your harness. |
-| **Proxy** ★ | A differentiable stand-in for the judge, used in training because you cannot backprop through an API. ~~Must be a different model family~~ — **family separation WITHDRAWN 2026-09-15**, so a proxy may now be fitted to the judge deliberately. See **Surrogate judge**. |
-| **Output modality** ★ | Whether your system hands the judge **audio** or **text**. Audio is what we build; text is measured as a reference condition. Must be recorded on every result. |
-| **Text reference condition** ★ | Extractor → off-the-shelf streaming ASR → text → judge. A benchmark row, not a build target. Not an upper bound either — an ASR error is permanent, whereas audio leaves the judge acoustic evidence. |
+| **ICR** ★ | Interferer Content Rate. How often the judge reports words the *other* speaker said. Stops a system scoring well by passing everything through. **Lower better.** |
+| **NRR** ★ | Non-Response Rate. How often the judge declines, hears nothing, or returns silence. Stops a system scoring well by outputting silence. **Lower better.** |
+| **Floor / ceiling** ★ | Mandatory reference rows: the unprocessed mixture (doing nothing) and the clean target (the best extraction could ever do on this judge). A system that doesn't beat the floor is worthless; a score above the ceiling means something is wrong with the harness. |
+| **Proxy** ★ | A differentiable stand-in for the judge, used in training because you cannot backprop through an API. ~~Must be a different model family~~: **family separation withdrawn 2026-09-15**, so a proxy may now be fitted to the judge deliberately. See **Surrogate judge**. |
+| **Output modality** ★ | Whether your system hands the judge **audio** or **text**. We build audio; text is measured as a reference condition. Must be recorded on every result. |
+| **Text reference condition** ★ | Extractor → off-the-shelf streaming ASR → text → judge. A benchmark row, not a build target. It is not an upper bound either, because an ASR error is permanent, whereas audio leaves the judge acoustic evidence. |
 | **Text floor / text ceiling** ★ | The text path's own anchors: ASR run on the raw mixture, and the ground-truth transcript handed over directly. |
-| **Front-end ASR vs response ASR** ★ | Easy to confuse and important not to. The **front-end** ASR is part of your system, inside the latency budget, only present in the text condition. The **response** ASR is part of the measuring instrument, outside the budget, used to transcribe the judge's spoken reply in every condition. |
-| **Paralinguistics** ★ | Everything in speech that isn't the words: tone, emphasis, hesitation, emotion, identity. Destroyed by the text path, invisible to LCF because LCF is purely lexical. A known blind spot, stated rather than fixed. |
+| **Front-end ASR vs response ASR** ★ | Easy to confuse and important to keep apart. The **front-end** ASR is part of your system, inside the latency budget, and only present in the text condition. The **response** ASR is part of the measuring instrument, outside the budget, and transcribes the judge's spoken reply in every condition. |
+| **Paralinguistics** ★ | Everything in speech that isn't the words: tone, emphasis, hesitation, emotion, identity. Destroyed by the text path and invisible to LCF, which is purely lexical. A known blind spot, stated rather than fixed. |
 
 ### Tuning to a black-box listener ★
 
-Added 2026-09-16. The judge cannot be differentiated, so these are the ways its
-preferences reach a system. Full treatment in `decisions-pending.md` G1.
+Added 2026-09-16. The judge cannot be differentiated, so these are the ways its preferences reach a system. Full treatment in `decisions-pending.md` G1.
 
 | Term | Meaning |
 |---|---|
-| **Mix-back** ★ | Blending the model's output back with its own untouched input: `s_alpha = alpha * s_hat + (1 - alpha) * x`. `alpha = 1` is the model, `alpha = 0` is doing nothing. **Costs one multiply-add per sample and adds zero latency**, because output sample *n* needs only input sample *n*. Every value comes from ONE forward pass, so a whole family of systems exists without retraining. |
-| **Alpha sweep** ★ | Scoring several `alpha` values through the judge to find which blend it transcribes best. Answers "how much of our processing does the listener actually want?". **It tunes exactly ONE number — the extractor's weights are untouched.** |
-| **Alpha-oracle** ★ | The same sweep read PER TRIAL rather than in aggregate: `alpha*(trial)` is the best blend for that trial. If it is constant, ship a global knob. If it varies, the judge has just supplied a **supervised target** for a model that picks its own `alpha` — the capability measured as missing on 2026-09-01. |
-| **Expert iteration** ★ | Make N attempts, let the judge pick the winner, then retrain the model to produce that winner by default — and repeat. The "expert" is model-plus-selection, which beats the model alone; training on its output folds that advantage back into the weights. **The judge only votes, so it never needs to be differentiable.** Also called rejection-sampling fine-tuning. |
+| **Mix-back** ★ | Blending the model's output back with its own untouched input: `s_alpha = alpha * s_hat + (1 - alpha) * x`. `alpha = 1` is the model, `alpha = 0` is doing nothing. **Costs one multiply-add per sample and adds zero latency**, because output sample *n* needs only input sample *n*. Every value comes from one forward pass, so a whole family of systems exists without retraining. |
+| **Alpha sweep** ★ | Scoring several `alpha` values through the judge to find which blend it transcribes best. Answers "how much of our processing does the listener actually want?". **It tunes one number only; the extractor's weights are untouched.** |
+| **Alpha-oracle** ★ | The same sweep read per trial rather than in aggregate: `alpha*(trial)` is the best blend for that trial. If it is constant, ship a global knob. If it varies, the judge has supplied a **supervised target** for a model that picks its own `alpha`, the capability measured as missing on 2026-09-01. |
+| **Expert iteration** ★ | Make N attempts, let the judge pick the winner, then retrain the model to produce that winner by default, and repeat. The "expert" is model-plus-selection, which beats the model alone; training on its output folds that advantage back into the weights. **The judge only votes, so it never needs to be differentiable.** Also called rejection-sampling fine-tuning. |
 | **Candidate set** ★ | The N outputs expert iteration chooses between. Ours come free from `alpha`, mask post-processing and existing checkpoints. **Its span is the hard ceiling**: training on winners can only teach the model to internalise a choice it could already have made, never to find a separation no candidate contained. |
-| **Surrogate judge** ★ | A local, differentiable model fitted to the judge's behaviour. The only route whose gradient can push toward outputs **no candidate set contains**. Two uses, very different in risk: as a **ranker** (re-orders candidates; a mistake is checkable against the real judge) or as a **loss** (a mistake becomes adversarial audio nobody catches). |
-| **Control listener** ★ | A second transcriber never optimised against — currently `small.en`. If tuning to the judge also improves it, intelligibility improved; if not, we fitted the judge's quirks. **What is left of the gaming-resistance claim after 2026-09-15.** |
+| **Surrogate judge** ★ | A local, differentiable model fitted to the judge's behaviour. The only route whose gradient can push toward outputs **no candidate set contains**. Two uses with very different risk: as a **ranker** (re-orders candidates; a mistake is checkable against the real judge) or as a **loss** (a mistake becomes adversarial audio nobody catches). |
+| **Control listener** ★ | A second transcriber never optimised against, currently `small.en`. If tuning to the judge also improves it, intelligibility improved; if not, we fitted the judge's quirks. **This is what is left of the gaming-resistance claim after 2026-09-15.** |
 
 ### Reading a results table
 
 - **↓** = lower is better; **↑** = higher is better.
-- **Dense ranking** ★ = ties share a rank and the next rank isn't skipped (1, 2, 2, 3). The challenge averaged dense ranks across four metrics to get one score.
+- **Dense ranking** ★ = ties share a rank and the next rank isn't skipped (1, 2, 2, 3). The challenge averaged dense ranks across four metrics into one score.
 - **Ablation study** ★ = remove one component at a time to prove each contributes. Expected in your thesis.
 
 ---
@@ -322,15 +320,15 @@ preferences reach a system. Full treatment in `decisions-pending.md` G1.
 | **Re-recorded / replayed** | Clean audio played through speakers and re-recorded in a real room (LibriCSS, REAL-M). A halfway house. |
 | **Mixture / target / interference / noise** ★ | Input / wanted / other speakers / non-speech sounds. |
 | **Pseudo-label** ★ | A fake "correct answer" generated by a model, used where no real answer exists. |
-| **Quality filtering** ★ | Discarding pseudo-labels that fail quality checks so you don't train on garbage. |
+| **Quality filtering** ★ | Discarding pseudo-labels that fail quality checks, so you don't train on garbage. |
 | **GSS** | Guided Source Separation. A classical CHiME technique for producing clean-ish targets from real multichannel meeting audio. Another pseudo-label source. |
 | **Augmentation** ★ | Artificially varying training data: add noise, add reverb, change speed, apply EQ. |
 | **Speed perturbation** | Playing audio at 0.9×/1.1× to create "new" speakers/variation. |
-| **min / max mode** ★ | LibriMix options: **min** truncates both utterances to the shorter one; **max** pads to the longer. Papers must state which — the numbers differ. |
+| **min / max mode** ★ | LibriMix options: **min** truncates both utterances to the shorter one; **max** pads to the longer. Papers must state which, as the numbers differ. |
 | **Train / dev / test split** ★ | Learn / tune / final evaluation. In speech, splits must be **speaker-disjoint**, not just file-disjoint. |
 | **Seen vs unseen** ★ | Test conditions that resemble training vs deliberately novel ones. The challenge's EVAL-1 vs EVAL-2. |
 | **Blind test set** | Evaluation data whose answers you never see. |
-| **Domain mismatch / generalisation gap** ★ | Performing well in training conditions and badly in real ones. The whole motivation for REAL-TSE. |
+| **Domain mismatch / generalisation gap** ★ | Performing well in training conditions and badly in real ones. The main motivation for REAL-TSE. |
 
 ---
 
@@ -355,10 +353,10 @@ preferences reach a system. Full treatment in `decisions-pending.md` G1.
 
 | Name | Language | Notes |
 |---|---|---|
-| **AMI** ★ | English | Real meetings. **CC BY 4.0, direct download.** Has synchronous **IHM** (Individual Headset Mic), **lapel**, **SDM** (Single Distant Mic) and **MDM** (Multiple Distant Mic) channels of the same speech — which is how you get real device mismatch for free. Ships human transcripts and speaker annotations. |
+| **AMI** ★ | English | Real meetings. **CC BY 4.0, direct download.** Has synchronous **IHM** (Individual Headset Mic), **lapel**, **SDM** (Single Distant Mic) and **MDM** (Multiple Distant Mic) channels of the same speech, which gives real device mismatch for free. Ships human transcripts and speaker annotations. |
 | **AISHELL-4** | Mandarin | Real meetings, 8-channel array. Open via OpenSLR. |
-| **AliMeeting** | Mandarin | Meetings, near-field headset + far-field array. From the **M2MeT** challenge. Research agreement. |
-| **CHiME-5 / CHiME-6** | English | Real dinner parties. Binaural in-ear mics + distant Kinect arrays. Notoriously hard. Licence agreement required. |
+| **AliMeeting** | Mandarin | Meetings, near-field headset and far-field array. From the **M2MeT** challenge. Research agreement. |
+| **CHiME-5 / CHiME-6** | English | Real dinner parties. Binaural in-ear mics and distant Kinect arrays. Notoriously hard. Licence agreement required. |
 | **DipCo** | English | Dinner Party Corpus (Amazon). CC BY 4.0. No official train split. |
 | **Fisher** | English | Large telephone conversation corpus. |
 | **REAL-T** ★ | EN + ZH | The TSE benchmark built automatically from the five corpora above. Defines **BASE** (easier) and **PRIMARY** (harder) test subsets. |
@@ -383,9 +381,9 @@ preferences reach a system. Full treatment in `decisions-pending.md` G1.
 | **WHAM! noise** | Real recorded café/restaurant/bar ambience. |
 | **DEMAND** ★ | Multi-channel environmental noise: vehicle, home, café, office. Matches the scenarios you care about. |
 | **FSD50K** | 50k human-labelled sound events. |
-| **FMA** | Free Music Archive — music as interference. |
+| **FMA** | Free Music Archive: music as interference. |
 | **RIRS_NOISES / SLR28** ★ | Standard room impulse response collection. |
-| **DNS Challenge data (DNS4/DNS5)** ★ | Large open speech + noise sets from Microsoft's Deep Noise Suppression challenges. |
+| **DNS Challenge data (DNS4/DNS5)** ★ | Large open speech and noise sets from Microsoft's Deep Noise Suppression challenges. |
 
 ---
 
@@ -399,23 +397,23 @@ preferences reach a system. Full treatment in `decisions-pending.md` G1.
 | **ESPnet / ESPnet-SE** ★ | Large end-to-end speech toolkit; has separation and TSE recipes including TF-GridNet. |
 | **Asteroid** | PyTorch source-separation toolkit; where LibriMix generation lives. |
 | **SpeechBrain** | General-purpose PyTorch speech toolkit. |
-| **Kaldi** | The classic pre-deep-learning-era speech toolkit. You'll see its data formats everywhere (`wav.scp`, `utt2spk`, "Kaldi-style"). |
+| **Kaldi** | The classic pre-deep-learning speech toolkit. Its data formats appear everywhere (`wav.scp`, `utt2spk`, "Kaldi-style"). |
 | **k2 / icefall / sherpa-onnx** ★ | Next-generation ASR ecosystem. **icefall** = recipes, **sherpa-onnx** = deployment runtime. Where the challenge's Zipformer models come from. |
 | **Zipformer** ★ | The ASR model used for the challenge's official TER metric, chosen because it hallucinates less than Whisper on long real audio. |
-| **Whisper** ★ | OpenAI's ASR model. Widely used, but prone to **hallucinated looped repetitions** on long conversational audio — a real problem the challenge repo explicitly warns about. |
+| **Whisper** ★ | OpenAI's ASR model. Widely used, but prone to **hallucinated looped repetitions** on long conversational audio, a real problem the challenge repo explicitly warns about. |
 | **FireRedASR / FireRedASR2S** | Industrial-grade Mandarin ASR. **FireRedVAD** (inside FireRedASR2S) provides the challenge's activity timing. |
 | **Silero VAD** | Lightweight open voice activity detector. |
 | **pyannote** | Popular speaker diarization toolkit. |
 | **DNSMOS** ★ | Microsoft's released MOS-prediction models (from the DNS Challenge repo). |
 | **torch-pesq** | Differentiable PESQ for use as a loss. |
-| **ONNX / ONNX Runtime** ★ | Portable model format and runtime — how you'd actually deploy a trained model. |
+| **ONNX / ONNX Runtime** ★ | Portable model format and runtime, i.e. how a trained model is actually deployed. |
 | **TorchAudio / soundfile / librosa** | Standard Python audio I/O and processing libraries. |
 
 ---
 
 ## 11. Named methods you'll see cited constantly
 
-Recognising these names is enough; you don't need to read them all.
+Recognising these names is enough.
 
 | Name | One-line significance |
 |---|---|
@@ -449,7 +447,7 @@ Recognising these names is enough; you don't need to read them all.
 | **SLT** | IEEE Spoken Language Technology Workshop. **REAL-TSE is an SLT 2026 satellite challenge.** |
 | **ASRU** | IEEE Automatic Speech Recognition and Understanding Workshop. |
 | **WASPAA** | Workshop on Applications of Signal Processing to Audio and Acoustics. |
-| **TASLP** | *IEEE/ACM Transactions on Audio, Speech and Language Processing.* The main journal — journal papers are longer and more detailed than conference ones. |
+| **TASLP** | *IEEE/ACM Transactions on Audio, Speech and Language Processing.* The main journal. Journal papers are longer and more detailed than conference ones. |
 | **SPM** | *IEEE Signal Processing Magazine.* Where survey/overview papers appear (e.g. the Žmolíková TSE overview). |
 | **REAL-TSE** ★ | Your anchor challenge. Real conversational TSE, online and offline tracks. |
 | **DNS Challenge** ★ | Microsoft's Deep Noise Suppression challenge. **Source of the standard algorithmic/buffering latency definitions the REAL-TSE online track adopts.** |
@@ -457,9 +455,9 @@ Recognising these names is enough; you don't need to read them all.
 | **Clarity** | Workshop series on speech-in-noise for hearing devices (where TF-MLPNet appeared). |
 | **M2MeT** | ICASSP 2022 multi-party meeting transcription challenge (produced AliMeeting). |
 | **MISP** | Multimodal Information-Based Speech Processing challenge. |
-| **OpenSLR** ★ | openslr.org — the main open repository for speech datasets. Where many corpora live. |
-| **System description paper** ★ | A short paper each challenge team writes describing exactly what they built. Often more practically useful than a polished conference paper. |
-| **AoE** | "Anywhere on Earth" — a deadline timezone convention meaning you get until the deadline in the last timezone on Earth. |
+| **OpenSLR** ★ | openslr.org, the main open repository for speech datasets. Where many corpora live. |
+| **System description paper** ★ | A short paper each challenge team writes describing what they built. Often more practically useful than a polished conference paper. |
+| **AoE** | "Anywhere on Earth": a deadline timezone convention giving you until the deadline in the last timezone on Earth. |
 
 ---
 
@@ -469,7 +467,7 @@ Recognising these names is enough; you don't need to read them all.
 |---|---|
 | **x** | the mixture (input) |
 | **s** | the target (clean, wanted) |
-| **ŝ** ("s-hat") | the estimate — what your model produced |
+| **ŝ** ("s-hat") | the estimate, i.e. what your model produced |
 | **e** | the enrollment |
 | **X, S** (capitals) | the same signals in the STFT/frequency domain |
 | **F** | number of frequency bins (usually 257) |
@@ -485,8 +483,8 @@ Recognising these names is enough; you don't need to read them all.
 
 ## 14. Five things that trip up newcomers
 
-1. **Lower is better for error rates** (WER, CER, TER) and higher is better for everything else. Tables mix both, so always read the arrows.
-2. **SI-SNR and SI-SDR are used interchangeably** in practice despite technically differing.
-3. **"Causal" is easy to break accidentally.** Global normalisation, bidirectional layers on the time axis, and whole-utterance statistics all secretly use the future. Your model can look causal and not be.
-4. **The frequency axis is not the time axis.** You can look "both ways" across frequency within a single frame without breaking causality. This confuses almost everyone at first, and it's why band-split models can use bidirectional layers and still stream.
+1. **Lower is better for error rates** (WER, CER, TER), higher for everything else. Tables mix both, so read the arrows.
+2. **SI-SNR and SI-SDR are used interchangeably**, though technically different.
+3. **"Causal" is easy to break by accident.** Global normalisation, bidirectional layers on the time axis and whole-utterance statistics all use the future. A model can look causal and not be.
+4. **The frequency axis is not the time axis.** Looking "both ways" across frequency within one frame does not break causality. This is why band-split models can use bidirectional layers and still stream.
 5. **Simulated numbers do not transfer.** A model at 18 dB SI-SDR on LibriMix can be near-useless on real meeting audio. Never compare a score across datasets.

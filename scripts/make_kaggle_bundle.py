@@ -66,6 +66,7 @@ CODE = [
     # AMP and batch-ceiling numbers cannot be measured on the laptop.
     "scripts/profile_step.py",
     "src/run_log.py",
+    "src/holdouts.py",   # train.py imports it; 2026-10-12, decisions-m8.md
     "src/data/dataset_loader.py",
     "src/models/bands.py",
     "src/models/bsrnn.py",
@@ -128,6 +129,7 @@ CODE = [
     # are staged by stage_init_weights(). decisions-m2.md 2026-10-02.
     "experiments/configs/bsrnn_interf_ft.yaml",
     "experiments/configs/bsrnn_interf_ft_control.yaml",
+    "experiments/configs/bsrnn_wm_ft.yaml",   # C6: w_m re-derived on sir0, decisions-m2.md 2026-10-17
     # 2026-10-03, AB-SDR. The artefact-weighted pair completing the 2x2 with the
     # two above. No new source file: the term is inside losses.py and train.py,
     # and the noise stem is recovered from the mixture. decisions-m2.md 2026-10-03.
@@ -141,6 +143,28 @@ CODE = [
     # (content_wer schedule + selection, keep_stride 3, the probe). No new source
     # file: every key it sets already exists. decisions-m2.md 2026-10-07.
     "experiments/configs/bsrnn_baseline_matched.yaml",
+    # 2026-10-12, M8: e21 fine-tuned on real AMI audio, alone (amift) and 50/50
+    # with sir0 (amimix). No new model code: the loader's per-row audio_dir and
+    # remixable columns are inside dataset_loader.py. decisions-m8.md 2026-10-12.
+    "experiments/configs/bsrnn_ami_ft.yaml",
+    "experiments/configs/bsrnn_amimix_ft.yaml",
+    # 2026-10-14, the variational presence gate (docs/extra/variational-presence-gate.md).
+    # train.py imports losses_presence only when model.presence_gate is on, and
+    # bsrnn.py builds the gate from presence_gate.py. The loader reads the per-frame
+    # labels v_t from data.state_index_dir (data/index, relative to the repo), so
+    # the span indexes ship here with the code, not with the audio (0.8 MB).
+    # derive_presence_weights.py sets beta and lam on the GPU:
+    # notebooks/kaggle_presence_weights.ipynb.
+    "src/models/presence_gate.py",
+    "src/models/losses_presence.py",
+    "scripts/derive_presence_weights.py",
+    "experiments/configs/bsrnn_presence_gate.yaml",
+    "experiments/configs/bsrnn_presence_gate_b.yaml",   # arm B: beta = 0
+    "experiments/configs/bsrnn_presence_postfilter.yaml",   # the gate on a frozen e21, decisions-m2.md 2026-10-18
+    "data/index/state_sir0_train.csv",
+    "data/index/state_sir0_train.meta.yaml",
+    "data/index/state_sir0_val.csv",
+    "data/index/state_sir0_val.meta.yaml",
     "docs/run_times.md",   # src.run_log appends here; give it a real file
 ]
 
@@ -151,7 +175,19 @@ CODE = [
 SPLIT_FILES = {
     "mid":  [("mid_train", "train"), ("mid_val", "val")],
     "sir0": [("sir0_train", "sir0_train"), ("sir0_val", "sir0_val")],
+    # M8 (decisions-m8.md 2026-10-12): the ami_train trials, plus the two
+    # training manifests built over them. None = manifest only: its rows name
+    # their own audio_dir, either staged here or ALREADY_ON_KAGGLE. Uploaded as
+    # a SECOND dataset next to tse-audio-s0-v3 (the notebook's DATA_DIR_NEW).
+    "ami":  [("ami_train", "ami_train"), ("amift_train", None), ("amimix_train", None)],
 }
+# Audio already uploaded (tse-audio-s0-v3). A manifest-only entry may point at
+# these without staging them; anything else must be in this bundle.
+ALREADY_ON_KAGGLE = {"sir0_train", "sir0_val"}
+# The run splits (train.py SPLIT_MANIFESTS) a data bundle is verified through.
+# Default: the bundle's own name. `ami` is not a run split (it is ami_eval's
+# render-only alias), so its two arms are checked instead.
+VERIFY_RUN_SPLITS = {"ami": ["amift", "amimix"]}
 
 # the only files TrialDataset opens, plus meta.json for provenance.
 # The interferer pair is required by data.both_directions (2026-08-26): without
@@ -332,6 +368,15 @@ def stage_data(out: Path, split: str, new_only: int = 0) -> None:
             if f.exists():
                 copy_if_changed(f, out / "data/manifests" / f.name)
 
+        if audio_dir is None:
+            dirs = pd.read_csv(man)["audio_dir"].value_counts().to_dict()
+            staged = {a for _, a in SPLIT_FILES[split] if a}
+            stray = set(dirs) - staged - ALREADY_ON_KAGGLE
+            if stray:
+                sys.exit(f"{stem}: rows read audio from {sorted(stray)}, which is "
+                         f"neither staged nor already on Kaggle")
+            print(f"  {stem}: manifest only, rows by audio_dir {dirs}")
+            continue
         ids = pd.read_csv(man)["trial_id"].tolist()
         n_total = len(ids)
         if new_only and pair_idx == 0:
@@ -400,6 +445,28 @@ def check_additive(split: str, new_only: int, prefix_manifest: Path) -> None:
     print(f"  verified byte-identical to {prefix_manifest}")
 
 
+def merged_view(td: Path, data_dir: Path) -> Path:
+    """What the notebook's merge cell builds on Kaggle, built here from symlinks:
+    the staged bundle's audio and manifests, plus ALREADY_ON_KAGGLE from the
+    repo's own data/. Verifying through it checks the two datasets TOGETHER --
+    the only way a mixed manifest (amimix) can be checked before the upload."""
+    root = td / "merged"
+    for sub in ("rendered", "manifests"):
+        (root / "data" / sub).mkdir(parents=True)
+    for d in sorted((data_dir / "data/rendered").iterdir()):
+        (root / "data/rendered" / d.name).symlink_to(d.resolve())
+    for name in sorted(ALREADY_ON_KAGGLE):
+        (root / "data/rendered" / name).symlink_to((REPO / "data/rendered" / name).resolve())
+        (root / "data/manifests" / f"{name}.csv").symlink_to(
+            (REPO / "data/manifests" / f"{name}.csv").resolve())
+    for f in sorted((data_dir / "data/manifests").iterdir()):
+        target = root / "data/manifests" / f.name
+        if target.is_symlink():
+            target.unlink()             # the bundle's copy wins, as on Kaggle
+        target.symlink_to(f.resolve())
+    return root
+
+
 def write_verify_manifests(td: Path, split: str, new_only: int) -> None:
     """Manifests trimmed to what --new-only actually staged, for verify() only.
 
@@ -432,8 +499,12 @@ import sys, yaml, torch
 from pathlib import Path
 sys.path.insert(0, ".")
 from scripts.train import (get_data_loaders, build_loss_fn, build_model, unpack,
-                           other_kwargs, init_weights_record)
+                           other_kwargs, gate_kwargs, init_weights_record,
+                           model_block_without_gate, split_gate_output)
 cfg = yaml.safe_load(open("{config}"))
+# Presence gate: its loss refuses to run without the gate's logits and labels, so the
+# model is called as train.py calls it (return_gate=True) and the KL and BCE are exercised.
+gate_on = bool(cfg["model"].get("presence_gate", False))
 
 # SEEDED once at the top: random init + shuffle=True made this number swing
 # 13.5 to 24.5 between runs, and an unreproducible number detects no regression.
@@ -451,9 +522,11 @@ L, m = build_loss_fn(cfg), build_model(cfg); m.eval()
 _init = init_weights_record(cfg)
 if _init:
     _src = torch.load(_init["path"], map_location="cpu", weights_only=False)
-    assert (_src.get("config") or {{}}).get("model") == cfg["model"], "init_weights: model block differs"
-    m.load_state_dict(_src["model"])
-    print(f"  init weights loaded: {{_init['path']}} md5 {{_init['md5']}}")
+    # The presence-gate keys may differ (e21 into a gated model, decisions-m2.md 2026-10-18); nothing else may.
+    assert model_block_without_gate(_src.get("config") or {{}}) == model_block_without_gate(cfg), "init_weights: model block differs"
+    _missing, _unexpected = m.load_state_dict(_src["model"], strict=False)
+    assert not _unexpected and all(k.startswith("presence_gate.") for k in _missing), (_missing, _unexpected)
+    print(f"  init weights loaded: {{_init['path']}} md5 {{_init['md5']}}" + (f" (gate weights at seeded init: {{len(_missing)}} tensors)" if _missing else ""))
 
 # ITEM 1c. The verifier is a CALL SITE like any other, and on 2026-09-22 it was
 # the first one the required-keyword design caught -- locally, before an upload,
@@ -484,7 +557,11 @@ with torch.no_grad():
         if bool(cfg["model"].get("context_embedding", False)):
             ctx = {{"enrol_embedding": _enc.embed(e)}}
         # D10: the other speaker's stem, which a w_interf != 1 loss requires.
-        loss, parts = L(s, m(x, e, **ctx), x, a, **other_kwargs(L, b, "cpu"))
+        if gate_on:
+            y, g, y_ungated = split_gate_output(m(x, e, return_gate=True, **ctx))   # 3 outputs in "postfilter" mode
+            loss, parts = L(s, y, x, a, **other_kwargs(L, b, "cpu"), **gate_kwargs(L, b, "cpu", g, y_ungated))
+        else:
+            loss, parts = L(s, m(x, e, **ctx), x, a, **other_kwargs(L, b, "cpu"))
         seen["present"] += parts["n_present"]; seen["absent"] += parts["n_absent"]
         shown.append((i, float(loss), parts))
         if seen["present"] and seen["absent"]:
@@ -494,7 +571,8 @@ with torch.no_grad():
 for i, tot, parts in shown:
     print(f"  batch {{i}}: total={{tot:8.4f}} L_pres={{parts['L_pres']:8.4f}} "
           f"L_MR={{parts['L_MR']:.4f}} L_abs={{parts['L_abs']:9.4f}} "
-          f"n_pres={{parts['n_present']}} n_abs={{parts['n_absent']}}")
+          f"n_pres={{parts['n_present']}} n_abs={{parts['n_absent']}}"
+          + (f" L_kl={{parts['L_kl']:.4f}} L_bce={{parts['L_bce']:.4f}} pi_mean={{parts['pi_mean']:.3f}}" if gate_on else ""))
 assert seen["present"] and seen["absent"], f"both halves not exercised: {{seen}}"
 # untrained model: a large POSITIVE total is the expected result, not a red flag
 print(f"  both halves exercised over {{len(shown)}} batch(es): "
@@ -556,6 +634,8 @@ def main() -> None:
                          "Strongly advised with --new-only.")
     args = ap.parse_args()
 
+    if args.new_only and args.split in VERIFY_RUN_SPLITS:
+        sys.exit(f"--new-only is not supported for --split {args.split}")
     if args.prefix_manifest and not args.new_only:
         sys.exit("--prefix-manifest only means something with --new-only")
 
@@ -590,6 +670,13 @@ def main() -> None:
                 verify(code_dir, data_dir, args.split, Path(td))
                 for extra in args.verify_config:
                     verify(code_dir, data_dir, args.split, Path(td), config=extra)
+        elif args.split in VERIFY_RUN_SPLITS:
+            with tempfile.TemporaryDirectory() as td:
+                view = merged_view(Path(td), data_dir)
+                for run_split in VERIFY_RUN_SPLITS[args.split]:
+                    for config in ["experiments/configs/bsrnn_baseline.yaml", *args.verify_config]:
+                        print(f"  -- {run_split} x {Path(config).name}")
+                        verify(code_dir, view, run_split, config=config)
         else:
             verify(code_dir, data_dir, args.split)
             for extra in args.verify_config:

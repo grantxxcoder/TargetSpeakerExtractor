@@ -13,7 +13,9 @@ bug shipped once; _lines() and the check at the bottom exist to stop it again.
         --epochs 6 --out notebooks/kaggle_train_interf_ft.ipynb
 
 --config / --epochs pre-set the two knobs that decide WHICH run this is, so a
-notebook can be uploaded and run without editing a cell by hand. EPOCHS
+notebook can be uploaded and run without editing a cell by hand.
+--split / --data-dir / --data-new / --code-dir pre-set the data and code
+mounts the same way (M8, decisions-m8.md 2026-10-12). EPOCHS
 overrides the config's training.epochs, so leaving it at the default when the
 config asks for fewer is a silently longer run, not a crash. 2026-10-02.
 """
@@ -23,6 +25,10 @@ _ap = argparse.ArgumentParser()
 _ap.add_argument("--config", default=None, help="pre-set CONFIG in the knobs cell")
 _ap.add_argument("--epochs", type=int, default=None, help="pre-set EPOCHS in the knobs cell")
 _ap.add_argument("--out", default="notebooks/kaggle_train_mid.ipynb")
+_ap.add_argument("--split", default=None, help="pre-set SPLIT (a train.py SPLIT_MANIFESTS key)")
+_ap.add_argument("--data-dir", default=None, help="pre-set DATA_DIR (first audio dataset)")
+_ap.add_argument("--data-new", default=None, help="pre-set DATA_DIR_NEW (second audio dataset)")
+_ap.add_argument("--code-dir", default=None, help="pre-set CODE_DIR")
 ARGS = _ap.parse_args()
 
 def _lines(src):
@@ -264,38 +270,55 @@ cells.append(code(r'''
 # error, just a quietly wrong experiment. The new dataset carries every row.
 MERGED = Path(WORK) / "merged"
 
+# WHICH manifests and audio dirs this run reads: train.py's own SPLIT_MANIFESTS,
+# parsed as text (no torch import) from the code dataset, so the notebook cannot
+# disagree with the trainer. Until 2026-10-12 this assumed f"{SPLIT}_train",
+# which only held for sir0 (mid reads audio from `train`, M8's amift from
+# `ami_train`). decisions-m8.md 2026-10-12.
+import ast as _ast
+from collections import Counter
+_tree = _ast.parse((CODE / "scripts/train.py").read_text())
+SPLIT_MANIFESTS = next(_ast.literal_eval(n.value) for n in _tree.body
+                       if isinstance(n, _ast.Assign)
+                       and any(getattr(t, "id", None) == "SPLIT_MANIFESTS" for t in n.targets))
+(TRAIN_MAN, TRAIN_AUDIO), (VAL_MAN, VAL_AUDIO) = SPLIT_MANIFESTS[SPLIT]
+print(f"split {SPLIT}: train {TRAIN_MAN} (audio {TRAIN_AUDIO}), val {VAL_MAN} (audio {VAL_AUDIO})")
+
 if DATA_NEW is None:
     DATA_ROOT    = DATA / "data"
     MANIFEST_DIR = DATA / "data/manifests"
     print(f"single dataset -> {DATA_ROOT}")
 else:
-    from collections import Counter
     made = Counter()
-    for sub in (f"{SPLIT}_train", f"{SPLIT}_val"):
-        dst = MERGED / "data/rendered" / sub
-        dst.mkdir(parents=True, exist_ok=True)
-        # DATA first, DATA_NEW second; first writer wins on a duplicate trial_id.
-        # Duplicates are EXPECTED: val is staged into both halves on purpose, so
-        # that the new dataset can verify itself without the old one.
-        for src_root in (DATA, DATA_NEW):
-            src = src_root / "data/rendered" / sub
-            if not src.is_dir():
+    # EVERY rendered dir from both datasets, so one manifest can draw on several
+    # (M8's amimix: ami_train from the new dataset, sir0_train from the old).
+    # DATA first, DATA_NEW second; first writer wins on a duplicate trial_id.
+    # Duplicates are EXPECTED: val is staged into both halves on purpose, so
+    # that the new dataset can verify itself without the old one.
+    for src_root in (DATA, DATA_NEW):
+        rendered = src_root / "data/rendered"
+        for sub in (sorted(os.listdir(rendered)) if rendered.is_dir() else []):
+            if not (rendered / sub).is_dir():
                 continue
-            for tid in os.listdir(src):
+            dst = MERGED / "data/rendered" / sub
+            dst.mkdir(parents=True, exist_ok=True)
+            for tid in os.listdir(rendered / sub):
                 link = dst / tid
                 if not link.exists():
-                    os.symlink(src / tid, link)
+                    os.symlink(rendered / sub / tid, link)
                     made[sub] += 1
-    # Link the manifests in too, so MERGED is a COMPLETE data root rather than
-    # a rendered-only tree. The batch-size probe derives its manifest directory
-    # as <data-root>/manifests, so a partial merge would break it in a way that
-    # looks like an OOM rather than a path bug.
+    # Manifests from BOTH, DATA_NEW WINNING on a name clash. That is not
+    # arbitrary: an older dataset may still carry a SHORT manifest it was built
+    # with (sir0 kept 4,976 of 9,955 rows), and reading it would train on half the
+    # data while reporting success. The newer dataset's copy is the full one.
     mdst = MERGED / "data/manifests"
     mdst.mkdir(parents=True, exist_ok=True)
-    for f in sorted((DATA_NEW / "data/manifests").iterdir()):
-        link = mdst / f.name
-        if not link.exists():
-            os.symlink(f, link)
+    for src_root in (DATA_NEW, DATA):
+        mdir = src_root / "data/manifests"
+        for f in (sorted(mdir.iterdir()) if mdir.is_dir() else []):
+            link = mdst / f.name
+            if not link.exists():
+                os.symlink(f, link)
     DATA_ROOT    = MERGED / "data"
     MANIFEST_DIR = mdst
     print(f"merged two datasets -> {DATA_ROOT}")
@@ -304,19 +327,25 @@ else:
 
 # Check what the run will ACTUALLY read, after resolution -- not the knob paths.
 # Counting manifest rows against trials on disk is what catches a half-merged
-# tree, which is the one new failure this cell can introduce.
+# tree. A row's own `audio_dir`, if it has one, overrides the split's (M8).
 import csv as _csv
-for stem in (f"{SPLIT}_train", f"{SPLIT}_val"):
+for stem, audio in ((TRAIN_MAN, TRAIN_AUDIO), (VAL_MAN, VAL_AUDIO)):
     man = MANIFEST_DIR / f"{stem}.csv"
     if not man.exists():
         raise SystemExit(f"missing manifest: {man}\n  fix the knobs cell above.")
     with open(man) as fh:
-        ids = [r["trial_id"] for r in _csv.DictReader(fh)]
-    missing = [t for t in ids if not (DATA_ROOT / "rendered" / stem / t).exists()]
-    print(f"  {stem}: {len(ids)} rows, {len(ids) - len(missing)} present on disk")
+        rows = list(_csv.DictReader(fh))
+    where = Counter()
+    missing = []
+    for r in rows:
+        d = r.get("audio_dir") or audio
+        where[d] += 1
+        if not (DATA_ROOT / "rendered" / d / r["trial_id"]).exists():
+            missing.append(f"{d}/{r['trial_id']}")
+    print(f"  {stem}: {len(rows)} rows ({dict(where)}), {len(rows) - len(missing)} present on disk")
     if missing:
         raise SystemExit(
-            f"{len(missing)} of {len(ids)} trials in {stem} are NOT on disk, "
+            f"{len(missing)} of {len(rows)} trials in {stem} are NOT on disk, "
             f"first missing: {missing[0]}\n"
             f"  Split across two datasets? Set DATA_DIR_NEW.\n"
             f"  Already set? The older dataset holds the first half -- if it was "
@@ -497,7 +526,8 @@ from pathlib import Path
 sys.path.insert(0, ".")
 from scripts.train import (get_data_loaders, build_model, build_loss_fn, unpack,
                           build_context_encoder, context_kwargs,
-                           amp_ctx, oracle_mask_and_mag, other_kwargs)
+                           amp_ctx, oracle_mask_and_mag, other_kwargs, gate_kwargs,
+                           split_gate_output)
 # argv, NOT a notebook global: this runs in its OWN subprocess (see the comment
 # in the driver below), so a bare CONFIG here is a NameError at import time.
 B, data, split, config = (int(sys.argv[1]), Path(sys.argv[2]), sys.argv[3],
@@ -517,8 +547,12 @@ use_amp = bool(cfg["training"].get("amp", False))
 # measures a run that never happens and blesses a batch that OOMs in epoch 1.
 # Exactly the class of bug E8 records for fp32-vs-AMP; the D17 change never
 # reached this probe.
+# PRESENCE GATE (2026-10-14). As train.py: a gated model returns the gate's logits and
+# not the mask, and its loss refuses to run without the logits and labels. A probe
+# that called it the old way would crash here, before any training time was spent.
+gate_on = bool(cfg["model"].get("presence_gate", False))
 want_mask = (float(cfg["loss"].get("w_struct", 0.0)) > 0.0
-             or bool(cfg["loss"].get("log_struct", True)))
+             or bool(cfg["loss"].get("log_struct", True))) and not gate_on
 
 # GradScaler starts at 65536 and HALVES on every skipped step, so 25 skips puts
 # the scale under 0.002. Anything still overflowing there is not calibration.
@@ -528,6 +562,18 @@ CALIB_STEPS = 25
 scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 tr, _ = get_data_loaders(split, data / "manifests", data, cfg)
 m = build_model(cfg).to(dev); m.train()
+# The soft draw's temperature, eq. (20). train.py sets it at the start of every epoch;
+# the model leaves it None, and a train-mode forward divides by it. Epoch 0's value.
+# "joint" mode only, as train.py: "postfilter" has no draw and its config no tau keys.
+if gate_on and m.presence_mode == "joint":
+    m.gate_tau = float(cfg["loss"]["presence"]["tau_start"])
+# training.freeze_extractor, as train.py: everything but the gate frozen BEFORE the
+# optimiser is built, so AdamW state and gradients are sized for the run that happens.
+if bool(cfg["training"].get("freeze_extractor", False)):
+    _gate_ids = {id(q) for q in m.presence_gate.parameters()}
+    for q in m.parameters():
+        if id(q) not in _gate_ids:
+            q.requires_grad_(False)
 # ITEM 1c. The memory probe is a CALL SITE like any other, and on 2026-09-22 it
 # was the THIRD one the required-keyword design caught -- this time on Kaggle,
 # before any training time was spent rather than after. Building the encoder
@@ -535,7 +581,7 @@ m = build_model(cfg).to(dev); m.train()
 # forward, so probing without it would size the batch for a different model.
 enc = build_context_encoder(cfg, dev)
 L = build_loss_fn(cfg)
-opt = torch.optim.AdamW(m.parameters(), lr=float(cfg["training"]["lr"]),
+opt = torch.optim.AdamW([q for q in m.parameters() if q.requires_grad], lr=float(cfg["training"]["lr"]),
                         weight_decay=float(cfg["training"]["weight_decay"]))
 grad_clip = float(cfg["training"]["grad_clip"])
 
@@ -551,8 +597,13 @@ for i, b in enumerate(tr):
     # Mirrors train.py's step exactly: autocast the FORWARD ONLY, .float()
     # before the loss (LossBSRNN's 1e-12 epsilons underflow in fp16), then
     # scale / unscale / clip / step / update.
+    g = s_ung = None
     with amp_ctx(use_amp):
-        if want_mask:
+        if gate_on:
+            # Two outputs in "joint" mode, three in "postfilter" (train.split_gate_output).
+            out, g, s_ung = split_gate_output(m(x, e, return_gate=True, **context_kwargs(enc, e)))
+            mask = None
+        elif want_mask:
             out, mask = m(x, e, return_mask=True, **context_kwargs(enc, e))
         else:
             out, mask = m(x, e, **context_kwargs(enc, e)), None
@@ -562,7 +613,7 @@ for i, b in enumerate(tr):
     loss, _ = L(s, out.float(), x, a,
                 mask=None if mask is None else mask.float(),
                 oracle_mask=oracle, mixture_mag=mix_mag,
-                **other_kwargs(L, b, dev))
+                **other_kwargs(L, b, dev), **gate_kwargs(L, b, dev, g, s_ung))
     # A non-finite loss makes the scaler skip FOREVER, which is indistinguishable
     # from a too-small calibration budget unless it is checked for directly.
     if not torch.isfinite(loss):
@@ -895,6 +946,14 @@ def _override(prefix, new_line):
 if ARGS.config:
     _override("CONFIG      = ", f'CONFIG      = "{ARGS.config}"   '
                                 f'# set by make_kaggle_notebook.py --config')
+if ARGS.split:
+    _override("SPLIT       = ", f'SPLIT       = "{ARGS.split}"  # set by --split')
+if ARGS.data_dir:
+    _override("DATA_DIR     = ", f'DATA_DIR     = "{ARGS.data_dir}"   # set by --data-dir')
+if ARGS.data_new:
+    _override("DATA_DIR_NEW = ", f'DATA_DIR_NEW = "{ARGS.data_new}"   # set by --data-new')
+if ARGS.code_dir:
+    _override("CODE_DIR     = ", f'CODE_DIR     = "{ARGS.code_dir}"   # set by --code-dir')
 if ARGS.epochs:
     _override("EPOCHS      = ", f"EPOCHS      = {ARGS.epochs}       "
                                 f"# set by --epochs; the notes below are for the default 14")

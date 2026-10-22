@@ -61,6 +61,7 @@ from src.models.modules import (
 )
 from src.models.state_head import AuxStateHead
 from src.models.stft import STFT
+from src.models.presence_gate import apply_gate, gain_from_logits, PresenceGate, soft_on_off_draw
 
 
 class BSRNN(nn.Module):
@@ -74,12 +75,11 @@ class BSRNN(nn.Module):
         self.lookahead_frames = lookahead_frames
         self.band_widths = band_plan(sample_rate, n_fft, band_segments)
 
-        self.stft         = STFT(n_fft, hop, sample_rate)
-        self.split        = BandSplit(self.band_widths)
+        self.stft = STFT(n_fft, hop, sample_rate)
+        self.split = BandSplit(self.band_widths)
         self.subband_norm = SubbandNorm(self.band_widths, in_channels, feature_dim, causal)
-        self.separator    = BandSequenceModel(feature_dim, hidden_dim, num_repeat, causal)
-        self.estimator    = Estimator(self.band_widths, feature_dim, mlp_hidden,
-                                      n_hidden, causal, residual_branch)
+        self.separator = BandSequenceModel(feature_dim, hidden_dim, num_repeat, causal)
+        self.estimator = Estimator(self.band_widths, feature_dim, mlp_hidden, n_hidden, causal, residual_branch)
 
     def forward(self, mixture):
         """(B, T_samples) -> (B, T_samples)"""
@@ -119,7 +119,8 @@ class BSRNN_TFMAP(nn.Module):
                  residual_branch=True, in_channels=3, tfmap_scale=16.0,
                  state_head=False, state_head_detach=False,
                  tfmap_inject=False, tfmap_gate_init=0.0, mask_floor=0.0,
-                 tfmap_parts=False, tfmap_part_scales=None):
+                 tfmap_parts=False, tfmap_part_scales=None, presence_gate=False,
+                 presence_mode="joint", presence_floor=0.0):
         super().__init__()
         self.lookahead_frames = lookahead_frames
         self.band_widths = band_plan(sample_rate, n_fft, band_segments)
@@ -176,12 +177,33 @@ class BSRNN_TFMAP(nn.Module):
         self.state_head = (AuxStateHead(feature_dim, detach_features=state_head_detach)
                            if state_head else None)
 
+        # Presence gate, docs/extra/variational-presence-gate.md. OFF by default, and the attribute is
+        # None rather than absent so a caller can test for it without try/except.
+        self.presence_gate = (PresenceGate(feature_dim) if presence_gate else None)
+        self.gate_tau = None
+        # HOW the gate meets the extractor (decisions-m2.md 2026-10-18).
+        #   "joint"      arm A/B as trained 2026-10-15..18: the gate reads live separator features, a binary Concrete
+        #                draw multiplies the spectrum in training, pi at inference, and the gated loss trains both.
+        #   "postfilter" the gate reads DETACHED features and multiplies a DETACHED spectrum, so no gradient of any
+        #                gate term reaches the separator and the extractor trains on the ungated output alone (e21's
+        #                objective, unchanged). The gain is floor + (1 - floor) * pi in training AND inference
+        #                (eq. 21, no draw). Measured reason (arm A, idx 25, 2026-10-18): the gated loss shielded the
+        #                mask from the frames the gate muted, so the extractor lost 2.4 dB of interferer-only
+        #                suppression against e21 (-0.4 vs -2.8 dB relative to target-only frames) and the gate won
+        #                back 0.2 dB; and the gate's log-loss was 0.18 nats/frame on training crops against 0.53-0.74
+        #                on validation, a gap the 129-weight gate cannot produce on its own.
+        if presence_mode not in ("joint", "postfilter"):
+            raise ValueError(f"presence_mode must be 'joint' or 'postfilter', got {presence_mode!r}")
+        self.presence_mode = presence_mode
+        self.presence_floor = float(presence_floor)
+        if self.presence_floor and presence_mode == "joint":
+            raise ValueError("presence_floor is only defined for presence_mode 'postfilter'")
+
     def _fuse_context(self, z, context):
         """No-op in the base class. See BSRNN_TFMAP_CONTEXT."""
         return z
 
-    def forward(self, mixture, enrollment, return_state=False,
-                return_mask=False, *, context=None):
+    def forward(self, mixture, enrollment, return_state=False, return_mask=False, *, context=None, return_gate=False):
         """(B, T_samples), (B, T_enroll) -> (B, T_samples)
 
         With `return_state=True`, returns `(waveform, state_logits)` where the
@@ -225,16 +247,50 @@ class BSRNN_TFMAP(nn.Module):
         # silent k-frame misalignment the moment that config key is raised.
         state_logits = None if self.state_head is None else self.state_head(z)
 
+        # Presence gate, eq. (2), the amortised posterior (Kingma & Welling, 2014): READ here, from the separator features, before
+        # lookahead_shift for the same reason as head A. APPLIED below, to the
+        # output spectrum. None when off.
+        gate_logits = None
+        if self.presence_gate is not None:
+            # "postfilter": z.detach() closes the only path by which the KL, the BCE and the gated loss could reshape
+            # the separator's features (the memorisation channel). The gate's own 129 weights still learn.
+            gate_logits = self.presence_gate(z.detach() if self.presence_mode == "postfilter" else z)
+
         z = lookahead_shift(z, self.lookahead_frames)
         # D17: ask the estimator to keep the mask in the graph BEFORE the call,
         # and clear the flag after, so a caller that does not want the mask
         # never pays for a retained tensor.
         self.estimator.keep_mask_grad = bool(return_mask)
-        waveform = self.stft.inverse(self.estimator(z, mix_bands), n)
+        spectrum = self.estimator(z, mix_bands)            # (B, F, T): M * X + R
+        ungated_waveform = None
+        if gate_logits is not None and self.presence_mode == "postfilter":
+            # The extractor's output, untouched: what its loss is computed on. The gated branch multiplies a DETACHED
+            # copy, so the gated loss can move the gate but never the mask. Same gain in training and inference.
+            ungated_waveform = self.stft.inverse(spectrum, n)
+            spectrum = apply_gate(spectrum.detach(), gain_from_logits(gate_logits, self.presence_floor))
+        elif gate_logits is not None:
+            # Eq. (20) in training: binary Concrete soft draw (Maddison et al., 2017; Jang et al., 2017). Eq. (21) at inference: pi itself.
+            if self.training:
+                gate = soft_on_off_draw(gate_logits, self.gate_tau)
+            else:
+                gate = torch.sigmoid(gate_logits)
+            spectrum = apply_gate(spectrum, gate)
+
+        waveform = self.stft.inverse(spectrum, n)
         mask = self.estimator.last_mask_grad if return_mask else None
         self.estimator.keep_mask_grad = False
         self.estimator.last_mask_grad = None
 
+        if return_gate:
+            if gate_logits is None:
+                raise RuntimeError("return_gate=True but this model was built without a presence gate. ")
+            if return_state or return_mask:
+                raise RuntimeError("return_gate=True is incompatible with return_state or return_mask. ")
+            if self.presence_mode == "postfilter":
+                # Three outputs: the system's (gated) waveform, the gate's logits, and the extractor's own (ungated)
+                # waveform, which the loss trains the extractor on. Callers without return_gate see the gated one only.
+                return waveform, gate_logits, ungated_waveform
+            return waveform, gate_logits
         if return_mask and not return_state:
             return waveform, mask
         if return_mask and return_state:
@@ -296,13 +352,11 @@ class BSRNN_TFMAP_CONTEXT(BSRNN_TFMAP):
                 "forward was bypassed.")
         return self.context(z, context)
 
-    def forward(self, mixture, enrollment, return_state=False,
-                return_mask=False, *, enrol_embedding):
+    def forward(self, mixture, enrollment, return_state=False, return_mask=False, return_gate=False, *, enrol_embedding):
         """(B, T), (B, T_enroll), (B, D) -> (B, T).
 
         `enrol_embedding` comes from ContextEncoder.embed(), computed ONCE per
         utterance. It is not recomputed per chunk, which is what keeps the
         per-frame cost of this arm at exactly zero.
         """
-        return super().forward(mixture, enrollment, return_state=return_state,
-                               return_mask=return_mask, context=enrol_embedding)
+        return super().forward(mixture, enrollment, return_state=return_state, return_mask=return_mask, return_gate=return_gate, context=enrol_embedding)

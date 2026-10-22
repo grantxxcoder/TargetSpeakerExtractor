@@ -1,14 +1,8 @@
 # Decision Log — M1 (BSRNN implementation)
 
-**Closed 2026-08-31.** Covers the architecture and the training infrastructure:
-the causal BSRNN + TF-Map extractor, its STFT, band plan, normalisation, sizing
-and conditioning. See `milestones.md` M1.
+**Closed 2026-08-31.** Covers the architecture and training infrastructure: the causal BSRNN + TF-Map extractor, its STFT, band plan, normalisation, sizing and conditioning. See `milestones.md` M1.
 
-Split by milestone on 2026-08-31. The training objective and every training run
-moved to `decisions-m2.md`; the evaluation instrument to `decisions-m3.md`; the
-metric and the judge to `decisions-m4.md`. References elsewhere in the repo were
-updated in the same commit. Earlier milestones are in `decisions-m0.md`; open
-questions stay in `decisions-pending.md`.
+Split by milestone on 2026-08-31: training objective and runs moved to `decisions-m2.md`, the evaluation instrument to `decisions-m3.md`, the metric and judge to `decisions-m4.md`. Repo references were updated in the same commit. Earlier milestones are in `decisions-m0.md`; open questions in `decisions-pending.md`.
 
 ---
 
@@ -16,7 +10,7 @@ questions stay in `decisions-pending.md`.
 
 **Decision: `chunk_s = 4.0` (64,000 samples at 16 kHz).**
 
-What the literature uses, all verified in the source PDFs/configs:
+Literature, verified in the source PDFs/configs:
 
 | Source | Task | Chunk |
 | --- | --- | --- |
@@ -28,29 +22,15 @@ What the literature uses, all verified in the source PDFs/configs:
 
 Why 4 s rather than the 3 s consensus:
 
-1. **CARTSE is the only online, causal, TSE system in the set** — our exact task,
-   and the system that won the track. It is the most defensible anchor we have.
-   The 6 s outlier is a speech *enhancement* paper with no enrolment and no
-   target-absent case, so its constraint is not ours.
-2. **It reduces the empty-crop rate.** `target_activity_ratio` reaches down to
-   0.15, so on an ~18 s clip a 3 s window can land entirely in target silence and
-   silently turn a `both` trial into an absent example. A longer window catches
-   speech more often. This mitigates the problem; it does not solve it — see the
-   measurement required below.
-3. **Our model is causal with an LSTM.** At inference the recurrent state persists
-   across the whole stream, so training on short chunks means the state never
-   accumulates as much context as it will see in deployment. Longer chunks narrow
-   that train/inference gap. This argument does not apply to the offline models
-   above, which is part of why they could afford 3 s.
+1. **CARTSE is the only online, causal TSE system in the set.** It is our task and won the track. The 6 s outlier is a speech *enhancement* paper with no enrolment and no target-absent case, so it does not apply.
+2. **Fewer empty crops.** `target_activity_ratio` goes down to 0.15, so on an ~18 s clip a 3 s window can land entirely in target silence and turn a `both` trial into an absent example. A longer window reduces this but does not remove it (measured below).
+3. **The model is causal with an LSTM.** At inference the recurrent state persists across the whole stream, so short training chunks never build up the context it sees in deployment. Longer chunks narrow this gap; the offline models above do not have it.
 
-Cost: ~33 % more frames per example than 3 s, so proportionally less batch at
-equal memory.
+Cost: ~33 % more frames per example than 3 s, so proportionally less batch at equal memory.
 
-**Required measurement: done 2026-08-18** — see the empty-crop entry below. The
-drift is +0.043, which does not change this decision. `chunk_s = 4.0` stands.
+**Required measurement: done 2026-08-18** (empty-crop entry below). Drift +0.043, so `chunk_s = 4.0` stands.
 
-Enrolment length is unchanged at 5 s (`decisions-m0.md` 2026-08-12). CARTSE used
-3 s; ours sits inside the 5–10 s range of Yu et al. No change proposed.
+Enrolment stays at 5 s (`decisions-m0.md` 2026-08-12). CARTSE used 3 s; ours is inside the 5–10 s range of Yu et al.
 
 ---
 
@@ -58,30 +38,17 @@ Enrolment length is unchanged at 5 s (`decisions-m0.md` 2026-08-12). CARTSE used
 
 **Decision: `batch_size = 12`, provisional on GPU memory.**
 
-Matches CARTSE at the same 4 s chunk length ("trained on 4 s chunks with batch
-size 12 for 200 epochs"), so the chunk/batch pair is taken as a unit from a system
-that trained successfully on this task rather than tuned independently.
+Matches CARTSE at the same 4 s chunk ("trained on 4 s chunks with batch size 12 for 200 epochs"), so the chunk/batch pair is taken from them as a unit.
 
-Provisional because batch size is hardware-bound and M2 runs on Kaggle sessions,
-not the machine this was chosen on. If it must change, record the new value and
-the memory limit that forced it — the effective batch is a training-dynamics
-parameter, not just a throughput knob, and a silent change makes M2's curves
-incomparable to this baseline.
+Provisional because M2 runs on Kaggle, not the machine this was chosen on. If it changes, record the new value and the memory limit that forced it. The effective batch affects training dynamics, so a silent change makes M2's curves incomparable.
 
 ---
 
 ## 2026-08-18 — Empty-crop rate measured: uniform cropping retained
 
-**Decision: crop offsets stay uniform. VAD-aware cropping is NOT required.**
-**The split loss must weight against the effective absent rate of 0.297, not the
-designed 0.254.**
+**Decision: crop offsets stay uniform. VAD-aware cropping is not required. The split loss must weight against the effective absent rate of 0.297, not the designed 0.254.**
 
-An "empty crop" is a chunk drawn from a trial where the target *does* speak, but
-not during the window we cropped. `target_activity_ratio` reaches down to 0.15, so
-a 4 s window can land entirely in the gaps. `crop_absent` is computed from the
-cropped target stem, so these are labelled correctly — the risk was never
-mislabelling, it was that the composition the model trains on drifts away from the
-composition the generator was configured to produce.
+An "empty crop" is a 4 s window from a trial where the target speaks, but not inside the window (`target_activity_ratio` goes down to 0.15). `crop_absent` is computed from the cropped target stem, so these are labelled correctly. The risk is that the training mix drifts from what the generator was configured to produce.
 
 Measured on `train`, 3,000 trials x 3 epochs = 9,000 crops, chunk 4 s, seed 42:
 
@@ -105,212 +72,106 @@ Leakage by `target_activity`:
 
 Why uniform cropping is kept:
 
-1. **The drift is small.** 0.254 -> 0.297 is +4.3 points. Not enough to move the
-   model's silence prior meaningfully.
-2. **Leakage is confined to the `hard` regime.** It is negligible above activity
-   0.5 (0.4-3.8 %), where 75 % of the data sits, and only becomes large below 0.4
-   — a band `base` does not reach at all (`base` draws [0.45, 0.78], `hard` draws
-   [0.15, 0.78]). The existing escape hatch of filtering to `regime == base` is
-   therefore also a leakage fix, so no new machinery is warranted.
-3. **These crops are wanted.** A `both` trial cropped where the target has stopped
-   talking is the interruption case: target present in the exchange, silent right
-   now. That is a condition we care about, not noise.
+1. **The drift is small.** 0.254 to 0.297 is +4.3 points, too little to shift the model's silence prior.
+2. **Leakage is confined to the `hard` regime.** It is negligible above activity 0.5 (0.4-3.8 %), where 75 % of the data sits, and only large below 0.4, which `base` never reaches (`base` draws [0.45, 0.78], `hard` draws [0.15, 0.78]). The existing escape hatch, filtering to `regime == base`, therefore also fixes leakage.
+3. **These crops are wanted.** A `both` trial cropped after the target stops talking is the interruption case: the target is in the exchange but silent right now.
 
-Two sanity checks passed. Per-epoch effective rate was 0.291 / 0.298 / 0.302 —
-varying but stable, confirming `set_epoch` reaches the offset draw. Leakage by
-condition was `both` 0.059 vs `target_only` 0.055, indistinguishable at these
-sample sizes, which is correct: leakage depends only on where the *target* speaks,
-and the target stem is unaffected by whether an interferer exists.
+Two sanity checks passed. The per-epoch effective rate was 0.291 / 0.298 / 0.302, so `set_epoch` reaches the offset draw. Leakage was `both` 0.059 vs `target_only` 0.055, indistinguishable at these sample sizes, as expected, since leakage depends only on the *target* stem.
 
-Consequence to carry into the split loss: **the effective absent rate is 0.297.**
-Any weighting between the target-present (SI-SDR) and target-absent
-(push-to-silence) halves must use the crop-level rate, because that is what the
-model sees. Using the designed 0.254 would under-weight the silence half by ~17 %
-relative.
+**Consequence for the split loss:** weighting between the target-present (SI-SDR) and target-absent (push-to-silence) halves must use the crop-level rate of 0.297. The designed 0.254 would under-weight the silence half by ~17 % relative.
 
-Caveat on scope: measured at `chunk_s = 4.0` on `train` only. Changing the chunk
-length invalidates these numbers.
+Scope: `chunk_s = 4.0` on `train` only. A different chunk length invalidates these numbers.
 
 ---
 
 ## 2026-08-18 — STFT: 512/128, causal framing, and a lookahead knob
 
-**Decision: `n_fft = 512`, `hop = 128`, Hanning window, `center=False` with
-symmetric `n_fft - hop` padding at both ends. Algorithmic latency 40 ms.
-`lookahead_frames` is a config knob, 0-16, default 0.**
+**Decision: `n_fft = 512`, `hop = 128`, Hanning window, `center=False` with symmetric `n_fft - hop` padding at both ends. Algorithmic latency 40 ms. `lookahead_frames` is a config knob, 0-16, default 0.**
 
 ### Window and hop
 
-512/128 at 16 kHz is 32 ms window / 8 ms shift, taken from Yu et al. (Interspeech
-2023) §4.2, which specifies exactly these for its 16 kHz model (the paper's other
-figures — the 33-subband split, the 20 ms/10 ms window — belong to its 48 kHz
-fullband model and do not transfer; see `decisions-m0.md` on not importing
-fullband settings wholesale).
+512/128 at 16 kHz is a 32 ms window / 8 ms shift, from Yu et al. (Interspeech 2023) §4.2 for its 16 kHz model. The paper's other figures (the 33-subband split, the 20 ms/10 ms window) are for its 48 kHz fullband model and do not transfer (see `decisions-m0.md` on fullband settings).
 
-Chosen against **our** ~200-300 ms streaming budget, not the REAL-TSE Track 1
-100 ms cap. At 40 ms we are using well under a quarter of the budget, which is the
-headroom the lookahead knob below exists to spend. This is the M1 milestone's
-required justification.
+Chosen against **our** ~200-300 ms streaming budget, not the REAL-TSE Track 1 100 ms cap. 40 ms uses under a quarter of it, leaving headroom for the lookahead knob below. This is the justification M1 requires.
 
 ### Framing: `center=False`
 
-`center=True` is the PyTorch default and is wrong for us. It centres frame *t* on
-its timestamp, so the frame consumes `n_fft/2` = 256 samples = **16 ms of audio
-from after *t***. Offline that is invisible — the future samples are on disk, the
-model trains and scores normally — and it only surfaces when the system is
-streamed. `center=False` frames cover `[t, t + n_fft)` and are emitted once that
-window has filled, so nothing depends on the future.
+`center=True`, the PyTorch default, is wrong for us. It centres frame *t* on its timestamp, so the frame consumes `n_fft/2` = 256 samples = **16 ms of audio from after *t***. This is invisible offline and only surfaces when streamed. `center=False` frames cover `[t, t + n_fft)` and are emitted once the window has filled, so nothing depends on the future.
 
-The `n_fft - hop` = 384-sample left pad is not a numerical trick: it reproduces the
-cold start of a live system, whose input ring buffer begins zeroed and fills over
-the first 384 samples.
+The `n_fft - hop` = 384-sample left pad reproduces the cold start of a live system, whose input ring buffer starts zeroed and fills over the first 384 samples.
 
 ### Synthesis is a manual overlap-add, not `torch.istft`
 
-`torch.istft` **refuses `center=False`** — it checks the overlap-add envelope for
-edge coverage and raises `window overlap add min: 1`. Left-padding does not rescue
-it. Synthesis is therefore `F.fold` (vectorised overlap-add) with explicit
-envelope normalisation: divide by the summed squared window so each output sample
-is corrected for how many frames covered it.
+`torch.istft` **refuses `center=False`**: it checks the overlap-add envelope for edge coverage and raises `window overlap add min: 1`, even with left-padding. Synthesis is therefore `F.fold` (vectorised overlap-add), divided by the summed squared window so each output sample is corrected for how many frames covered it.
 
-**The tail pad is load-bearing and was found by a bug.** A first implementation
-padded only enough to complete the final frame, which for a 64,000-sample input
-gives `right = 0`. The last real samples then sit where the envelope has decayed
-to ~1e-9, and dividing by that destroys them: measured max reconstruction error
-**6.6e-3, concentrated entirely in the final samples** (head and interior were
-7e-7). Padding the tail by `n_fft - hop` as well, so the real signal ends before
-the ramp-out, gives **9.5e-7 across lengths 12,345 / 16,000 / 63,999 / 64,000 /
-64,001** with a flat envelope of 1.5 over the whole real signal.
+**The tail pad is required (found through a bug).** Padding only enough to complete the final frame gives `right = 0` for a 64,000-sample input. The last real samples then sit where the envelope has decayed to ~1e-9, and dividing by it destroys them: max reconstruction error **6.6e-3, concentrated entirely in the final samples** (head and interior 7e-7). Also padding the tail by `n_fft - hop` gives **9.5e-7 across lengths 12,345 / 16,000 / 63,999 / 64,000 / 64,001**, with a flat envelope of 1.5 over the whole real signal.
 
-Regression test keeps an assertion on the **envelope** (`env[pad:pad+T].min() >
-1.0`), not only on reconstruction error. The error says something is wrong; the
-envelope says what, and it generalises to any window/hop tried during the latency
-ablation.
+The regression test asserts on the **envelope** (`env[pad:pad+T].min() > 1.0`) as well as reconstruction error. The error says something is wrong; the envelope says what, for any window/hop in the latency ablation.
 
 ### Latency convention
 
-40 ms = `n_fft + hop` = window fill plus one hop to emit. **State this convention
-whenever the number is quoted:** CARTSE reports `window - hop` = 24 ms plus 8 ms
-buffering for the same framing. Neither is wrong; they count different things. The
-number that actually goes in the report is the *measured* effective future
-dependency, not the formula.
+40 ms = `n_fft + hop` = window fill plus one hop to emit. **State this convention whenever the number is quoted:** CARTSE reports `window - hop` = 24 ms plus 8 ms buffering for the same framing. Neither is wrong; they count different things. The report quotes the *measured* effective future dependency, not the formula.
 
 ### Lookahead
 
-`lookahead_frames` (0-16, one frame = one hop = 8 ms) lets the mask head see *k*
-frames of future context. Total algorithmic latency 40 ms at k=0 to 168 ms at
-k=16 — all inside budget before compute and the live-model API round trip.
+`lookahead_frames` (0-16, one frame = one hop = 8 ms) lets the mask head see *k* future frames. Algorithmic latency runs from 40 ms at k=0 to 168 ms at k=16, all inside budget before compute and the live-model API round trip.
 
-**Implementation note, non-obvious and worth defending:** lookahead cannot be
-implemented by shifting the training target. The model emits a complex mask
-multiplied into mixture frame *t*, and mixture frame *t* carries the target's
-content at time *t*; a per-frame multiplicative mask cannot move energy in time.
-The output must stay aligned to the mixture, and the lookahead is instead a shift
-of the *feature* sequence between the sequence stack and the mask head
-(`lookahead_shift`), so the mask for frame *t* is computed from a hidden state
-that has consumed frames up to *t + k*.
+**Implementation note:** lookahead cannot be done by shifting the training target. The mask is multiplied into mixture frame *t*, which carries the target's content at time *t*, and a per-frame mask cannot move energy in time. Instead, the *feature* sequence is shifted between the sequence stack and the mask head (`lookahead_shift`), so the mask for frame *t* comes from a hidden state that has seen frames up to *t + k*.
 
-Train k=0 first: the causal baseline is what the ablation is measured against.
+Train k=0 first, as the causal baseline for the ablation.
 
-Planned ablation: k in {0, 4, 8, 16} against LCF. No published work plots the
-accuracy/latency trade-off against a live-model content-fidelity metric, because
-no such metric exists yet — this is ours to produce.
+Planned ablation: k in {0, 4, 8, 16} against LCF. No published work plots this accuracy/latency trade-off against a live-model content-fidelity metric, since no such metric exists yet.
 
 ---
 
 ## 2026-08-18 — Band plan: inherited for the baseline, six candidates for ablation
 
-**Decision: `wesep_16k` is the baseline plan. It is inherited, not justified —
-that is recorded here deliberately, because the band plan is an open question in
-this literature and one of the few cheap contributions available to us.**
+**Decision: `wesep_16k` is the baseline plan. It is inherited, not justified. This is recorded because the band plan is an open question in this literature and one of the few cheap contributions available to us.**
 
 ### The plan is unjustified everywhere, not just here
 
-The 16 kHz table (`[3]*15 + [6]*10 + [16]*5 + [64] + [8]`, 32 bands over 257 bins)
-does **not** come from Yu et al. (Interspeech 2023). That paper specifies 33
-subbands — 20x200 Hz + 6x500 Hz + 7x2 kHz — for its **48 kHz** model, which covers
-~21 kHz and does not transfer to our 8 kHz ceiling. The 16 kHz table is the
-wesep / REAL-TSE baseline's own adaptation, and it is not published or motivated
-anywhere. `review_synthesis.md` already noted SA-Mamba and CARTSE quietly use 36
-and 32 bands with no stated reason.
+The 16 kHz table (`[3]*15 + [6]*10 + [16]*5 + [64] + [8]`, 32 bands over 257 bins) is **not** from Yu et al. (Interspeech 2023). That paper specifies 33 subbands (20x200 Hz + 6x500 Hz + 7x2 kHz) for its **48 kHz** model (~21 kHz), which does not transfer to our 8 kHz ceiling. Every system here hand-adapted a table from a *music* separation paper (Luo & Yu, TASLP 2023) without saying why. The 16 kHz table is the wesep / REAL-TSE baseline's own unpublished adaptation, and `review_synthesis.md` notes that SA-Mamba and CARTSE use 36 and 32 bands with no stated reason.
 
-So: every system in this space inherited a table from a *music* separation paper
-(Luo & Yu, TASLP 2023), hand-adapted it, and nobody wrote down why. Given that
-per-band normalisation is a large part of why the architecture works — speech
-energy falls ~6 dB/octave, so without splitting the high bands are numerically
-invisible — the placement of those boundaries is not a detail.
+The boundaries matter, because per-band normalisation is a large part of why the architecture works (without splitting, the high bands are numerically invisible).
 
 ### Candidates, all verified expressible at n_fft=512 / 16 kHz
 
 | preset | bands | min bins | max bins | motivation |
 | --- | --- | --- | --- | --- |
 | `wesep_16k` | 32 | 3 | 64 | inherited baseline; the thing being tested |
-| `uniform_32` | 32 | 8 | 9 | control — if this matches, non-uniform splitting does no work |
+| `uniform_32` | 32 | 8 | 9 | control: if this matches, non-uniform splitting does no work |
 | `yu_truncated` | 27 | 6 | 41 | Yu et al. §4.2 progression truncated to 0-8 kHz; closest to a published plan |
-| `bark` | 22 | 3 | 41 | Bark critical bands (Zwicker, 1961) — boundaries where the ear integrates energy and masking occurs |
+| `bark` | 22 | 3 | 41 | Bark critical bands (Zwicker, 1961): boundaries where the ear integrates energy and masking occurs |
 | `mel_32` | 32 | 2 | 22 | mel spacing: the filterbank our proxy losses and every ASR front-end consume |
 | `f0_focused` | 26 | 3 | 35 | maximum resolution across F0 and the first two formants, coarse above |
 
 All six sum to 257 with no empty bands.
 
-`mel_32` is the motivation most specific to this project and has no precedent in
-the TSE literature: our objective is what a live model *understands*, so aligning
-band structure with the representation that model listens through is an argument
-only available to us, because only we have the metric.
+`mel_32` is the most project-specific motivation and has no precedent in the TSE literature. It matches band structure to the representation a live model listens through, and only we have a metric for what that model *understands*.
 
 ### Two constraints on the experiment, both found by measuring
 
-**1. Band count confounds capacity.** Band count ranges 22-32 across the
-candidates. `SubbandNorm` holds one normalisation and projection per band and
-`BandMasker` one MLP per band, so band count drives parameter count directly.
-Comparing `bark` (22) against `wesep_16k` (32) varies boundary placement *and*
-model size together, and a difference could not be attributed to either. **Any
-band-plan ablation must either match band counts across arms or report parameter
-counts alongside every result.**
+**1. Band count confounds capacity.** Band count ranges 22-32. `SubbandNorm` has one normalisation and projection per band and `BandMasker` one MLP per band, so band count drives parameter count. `bark` (22) vs `wesep_16k` (32) varies boundary placement *and* model size together. **Any band-plan ablation must match band counts across arms or report parameter counts with every result.**
 
-**2. The band-plan and window-size questions are entangled.** At n_fft=512 one bin
-is 31.25 Hz, and `mel_32`'s narrowest band is 2 bins — expressible, but thin. An
-ERB-spaced 32-band plan is *not* expressible at all: its lowest edge lands near
-27 Hz, under one bin, and is correctly rejected by the `min(widths) >= 1` guard.
-At n_fft=1024 a bin is 15.6 Hz and both become comfortable. So perceptual plans
-argue for the larger window independently of the latency headroom argument
-(40 ms used of a 200-300 ms budget). Treat these as one experiment grid, not two.
+**2. The band-plan and window-size questions are entangled.** At n_fft=512 one bin is 31.25 Hz, and the narrowest band of `mel_32` is 2 bins (expressible, but thin). A 32-band ERB plan is *not* expressible: its lowest edge lands near 27 Hz, under one bin, and the `min(widths) >= 1` guard rejects it. At n_fft=1024 a bin is 15.6 Hz and both are comfortable. Perceptual plans therefore argue for the larger window, independently of the latency headroom (40 ms used of a 200-300 ms budget). Treat these as one experiment grid.
 
 ### Implementation
 
-`band_plan(sample_rate, n_fft, spec)` is a pure function — no state, no I/O —
-taking a preset name or an explicit spec, returning bin counts. Four spec kinds:
-`segments` (bandwidth + count), `edges_hz` (natural for perceptual scales),
-`uniform`, `mel`. It asserts widths sum to `n_fft // 2 + 1` and that no band is
-empty; both failure modes are config errors rather than code bugs, so segment
-overrun and sub-bin bandwidths raise named errors rather than surfacing as shape
-mismatches downstream.
+`band_plan(sample_rate, n_fft, spec)` is a pure function (no state, no I/O): preset name or explicit spec in, bin counts out. Four spec kinds: `segments` (bandwidth + count), `edges_hz` (natural for perceptual scales), `uniform`, `mel`. It asserts that widths sum to `n_fft // 2 + 1` and that no band is empty. Segment overrun and sub-bin bandwidths raise named config errors, not shape mismatches downstream.
 
-Kept pure specifically so the plan can be swapped from YAML and regenerated at any
-`n_fft` — the wesep reference computes it inline in the `BSRNN` constructor, which
-is exactly what makes this ablation impossible there.
+Kept pure so the plan can be swapped from YAML and regenerated at any `n_fft`. The wesep reference computes it inline in the `BSRNN` constructor, which makes this ablation impossible there.
 
 ---
 
 ## 2026-08-18 — Normalisation: channel-wise LayerNorm, not BatchNorm and not GroupNorm
 
-**Decision: per-band normalisation is channel-wise LayerNorm — `nn.LayerNorm` over
-the channel axis at each time step. `GroupNorm(1, d)` is retained for a
-non-causal/offline config only. We do NOT use the paper's BatchNorm.**
+**Decision: per-band normalisation is channel-wise LayerNorm (`nn.LayerNorm` over the channel axis at each time step). `GroupNorm(1, d)` is kept for a non-causal/offline config only. We do not use the paper's BatchNorm.**
 
 ### This is a deviation from the paper, deliberately
 
-Yu et al. (Interspeech 2023) §4.2 state: "We use layer normalization for offline
-configuration and batch normalization for online configuration." So BatchNorm is
-*their* online choice, and departing from it needs a reason.
+Yu et al. (Interspeech 2023) §4.2: "We use layer normalization for offline configuration and batch normalization for online configuration."
 
-The reason is not causality — BatchNorm is causal at inference, because it uses
-frozen running statistics that depend on neither future frames nor other examples.
-It is that BatchNorm couples examples within a batch during training and then
-switches to population statistics at inference, so training and deployment
-normalise differently. In a streaming model that mismatch compounds with
-everything else we are already managing about chunk boundaries and recurrent
-state. Channel-wise LayerNorm has no train/inference discrepancy at all.
+The reason is not causality: BatchNorm is causal at inference, since its frozen running statistics depend on neither future frames nor other examples. The problem is that BatchNorm couples examples within a batch in training and switches to population statistics at inference, so training and deployment normalise differently. In a streaming model this adds to the chunk-boundary and recurrent-state issues. Channel-wise LayerNorm has no train/inference discrepancy.
 
 ### Why channel-wise rather than cumulative
 
@@ -321,70 +182,38 @@ state. Channel-wise LayerNorm has no train/inference discrepancy at all.
 | cumulative LN | channels, start to now | yes | yes |
 | BatchNorm | batch (frozen at inference) | yes | running stats |
 
-Channel-wise is chosen because it is **stateless**. Cumulative layer norm's
-statistics depend on how much audio has been seen, so a 4 s training chunk would
-normalise differently from a 60 s deployed stream — a real train/inference
-mismatch — and it adds state to carry in the streaming cache. Channel-wise has
-neither problem: frame *t* is normalised using only its own channels.
+Channel-wise is chosen because it is **stateless**. Cumulative layer norm depends on how much audio has been seen, so a 4 s training chunk normalises differently from a 60 s deployed stream, and it adds state to the streaming cache. Channel-wise uses only frame *t*'s own channels.
 
-**Naming trap, worth getting right in the write-up.** wesep calls this `"cLN"`,
-but its implementation is `ChannelWiseLayerNorm`: a transpose, `nn.LayerNorm` over
-channels, transpose back. Conv-TasNet's cLN (Luo & Mesgarani, 2019) means
-*cumulative* layer norm, a different operation. Same abbreviation, different
-thing. **Cite ours as channel-wise LayerNorm, never as Conv-TasNet's cLN.**
+**Naming trap.** wesep calls this `"cLN"`, but its implementation is `ChannelWiseLayerNorm`: transpose, `nn.LayerNorm` over channels, transpose back. Conv-TasNet's cLN (Luo & Mesgarani, 2019) is *cumulative* layer norm, a different operation. **Cite ours as channel-wise LayerNorm, never as Conv-TasNet's cLN.**
 
 ### Measured: GroupNorm leaks the future
 
-Perturbing the input at frame 50 of 100 and finding the earliest output frame that
-changes:
+Perturbing the input at frame 50 of 100 and finding the earliest output frame that changes:
 
 | normalisation | first changed frame | verdict |
 | --- | --- | --- |
 | channel-wise LN | 50 | causal |
 | `GroupNorm(1, d)` | **0** | leaks the future |
 
-GroupNorm contaminates frame 0 — the *entire* output — because it pools statistics
-over channels and time jointly. This is the silent failure mode: such a model
-trains normally and scores normally offline, and only fails when streamed. The
-test is kept as a regression check and must be re-run after any change to the
-normalisation or the modelling stack.
+GroupNorm changes frame 0, i.e. the *entire* output, because it pools over channels and time jointly. Such a model trains and scores normally offline and only fails when streamed. Keep the test as a regression check and re-run it after any change to the normalisation or the modelling stack.
 
 ### Why per-band at all
 
-Speech energy falls roughly 6 dB per octave, so the lowest bins carry orders of
-magnitude more energy than the highest. Normalising all 257 bins jointly would
-leave the high bands numerically invisible and contributing almost nothing to the
-gradient. Each band instead gets its own normalisation and its own 1x1 projection
-to N=128, so a quiet 6 kHz band arrives at the sequence model with the same
-representational budget as a loud 200 Hz one. This is a large part of why the
-band-split architecture works, and it is the mechanism the band-plan ablation
-(entry above) is really testing.
+Speech energy falls roughly 6 dB per octave, so the lowest bins carry orders of magnitude more energy than the highest. Normalising all 257 bins jointly would leave the high bands contributing almost nothing to the gradient. Each band instead gets its own normalisation and 1x1 projection to N=128, so a quiet 6 kHz band reaches the sequence model with the same representational budget as a loud 200 Hz one. This is a large part of why band-split works, and is the mechanism the band-plan ablation (above) tests.
 
 ### Implementation note
 
-`SubbandNorm.forward` uses `reshape`, not `view`, when flattening `(B, C, BW, T)`
-to `(B, C*BW, T)`. `BandSplit` slices with `narrow()`, which returns a
-non-contiguous view, and `view()` raises on it (verified). The wesep reference
-calls `.contiguous()` inside its band split to make `view` legal; `reshape` avoids
-needing that.
+`SubbandNorm.forward` uses `reshape`, not `view`, to flatten `(B, C, BW, T)` to `(B, C*BW, T)`. `BandSplit` slices with `narrow()`, which returns a non-contiguous view, and `view()` raises on it (verified). The wesep reference calls `.contiguous()` in its band split instead.
 
-Output shape `(B, K, N, T)` = `(12, 32, 128, 503)` at our config; 70,916
-parameters. This is the module that turns 32 unequal-width bands into one
-stackable tensor, which is what allows a single RNN to run across bands.
+Output shape `(B, K, N, T)` = `(12, 32, 128, 503)` at our config; 70,916 parameters. This module turns 32 unequal-width bands into one stackable tensor, so a single RNN can run across bands.
 
 ---
 
 ## 2026-08-19 — Model sizing: 7.16 M parameters, deliberately below challenge scale
 
-> **Headline figure superseded 2026-08-24 — quote 7,189,644 (7.19 M).** Every
-> number below is the *pre-conditioning* count, as this entry's own "Conditioning
-> is nearly free" section states. The decision itself stands unchanged; only the
-> total moved, and by the amount predicted here. See 2026-08-24 below.
+> **Headline figure superseded 2026-08-24 — quote 7,189,644 (7.19 M).** Every number below is the *pre-conditioning* count, as this entry's own "Conditioning is nearly free" section states. The decision itself stands unchanged; only the total moved, and by the amount predicted here. See 2026-08-24 below.
 
-**Decision: `feature_dim = 128`, `hidden_dim = 192`, `num_repeat = 6`,
-`mlp_hidden = 384`, `n_hidden = 1`. Total 7,156,234 parameters against the
-REAL-TSE causal baselines' 25-27 M — a 3.5x reduction.** This satisfies the M1
-requirement that the model be deliberately sized down and reported as such.
+**Decision: `feature_dim = 128`, `hidden_dim = 192`, `num_repeat = 6`, `mlp_hidden = 384`, `n_hidden = 1`. Total 7,156,234 parameters against the REAL-TSE causal baselines' 25-27 M, a 3.5x reduction.** This meets the M1 requirement that the model be deliberately sized down and reported as such.
 
 ### Where the parameters are
 
@@ -395,25 +224,17 @@ requirement that the model be deliberately sized down and reported as such.
 | `Estimator` (384 x 1) | 2,187,014 | 32 per-band trunks + mask and residual heads |
 | **total** | **7,156,234** | |
 
-`STFT` and `BandSplit` hold no parameters (the Hann window is a non-persistent
-buffer).
+`STFT` and `BandSplit` hold no parameters (the Hann window is a non-persistent buffer).
 
 ### Two deviations from the reference, both toward smaller
 
-**`hidden_dim = 192`, not 256.** 192 is the paper's stated LSTM width (Yu et al.,
-Interspeech 2023 §4.2). The wesep reference uses `feature_dim * 2` = 256 instead,
-which would put the separator at ~7.7 M rather than 4.90 M. We follow the paper.
+**`hidden_dim = 192`, not 256.** 192 is the paper's LSTM width (Yu et al., Interspeech 2023 §4.2). The wesep reference uses `feature_dim * 2` = 256, which would put the separator at ~7.7 M rather than 4.90 M.
 
-**`n_hidden = 1`, not 2.** The paper states the estimation module's *width* (384)
-but not its *depth*; wesep uses two hidden layers. We keep the paper's width and
-use one hidden layer, so the deviation falls on the axis the paper left
-unspecified rather than on a number it actually gives. This is where the saving
-is: the second 384->384 convolution costs 147,840 per band, i.e. 4.7 M across 32
-bands, for what is a per-band readout rather than sequence modelling.
+**`n_hidden = 1`, not 2.** The paper gives the estimation module's *width* (384) but not its *depth*; wesep uses two hidden layers. We keep the paper's width with one hidden layer, so the deviation is on the axis the paper left unspecified. The saving: the second 384-to-384 convolution costs 147,840 per band, i.e. 4.7 M across 32 bands, for a per-band readout rather than sequence modelling.
 
 ### The scaling ladder, if the baseline underfits
 
-Measured, so the cost of each step is known in advance:
+Measured, so each step's cost is known in advance:
 
 | `mlp_hidden` | `n_hidden` | Estimator | total model |
 | --- | --- | --- | --- |
@@ -423,33 +244,21 @@ Measured, so the cost of each step is known in advance:
 | 384 | 2 | 6.92 M | 11.89 M (paper width and wesep depth) |
 | 512 | 2 | 11.32 M | 16.29 M (wesep) |
 
-Rationale for starting at the small end: a baseline that trains is worth more than
-a baseline that is faithful, and raising capacity is a one-line config change
-whereas debugging a model too large to iterate on is not. If it underfits, step up
-this ladder and record which rung and why.
+Start small: a baseline that trains is worth more than a faithful one, raising capacity is a one-line config change, and a model too large to iterate on is hard to debug. If it underfits, step up the ladder and record which rung and why.
 
-Note the Estimator dominates at every rung — at the paper's 384 x 2 it would be
-58 % of the whole model, larger than the six-layer separator. Capacity added there
-buys per-band readout richness, not temporal or cross-band modelling.
+The Estimator dominates at every rung (58 % of the model at the paper's 384 x 2, larger than the six-layer separator). Capacity there buys per-band readout, not temporal or cross-band modelling.
 
 ### Conditioning is nearly free
 
-TF-Map (M1, still to build) raises `SubbandNorm`'s input channels from 2 to 3,
-taking it from 70,916 to ~104,000 — about 33 k, under 0.5 % of the model. It needs
-no speaker encoder at all, unlike the embedding path. So the sizing above will not
-move materially when conditioning lands.
+TF-Map (M1, still to build) raises the input channels of `SubbandNorm` from 2 to 3, taking it from 70,916 to ~104,000: about 33 k, under 0.5 % of the model. Unlike the embedding path it needs no speaker encoder, so the sizing will not move materially when conditioning lands.
 
 ---
 
 ## 2026-08-19 — Measured effective future dependency: 23.9 ms
 
-**Decision: report 23.9 ms measured effective future dependency, with the
-`n_fft - hop` convention stated. Supersedes the derived 40 ms figure in the STFT
-entry above as the number to quote.**
+**Decision: report 23.9 ms measured effective future dependency, with the `n_fft - hop` convention stated. This replaces the derived 40 ms figure in the STFT entry above as the number to quote.**
 
-The STFT entry required the reported latency be measured rather than derived.
-Method: perturb the input waveform from sample 32,000 of 64,000 onward, run the
-full model, find the earliest output sample that differs.
+Method: perturb the input waveform from sample 32,000 of 64,000 onward, run the full model, and find the earliest output sample that differs.
 
 | quantity | value |
 | --- | --- |
@@ -458,102 +267,45 @@ full model, find the earliest output sample that differs.
 | `n_fft - hop` | 384 samples = 24.0 ms |
 | `n_fft + hop` (earlier, conservative) | 640 samples = 40.0 ms |
 
-The measured dependency tracks `n_fft - hop`, not `n_fft + hop`. The 40 ms figure
-quoted earlier was a conservative over-accounting: it added a hop of buffering to
-the window fill, whereas the true dependency is set by how far forward the
-overlap-add reaches, which is `n_fft - hop`.
+The dependency tracks `n_fft - hop`, not `n_fft + hop`. The earlier 40 ms over-counted by adding a hop of buffering to the window fill; the true dependency is how far forward the overlap-add reaches.
 
-**Independent agreement with the published system.** CARTSE reports 24 ms
-algorithmic latency and a *measured* effective future dependency of 22.2-23.7 ms
-(mean 22.9 ms). We measure 23.9 ms from an independently written implementation.
-That corroborates both the framing and the measurement method, and it is the
-convention to use when the number appears next to theirs.
+**Agreement with the published system.** CARTSE reports 24 ms algorithmic latency and a *measured* effective future dependency of 22.2-23.7 ms (mean 22.9 ms). Our independently written implementation measures 23.9 ms. This corroborates the framing and the measurement method; use this convention beside their number.
 
-For a deployed total, add one hop of buffering (8 ms) as CARTSE does: ~32 ms.
-Against a 200-300 ms budget that leaves roughly 170-270 ms for compute, the
-lookahead knob, and the live-model API round trip.
+For a deployed total, add one hop of buffering (8 ms) as CARTSE does: ~32 ms. That leaves roughly 170-270 ms of the 200-300 ms budget for compute, the lookahead knob and the live-model API round trip.
 
-Test to keep: this measurement is the causal-correctness check for the whole
-model, not merely a latency figure. It must be re-run after any change to the
-STFT framing, the normalisation, or the sequence stack; a result materially below
-382 samples means something has started reading the future.
+**Test to keep:** this is the causal-correctness check for the whole model. Re-run it after any change to the STFT framing, the normalisation or the sequence stack. A result materially below 382 samples means something is reading the future.
 
 ---
 
 ## 2026-08-19 — TF-Map conditioning: Spectral Similarity, not Embedding Similarity
 
-**Decision: TF-Map uses the Spectral Similarity variant (eq. 2). The Embedding
-Similarity variant (eq. 3) is rejected because it requires encoding the live
-mixture, which is not causal at any acceptable latency.**
+**Decision: TF-Map uses the Spectral Similarity variant (eq. 2). The Embedding Similarity variant (eq. 3) is rejected because it requires encoding the live mixture, which is not causal at any acceptable latency.**
 
-Source: K. Zhang, J. Li, S. Wang, Y. Wei, Y. Wang, Y. Wang, H. Li, "Multi-Level
-Speaker Representation for Target Speaker Extraction", Proc. ICASSP 2025,
-doi:10.1109/ICASSP49660.2025.10889409, arXiv:2410.16059, sec II-A and Fig. 2.
-(Local copy is filed as `...TSE2024.pdf` — the preprint is 2024, the venue is
-ICASSP 2025. Cite the venue.) That paper uses BSRNN as its own backbone, so
-combining the two follows its architecture rather than stitching together
-unrelated work.
+Source: K. Zhang, J. Li, S. Wang, Y. Wei, Y. Wang, Y. Wang, H. Li, "Multi-Level Speaker Representation for Target Speaker Extraction", Proc. ICASSP 2025, doi:10.1109/ICASSP49660.2025.10889409, arXiv:2410.16059, sec II-A and Fig. 2. (The local copy is filed as `...TSE2024.pdf`; the preprint is 2024, the venue ICASSP 2025. Cite the venue.) The paper uses BSRNN as its own backbone, so combining the two follows its architecture.
 
-This is what makes the model a target speaker *extractor*. Everything before it
-is a speech enhancer: it would clean up a two-voice mixture without any notion of
-which voice to keep.
+TF-Map makes the model a target speaker *extractor*. Without it the model is a speech enhancer with no notion of which voice to keep.
 
 ### What it does
 
-`F_tfmap = B_e H` with `H = Softmax(B_e^T B_x)`. `B_e` is the enrollment
-magnitude spectrogram used directly as NMF-style basis vectors — every enrollment
-frame is a basis vector, rather than a learned dictionary. For each mixture frame,
-cosine similarity against every enrollment frame is softmaxed into weights, and the
-weighted sum of enrollment frames is "what the target's spectrum probably looks
-like at this instant, reconstructed only from the enrollment". Energy is then
-recovered by projecting the mixture magnitude onto the unit TF-Map frame, per the
-paper. The result is concatenated as a third input channel beside real and
-imaginary, so `in_channels` goes 2 -> 3.
+`F_tfmap = B_e H` with `H = Softmax(B_e^T B_x)`. `B_e`, the enrollment magnitude spectrogram, is used directly as NMF-style basis vectors (one per enrollment frame, not a learned dictionary). For each mixture frame, cosine similarities against all enrollment frames are softmaxed into weights, and the weighted sum of enrollment frames is "what the target's spectrum probably looks like at this instant, reconstructed only from the enrollment". Energy is then recovered by projecting the mixture magnitude onto the unit TF-Map frame, per the paper. The result is a third input channel beside real and imaginary, so `in_channels` goes from 2 to 3.
 
-**In both variants the output is `B_e H` and the basis vectors are always the
-enrollment magnitude spectrogram.** Only the computation of the weights `H`
-differs. The encoder in eq. 3 does not produce the cue; it only produces a better
-similarity measure for choosing which enrollment frames to blend.
+**In both variants the output is `B_e H` and the basis vectors are always the enrollment magnitude spectrogram.** Only the weights `H` differ: the encoder in eq. 3 only gives a better similarity measure for choosing which enrollment frames to blend.
 
 ### Why not Embedding Similarity
 
-The honest weakness of the spectral variant: **magnitude spectra are dominated by
-phonetic content rather than speaker identity.** An interferer saying "ah" and the
-target saying "ah" in the enrollment have similar spectral shape, and cosine
-similarity in 257-dim magnitude space will match them. A speaker-embedding space
-is trained to be invariant to what is said and sensitive to who says it, so it
-would not.
+The spectral variant's weakness: **magnitude spectra are dominated by phonetic content rather than speaker identity.** An interferer saying "ah" and the target saying "ah" in the enrollment have similar spectra, and cosine similarity in 257-dim magnitude space will match them. A speaker-embedding space, trained to ignore what is said and capture who says it, would not.
 
-The reason we still reject it: **eq. 3 needs `E_x`, frame-level embeddings of the
-live mixture.** The enrollment side (`E_e`) is free, computed once offline. The
-mixture side is not. ECAPA-TDNN's frame-level layers are symmetric dilated
-convolutions whose receptive field extends on the order of 100+ ms in each
-direction (order-of-magnitude; verify against the specific checkpoint before
-quoting). That is roughly half of our 200-300 ms budget, spent on a better
-similarity measure rather than on the model.
+We still reject it because **eq. 3 needs `E_x`, frame-level embeddings of the live mixture.** The enrollment side (`E_e`) is computed once offline; the mixture side is not free. ECAPA-TDNN's frame-level layers are symmetric dilated convolutions whose receptive field extends on the order of 100+ ms in each direction (order-of-magnitude; verify against the specific checkpoint before quoting). That is roughly half of our 200-300 ms budget, spent on a better similarity measure.
 
-**Freezing the encoder does not help.** Frozen or trainable, a symmetric
-convolution still reads the future. Making it causal would mean retraining the
-encoder with causal convolutions — a separate project.
+**Freezing the encoder does not help**: a symmetric convolution still reads the future. Making it causal means retraining the encoder, a separate project.
 
-Evidence that the cheap variant is not a compromise: the paper's own finding is
-that the spectral-level feature is the main driver of improved generalisation, and
-in the REAL-TSE baselines the *causal* TF-Map variant achieves the best TER
-(0.652 DEV / 0.801 EVAL1 / 0.808 EVAL2), beating even the non-causal
-speaker-embedding baselines. TER is the published metric closest to our LCF
-objective. See `literature/review_synthesis.md`.
+The cheap variant is not a compromise: the paper finds the spectral-level feature is the main driver of improved generalisation, and in the REAL-TSE baselines the *causal* TF-Map variant has the best TER (0.652 DEV / 0.801 EVAL1 / 0.808 EVAL2), beating even the non-causal speaker-embedding baselines. TER is the published metric closest to our LCF objective. See `literature/review_synthesis.md`.
 
-**Recorded as a deviation, not an omission:** Zhang et al.'s full system uses a
-pretrained ECAPA-TDNN. We use only their eq. 2. The justification is the streaming
-budget, and any claim about our results must not be presented as reproducing their
-full multi-level system.
+**Recorded as a deviation, not an omission:** Zhang et al.'s full system uses a pretrained ECAPA-TDNN; we use only their eq. 2, because of the streaming budget. Our results must not be presented as reproducing their full multi-level system.
 
 ### Where the encoder does still belong
 
-An *utterance-level* speaker embedding of the enrollment is computed entirely
-offline and therefore costs zero latency on the mixture side. It supplies the
-identity information TF-Map's phonetic confound lacks, and remains the natural
-ablation arm.
+An *utterance-level* speaker embedding of the enrollment is computed offline, so it costs zero mixture-side latency. It supplies the identity information TF-Map lacks and remains the natural ablation arm.
 
 | conditioning path | causal | mixture-side latency | provides |
 | --- | --- | --- | --- |
@@ -571,12 +323,9 @@ ablation arm.
 | compute (TF-Map + enrollment STFT) | 6.2 ms, **0.4 %** of the forward pass |
 | causality: perturb mixture frame 250 | first changed TF-Map frame **250** |
 
-The 33 k comes entirely from `SubbandNorm`'s input growing from 2 channels to 3.
-TF-Map itself is normalise, matmul, softmax, matmul, rescale — no weights.
+The 33 k comes entirely from the input of `SubbandNorm` growing from 2 to 3 channels. TF-Map itself (normalise, matmul, softmax, matmul, rescale) has no weights.
 
-Causal by construction: each mixture frame attends only over enrollment frames,
-and the enrollment is fixed and fully available before the stream starts. No
-mixture frame ever sees another mixture frame.
+Causal by construction: each mixture frame attends only over enrollment frames, which are fixed and available before the stream starts. No mixture frame sees another.
 
 ### Test to keep: the conditioning must be live
 
@@ -587,22 +336,13 @@ Substituting a *different speaker's* enrollment and measuring the relative chang
 | TF-Map feature | 0.8123 |
 | model output | **0.4785** |
 
-**This is the most important test on the conditioning path.** The standard silent
-failure in TSE is a model that quietly learns to be a plain enhancer while the
-conditioning input is ignored — it trains, it converges, it produces clean audio,
-and it extracts the wrong speaker. No shape assertion detects that. Re-run this
-after any change to the conditioning path or to `in_channels`, and treat a
-relative output change near zero as a failure.
+**This is the most important test on the conditioning path.** The standard silent failure in TSE is a model that learns to be a plain enhancer and ignores the conditioning. It trains, converges and produces clean audio of the wrong speaker, and no shape assertion catches it. Re-run after any change to the conditioning path or `in_channels`; a relative output change near zero is a failure.
 
 ---
 
 ## 2026-08-24 — Sizing figure: 7.19 M realised, and the conditioning prediction confirmed
 
-**Quote 7,189,644 parameters (7.19 M) wherever the model size appears — thesis,
-README, `meta.yaml` prose. Not 7,156,234 (7.16 M).** The 2026-08-19 entry's
-figure was measured before TF-Map conditioning was built, which that entry says
-explicitly. This is a realised-versus-planned update, not a correction of an
-error.
+**Quote 7,189,644 parameters (7.19 M) wherever the model size appears (thesis, README, `meta.yaml` prose), not 7,156,234 (7.16 M).** The 2026-08-19 figure was measured before TF-Map was built, as that entry says. This is a realised-versus-planned update, not an error correction.
 
 Measured from the config that trains, via `build_model()`:
 
@@ -615,7 +355,7 @@ print(sum(p.numel() for p in m.parameters()))"
 
 ### The 08-19 prediction was right
 
-That entry predicted the delta rather than leaving it to be discovered:
+That entry predicted the delta:
 
 | | predicted 2026-08-19 | measured 2026-08-24 |
 | --- | --- | --- |
@@ -623,24 +363,15 @@ That entry predicted the delta rather than leaving it to be discovered:
 | increase over the 2-channel count | ~33 k | **33,410** |
 | share of the whole model | under 0.5 % | **0.46 %** |
 
-`BandSequenceModel` 4,898,304 and `Estimator` 2,187,014 match the 08-19 table
-exactly, so the entire difference is `SubbandNorm` and the cause is not in doubt:
-TF-Map raises the band-split projection's input from 2 channels (`Xri`) to 3
-(`Xri` + the TF-Map plane), and that projection is inside `SubbandNorm`.
+`BandSequenceModel` 4,898,304 and `Estimator` 2,187,014 match the 08-19 table exactly, so the whole difference is the band-split projection inside `SubbandNorm`, whose input TF-Map raises from 2 channels (`Xri`) to 3 (`Xri` + the TF-Map plane).
 
 ### What does not change
 
-- **The 3.5x reduction claim.** 25-27 M / 7.19 M is 3.5x, same as before.
+- **The 3.5x reduction claim.** 25-27 M / 7.19 M is still 3.5x.
 - **The two deviations toward smaller** (`hidden_dim = 192`, `n_hidden = 1`).
-- **The scaling ladder**, whose `total model` column is likewise pre-conditioning.
-  Add 33,410 to every rung: the chosen rung is 7.19 M, and the paper-width /
-  wesep-depth rung is 11.92 M rather than 11.89 M. The ordering and the argument
-  for starting at the small end are untouched.
-- **"Conditioning is nearly free"** — now demonstrated rather than projected, at
-  0.46 % of the model and with no speaker encoder.
+- **The scaling ladder**, whose `total model` column is also pre-conditioning. Add 33,410 to every rung: the chosen rung is 7.19 M, and the paper-width / wesep-depth rung 11.92 M rather than 11.89 M. The ordering and the case for starting small hold.
+- **"Conditioning is nearly free"**, now demonstrated at 0.46 % of the model, with no speaker encoder.
 
 ### Why this is logged rather than edited in place
 
-The 08-19 count is what the sizing *decision* was taken against, and a decision
-log that silently rewrites its own numbers cannot be audited. The stale figure
-stays where it is with a pointer here.
+The 08-19 count is what the sizing *decision* was taken against, and a log that silently rewrites its numbers cannot be audited. The stale figure stays, with a pointer here.

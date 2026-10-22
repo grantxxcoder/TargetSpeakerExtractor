@@ -1,25 +1,40 @@
 # Run times
 
-Wall-clock for every job slow enough to plan around. **Anything over a minute gets
-a row.** Purpose: knowing in advance whether a step is a coffee break or an
-overnight run, and having a real number for the write-up instead of a guess.
+Wall-clock time for every job slow enough to plan around. **Anything over a minute gets a row.** The purpose is to know in advance whether a step is a coffee break or an overnight run, and to have a measured number for the write-up instead of a guess.
 
-Rows below the marker are **written automatically** by `src/run_log.py` when a
-script finishes — newest first. Runs under a minute write nothing, which is what
-keeps this file short enough to be worth reading. Set `RUN_LOG=0` to suppress.
+Rows below the marker are **written automatically** by `src/run_log.py` when a script finishes, newest first. Runs under a minute write nothing, which keeps this file short. Set `RUN_LOG=0` to suppress.
 
-Machine unless stated: laptop, Intel i5-1135G7, **4 physical cores / 8 threads**,
-15 GB RAM, **5400 rpm SATA HDD** (Toshiba MQ04ABF1) -- corrected 2026-09-03, this
-file previously said NVMe. The NVMe in the machine is a 238 GB Samsung holding
-Windows (NTFS) and is not mounted on Linux; `/` and all project data live on the
-spinning disk. Measured 81 MB/s sequential read, but small-file work is
-seek-bound -- the 2026-09-03 bundle zipped 130,619 files at ~6.5 MB/s. **Every
-row in this file was measured on the HDD**, so none of them are NVMe numbers.
-No usable GPU (`torch.cuda.is_available() == False`).
-Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
+Machine unless stated: laptop, Intel i5-1135G7, **4 physical cores / 8 threads**, 15 GB RAM, **5400 rpm SATA HDD** (Toshiba MQ04ABF1). Corrected 2026-09-03, as this file previously said NVMe. The NVMe in the machine is a 238 GB Samsung holding Windows (NTFS) and is not mounted on Linux, so `/` and all project data live on the spinning disk. Sequential read measured at 81 MB/s, but small-file work is seek-bound: the 2026-09-03 bundle zipped 130,619 files at ~6.5 MB/s. **Every row in this file was measured on the HDD**, so none of them are NVMe numbers. No usable GPU (`torch.cuda.is_available() == False`). Hyperthreading gives ~10 % here (measured: 4 workers 111 s vs 8 workers 99 s).
 
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
+| 2026-10-18 | `scripts/diagnose_presence_gate.py --gate-checkpoint kaggle_out/session2/models/model_sir0_e015.pt --reference-checkpoint models/model_sir0_cuecontext-wer-e21.pt --n 30` | 30 `sir0_val` `both` clips x 3 forward passes (gate on, gate off, e21), whole clip | 23.5 min | cpu, 4 cores, alongside the peer session's e25 run of the same script. Added by hand |
+| 2026-10-18 | `pytest tests/ -q -x --ignore=tests/test_presence_labels.py` | 709 tests, after the presence-gate postfilter patch | 5.0 min | cpu, 4 cores, alongside one diagnose run. Added by hand |
+| 2026-10-18 | `scripts/train.py --split sir0 --epochs 6 --config experiments/configs/bsrnn_presence_postfilter.yaml` | 9,955 trials x 6 epochs (idx 0-5), sir0, `bsrnn_presence_postfilter.yaml` (gate only, e21 frozen) | 3.1 h | batch 3, cuda (T4), **1,855 s/epoch**, no extractor backward. From the run's meta.yaml (kaggle_out/ALL-sir0-bsrnn_presence_postfilter-e6). Added by hand |
+| 2026-10-18 | `scripts/diagnose_presence_gate.py --split sir0_train --n 15` (gate A e25 vs e21) | 15 sir0_train `both` trials, 3 forwards each (gated, ungated, e21) | 12 min | laptop cpu, whole clip, ~47 s/trial; shared the CPU with another diagnostic. Added by hand |
+| 2026-10-18 | `scripts/diagnose_presence_gate.py --n 30` (gate A e25 vs e21) | 30 sir0_val `both` trials, 3 forwards each (gated, ungated, e21) | 23 min | laptop cpu, whole clip, ~46 s/trial; shared the CPU with another diagnostic. Added by hand |
+| 2026-10-18 | `scripts/train.py --split sir0 --epochs 39 --config experiments/configs/bsrnn_presence_gate.yaml --resume` | 9,955 trials x 13 epochs (idx 26-38), sir0, `bsrnn_presence_gate.yaml` (arm A, session 3, resumed from idx 25) | 10.7 h | batch 3, cuda (T4), **2,967 s/epoch**. From the run's meta.yaml (kaggle_out/session3). Added by hand |
+| 2026-10-17 | `scripts/train.py --split sir0 --epochs 26 --config experiments/configs/bsrnn_presence_gate.yaml --resume` | 9,955 trials x 13 epochs (idx 13-25), sir0, `bsrnn_presence_gate.yaml` (arm A, session 2, resumed from idx 12) | 10.3 h | batch 3, cuda (T4), **2,866 s/epoch**. From the run's meta.yaml and the session's own run_times.md (kaggle_out/session2). Added by hand |
+| 2026-10-17 | `scripts/train.py --split sir0 --epochs 6 --config experiments/configs/bsrnn_wm_ft.yaml` | 9,955 trials x 6 epochs, sir0, C6 `w_m` 3.39 fine-tune from e21 | 5.1 h | batch 3, cuda (T4), **3,073 s/epoch**. Kaggle. Added by hand |
+| 2026-10-17 | `scripts/train.py --split sir0 --epochs 1` (smoke: bsrnn_wm_ft.yaml with chunk_s 0.5, batch 1, AMP off, 3 probe trials) | 24 trials (presence_mini) x 1 epoch, from e21 | 2.0 min | laptop cpu, 93 s/epoch. Smoke only: no result. A 1.0 s crop was killed at the 3.5 GB cap (mask path). RUN_LOG=0, added by hand |
+| 2026-10-17 | `scripts/make_kaggle_bundle.py --split sir0 --code-only --no-teacher` + 2 `--verify-config` (bsrnn_wm_ft, presence gate A) | 49 code files, e21 init weights, ECAPA; 3 one-batch checks; code zip 111 MB | 117 s | laptop. Added by hand |
+| 2026-10-16 | `scripts/train.py --split sir0` | 9,955 trials x 13 epochs, sir0, `bsrnn_presence_gate.yaml` (arm A, session 1, from scratch) | 10.4 h | batch 3, cuda (T4), **2,885 s/epoch**. From the run's meta.yaml (kaggle_out/presence_train_A_kaggle). Added by hand |
+| 2026-10-15 | `scripts/make_kaggle_bundle.py --split sir0 --code-only --no-teacher` + 2 `--verify-config` (presence gate A, B), final weights | as the 2026-10-14 bundle rows | 104 s | laptop. Added by hand |
+| 2026-10-15 | `scripts/derive_presence_weights.py --batches 64 --batch-size 3` | sir0_train (full, 9,955), 64 batches of 3 x 2 anchors | 15 min | cuda (T4), **882 s** incl. start-up, ~6.8 s/batch; peak GPU 12.69 GiB. From the Kaggle console log (interactive session). Dataset attach before the kernel started not included |
+| 2026-10-14 | `scripts/train.py --split sir0 --epochs 1` (smoke: bsrnn_presence_gate.yaml with chunk_s 1.0, batch 1, 3 probe trials) | 24 trials (presence_mini) x 1 epoch, first training run with the gate | 2.7 min | laptop cpu, 122 s/epoch at 24 steps, plus probe load. Smoke only: no result. RUN_LOG=0, added by hand |
+| 2026-10-14 | `scripts/make_kaggle_bundle.py --split sir0 --code-only --no-teacher` + 2 `--verify-config` (presence gate A, B), rebuild | as the row below | 73 s | laptop. Added by hand |
+| 2026-10-14 | `scripts/make_kaggle_bundle.py --split sir0 --code-only --no-teacher` + 2 `--verify-config` (bsrnn_presence_gate, bsrnn_presence_gate_b) | 48 code files, e21 init weights, ECAPA; 3 one-batch checks; code zip 111 MB | 63 s | laptop. Added by hand: the script does not use `run_log.timed` |
+| 2026-10-14 | `scripts/derive_presence_weights.py --batches 8 --batch-size 3` | sir0_train (full, 9,955), 8 batches of 3 x 2 anchors | 2 min | cuda (T4), three backward passes per batch, ~6.6 s/batch; 116 s including start-up; peak GPU 12.67 GiB. Copied by hand from the Kaggle session's own run_times.md. Kaggle's dataset attach before the kernel started is NOT included and was not measured |
+| 2026-10-12 | `scripts/train.py --split amimix` | 3,608 rows x 3 epochs, amimix (from e21) | 1.1 h | batch 3, cuda (T4), **1,325 s/epoch**. Copied by hand from the Kaggle session's own run_times.md |
+| 2026-10-12 | `scripts/train.py --split amift` | 1,804 rows x 3 epochs, amift (from e21) | 40 min | batch 3, cuda (T4), **790 s/epoch**. Copied by hand from the Kaggle session's own run_times.md |
+| 2026-10-12 | `scripts/make_kaggle_bundle.py --split ami --no-teacher` + 2 `--verify-config` (bsrnn_ami_ft, bsrnn_amimix_ft) | 451 ami_train trials, 5,788 files; 6 one-batch checks (amift, amimix x 3 configs) through a local merged view; code zip 111 MB, data zip 1,230 MB | 2.3 min | laptop. Added by hand: the script does not use run_log.timed |
+| 2026-10-12 | `pytest` 8 files (ami loader, remix, bank, crop, interference, holdouts, estimates, content-wer selection) | 100 tests | 8.2 min | PR 3 worktree. All passed. Added by hand |
+| 2026-10-12 | `pytest tests/test_holdouts.py tests/test_estimates.py tests/test_ami_splits.py` | 35 passed, 5 skipped (ami_train not yet built) | 2.6 min | all passed. Added by hand |
+| 2026-10-12 | `pytest tests/test_holdouts.py tests/test_content_wer_selection.py` | 23 tests | 2.2 min | PR 1 worktree. All passed. Added by hand |
+| 2026-10-12 | `pytest` 5 files (test_ami_loader + remix, bank, crop, interference) | 50 tests | 1.9 min | after the audio_dir / remixable loader columns. All passed. Added by hand |
+| 2026-10-12 | `scripts/build_ami_train.py --workers 6` | ami_train range fetch, 239 of 2,360 pieces | ~8 min **(stopped by hand, not completed)** | 280 kB/s, 50 pieces/min measured over 60 s; restarted with more workers. Added by hand: SIGTERM skips run_log |
+| 2026-10-12 | AMI whole-meeting download, 6 parallel wget (`meetings_train.txt`) | ~110 MB of ES2004b | ~1 min **(stopped: switched to byte-range fetch, decisions-m8.md)** | not measured. Added by hand |
+| 2026-10-12 | AMI whole-meeting download, sequential (`download.sh meetings_train.txt`) | 1 of 78 meetings (ES2004a, 5 files, 168 MB) | ~4 min **(stopped)** | ~1 MB/s measured over 60 s, vs 7.7 MB/s on 2026-10-06. Added by hand |
 | 2026-10-08 | ad-hoc `sf.info` duration scan of `data/wham_noise_16k/*/*.flac` | 28,000 clips (tr/cv/tt) | >5 min, killed by timeout | cpu; a seeded 1,000-clip sample took 4.2 s, so the full scan was I/O-bound on a cold cache |
 | 2026-10-07 | `pytest tests/test_estimates.py` | 26 tests (split tables in sync after adding sir0priv) | 2.6 min | cpu |
 | 2026-10-07 | `experiments/results/2026-10-07-ci-clustered/ci_clustered.py baseline` | 3 judge runs x 103 sir0_val `both` clips from the judge cache (0 API calls), 10,000 speaker-clustered draws | 87 s | cpu; includes VAD load. Added by hand |
@@ -40,6 +55,64 @@ Hyperthreading buys ~10 % here — measured, 4 workers 111 s vs 8 workers 99 s.
 | 2026-09-23 | `content_probe.score()` end-to-end smoke, 3 clips | 3 clips, sir0_val, untrained 1c model, cpu extraction + faster-whisper small.en int8 cpu | 3.1 min | ~16 s/clip extraction on cpu, ~4 s/clip ASR, plus ~1 min of model loading. The Kaggle figure differs: extraction moves to the T4, so the ASR sets the per-epoch cost at ~4 s/clip. Added by hand. |
 | 2026-09-21 | `pytest tests/ -q` | 515 tests | 11 min | full suite after adding eval_by_case.py. Added by hand: pytest does not use run_log.timed |
 <!-- rows appended below by src/run_log.py -->
+| 2026-10-18 | `scripts/evaluate.py` | --split sir0_val --condition both --metrics content --est experiments/results/2026-10-18-est-presence-postfilter-e2 --listener judge --judge-rpm 10 --out experiments/results/2026-10-18-eval-presence-postfilter-e2-judge | 30 min |  |
+| 2026-10-18 | `scripts/evaluate.py` | --split sir0_val --condition both --metrics content --est experiments/results/2026-10-18-est-presence-postfilter-e5 --listener judge --judge-rpm 10 --out experiments/results/2026-10-18-eval-presence-postfilter-e5-judge | 33 min |  |
+| 2026-10-18 | `scripts/make_estimates.py` | 103 trials rendered, sir0 | 13 min | cpu, whole-clip |
+| 2026-10-18 | `scripts/make_estimates.py` | 103 trials rendered, sir0 | 13 min | cpu, whole-clip |
+| 2026-10-18 | `scripts/evaluate.py` | --split sir0_val --condition both --metrics content --est experiments/results/2026-10-18-est-e21-oracle-gate-right --listener judge --judge-rpm 10 --out experiments/results/2026-10-18-eval-e21-oracle-gate-right-judge | 32 min |  |
+| 2026-10-18 | `scripts/evaluate.py` | --split sir0_val --condition both --metrics content --est experiments/results/2026-10-18-est-e21-oracle-gate-right --out experiments/results/2026-10-18-eval-e21-oracle-gate-right-asr | 2 min |  |
+| 2026-10-18 | `scripts/evaluate.py` | --split sir0_val --condition both --metrics content --est experiments/results/2026-10-18-est-e21-oracle-gate-right --out experiments/results/2026-10-18-eval-e21-oracle-gate-right-asr | 2 min |  |
+| 2026-10-18 | `scripts/evaluate.py` | --split sir0_val --condition both --metrics content --est experiments/results/2026-10-18-est-e21-oracle-gate-all --out experiments/results/2026-10-18-eval-e21-oracle-gate-all-asr | 9 min |  |
+| 2026-10-18 | `scripts/evaluate.py` | --split sir0_val --condition both --metrics content --est experiments/results/2026-10-18-est-presence-gate-A-e38 --listener judge --judge-rpm 10 --out experiments/results/2026-10-18-eval-presence-gate-A-e38-judge | 34 min |  |
+| 2026-10-18 | `scripts/make_estimates.py` | 103 trials rendered, sir0 | 18 min | cpu, whole-clip |
+| 2026-10-17 | `scripts/evaluate.py` | --split sir0_val --condition both --metrics content --est experiments/results/2026-10-17-est-presence-gate-A-e25 --listener judge --judge-rpm 10 --out experiments/results/2026-10-17-eval-presence-gate-A-e25-judge | 50 min |  |
+| 2026-10-17 | `scripts/evaluate.py` | --split sir0_val --condition both --metrics content --est experiments/results/2026-10-17-est-presence-gate-A-e18 --listener judge --judge-rpm 10 --out experiments/results/2026-10-17-eval-presence-gate-A-e18-judge | 49 min |  |
+| 2026-10-17 | `scripts/evaluate.py` | --split sir0_val --condition both --metrics content --est experiments/results/2026-10-17-est-wm-ft-e3 --listener judge --judge-rpm 10 --out experiments/results/2026-10-17-eval-wm-ft-e3-judge | 3 min |  |
+| 2026-10-17 | `scripts/evaluate.py` | --split sir0_val --condition both --metrics content --est experiments/results/2026-10-17-est-wm-ft-e5 --listener judge --judge-rpm 10 --out experiments/results/2026-10-17-eval-wm-ft-e5-judge | 2 min |  |
+| 2026-10-17 | `scripts/evaluate.py` | --split sir0_val --condition both --metrics content --est experiments/results/2026-10-17-est-wm-ft-e3 --listener judge --judge-rpm 10 --out experiments/results/2026-10-17-eval-wm-ft-e3-judge | 50 min |  |
+| 2026-10-17 | `scripts/make_estimates.py` | 103 trials rendered, sir0 | 11 min | cpu, whole-clip |
+| 2026-10-17 | `scripts/evaluate.py` | --split sir0_val --condition both --metrics content --est experiments/results/2026-10-17-est-wm-ft-e5 --listener judge --judge-rpm 10 --out experiments/results/2026-10-17-eval-wm-ft-e5-judge | 38 min |  |
+| 2026-10-17 | `scripts/make_estimates.py` | 103 trials rendered, sir0 | 12 min | cpu, whole-clip |
+| 2026-10-17 | `scripts/make_estimates.py` | 103 trials rendered, sir0 | 13 min | cpu, whole-clip |
+| 2026-10-17 | `scripts/make_estimates.py` | 103 trials rendered, sir0 | 13 min | cpu, whole-clip |
+| 2026-10-17 | `scripts/evaluate.py` | --split sir0_val --condition both --metrics content --est experiments/results/2026-10-16-est-presence-gate-A-e12 --listener judge --judge-rpm 10 --out experiments/results/2026-10-17-eval-presence-gate-A-e12-judge | 3 min |  |
+| 2026-10-17 | `scripts/evaluate.py` | --split sir0_val --condition both --metrics content --est experiments/results/2026-10-16-est-presence-gate-A-e12 --listener judge --judge-rpm 10 --out experiments/results/2026-10-17-eval-presence-gate-A-e12-judge | 34 min |  |
+| 2026-10-16 | `scripts/make_estimates.py` | 103 trials rendered, sir0 | 19 min | cpu, whole-clip |
+| 2026-10-16 | `scripts/make_estimates.py` | 200 trials rendered, sir0 | 23 min | cpu, whole-clip |
+| 2026-10-13 | `scripts/evaluate.py` | --split eval_private --condition both --est experiments/results/2026-10-12-est-private-amimix-e0 --metrics content --listener judge --judge-rpm 10 --judge-max-new-calls 40 --out experiments/results/2026-10-13-eval-private-amimix-e0-judge-retry2 | 66 s |  |
+| 2026-10-13 | `scripts/evaluate.py` | --split eval_private --condition both --est experiments/results/2026-10-12-est-private-amimix-e0 --metrics content --listener judge --judge-rpm 10 --judge-max-new-calls 40 --out experiments/results/2026-10-13-eval-private-amimix-e0-judge-retry1 | 2 min |  |
+| 2026-10-13 | `scripts/evaluate.py` | --split eval_private --condition both --est experiments/results/2026-10-12-est-private-amimix-e0 --metrics content --listener judge --judge-rpm 10 --judge-max-new-calls 270 --out experiments/results/2026-10-13-eval-private-amimix-e0-judge | 1.2 h |  |
+| 2026-10-13 | `scripts/evaluate.py` | --split eval_private --condition both --est experiments/results/2026-10-12-est-private-amift-e1 --metrics content --listener judge --judge-rpm 10 --judge-max-new-calls 40 --out experiments/results/2026-10-13-eval-private-amift-e1-judge-retry2 | 78 s |  |
+| 2026-10-13 | `scripts/evaluate.py` | --split eval_private --condition both --est experiments/results/2026-10-12-est-private-amift-e1 --metrics content --listener judge --judge-rpm 10 --judge-max-new-calls 40 --out experiments/results/2026-10-13-eval-private-amift-e1-judge-retry1 | 3 min |  |
+| 2026-10-13 | `scripts/evaluate.py` | --split eval_private --condition both --est experiments/results/2026-10-12-est-private-amift-e1 --metrics content --listener judge --judge-rpm 10 --judge-max-new-calls 270 --out experiments/results/2026-10-13-eval-private-amift-e1-judge | 1.3 h |  |
+| 2026-10-13 | `scripts/evaluate.py` | --split ami_eval --condition both --est experiments/results/2026-10-12-est-ami-amimix-e0 --metrics content --listener judge --judge-rpm 10 --judge-max-new-calls 320 --out experiments/results/2026-10-13-eval-ami-amimix-e0-judge | 42 min |  |
+| 2026-10-13 | `scripts/make_estimates.py` | 249 trials rendered, sir0priv | 32 min | cpu, whole-clip |
+| 2026-10-13 | `scripts/evaluate.py` | --split ami_eval --condition both --est experiments/results/2026-10-12-est-ami-amift-e1 --metrics content --listener judge --judge-rpm 10 --judge-max-new-calls 320 --out experiments/results/2026-10-13-eval-ami-amift-e1-judge | 45 min |  |
+| 2026-10-13 | `scripts/make_estimates.py` | 249 trials rendered, sir0priv | 38 min | cpu, whole-clip |
+| 2026-10-13 | `scripts/make_estimates.py` | 300 trials rendered, ami | 41 min | cpu, whole-clip |
+| 2026-10-13 | `scripts/make_estimates.py` | 150 trials rendered (+150 reused), ami | 17 min | cpu, whole-clip |
+| 2026-10-12 | `scripts/evaluate.py` | --split ami_train_check --condition both --est experiments/results/2026-10-12-est-amitrchk-e21 --metrics content --listener judge --judge-rpm 10 --judge-max-new-calls 170 --out experiments/results/2026-10-12-eval-amitrchk-e21-judge | 17 min |  |
+| 2026-10-12 | `scripts/evaluate.py` | --split ami_train_check --condition both --est experiments/results/2026-10-12-est-amitrchk-amimix-e2 --metrics content --listener judge --judge-rpm 10 --judge-max-new-calls 170 --out experiments/results/2026-10-12-eval-amitrchk-amimix-e2-judge | 26 min |  |
+| 2026-10-12 | `scripts/evaluate.py` | --split ami_train_check --condition both --est experiments/results/2026-10-12-est-amitrchk-amift-e2 --metrics content --listener judge --judge-rpm 10 --judge-max-new-calls 170 --out experiments/results/2026-10-12-eval-amitrchk-amift-e2-judge | 23 min |  |
+| 2026-10-12 | `scripts/evaluate.py` | --split ami_train_check --condition both --est experiments/results/2026-10-12-est-amitrchk-amimix-e1 --metrics content --listener judge --judge-rpm 10 --judge-max-new-calls 170 --out experiments/results/2026-10-12-eval-amitrchk-amimix-e1-judge | 20 min |  |
+| 2026-10-12 | `scripts/evaluate.py` | --split ami_train_check --condition both --est experiments/results/2026-10-12-est-amitrchk-amift-e1 --metrics content --listener judge --judge-rpm 10 --judge-max-new-calls 170 --out experiments/results/2026-10-12-eval-amitrchk-amift-e1-judge | 27 min |  |
+| 2026-10-12 | `scripts/make_estimates.py` | 150 trials rendered, amitrchk | 14 min | cpu, whole-clip |
+| 2026-10-12 | `scripts/make_estimates.py` | 150 trials rendered, amitrchk | 14 min | cpu, whole-clip |
+| 2026-10-12 | `scripts/evaluate.py` | --split ami_train_check --condition both --est experiments/results/2026-10-12-est-amitrchk-amimix-e0 --metrics content --listener judge --judge-rpm 10 --judge-max-new-calls 40 --out experiments/results/2026-10-12-eval-amitrchk-amimix-e0-judge-retry1 | 2 min |  |
+| 2026-10-12 | `scripts/evaluate.py` | --split ami_train_check --condition both --est experiments/results/2026-10-12-est-amitrchk-amimix-e0 --metrics content --listener judge --judge-rpm 10 --judge-max-new-calls 170 --out experiments/results/2026-10-12-eval-amitrchk-amimix-e0-judge | 23 min |  |
+| 2026-10-12 | `scripts/make_estimates.py` | 150 trials rendered, amitrchk | 15 min | cpu, whole-clip |
+| 2026-10-12 | `scripts/make_estimates.py` | 150 trials rendered, amitrchk | 14 min | cpu, whole-clip |
+| 2026-10-12 | `scripts/evaluate.py` | --split ami_train_check --condition both --est experiments/results/2026-10-12-est-amitrchk-amift-e0 --metrics content --listener judge --judge-rpm 10 --judge-max-new-calls 170 --out experiments/results/2026-10-12-eval-amitrchk-amift-e0-judge | 24 min |  |
+| 2026-10-12 | `scripts/make_estimates.py` | 150 trials rendered, amitrchk | 16 min | cpu, whole-clip |
+| 2026-10-12 | `scripts/make_estimates.py` | 150 trials rendered, amitrchk | 16 min | cpu, whole-clip |
+| 2026-10-12 | `scripts/make_estimates.py` | 150 trials rendered, amitrchk | 18 min | cpu, whole-clip |
+| 2026-10-12 | `scripts/evaluate.py` | --split ami_train_check --condition both --systems floor,ceiling --metrics content --listener judge | 48 min |  |
+| 2026-10-12 | `scripts/evaluate.py` | --split ami_train --condition both --systems floor,ceiling --metrics content --listener judge **(failed)** | 5 min |  |
+| 2026-10-12 | `scripts/build_ami_train.py` | 451 trials, ami_train, 0.83 GB fetched by range | 5 min | cpu, 8 fetch workers |
+| 2026-10-12 | `scripts/build_ami_train.py` | 451 trials, ami_train, 0.83 GB fetched by range | 13 min | cpu, 8 fetch workers |
+| 2026-10-12 | `scripts/build_ami_train.py` | 273 trials, ami_train, 0.83 GB fetched by range **(failed)** | 34 min | cpu, 8 fetch workers |
+| 2026-10-12 | `scripts/build_ami_train.py` | 0 trials, ami_train, 0.83 GB fetched by range **(failed)** | 33 min | cpu, 8 fetch workers |
+| 2026-10-12 | `scripts/build_ami_train.py` | 0 trials, ami_train, 0.83 GB fetched by range **(failed)** | 3 min | cpu, 16 fetch workers |
 | 2026-10-10 | `scripts/eval_by_case.py --split sir0_val --cases target_only,interferer_only,noise_only --listener judge` | 3 cases, sir0_val, listener judge | 10 min |  |
 | 2026-10-10 | `experiments/results/2026-09-27-judge-clip-swings/plot_clip_swings.py` | 5 systems x 103 sir0_val clips x 3 judge runs from the judge cache, no API calls; baseline now matched e11 | 1.9 min | cpu; run twice (second after fitting the y-axis to the data). Measured with `time`. Added by hand. |
 | 2026-10-10 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-10-08-est-baseline-matched-e11 --metrics content --listener judge --judge-rpm 10 --out experiments/results/2026-10-09-eval-baseline-matched-e11-judge-r2 --systems estimate --judge-repeat 2 | 29 min |  |

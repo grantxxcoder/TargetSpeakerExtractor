@@ -1,124 +1,41 @@
 # Project: Real-time Target Speaker Extraction (masters research project)
 
 ## Context
-The objective is to build a streaming TSE model that maximises how
-accurately a **live speech-to-speech model** (Gemini Live and similar)
-recovers what the target speaker said from a mixture. We are optimising
-for downstream live-model content fidelity, NOT for the perceptual or
-signal quality of the separated audio. Quality may help, but it is not
-the target. See docs/decisions/specification.md for the full brief (esp. note 10).
+The objective is to build a streaming TSE model that maximises how accurately a **live speech-to-speech model** (Gemini Live and similar) recovers what the target speaker said from a mixture. We are optimising for downstream live-model content fidelity, NOT for the perceptual or signal quality of the separated audio. Quality may help, but it is not the target. See docs/decisions/specification.md for the full brief (esp. note 10).
 
 Working setup:
-1. **Metric first.** The primary contribution is a defined, gaming-resistant
-   metric for live-model content fidelity, plus the harness that computes
-   it. See docs/data/metric-definitions.md.
-2. **Train with differentiable proxies; Gemini may now supervise them.** A
-   live API model still cannot be backpropagated through, so it can never be
-   a loss term. Differentiable proxies (frozen-ASR/SSL feature matching,
-   optionally ASR cross-entropy, speaker and VAD terms) remain the gradient
-   path. **The family-separation rule is WITHDRAWN 2026-09-15** — supervisor
-   approved over-optimising for one model family, so Gemini may supply
-   targets, rewards, filters and selection criteria offline. Consequence to
-   carry: the benchmark is no longer held out from the system, so every claim
-   must say *optimised for Gemini*, never *generalises to live models*.
-   See docs/decisions/decisions-m4.md 2026-09-15.
-3. **Data is ours.** Training and primary eval are constructed mixtures
-   (LibriSpeech-derived + real noise/reverb), because differentiable
-   proxies need a clean target signal and exact ground-truth text — neither
-   of which real conversational corpora provide. A smaller AMI-derived set
-   is the secondary real-audio transfer check.
-4. **Server-class compute is assumed.** On-device / small-model deployment
-   is explicitly out of scope. Latency is a secondary objective with a
-   ~200-300 ms streaming budget.
-5. **The model outputs audio.** The live model accepts text too (spec note
-   10), but a text path costs a whole ASR decode plus endpointing inside the
-   latency budget, and it dissolves the research question — there are no
-   audio artefacts to mishear if you hand the judge text. Text is therefore
-   measured as a *reference condition* in the benchmark (extractor →
-   off-the-shelf ASR → text → judge), never optimised for and never built.
-   See docs/decisions/decisions-m0.md and docs/data/metric-definitions.md §3.5.
-6. **Two speakers, not multi-party.** A trial is the target, at most one
-   other speaker, and noise. Two simultaneous non-target speakers never
-   occur — a declared boundary of the task, decided 2026-08-14, not a gap to
-   be filled. Do not propose adding a third talker; that decision was taken
-   with the cost measured. Consequence to carry: "two overlapping voices"
-   proves the target is present in our data, our own eval cannot detect a
-   model exploiting that, and every claim must say *two-speaker mixtures*,
-   never "conversation". See docs/decisions/decisions-m0.md 2026-08-14.
+1. **Metric first.** The primary contribution is a defined, gaming-resistant metric for live-model content fidelity, plus the harness that computes it. See docs/data/metric-definitions.md.
+2. **Train with differentiable proxies; Gemini may now supervise them.** A live API model cannot be backpropagated through, so it can never be a loss term. Differentiable proxies (frozen-ASR/SSL feature matching, optionally ASR cross-entropy, speaker and VAD terms) remain the gradient path. **The family-separation rule is WITHDRAWN 2026-09-15.** The supervisor approved over-optimising for one model family, so Gemini may supply targets, rewards, filters and selection criteria offline. Consequence: the benchmark is no longer held out from the system, so every claim must say *optimised for Gemini*, never *generalises to live models*. See docs/decisions/decisions-m4.md 2026-09-15.
+3. **Data is ours.** Training and primary eval are constructed mixtures (LibriSpeech-derived + real noise/reverb), because differentiable proxies need a clean target signal and exact ground-truth text, and real conversational corpora provide neither. A smaller AMI-derived set is the secondary real-audio transfer check.
+4. **Server-class compute is assumed.** On-device / small-model deployment is out of scope. Latency is a secondary objective with a ~200-300 ms streaming budget.
+5. **The model outputs audio.** The live model accepts text too (spec note 10), but a text path costs a whole ASR decode plus endpointing inside the latency budget, and it removes the research question: there are no audio artefacts to mishear if the judge is given text. Text is therefore measured as a *reference condition* in the benchmark (extractor → off-the-shelf ASR → text → judge), never optimised for and never built. See docs/decisions/decisions-m0.md and docs/data/metric-definitions.md §3.5.
+6. **Two speakers, not multi-party.** A trial is the target, at most one other speaker, and noise. Two simultaneous non-target speakers never occur. This is a declared boundary of the task, decided 2026-08-14, not a gap to be filled. Do not propose adding a third talker; that decision was taken with the cost measured. Consequence: "two overlapping voices" proves the target is present in our data, our own eval cannot detect a model exploiting that, and every claim must say *two-speaker mixtures*, never "conversation". See docs/decisions/decisions-m0.md 2026-08-14.
 
-We are NOT replicating the REAL-TSE Challenge baselines or its eval
-pipeline (spec note 8). We borrow ideas, data-construction methods and
-metric-design lessons from it, and cite it as the anchor benchmark for
-real conversational TSE.
+We are NOT replicating the REAL-TSE Challenge baselines or its eval pipeline (spec note 8). We borrow ideas, data-construction methods and metric-design lessons from it, and cite it as the anchor benchmark for real conversational TSE.
 
 ## Non-negotiable rules
 - NEVER commit directly to main. Always branch, then open a PR.
-- Every experiment must have a YAML config in experiments/configs/ — no
-  hardcoded hyperparameters in source files.
-- Every experiment result gets logged in experiments/results/ with: the
-  config used, the git commit hash, the metrics, and the date.
+- Every experiment must have a YAML config in experiments/configs/. No hardcoded hyperparameters in source files.
+- Every experiment result gets logged in experiments/results/ with: the config used, the git commit hash, the metrics, and the date.
 - Set and log a random seed for every run.
-- Any script or job taking over a minute gets a row in docs/run_times.md:
-  date, command, scope, wall time. One line, no prose. Never estimate a
-  runtime in conversation without checking that file first, and never
-  report a projection as if it were measured.
-- When implementing something from a paper, cite it (author, year) in a
-  code comment at the top of the file/function.
-- After any nontrivial change, explain in plain language what the code
-  does and why — I need to be able to defend every line in my thesis.
-- Never present our numbers as comparable to published REAL-TSE results.
-  Different data, different metric, different protocol. Any borrowed
-  method or metric must be cited as borrowed, and the difference noted in
-  a code comment and in the decision log of the milestone the decision
-  belongs to. One file per milestone, in docs/decisions/:
-  decisions-m0.md (spec + data construction, closed),
-  decisions-m1.md (architecture + training infrastructure, closed),
-  decisions-m2.md (training objective and every training run),
-  decisions-m3.md (conventional evaluation: the offline ASR, SI-SDR,
-  DNSMOS, offline WER, latency),
-  decisions-m4.md (LCF: the three scores, the judge, the prompt, the
-  anchors). Open questions stay in decisions-pending.md until taken.
-  File it by SUBJECT, not by the date it happened to be decided.
-- Every live-model (judge) result must record the exact model ID, the
-  exact prompt, the input modality (audio or text), and the run date.
-  Record the date so drift can be checked if it is ever suspected; within
-  this project's timeframe, cross-date comparison is treated as valid. See
-  decisions-m4.md 2026-09-07.
-- Never compare an audio-input judge result to a text-input one without
-  stating that in the text condition the judge is close to a pass-through,
-  so the number mostly reflects the front-end ASR, not the judge's
-  listening.
-- Gemini may appear in the training loop — as teacher, reward, data filter
-  or checkpoint-selection criterion. The held-out-judge rule was withdrawn
-  2026-09-15. Two limits replace it, and they are what keep one defensible
-  number: (a) `sir0_privval` and `eval_private` trials are NEVER scored,
-  filtered or selected on during training — the holdout moves from the model
-  to the data; (b) every training-time Gemini call records model ID, prompt
-  and date exactly as a judge call does.
+- Any script or job taking over a minute gets a row in docs/run_times.md: date, command, scope, wall time. One line, no prose. Never estimate a runtime in conversation without checking that file first, and never report a projection as if it were measured.
+- When implementing something from a paper, cite it (author, year) in a code comment at the top of the file/function.
+- After any nontrivial change, explain in plain language what the code does and why. I need to be able to defend every line in my thesis.
+- Never present our numbers as comparable to published REAL-TSE results. Different data, different metric, different protocol. Any borrowed method or metric must be cited as borrowed, and the difference noted in a code comment and in the decision log of the milestone the decision belongs to. One file per milestone, in docs/decisions/. Open questions stay in decisions-pending.md until taken. File it by SUBJECT, not by the date it happened to be decided.
+  - decisions-m0.md: spec + data construction (closed)
+  - decisions-m1.md: architecture + training infrastructure (closed)
+  - decisions-m2.md: training objective and every training run
+  - decisions-m3.md: conventional evaluation (the offline ASR, SI-SDR, DNSMOS, offline WER, latency)
+  - decisions-m4.md: LCF (the three scores, the judge, the prompt, the anchors)
+- Every live-model (judge) result must record the exact model ID, the exact prompt, the input modality (audio or text), and the run date. The date is recorded so drift can be checked if it is ever suspected; within this project's timeframe, cross-date comparison is treated as valid. See decisions-m4.md 2026-09-07.
+- Never compare an audio-input judge result to a text-input one without stating that in the text condition the judge is close to a pass-through, so the number mostly reflects the front-end ASR, not the judge's listening.
+- Gemini may appear in the training loop as teacher, reward, data filter or checkpoint-selection criterion. The held-out-judge rule was withdrawn 2026-09-15. Two limits replace it, and they are what keep one defensible number: (a) `sir0_privval` and `eval_private` trials are NEVER scored, filtered or selected on during training, so the holdout moves from the model to the data; (b) every training-time Gemini call records model ID, prompt and date exactly as a judge call does.
 - Prefer small, single-purpose PRs over large ones.
-- When generating text/markdown files, I do not want long explanations. Short, concise answers are
-  always preferred unless expressly asked otherwise.
-- If needing a format for what to do always begin with the instruction first,
-  highlighted, or made clear, followed by the short explanation as to why it
-  is required only if necessary.
-- **Explain results in plain English, on every response, not just when asked.**
-  When reporting what an experiment did, say it in ordinary words first: what
-  the model was supposed to do, what it actually did, and why that matters.
-  Then give the numbers. Do not lead with term names (`L_pres`, `L_MR`,
-  `L_abs`, SI-SDR, "conditioning", "the objective") — name the thing in plain
-  words and give the symbol after, once, if it is needed to read a table.
-  Prefer percentages and comparisons to a baseline over raw dB where either
-  will do. **Why:** I have to defend every one of these numbers verbally in a
-  viva, and a result I cannot re-explain from memory in plain speech is a
-  result I do not actually understand yet.
-- **Say what a number means, never just what it is.** "Enrolment sensitivity
-  -15.86 dB" is not a finding. "Swapping in a stranger's voice sample changes
-  the output by 2.6 %, so the model is ignoring it" is. Always state which
-  direction is good.
-- **Flag when a headline number improves for a bad reason.** The 2026-08-25
-  run's total loss fell the whole way while the model was collapsing to
-  silence. If the main metric is moving for a reason that is not progress, say
-  so in the same breath as reporting it.
+- When generating text/markdown files, I do not want long explanations. Short, concise answers are always preferred unless expressly asked otherwise.
+- If needing a format for what to do, always begin with the instruction first, highlighted or made clear, followed by the short explanation as to why it is required, only if necessary.
+- **Explain results in plain English, on every response, not just when asked.** When reporting what an experiment did, say it in ordinary words first: what the model was supposed to do, what it actually did, and why that matters. Then give the numbers. Do not lead with term names (`L_pres`, `L_MR`, `L_abs`, SI-SDR, "conditioning", "the objective"). Name the thing in plain words and give the symbol after, once, if it is needed to read a table. Prefer percentages and comparisons to a baseline over raw dB where either will do. **Why:** I have to defend every one of these numbers verbally in a viva, and a result I cannot re-explain from memory in plain speech is a result I do not actually understand yet.
+- **Say what a number means, never just what it is.** "Enrolment sensitivity -15.86 dB" is not a finding. "Swapping in a stranger's voice sample changes the output by 2.6 %, so the model is ignoring it" is. Always state which direction is good.
+- **Flag when a headline number improves for a bad reason.** The 2026-08-25 run's total loss fell the whole way while the model was collapsing to silence. If the main metric is moving for a reason that is not progress, say so in the same breath as reporting it.
 
 ## Current phase
 Milestone 5: teacher-trainer
