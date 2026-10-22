@@ -237,18 +237,3 @@ def test_turning_it_on_does_not_move_the_global_rng():
     with_inject = torch.randn(3)
 
     assert torch.equal(without, with_inject)
-
-
-def test_it_composes_with_head_a():
-    """The two 2026-09-11 flags are independent switches, and both forks of the
-    RNG must still leave the stream untouched when they are on together."""
-    torch.manual_seed(42)
-    tiny_model()
-    without = torch.randn(3)
-
-    torch.manual_seed(42)
-    model = tiny_model(tfmap_inject=True, state_head=True)
-    assert torch.equal(without, torch.randn(3))
-
-    _, logits = model(torch.randn(1, 4000), torch.randn(1, 4000), return_state=True)
-    assert logits.shape[1] == 4

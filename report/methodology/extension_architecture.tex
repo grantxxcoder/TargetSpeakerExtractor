@@ -187,7 +187,7 @@ Recalling that being in state $i$ at a time frame $t$ is modelled by the Bernoul
   \label{eq:term2-expectation}
 \end{aligned}
 \end{equation}
-$\dagger$ where $p(z_1 = 1) = \rho$ from \eqref{eq:stationary}, and since $z_t \in \{0, 1\}$ exactly one of the four products is $1$ for each pair $(z_{t-1}, z_t)$, which selects the matching transition. $\ddagger$ where $\mathbb{E}_{z}\big[z_{t-1} z_t\big] = \mathbb{E}_{z}\big[z_{t-1}\big]\mathbb{E}_{z}\big[z_{t}\big] = \pi_{t-1} \pi_t$ by the mean field assumption.
+$\dagger$ where $p(z_1 = 1) = \rho$ from \eqref{eq:stationary}, and since $z_t \in \{0, 1\}$ exactly one of the four products is $1$ for each pair $(z_{t-1}, z_t)$, which selects the matching transition. $\ddagger$ where $\mathbb{E}_{z}\big[z_{t-1} z_t\big] = \mathbb{E}_{z}\big[z_{t-1}\big]\mathbb{E}_{z}\big[z_{t}\big] = \pi_{t-1} \pi_t$ by the mean field assumption, following the completely factorised variational inference of Ghahramani and Jordan \cite{ghahramani1997factorial}.
 Therefore subtracting \eqref{eq:term2-expectation} from \eqref{eq:term1} and removing $t=1$ from the first summation yields
 \begin{equation}
   \begin{aligned}

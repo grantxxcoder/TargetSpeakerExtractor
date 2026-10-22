@@ -144,8 +144,7 @@ class ContextEncoder(nn.Module):
             source=self.ecapa_dir, savedir=self.ecapa_dir,
             run_opts={"device": str(device)})
         classifier.eval()
-        # Taken directly rather than via encode_batch(), matching
-        # state_teacher.py: that method may wrap its forward in no_grad, and
+        # Taken directly rather than via encode_batch(): that method may wrap its forward in no_grad, and
         # depending on it would make the behaviour of this class a property of
         # somebody else's convenience wrapper.
         self.compute_features = classifier.mods.compute_features

@@ -7,7 +7,7 @@ docs/extra/variational-presence-gate.md.
 output was built with one soft draw of the gate (eq. 20), so `base` is the
 one-sample estimate of E_q[loss]. The two new terms read the gate's logits.
 
-A SUBCLASS in its own file, for the same reason as losses_state_head.py: the base
+A SUBCLASS in its own file, so that the base
 class is untouched, and build_loss_fn() only returns this class when the config
 sets model.presence_gate, so no old config can reach this code path.
 
