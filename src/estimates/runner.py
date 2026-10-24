@@ -20,7 +20,7 @@ PROGRESS_EVERY = 25
 
 
 # this reads the trials of a manifest in order, as dictionaries of trial_id, directory and condition. condition None keeps every trial
-def read_trials(manifest_csv, audio_root, limit, condition):
+def read_trials(manifest_csv, audio_root, condition):
     manifest_csv = Path(manifest_csv)
     audio_root = Path(audio_root)
     if not manifest_csv.exists():
@@ -33,9 +33,7 @@ def read_trials(manifest_csv, audio_root, limit, condition):
             trials.append({"trial_id": str(row["trial_id"]), "directory": audio_root / str(row["trial_id"]), "condition": str(row.get("condition", ""))})
     if not trials:
         raise SystemExit(f"No trials with condition={condition!r} in {manifest_csv}.")
-    if limit is None:
-        return trials
-    return trials[:limit]
+    return trials
 
 
 # this reads a whole wav file as one mono float32 channel. Estimates use the whole clip, not the 4 s training crop

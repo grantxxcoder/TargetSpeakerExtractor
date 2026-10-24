@@ -8,6 +8,7 @@ Machine unless stated: laptop, Intel i5-1135G7, **4 physical cores / 8 threads**
 
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
+| 2026-10-24 | scratch `e2e_metric3.py` (job tmp dir, not kept) | sir0_val `both` scored from caches, 0 API calls, after removing the fixed-value parameters from evaluate() | 78 s | cpu; results and the 618 gate rows identical to before the cleanup. Added by hand |
 | 2026-10-24 | `scripts/build_vad_index.py --help` | full VAD index build **(accidental: no parser, so --help started the job; stopped by hand, wrote nothing)** | ~2 min | 8 workers. Added by hand: SIGTERM skips run_log |
 | 2026-10-24 | `pytest tests/ -q` | all 28 test files after the ruthless cleanup, before deleting 23 of them: 129 passed, 68 failed, 13 collection errors, all from removed names, signatures or guards | 3.6 min | cpu. Added by hand |
 | 2026-10-24 | scratch `e2e_metric2.py` (job tmp dir, not kept) | sir0_val `both` scored from caches, 0 API calls, after the ruthless cleanup | 3.8 min | cpu; results identical to before the cleanup. Added by hand |

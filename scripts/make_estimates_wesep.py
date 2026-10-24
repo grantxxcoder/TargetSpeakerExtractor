@@ -23,6 +23,10 @@ from src.estimates.runner import read_trials, write_estimates
 from src.run_log import timed
 
 SAMPLE_RATE = 16000
+# Every WeSep estimate was rendered on the CPU (docs/run_times.md).
+DEVICE = "cpu"
+MANIFEST_DIR = Path("data/manifests")
+RENDERED_DIR = Path("data/rendered")
 
 # The same table as EVAL_SPLITS in scripts/make_estimates.py. It is copied rather than imported, because that script needs torch 2.13 and our model code, which the WeSep virtualenv does not have.
 EVAL_SPLITS = {
@@ -76,14 +80,14 @@ def describe_checkpoint(pretrain_dir):
 
 
 # this loads WeSep and wraps it in the runner's contract: whole mixture and enrolment in, the estimate out
-def build_extractor(pretrain_dir, device):
+def build_extractor(pretrain_dir):
     """WeSep's own VAD is switched off, because our speech gate does that job for every listener, and a second gate inside a system under test would mute clips before ours saw them.
     Its output normalisation is switched off too, because our estimates are written unnormalised and normalising would hand WeSep a level correction our model does not get.
     """
     model = wesep.load_model_local(str(pretrain_dir))
     model.set_resample_rate(SAMPLE_RATE)
     model.set_vad(False)
-    model.set_device(device)
+    model.set_device(DEVICE)
     model.set_output_norm(False)
 
     def run(mixture, enrollment, sample_rate):
@@ -100,10 +104,7 @@ def main():
     parser.add_argument("--split", required=True, choices=sorted(EVAL_SPLITS))
     parser.add_argument("--pretrain", required=True, help="a WeSep checkpoint folder holding avg_model.pt and config.yaml")
     parser.add_argument("--out", default=None, help="default experiments/results/<today>-est-wesep-<checkpoint>")
-    parser.add_argument("--manifest-dir", default="data/manifests")
-    parser.add_argument("--data-root", default="data")
     parser.add_argument("--condition", default=None, help="render only this condition. It must match what scripts/make_estimates.py was run with")
-    parser.add_argument("--device", default="cpu", help="cpu or cuda")
     args = parser.parse_args()
 
     checkpoint = describe_checkpoint(args.pretrain)
@@ -114,9 +115,9 @@ def main():
     print(f"  trained on: {checkpoint['trained_on']}  loss={checkpoint['training_loss']}")
     print("  OUT OF DOMAIN on our trials -- see this script's docstring before quoting anything from this run.")
 
-    run = build_extractor(args.pretrain, args.device)
+    run = build_extractor(args.pretrain)
     manifest = EVAL_SPLITS[args.split]
-    trials = read_trials(Path(args.manifest_dir) / f"{manifest}.csv", Path(args.data_root) / "rendered" / manifest, None, args.condition)
+    trials = read_trials(MANIFEST_DIR / f"{manifest}.csv", RENDERED_DIR / manifest, args.condition)
     out_root = Path(args.out or f"experiments/results/{date.today().isoformat()}-est-wesep-{checkpoint['name']}")
     provenance = {
         "script": "scripts/make_estimates_wesep.py",
@@ -127,13 +128,13 @@ def main():
         "manifest": manifest,
         "condition": args.condition,
         "checkpoint": checkpoint,
-        "device": args.device,
+        "device": DEVICE,
         "wesep_vad": False,
         "wesep_output_norm": False,
         # str(), because torch.__version__ is a str subclass that yaml.safe_dump refuses.
         "torch": str(torch.__version__),
     }
-    with timed("scripts/make_estimates_wesep.py", scope=lambda: f"{len(trials)} trials rendered, {args.split}, {checkpoint['name']}", rate=lambda: f"{args.device}, whole-clip"):
+    with timed("scripts/make_estimates_wesep.py", scope=lambda: f"{len(trials)} trials rendered, {args.split}, {checkpoint['name']}", rate=lambda: f"{DEVICE}, whole-clip"):
         write_estimates(run, trials, out_root, SAMPLE_RATE, provenance)
 
 

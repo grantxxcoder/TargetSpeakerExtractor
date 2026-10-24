@@ -82,9 +82,8 @@ def log_decision(decision, audio_path, listener, split, condition):
 
 
 # this gives a function that looks up a clip's condition from the split manifest, by its trial folder
-def condition_lookup(split, manifest_dir, repo_root):
-    root = Path(repo_root or REPO_ROOT)
-    manifest = root / manifest_dir / f"{split}.csv"
+def condition_lookup(split):
+    manifest = REPO_ROOT / "data/manifests" / f"{split}.csv"
     conditions = {}
     with open(manifest, newline="") as handle:
         for row in csv.DictReader(handle):

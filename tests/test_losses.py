@@ -84,7 +84,7 @@ def plain_si_sdr(s_target, s_output):
 
 # --- L_pres: floored SI-SDR, CARTSE eq (1) --------------------------------
 
-def test_present_is_exactly_minus_30_on_a_perfect_output(loss):
+def test_present_is_exactly_minus_30_on_a_perfect_output():
     """The ceiling is 1/tau = 30 dB. One line that validates the whole term:
     it only lands on -30 if every quantity in the ratio is an ENERGY (squared)
     and the floor is applied to the right one."""
@@ -93,7 +93,7 @@ def test_present_is_exactly_minus_30_on_a_perfect_output(loss):
 
 
 @pytest.mark.parametrize("gain", [0.05, 0.2, 1.0, 5.0, 100.0])
-def test_present_is_invariant_to_output_gain(loss, gain):
+def test_present_is_invariant_to_output_gain(gain):
     """Deviation 1. FAILS on CARTSE eq (1) as published, which floors on
     tau*||s||^2: the numerator scales with the output gain g but the floor does
     not, so a perfect-shape output scaled by g scores -20log10(g) - 30 --
@@ -103,7 +103,7 @@ def test_present_is_invariant_to_output_gain(loss, gain):
     assert float(loss_target_present(s, gain * s, TAU_PRES)[0]) == pytest.approx(-30.0, abs=1e-3)
 
 
-def test_present_is_gain_invariant_on_an_imperfect_output(loss):
+def test_present_is_gain_invariant_on_an_imperfect_output():
     """Gain invariance must hold away from the ceiling too, not only at -30."""
     s, x = speechlike(2), speechlike(2) + 0.5 * speechlike(3)
     ref = float(loss_target_present(s, x, TAU_PRES)[0])
@@ -111,7 +111,7 @@ def test_present_is_gain_invariant_on_an_imperfect_output(loss):
         assert float(loss_target_present(s, gain * x, TAU_PRES)[0]) == pytest.approx(ref, abs=1e-3)
 
 
-def test_present_matches_plain_si_sdr_away_from_the_floor(loss):
+def test_present_matches_plain_si_sdr_away_from_the_floor():
     """Where the error is far above tau*||s_proj||^2 the floor is inert, so the
     term must agree with a textbook SI-SDR. Guards against the floor quietly
     distorting the normal operating range."""
@@ -120,7 +120,7 @@ def test_present_matches_plain_si_sdr_away_from_the_floor(loss):
         float(plain_si_sdr(s, x)[0]), abs=0.05)
 
 
-def test_present_is_finite_when_the_model_collapses_to_silence(loss):
+def test_present_is_finite_when_the_model_collapses_to_silence():
     """Total collapse makes numerator and denominator both exactly 0, and 0/0 is
     NaN, which no clamp removes -- hence eps on BOTH sides. 0.0 dB is worse than
     the ~-6 dB of passing the mixture through, so collapse is not an attractor."""
@@ -129,7 +129,7 @@ def test_present_is_finite_when_the_model_collapses_to_silence(loss):
     assert math.isfinite(v) and v == pytest.approx(0.0, abs=1e-4)
 
 
-def test_present_is_nan_on_a_silent_target_by_design(loss):
+def test_present_is_nan_on_a_silent_target_by_design():
     """NOT a bug. alpha is 0/0 when the target is all zero, which is why the
     caller must select present rows first. Pinning it as a test documents the
     masking requirement in a way a comment cannot."""
@@ -314,7 +314,7 @@ def test_call_gradients_are_finite(loss, absent_idx):
 # existing number.
 # ---------------------------------------------------------------------------
 
-def test_gain_match_is_zero_inside_the_deadzone(loss):
+def test_gain_match_is_zero_inside_the_deadzone():
     """Grace, not indifference: no gradient is spent on sub-band errors."""
     target = speechlike(seed=11, batch=4)
     for gain_db in (0.0, 2.9, -2.9):
@@ -323,14 +323,14 @@ def test_gain_match_is_zero_inside_the_deadzone(loss):
         assert torch.allclose(got, torch.zeros(4), atol=1e-4), f"nonzero at {gain_db} dB"
 
 
-def test_gain_match_is_linear_in_db_outside_the_deadzone(loss):
+def test_gain_match_is_linear_in_db_outside_the_deadzone():
     target = speechlike(seed=12, batch=4)
     output = target * (10 ** (-13.0 / 20))       # 13 dB too quiet
     got = loss_gain_match(target, output, gain_deadzone_db=3.0)
     assert torch.allclose(got, torch.full((4,), 10.0), atol=1e-3)
 
 
-def test_gain_match_is_symmetric(loss):
+def test_gain_match_is_symmetric():
     """THE test that keeps this term from becoming Deviation 1's bug again.
 
     Too loud must cost exactly what too quiet costs. If it ever pays less, the
@@ -343,7 +343,7 @@ def test_gain_match_is_symmetric(loss):
     assert torch.allclose(quiet, loud, atol=1e-3)
 
 
-def test_gain_match_prices_the_measured_sir0_collapse(loss):
+def test_gain_match_prices_the_measured_sir0_collapse():
     """The 2026-08-27 run sat ~18 dB under the target's level. Pin what that costs.
 
     Not a round-number test: 18 dB is the measured gap between the collapsed
@@ -357,7 +357,7 @@ def test_gain_match_prices_the_measured_sir0_collapse(loss):
     assert torch.allclose(got, torch.full((2,), 15.0), atol=1e-3)
 
 
-def test_gain_match_gradient_survives_near_silence(loss):
+def test_gain_match_gradient_survives_near_silence():
     """eps inside the sqrt, not a clamp on the result.
 
     A clamp would zero the gradient at exact silence and strand a fully

@@ -33,7 +33,7 @@ def split_bands(spectrogram, band_widths):
 
 
 # this builds a layer norm that normalises the channels of each frame on their own
-def build_channel_norm(num_channels, eps=1e-5):
+def build_channel_norm(num_channels):
     """LayerNorm over the channel axis at each time step.
 
     Each frame is normalised using only its own channels, so nothing carries over between frames, and a 4 s training crop is normalised the same way as a 60 s live stream.
@@ -41,7 +41,7 @@ def build_channel_norm(num_channels, eps=1e-5):
     The LayerNorm sits one level down (block.norm) so the checkpoint key stays "...norm.norm.weight", the name the trained models were saved under.
     """
     block = nn.Module()
-    block.norm = nn.LayerNorm(num_channels, eps=eps)
+    block.norm = nn.LayerNorm(num_channels)
     return block
 
 

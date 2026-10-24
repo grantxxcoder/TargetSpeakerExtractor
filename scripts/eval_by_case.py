@@ -23,7 +23,7 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
-from src.live_model_metric.evaluate import ASR, JUDGE, TRANSCRIPT_CACHE, evaluate, listen, load_trials, system_path
+from src.live_model_metric.evaluate import ASR, JUDGE, evaluate, listen, load_trials, system_path
 from src.run_log import timed
 
 PRESENT_CASES = ("target_only", "both")
@@ -32,6 +32,8 @@ ALL_CASES = PRESENT_CASES + ABSENT_CASES
 
 # Keeps the suppression ratio finite when a clip is silent.
 RMS_FLOOR = 1e-12
+# Recorded for provenance only, because this script draws no random numbers.
+SEED = 42
 
 
 # this gives the root-mean-square amplitude of a wav file, or None if it is missing or empty
@@ -56,9 +58,9 @@ def suppression_db(estimate_path, mixture_path):
 
 
 # this scores a target-absent case: the words the listener reported when the target said nothing, and the suppression
-def score_absent_case(case, split, estimate_directory, listener, limit, data_root, manifest_dir, judge_requests_per_minute, cached_only):
+def score_absent_case(case, split, estimate_directory, listener):
     """The listener still runs, because the question is what it reports from a clip whose target said nothing. A failed judge call scores as an empty answer, which here reads as a correct zero, so failures are recorded."""
-    trials = load_trials(split, case, limit, data_root, manifest_dir, estimate_directory, REPO_ROOT)
+    trials = load_trials(split, case, estimate_directory)
     if not trials:
         return None
     systems = ["floor"]
@@ -70,7 +72,7 @@ def score_absent_case(case, split, estimate_directory, listener, limit, data_roo
         paths = []
         for trial in trials:
             paths.append(system_path(trial, system))
-        responses, gate_decisions, used_judge = listen(paths, listener, split, manifest_dir, REPO_ROOT, TRANSCRIPT_CACHE, not cached_only, 0, judge_requests_per_minute, True, "small.en")
+        responses, gate_decisions, used_judge = listen(paths, listener, split, 0, "small.en")
 
         word_counts = []
         for response in responses:
@@ -105,11 +107,11 @@ def score_absent_case(case, split, estimate_directory, listener, limit, data_roo
 
 
 # this scores a target-present case with the usual content measures, against that case's own floor and ceiling
-def score_present_case(case, split, estimate_directory, listener, limit, data_root, manifest_dir, judge_requests_per_minute, cached_only):
+def score_present_case(case, split, estimate_directory, listener):
     systems = ("floor", "ceiling")
     if estimate_directory:
         systems = ("floor", "estimate", "ceiling")
-    results = evaluate(split, case, estimate_directory, systems, ("content",), limit, data_root, manifest_dir, TRANSCRIPT_CACHE, not cached_only, True, REPO_ROOT, listener, 0, judge_requests_per_minute, "small.en")
+    results = evaluate(split, case, estimate_directory, systems, ("content",), listener, 0, "small.en")
     return {"n_trials": results["n_trials"], "scores": results["systems"], "provenance": results["provenance"]}
 
 
@@ -148,23 +150,17 @@ def main():
     parser.add_argument("--est", "--estimate-directory", dest="estimate_directory", default=None, help="the folder of rendered estimate.wav files")
     parser.add_argument("--split", default="sir0_val")
     parser.add_argument("--listener", default=ASR, choices=[ASR, JUDGE])
-    parser.add_argument("--limit", type=int, default=None, help="per case, not in total")
-    parser.add_argument("--data-root", default="data")
-    parser.add_argument("--manifest-dir", default="data/manifests")
-    parser.add_argument("--cached-only", action="store_true", help="never transcribe anything new")
-    parser.add_argument("--judge-rpm", type=int, default=10)
-    parser.add_argument("--seed", type=int, default=42, help="recorded for provenance; this script is deterministic")
     parser.add_argument("--out", default=None)
     args = parser.parse_args()
 
-    payload = {"date": date.today().isoformat(), "split": args.split, "listener": args.listener, "seed": args.seed, "estimate_directory": args.estimate_directory, "cases": {}}
+    payload = {"date": date.today().isoformat(), "split": args.split, "listener": args.listener, "seed": SEED, "estimate_directory": args.estimate_directory, "cases": {}}
     with timed(f"scripts/eval_by_case.py --split {args.split} --listener {args.listener}", scope=lambda: f"{len(ALL_CASES)} cases, {args.split}, listener {args.listener}"):
         for case in ALL_CASES:
             print(f"\n######## {case} ########", flush=True)
             if case in PRESENT_CASES:
-                payload["cases"][case] = score_present_case(case, args.split, args.estimate_directory, args.listener, args.limit, args.data_root, args.manifest_dir, args.judge_rpm, args.cached_only)
+                payload["cases"][case] = score_present_case(case, args.split, args.estimate_directory, args.listener)
             else:
-                payload["cases"][case] = score_absent_case(case, args.split, args.estimate_directory, args.listener, args.limit, args.data_root, args.manifest_dir, args.judge_rpm, args.cached_only)
+                payload["cases"][case] = score_absent_case(case, args.split, args.estimate_directory, args.listener)
 
     text = render(payload)
     print(text)
@@ -173,7 +169,7 @@ def main():
         out.mkdir(parents=True, exist_ok=True)
         (out / "results.json").write_text(json.dumps(payload, indent=1, default=str))
         (out / "results.txt").write_text(text)
-        (out / "meta.yaml").write_text(yaml.safe_dump({"date": payload["date"], "script": "scripts/eval_by_case.py", "seed": args.seed, "split": args.split, "cases": list(ALL_CASES), "listener": args.listener, "estimate_directory": args.estimate_directory, "limit": args.limit}, sort_keys=False))
+        (out / "meta.yaml").write_text(yaml.safe_dump({"date": payload["date"], "script": "scripts/eval_by_case.py", "seed": SEED, "split": args.split, "cases": list(ALL_CASES), "listener": args.listener, "estimate_directory": args.estimate_directory}, sort_keys=False))
         print(f"  wrote {out}")
 
 

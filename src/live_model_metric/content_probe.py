@@ -31,7 +31,7 @@ def read_mono(path):
 def load_probe_trials(manifest_csv, audio_root, limit):
     """The same clips at every epoch of every run, or the curve would measure which trials were drawn. Trials whose target never speaks are skipped, because their rate is 0/0 (decisions-m0.md 2026-08-13)."""
     kept = []
-    for trial in read_trials(manifest_csv, audio_root, None, "both"):
+    for trial in read_trials(manifest_csv, audio_root, "both"):
         meta_path = trial["directory"] / "meta.json"
         mixture = trial["directory"] / "mixture.wav"
         enrolment = trial["directory"] / "enrollment.wav"

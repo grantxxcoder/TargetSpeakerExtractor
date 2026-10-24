@@ -19,6 +19,9 @@ from src.models.bsrnn import extract
 from src.run_log import timed
 from train import build_model, build_speaker_encoder, speaker_embedding
 
+MANIFEST_DIR = Path("data/manifests")
+RENDERED_DIR = Path("data/rendered")
+
 # Each split a system is scored on, and the name of its manifest and audio folder.
 EVAL_SPLITS = {
     "sir0": "sir0_val",  # validation, where checkpoints were selected
@@ -53,8 +56,6 @@ def main():
     parser.add_argument("--split", required=True, choices=sorted(EVAL_SPLITS))
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--out", default=None, help="default experiments/results/<today>-est-<split>")
-    parser.add_argument("--manifest-dir", default="data/manifests")
-    parser.add_argument("--data-root", default="data")
     parser.add_argument("--condition", default=None, help="render only this condition, for example 'both'. Use the same choice for every system being compared")
     args = parser.parse_args()
 
@@ -65,7 +66,7 @@ def main():
     torch.manual_seed(seed)
 
     manifest = EVAL_SPLITS[args.split]
-    trials = read_trials(Path(args.manifest_dir) / f"{manifest}.csv", Path(args.data_root) / "rendered" / manifest, None, args.condition)
+    trials = read_trials(MANIFEST_DIR / f"{manifest}.csv", RENDERED_DIR / manifest, args.condition)
     out_root = Path(args.out or f"experiments/results/{date.today().isoformat()}-est-{args.split}")
     provenance = {
         "script": "scripts/make_estimates.py",

@@ -32,22 +32,26 @@ ALL_SYSTEMS = ("floor", "estimate", "ceiling")
 ASR, JUDGE = "asr", "judge"
 ALL_LISTENERS = (ASR, JUDGE)
 
-TRANSCRIPT_CACHE = Path("experiments/results/transcripts.csv")
 # The default listener, and the in-loop probe's. The report's tables use large-v3-turbo through experiments/configs/eval_offline_asr_turbo.yaml (decisions-m3.md 2026-09-28).
 ASR_MODEL_SIZE = "small.en"
+# Every reported judge run was paced at 10 requests a minute (docs/run_times.md).
+JUDGE_REQUESTS_PER_MINUTE = 10
 
 # Paths are resolved from the repo root, worked out from this file's own location, so the working directory does not matter.
 REPO_ROOT = Path(__file__).resolve().parents[2]
+MANIFEST_DIR = REPO_ROOT / "data/manifests"
+RENDERED_DIR = REPO_ROOT / "data/rendered"
+TRANSCRIPT_CACHE = REPO_ROOT / "experiments/results/transcripts.csv"
 
 
 # this makes a relative path hang off the repo root and leaves an absolute path alone
-def resolve_path(path, root):
+def resolve_path(path):
     if path is None:
         return None
     path = Path(path)
     if path.is_absolute():
         return path
-    return Path(root or REPO_ROOT) / path
+    return REPO_ROOT / path
 
 
 # this gives the transcript cache key for a clip. It includes the file's timestamp and size, so a rewritten clip is transcribed again
@@ -57,24 +61,23 @@ def transcript_cache_key(audio_path, model_size):
 
 
 # this reads the transcript cache as key to text. A missing file is an empty cache
-def load_transcript_cache(cache_path):
-    cache_path = Path(cache_path)
-    if not cache_path.exists():
+def load_transcript_cache():
+    if not TRANSCRIPT_CACHE.exists():
         return {}
     cache = {}
-    with open(cache_path, newline="") as handle:
+    with open(TRANSCRIPT_CACHE, newline="") as handle:
         for row in csv.DictReader(handle):
             cache[row["key"]] = row["text"]
     return cache
 
 
 # this reads one dictionary per trial from the split manifest: its id, condition, both scripts, the paths of its clips, and its SIR
-def load_trials(split, condition, limit, data_root, manifest_dir, estimate_directory, repo_root):
-    manifest = resolve_path(manifest_dir, repo_root) / f"{split}.csv"
+def load_trials(split, condition, estimate_directory):
+    manifest = MANIFEST_DIR / f"{split}.csv"
     if not manifest.exists():
-        raise FileNotFoundError(f"No manifest at {manifest}. The repo root resolved to {resolve_path('.', repo_root)}; pass repo_root if that is wrong.")
-    audio_root = resolve_path(data_root, repo_root) / "rendered" / split
-    estimate_root = resolve_path(estimate_directory, repo_root)
+        raise FileNotFoundError(f"No manifest at {manifest}.")
+    audio_root = RENDERED_DIR / split
+    estimate_root = resolve_path(estimate_directory)
 
     trials = []
     with open(manifest, newline="") as handle:
@@ -92,16 +95,12 @@ def load_trials(split, condition, limit, data_root, manifest_dir, estimate_direc
             if row.get("sir_db"):
                 signal_to_interference_db = float(row["sir_db"])
             trials.append({"trial_id": row["trial_id"], "condition": row["condition"], "target_text": meta.get("target_text", ""), "interferer_text": meta.get("interferer_text", ""), "mixture": trial_directory / "mixture.wav", "clean": trial_directory / "target.wav", "interferer": trial_directory / "interferer.wav", "estimate": estimate, "signal_to_interference_db": signal_to_interference_db})
-            if limit is not None and len(trials) >= limit:
-                break
     return trials
 
 
 # this transcribes clips with the offline ASR, serving what the cache already holds and appending what it had to transcribe
-def transcribe(audio_paths, cache_path, model_size, allow_new, verbose, repo_root):
-    """With allow_new False it refuses to run the ASR and raises instead, because a silent ten-minute transcription pass is worse than an error."""
-    cache_path = resolve_path(cache_path, repo_root)
-    cache = load_transcript_cache(cache_path)
+def transcribe(audio_paths, model_size):
+    cache = load_transcript_cache()
     texts = []
     missing = []
     for path in audio_paths:
@@ -117,11 +116,8 @@ def transcribe(audio_paths, cache_path, model_size, allow_new, verbose, repo_roo
 
     if not missing:
         return texts
-    if not allow_new:
-        raise RuntimeError(f"{len(missing)} clips are not transcribed and allow_new is False. The first is {missing[0][1]}.")
 
-    if verbose:
-        print(f"  transcribing {len(missing)} clips not in cache with {model_size}", flush=True)
+    print(f"  transcribing {len(missing)} clips not in cache with {model_size}", flush=True)
     model = WhisperModel(model_size, device="cpu", compute_type="int8")
     new_rows = []
     for count, (index, path, key) in enumerate(missing, 1):
@@ -132,12 +128,12 @@ def transcribe(audio_paths, cache_path, model_size, allow_new, verbose, repo_roo
         text = " ".join(segment_texts).strip()
         texts[index] = text
         new_rows.append({"key": key, "model": model_size, "trial_id": path.parent.name, "file": path.name, "text": text})
-        if verbose and count % 25 == 0:
+        if count % 25 == 0:
             print(f"    {count}/{len(missing)}", flush=True)
 
-    exists = cache_path.exists()
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(cache_path, "a", newline="") as handle:
+    exists = TRANSCRIPT_CACHE.exists()
+    TRANSCRIPT_CACHE.parent.mkdir(parents=True, exist_ok=True)
+    with open(TRANSCRIPT_CACHE, "a", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=["key", "model", "trial_id", "file", "text"])
         if not exists:
             writer.writeheader()
@@ -165,8 +161,8 @@ def results_table(results):
 
 
 # this writes results.json and results.txt into out_directory
-def save_results(results, out_directory, repo_root):
-    out_directory = resolve_path(out_directory, repo_root)
+def save_results(results, out_directory):
+    out_directory = resolve_path(out_directory)
     out_directory.mkdir(parents=True, exist_ok=True)
     (out_directory / "results.json").write_text(json.dumps({"split": results["split"], "condition": results["condition"], "n_trials": results["n_trials"], "systems": results["systems"], "provenance": results["provenance"]}, indent=2))
     (out_directory / "results.txt").write_text(results_table(results) + "\n")
@@ -174,12 +170,12 @@ def save_results(results, out_directory, repo_root):
 
 
 # this turns clips into response texts through the chosen listener, with the speech gate applied first
-def listen(paths, listener, split, manifest_dir, repo_root, cache_path, allow_new, judge_repeat, judge_requests_per_minute, verbose, asr_model):
+def listen(paths, listener, split, judge_repeat, asr_model):
     """The gate is applied here, once, for whichever listener is chosen, so the judge and the ASR are gated by the same rule (metric-definitions.md 3.1).
 
     A blocked clip returns an empty response, which is scored as all deletions. Returns the responses, the gate decisions, and the judge dictionary (None for the ASR).
     """
-    lookup = condition_lookup(split, manifest_dir, repo_root)
+    lookup = condition_lookup(split)
     # The VAD model only loads when an estimate is in the batch. The rendered clips are decided from the trial's condition.
     needs_vad = False
     for path in paths:
@@ -198,12 +194,12 @@ def listen(paths, listener, split, manifest_dir, repo_root, cache_path, allow_ne
     for index, decision in enumerate(decisions):
         if not decision["fired"]:
             passing.append(index)
-    if verbose and len(passing) < len(paths):
+    if len(passing) < len(paths):
         print(f"  speech gate blocked {len(paths) - len(passing)}/{len(paths)} clips (answered locally, no listener call)", flush=True)
 
     responses = [""] * len(paths)
     if listener == JUDGE:
-        judge = make_judge(judge_repeat, DEFAULT_CACHE, judge_requests_per_minute, verbose)
+        judge = make_judge(judge_repeat, DEFAULT_CACHE, JUDGE_REQUESTS_PER_MINUTE, True)
         for count, index in enumerate(passing, 1):
             try:
                 responses[index] = judge_transcribe(judge, paths[index])
@@ -214,18 +210,17 @@ def listen(paths, listener, split, manifest_dir, repo_root, cache_path, allow_ne
                 # One clip must never kill the run (a safety filter took down a whole pass on 2026-09-02). Record it and score it as a non-response.
                 judge["failures"].append((str(paths[index]), f"{type(error).__name__}: {error}"))
                 responses[index] = ""
-                if verbose:
-                    print(f"    FAILED {Path(paths[index]).parent.name}/{Path(paths[index]).name}: {type(error).__name__} -- scored as a non-response, continuing", flush=True)
-            if verbose and count % 25 == 0:
+                print(f"    FAILED {Path(paths[index]).parent.name}/{Path(paths[index]).name}: {type(error).__name__} -- scored as a non-response, continuing", flush=True)
+            if count % 25 == 0:
                 print(f"    judged {count}/{len(passing)}  (calls {judge['calls_made']}, cache {judge['cache_hits']})", flush=True)
-        if judge["failures"] and verbose:
+        if judge["failures"]:
             print(f"  {len(judge['failures'])} clip(s) failed and were scored as non-responses -- see judge_failures in the results", flush=True)
         return responses, decisions, judge
 
     passing_paths = []
     for index in passing:
         passing_paths.append(paths[index])
-    texts = transcribe(passing_paths, cache_path, asr_model, allow_new, verbose, repo_root)
+    texts = transcribe(passing_paths, asr_model)
     for index, text in zip(passing, texts):
         responses[index] = text
     return responses, decisions, None
@@ -241,10 +236,10 @@ def system_path(trial, system):
 
 
 # this scores the chosen systems on the chosen metric families for one split, and returns split, condition, n_trials, systems and provenance
-def evaluate(split, condition, estimate_directory, systems, metrics, limit, data_root, manifest_dir, cache_path, allow_new_transcripts, verbose, repo_root, listener, judge_repeat, judge_requests_per_minute, asr_model):
+def evaluate(split, condition, estimate_directory, systems, metrics, listener, judge_repeat, asr_model):
     metrics = tuple(metrics)
     systems = tuple(systems)
-    trials = load_trials(split, condition, limit, data_root, manifest_dir, estimate_directory, repo_root)
+    trials = load_trials(split, condition, estimate_directory)
     if not trials:
         raise RuntimeError(f"No trials loaded for split={split} condition={condition}.")
 
@@ -281,15 +276,14 @@ def evaluate(split, condition, estimate_directory, systems, metrics, limit, data
         interferers.append(trial["interferer_text"])
 
     for system in systems:
-        if verbose:
-            print(f"\n=== {system} ===", flush=True)
+        print(f"\n=== {system} ===", flush=True)
         scores = {}
         paths = []
         for trial in trials:
             paths.append(system_path(trial, system))
 
         if CONTENT in metrics:
-            responses, gate_decisions, used_judge = listen(paths, listener, split, manifest_dir, repo_root, cache_path, allow_new_transcripts, judge_repeat, judge_requests_per_minute, verbose, asr_model)
+            responses, gate_decisions, used_judge = listen(paths, listener, split, judge_repeat, asr_model)
             gate_blocked = 0
             for decision in gate_decisions:
                 if decision["fired"]:
@@ -346,8 +340,7 @@ def evaluate(split, condition, estimate_directory, systems, metrics, limit, data
             scores["sar"] = sum(sar) / len(sar)
 
         if PERCEPTUAL in metrics:
-            if verbose:
-                print(f"  DNSMOS on {len(paths)} clips (~{len(paths)*2.8/60:.0f} min)", flush=True)
+            print(f"  DNSMOS on {len(paths)} clips (~{len(paths)*2.8/60:.0f} min)", flush=True)
             clip_scores = []
             for path in paths:
                 clip_scores.append(score_audio_file(path))
@@ -358,8 +351,7 @@ def evaluate(split, condition, estimate_directory, systems, metrics, limit, data
             scores["ovrl"] = mean["ovrl"]
 
         results["systems"][system] = scores
-        if verbose:
-            # Generated by Claude Code
-            print("  " + "  ".join(f"{k}={v:.2f}" for k, v in scores.items() if v is not None), flush=True)
+        # Generated by Claude Code
+        print("  " + "  ".join(f"{k}={v:.2f}" for k, v in scores.items() if v is not None), flush=True)
 
     return results

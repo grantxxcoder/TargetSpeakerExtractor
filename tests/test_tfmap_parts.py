@@ -17,7 +17,6 @@ ranked-next-steps.md item 1a; decisions-m2.md 2026-09-22.
 import sys
 from pathlib import Path
 
-import pytest
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
