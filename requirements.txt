@@ -64,9 +64,13 @@ nltk==3.10.3                 # 198 english stopwords, snapshotted 2026-08-31
 # librosa is needed ONLY for the P.808 mel filterbank, and only to match the
 # reference implementation exactly -- a hand-rolled mel would move every score.
 librosa==1.0.0
+onnxruntime==1.29.0          # runs the three DNSMOS models; imported when evaluate.py loads
 # The three ONNX models are snapshotted into
 # src/live_model_metric/dnsmos_onnx/ with their SHA-256 recorded, because
 # DNSMOS is a learned model and drifts between releases.
+
+# --- the live judge (decisions-m4.md) -------------------------------------
+google-genai==2.21.0         # Gemini SDK; imported when judge.py / evaluate.py load
 
 # --- speaker embeddings for the state detector (decisions-pending.md D14) --
 # ECAPA-TDNN (Desplanques et al., Interspeech 2020), SpeechBrain's VoxCeleb

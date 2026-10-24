@@ -1,204 +1,111 @@
+"""The training objective both final models were trained with (decisions-m2.md 2026-08-20).
+
+The argument order is (reference, output) throughout, the reverse of the usual (prediction, target), so keep it that way.
+The reference is the clean target for the terms on crops where the target speaks, and the mixture for the silence term.
+"""
+
 import torch
-import torch.nn as nn
-import numpy as np
-from src.models.stft import STFT
 
-class LossBSRNN:
-    """Loss terms for the M2 objective. decisions-m2.md 2026-08-20.
 
-    Arg order is (reference, s_output) throughout -- the reverse of the usual
-    (pred, target) convention, so keep it consistent. The reference is the
-    target for the present term and the mixture for the absent one.
+# this gives the energy of each example: the sum of its squared samples, shaped (batch,)
+def energy(signal):
+    return signal.pow(2).sum(dim=-1)
+
+
+# this is L_pres: the floored SI-SDR, used on crops where the target speaks. Lower is better, and -30 is perfect
+def loss_target_present(s_target, s_output, present_floor):
+    """CARTSE equation 1, changed so the floor scales with the projected target. A floor on the target's own energy let an amplified output score without limit.
+
+    Only use it on crops where the target speaks. On a silent target the projection is 0/0 and the NaN would destroy every weight.
     """
-    def __init__(self, wm, w, p=0.3, tau_pres=0.001, tau_abs=0.01, windows=(8, 16, 32, 64),
-                 sample_rate=16000, wg=0.0, gain_delta_db=3.0):
-        self.tau_pres = tau_pres
-        self.tau_abs = tau_abs
-        self.wm = wm            # weight on L_MR, inside the present branch
-        self.w = w              # weight on the ABSENT half. Do not confuse with wm.
-        self.wg = wg            # weight on L_gain, also inside the present branch.
-                                # DEFAULTS TO 0.0 = term disabled, so an existing
-                                # config reproduces its old numbers byte for byte.
-        self.gain_delta_db = gain_delta_db   # L_gain deadzone half-width, in dB
-        self.p = p
-        self.sample_rate = sample_rate
-        # windows are MILLISECONDS. A tuple, not a list: a mutable default is
-        # shared across every instance ever constructed.
-        self.windows = tuple(windows)
+    # alpha is the single volume knob that best explains the output as the target turned up or down.
+    alpha = (s_output * s_target).sum(dim=-1, keepdim=True) / energy(s_target).unsqueeze(-1)
+    s_projected = alpha * s_target
+    numerator = energy(s_projected)
+    error_energy = energy(s_output - s_projected)
+    denominator = error_energy + present_floor * numerator
+    return -10 * torch.log10((numerator + 1e-12) / (denominator + 1e-12))
 
-    def energy(self, x):
-        # sum of squared samples, per example. (B, T) -> (B,)
-        return x.pow(2).sum(dim=-1)
 
-    def _loss_target_present(self, s_target, s_output, tau_pres=0.001):
-        """L_pres, floored SI-SDR. CARTSE eq (1). (B, T) -> (B,)
+# this is L_abs: how far the output was pushed below the mixture on crops where the target is silent. 0 means it did nothing, -30 means silent
+def loss_target_absent(x_input, s_output, absent_floor):
+    """CARTSE equation 2, divided by the mixture's energy so that 0 dB means "did nothing" on every crop. A positive value means the output got louder, which is a bug."""
+    numerator = energy(s_output) + absent_floor * energy(x_input)
+    denominator = energy(x_input)
+    return 10 * torch.log10((numerator + 1e-12) / (denominator + 1e-12))
 
-        Lower is better. Range [-30, inf): -30 when s_output == s_target.
-        MUST be masked to crops where the target speaks -- when s_target is all
-        zero, alpha is 0/0 and the NaN destroys every weight in the model.
-        """
-        # alpha: the one volume knob that best explains the output as "the
-        # target, turned up or down". keepdim so it broadcasts back over T.
-        alpha = (s_output * s_target).sum(dim=-1, keepdim=True) / self.energy(s_target).unsqueeze(-1)
-        s_projected = alpha * s_target          # a multiple of the TARGET, not of s_output
 
-        # DEVIATION 1 from CARTSE eq (1), which floors on tau*||s||^2: not
-        # scale-invariant, so amplifying paid without bound (g=100 -> -70 dB).
-        # Flooring on ||s_proj||^2 makes numerator and floor scale together.
-        numerator = self.energy(s_projected)
-        error_energy = self.energy(s_output - s_projected)
-        denominator = error_energy + tau_pres * numerator
+# this is L_gain: zero while the output's level is within gain_deadzone_db of the target's, and the excess in dB outside it
+def loss_gain_match(s_target, s_output, gain_deadzone_db):
+    """Only for crops where the target speaks. Nothing else in the objective stops the model muting itself, because L_pres ignores level and L_abs rewards silence (decisions-m2.md 2026-08-28).
 
-        return -10 * torch.log10((numerator + 1e-12) / (denominator + 1e-12))
+    The small constant sits inside the square root rather than clamping the result, so a fully muted output still gets a gradient back up.
+    """
+    eps = 1e-12
+    rms_output = (s_output.pow(2).mean(dim=-1) + eps).sqrt()
+    rms_target = (s_target.pow(2).mean(dim=-1) + eps).sqrt()
+    error_db = 20 * torch.log10(rms_output / rms_target)
+    return (error_db.abs() - gain_deadzone_db).clamp_min(0.0)
 
-    def _loss_target_absent(self, x_input, s_output, tau_abs=0.01):
-        """L_abs, push-to-silence. CARTSE eq (2), normalised. (B, T) -> (B,)
 
-        No target argument: the right answer IS silence, so there is nothing to
-        compare against and the mixture takes the target's place as the
-        yardstick. No leading minus -- this is already lower-is-better.
+# this is L_MR: the multi-resolution compressed-magnitude and complex L1 loss (Yu et al., Interspeech 2023, equation 3). 0 is perfect
+def loss_multi_res_stft(s_target, s_output, window_lengths_ms, compression_exponent, sample_rate):
+    """Only for crops where the target speaks. It prices spectral detail. The window lengths are in milliseconds."""
+    summation = s_output.new_zeros(s_output.shape[0])
+    for window_ms in window_lengths_ms:
+        n_fft = int(round(window_ms * sample_rate / 1000))
+        # A plain centred torch.stft, not the model's streaming STFT, so a latency change can never alter the loss.
+        window = torch.hann_window(n_fft, device=s_output.device, dtype=s_output.dtype)
+        S_target = torch.stft(s_target, n_fft=n_fft, hop_length=n_fft // 4, win_length=n_fft, window=window, center=True, return_complex=True)
+        S_output = torch.stft(s_output, n_fft=n_fft, hop_length=n_fft // 4, win_length=n_fft, window=window, center=True, return_complex=True)
 
-            0   emitted the mixture unchanged, i.e. did nothing
-          -10   suppressed 10 dB
-          -30   floor: 30 dB down or better, i.e. silent
-           >0   AMPLIFYING. A bug, not a bad score -- flag it in the run log.
-        """
-        # DEVIATION from CARTSE eq (2): dividing by ||x||^2 makes it
-        # scale-invariant, so 0 dB means "did nothing" on every trial. eta is
-        # absent -- it and w appear only as w*eta, so it lives in w.
-        numerator = self.energy(s_output) + tau_abs * self.energy(x_input)
-        denominator = self.energy(x_input)
+        # Not torch.abs(), whose gradient is infinite at zero, where silent bins sit.
+        magnitude_target = (S_target.real.pow(2) + S_target.imag.pow(2) + 1e-8).sqrt()
+        magnitude_output = (S_output.real.pow(2) + S_output.imag.pow(2) + 1e-8).sqrt()
 
-        return 10 * torch.log10((numerator + 1e-12) / (denominator + 1e-12))
+        # Mean rather than sum, so this term does not swamp L_pres. Each example keeps its own value.
+        compressed_magnitude = (magnitude_target.pow(compression_exponent) - magnitude_output.pow(compression_exponent)).abs().mean(dim=(-2, -1))
+        complex_term = (S_target.real - S_output.real).abs().mean(dim=(-2, -1)) + (S_target.imag - S_output.imag).abs().mean(dim=(-2, -1))
+        summation = summation + compressed_magnitude + complex_term
+    return summation / len(window_lengths_ms)
 
-    def _loss_gain_match(self, s_target, s_output, delta_db=3.0):
-        """L_gain, deadzone output-level match. (B, T) -> (B,)
 
-        PRESENT CROPS ONLY. Lower is better, 0 inside +-delta_db of the target's
-        level, |error_db| - delta_db outside it.
+# this is the full objective: (1 - w) times the speaking-crop terms plus w times the silence term. It returns the total and a dictionary of its parts for logging
+def bsrnn_loss(s_target, s_output, x_input, crop_absent, loss_settings):
+    """L = (1 - w) * mean over speaking crops of [L_pres + w_m * L_MR + w_g * L_gain] + w * mean over silent crops of L_abs.
 
-        Nothing else in the objective opposes a mute: L_pres is scale-invariant
-        (Deviation 1), L_abs rewards silence, and L_MR was measured to REWARD
-        muting, not penalise it (decisions-m2.md 2026-08-28). Deviation 7, ours.
+    loss_settings is the dictionary from train.build_loss_settings. crop_absent must come from the loader, because about 6 % of crops from trials where the target speaks still land in their silence (decisions-m1.md 2026-08-18).
+    """
+    crop_absent = crop_absent.bool()
+    present = ~crop_absent
 
-        Symmetric and minimised AT correct level, so unlike the bug Deviation 1
-        fixed there is no gain direction that pays without bound. The deadzone
-        also puts .abs()'s kink at 0 inside the zeroed region. dB, not percent:
-        10 % amplitude is 0.83 dB. eps inside the sqrt, not a clamp on the
-        result -- a clamp strands a fully-muted model with no gradient back up.
-        RMS, not the renderer's BS.1770: not differentiable, and both signals are
-        measured identically so the comparison stays symmetric.
-        """
-        eps = 1e-12
-        rms_output = (s_output.pow(2).mean(dim=-1) + eps).sqrt()
-        rms_target = (s_target.pow(2).mean(dim=-1) + eps).sqrt()
-        error_db = 20 * torch.log10(rms_output / rms_target)
-        return (error_db.abs() - delta_db).clamp_min(0.0)
+    # The rows are selected before the loss is taken rather than masked afterwards, because NaN times 0 is still NaN in the backward pass.
+    n_present = int(present.sum().item())
+    n_absent = int(crop_absent.sum().item())
 
-    def _loss_multi_res_stft(self, s_target, s_output, windows, p=0.3):
-        """L_MR, multi-resolution compressed magnitude + complex L1.
-        Yu et al., Interspeech 2023 eq (3). (B, T) -> (B,)
+    nan = float("nan")
+    total = s_output.new_zeros(())
+    # The same keys every batch, so a batch with no silent crops leaves a gap in the curve rather than a missing column.
+    parts = {"L_pres": nan, "L_MR": nan, "L_gain": nan, "L_abs": nan, "n_present": n_present, "n_absent": n_absent}
 
-        Lower is better. Range [0, inf), exactly 0 at s_output == s_target.
+    absent_weight = loss_settings["absent_weight"]
+    if n_present:
+        target_present = s_target[present]
+        output_present = s_output[present]
+        if not bool((target_present.abs().amax(dim=-1) > 0).all()):
+            raise ValueError("A crop flagged as speaking has a silent target. Use the loader's crop_absent, not the trial's label.")
+        loss_present = loss_target_present(target_present, output_present, loss_settings["present_floor"]).mean()
+        loss_mr = loss_multi_res_stft(target_present, output_present, loss_settings["window_lengths_ms"], loss_settings["compression_exponent"], loss_settings["sample_rate"]).mean()
+        loss_gain = loss_gain_match(target_present, output_present, loss_settings["gain_deadzone_db"]).mean()
+        total = total + (1 - absent_weight) * (loss_present + loss_settings["multi_resolution_weight"] * loss_mr + loss_settings["gain_weight"] * loss_gain)
+        parts["L_pres"] = float(loss_present.detach())
+        parts["L_MR"] = float(loss_mr.detach())
+        parts["L_gain"] = float(loss_gain.detach())
 
-        PRESENT CROPS ONLY. With an all-zero target both L1 terms collapse into
-        "minimise output energy", duplicating _loss_target_absent in
-        unnormalised non-dB units and making the silence weight unknowable.
+    if n_absent:
+        loss_absent = loss_target_absent(x_input[crop_absent], s_output[crop_absent], loss_settings["absent_floor"]).mean()
+        total = total + absent_weight * loss_absent
+        parts["L_abs"] = float(loss_absent.detach())
 
-        `windows` is in MILLISECONDS. Scale-VARIANT but it does NOT pin the
-        output gain, despite what decisions-m2.md 2026-08-20 claimed: muting the
-        mixture ~21 dB IMPROVES it, 0.2735 -> 0.2438 (200 sir0_val crops,
-        2026-08-28). Levels are pinned by _loss_gain_match; this prices detail.
-        """
-        summation = s_output.new_zeros(s_output.shape[0])
-
-        for window_ms in windows:
-            n_fft = int(round(window_ms * self.sample_rate / 1000))
-
-            # torch.stft, NOT src.models.stft.STFT: that one is the streaming
-            # front end, and reusing it would let a latency change alter the loss.
-            # Causality constrains the model, not the objective.
-            window = torch.hann_window(n_fft, device=s_output.device, dtype=s_output.dtype)
-            stft_kwargs = dict(n_fft=n_fft, hop_length=n_fft // 4, win_length=n_fft,
-                               window=window, center=True, return_complex=True)
-            S_target = torch.stft(s_target, **stft_kwargs)      # (B, F, N) complex
-            S_output = torch.stft(s_output, **stft_kwargs)
-
-            # NOT torch.abs(): infinite gradient at the origin, where silent
-            # T-F bins sit. Same eps on both, so silence still differences to ~0.
-            magnitude_target = (S_target.real.pow(2) + S_target.imag.pow(2) + 1e-8).sqrt()
-            magnitude_output = (S_output.real.pow(2) + S_output.imag.pow(2) + 1e-8).sqrt()
-
-            # L1 not L2 (L2's gradient vanishes on the quiet-band errors this
-            # term exists to catch). MEAN not sum: sum inflates by ~1e5 and makes
-            # L_pres invisible. Reduce over (F, N) only -- the masks need
-            # per-example values.
-            compressed_magnitude = (magnitude_target.pow(p)
-                                    - magnitude_output.pow(p)).abs().mean(dim=(-2, -1))
-
-            # Complex term, uncompressed as in eq (3). L1(real)+L1(imag), not
-            # the modulus, which reintroduces the sqrt singularity.
-            complex_term = ((S_target.real - S_output.real).abs().mean(dim=(-2, -1))
-                            + (S_target.imag - S_output.imag).abs().mean(dim=(-2, -1)))
-
-            summation = summation + compressed_magnitude + complex_term
-
-        return summation / len(windows)         # the 1/I in eq (3)
-
-    def __call__(self, s_target, s_output, x_input, crop_absent):
-        """The full M2 objective. decisions-m2.md 2026-08-20.
-
-            L = (1 - w) * mean_present[ L_pres + wm * L_MR + wg * L_gain ] + w * mean_absent[ L_abs ]
-
-        L_gain is OFF at wg = 0.0, which reproduces the 2026-08-20 objective.
-        Returns (scalar total, dict of per-term values for logging).
-
-        crop_absent MUST come from the loader, not the manifest label: 5.8 % of
-        `both`/`target_only` crops land entirely in target silence
-        (decisions-m1.md 2026-08-18), and an all-zero target down the L_pres
-        path is a NaN.
-        """
-        crop_absent = crop_absent.bool()
-        present = ~crop_absent
-
-        # .item() costs one device sync per step, paid deliberately: NaN * 0 =
-        # NaN in backward, so rows must be SELECTED first, not masked after.
-        n_present = int(present.sum().item())
-        n_absent = int(crop_absent.sum().item())
-
-        nan = float("nan")
-        total = s_output.new_zeros(())
-        # Constant key set: a missing half is a gap in the curve, not a
-        # missing column.
-        parts = {"L_pres": nan, "L_MR": nan, "L_gain": nan, "L_abs": nan,
-                 "n_present": n_present, "n_absent": n_absent}
-
-        if n_present:
-            target_p, output_p = s_target[present], s_output[present]
-
-            # Catches the likeliest caller error (branching on the manifest
-            # label), whose only other symptom is an unexplained NaN.
-            assert bool((target_p.abs().amax(dim=-1) > 0).all()), (
-                "a crop flagged present has an all-zero target stem -- "
-                "crop_absent disagrees with s_target. Use the loader's "
-                "crop_absent, not the manifest condition label.")
-            loss_present = self._loss_target_present(target_p, output_p, self.tau_pres).mean()
-            loss_mr = self._loss_multi_res_stft(target_p, output_p, self.windows, self.p).mean()
-            # Computed even at wg = 0 so it is logged before being weighted --
-            # scripts/derive_w_g.py reads that to derive wg.
-            loss_gain = self._loss_gain_match(target_p, output_p, self.gain_delta_db).mean()
-            total = total + (1 - self.w) * (loss_present + self.wm * loss_mr + self.wg * loss_gain)
-            parts["L_pres"] = float(loss_present.detach())
-            parts["L_MR"] = float(loss_mr.detach())
-            parts["L_gain"] = float(loss_gain.detach())
-
-        if n_absent:
-            loss_absent = self._loss_target_absent(x_input[crop_absent],
-                                                   s_output[crop_absent], self.tau_abs).mean()
-            total = total + self.w * loss_absent
-            parts["L_abs"] = float(loss_absent.detach())
-
-        # Both guards are required: at batch 12 and a 0.297 absent rate ~1.5 %
-        # of batches have no absent crop, and mean over an empty selection is NaN.
-        parts["total"] = float(total.detach())
-        return total, parts
+    parts["total"] = float(total.detach())
+    return total, parts

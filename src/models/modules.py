@@ -1,201 +1,208 @@
+"""The separator's building blocks, each written as a build function and a forward function.
+
+A build function returns a plain nn.Module that only holds torch's own layers, so parameters(), state_dict(), .to() and .eval() all still work. The matching forward function runs it.
+The attribute names on these holders are the checkpoint keys (for example subband_norm.blocks.0.0.norm.weight), so they must not be renamed. The trained models only load because the names match.
+"""
+
 import torch
 import torch.nn as nn
-import numpy as np
 import torch.nn.functional as F
 
-class BandSplit(nn.Module):
-    """ 
-    Slice and dice a spectrogram along frequency into per band tensors. 
-    
-    I will be following the code from  Luo & Yu, "Music Source Separation with Band-Split RNN", TASLP 2023.
+
+# this cuts a spectrogram into one piece per band, along the frequency axis
+def split_bands(spectrogram, band_widths):
     """
+    Slice and dice a spectrogram along frequency into per band tensors.
 
-    def __init__(self, band_widths):
-        super().__init__()
-        self.band_widths = list(band_widths) # remember that we have many bands, and each band has a different width in terms of the number of frequency bins.
-        self.offsets = np.cumsum([0] + self.band_widths).tolist() # offsets for each band, to slice the spectrogram into bands
+    I will be following the code from Luo & Yu, "Music Source Separation with Band-Split RNN", TASLP 2023.
 
-    
-    def forward(self, spec):
-        """
-        (B, F, T) complex    -> list of (B, BW, T) complex
-        (B, C, F, T) real    -> list of (B, C, BW, T) real
-        """
-        assert spec.dim() in (3, 4), f"expected 3D or 4D, got {spec.dim()}D"
-        assert spec.shape[-2] == self.offsets[-1],  f"{spec.shape[-2]} bins but band plan covers {self.offsets[-1]}"
-        return [spec.narrow(-2, lo, w) for lo, w in zip(self.offsets[:-1], self.band_widths)]
+    A complex (batch, frequency, frames) spectrogram gives a list of (batch, band width, frames) pieces.
+    A real (batch, channels, frequency, frames) tensor gives a list of (batch, channels, band width, frames) pieces.
+    """
+    band_widths = list(band_widths) # remember that we have many bands, and each band has a different width in terms of the number of frequency bins.
+    if spectrogram.dim() not in (3, 4):
+        raise ValueError(f"Expected a 3D or 4D spectrogram, but got {spectrogram.dim()}D.")
+    if spectrogram.shape[-2] != sum(band_widths):
+        raise ValueError(f"The spectrogram has {spectrogram.shape[-2]} frequency bins, but the band plan covers {sum(band_widths)}.")
+    bands = []
+    start_bin = 0
+    for band_width in band_widths:
+        bands.append(spectrogram.narrow(-2, start_bin, band_width))
+        start_bin += band_width
+    return bands
 
-    
 
-class ChannelWiseLayerNorm(nn.Module):
+# this builds a layer norm that normalises the channels of each frame on their own
+def build_channel_norm(num_channels, eps=1e-5):
     """LayerNorm over the channel axis at each time step.
-    
-    Causal and STATELESS: frame t is normalised using only its own channels, so nothing carries between frames and a 4 s training chunk normalises identically to a 60 s deployed stream.
 
-    NAMING: wesep calls this "cLN", but Conv-TasNet's cLN (Luo & Mesgarani, 2019) means *cumulative* layer norm. Different thing. Cite as channel-wise.
+    Each frame is normalised using only its own channels, so nothing carries over between frames, and a 4 s training crop is normalised the same way as a 60 s live stream.
+    WeSep calls this "cLN", but in Conv-TasNet (Luo & Mesgarani, 2019) cLN means cumulative layer norm, which is something else, so it is called channel-wise here.
+    The LayerNorm sits one level down (block.norm) so the checkpoint key stays "...norm.norm.weight", the name the trained models were saved under.
     """
-    def __init__(self, num_channels, eps=1e-5):
-        super().__init__()
-        self.norm = nn.LayerNorm(num_channels, eps=eps)
-        
-    def forward(self, x):                        # (B, C, T)
-        return self.norm(x.transpose(1, -1)).transpose(1, -1)
+    block = nn.Module()
+    block.norm = nn.LayerNorm(num_channels, eps=eps)
+    return block
 
-    
 
-class SubbandNorm(nn.Module):
-    """Per-band normalisation + projection to a common feature dim.
+# this runs the channel norm on features shaped (batch, channels, frames)
+def channel_norm_forward(block, features):
+    return block.norm(features.transpose(1, -1)).transpose(1, -1)
 
-    Yu et al., Interspeech 2023: band-specific fully-connected layers convert each variable-width band into a fixed N-dimensional subband feature, N=128 for their 16 kHz model. Band splitting from Luo & Yu, TASLP 2023.
 
-    This is where the architecture earns its keep. Speech energy falls ~6 dB per octave, so normalising all 257 bins together would leave the high bands numerically invisible. Each band gets its OWN normalisation and its own projection, so a quiet 6 kHz band reaches the RNN with the same representational budget as a loud 200 Hz one.
+# this builds one norm and one projection per band, so every band reaches the RNN at the same size
+def build_subband_norm(band_widths, in_channels, feature_dim):
+    """Per-band normalisation, then a projection to a common feature size.
+
+    Yu et al. (Interspeech 2023) give each band its own fully connected layer, which turns a band of any width into a feature vector of the same size, 128 for their 16 kHz model.
+    This matters because speech energy falls by about 6 dB per octave. Normalising all 257 bins together would leave the high bands almost invisible, so a quiet 6 kHz band gets its own norm and reaches the RNN as strongly as a loud 200 Hz one.
     """
-    def __init__(self, band_widths, in_channels, feature_dim):
-        super().__init__()
-        self.band_widths, self.feature_dim = list(band_widths), feature_dim
-        self.blocks = nn.ModuleList()
-        for bw in self.band_widths:
-            d = bw * in_channels
-            norm = ChannelWiseLayerNorm(d)
-            self.blocks.append(nn.Sequential(norm, nn.Conv1d(d, feature_dim, 1)))
-        
-    def forward(self, bands):
-        """list of K x (B, C, BW, T) -> (B, K, N, T)"""
-        out = []
-        for blk, band in zip(self.blocks, bands):
-            B, C, BW, T = band.shape
-            # reshape, NOT view: BandSplit uses narrow(), which is non-contiguous
-            out.append(blk(band.reshape(B, C * BW, T)))
-        return torch.stack(out, dim=1)
+    subband_norm = nn.Module()
+    subband_norm.band_widths = list(band_widths)
+    subband_norm.feature_dim = feature_dim
+    subband_norm.blocks = nn.ModuleList()
+    for band_width in subband_norm.band_widths:
+        input_size = band_width * in_channels
+        norm = build_channel_norm(input_size)
+        subband_norm.blocks.append(nn.ModuleList([norm, nn.Conv1d(input_size, feature_dim, 1)]))
+    return subband_norm
 
 
-class ResRNN(nn.Module):
-    """Residual LSTM block: norm -> LSTM -> project -> add the input back.
-
-    Luo & Yu, "Music Source Separation with Band-Split RNN", TASLP 2023.
-    Yu et al., Interspeech 2023 §4.2 use a 192-dim LSTM in a six-layer stack.
-    Residual connection follows He et al. (2016).
-
-    AXIS-AGNOSTIC. The caller decides whether the sequence is time or band by how it reshapes before calling. `bidirectional` MUST be False on the time axis (a backward pass reads the future) and should be True on the band axis (frequency is not a causal dimension).
-    """ 
-    def __init__(self, feature_dim, hidden_dim, bidirectional=False):
-        super().__init__()
-        self.norm = ChannelWiseLayerNorm(feature_dim)
-        self.rnn  = nn.LSTM(
-            feature_dim, 
-            hidden_dim, 
-            num_layers=1, 
-            batch_first=True,
-             bidirectional=bidirectional) # bidirec if bands not time
-             
-        # bidirectional doubles the LSTM's output width, so the projection back
-        # to feature_dim must account for it or the residual add is illegal.
-        self.proj = nn.Linear(hidden_dim * (2 if bidirectional else 1), feature_dim)
-
-    def forward(self, x):
-        """(B, N, L) -> (B, N, L).  N = feature_dim, L = sequence length."""
-        y = self.norm(x)                  # pre-norm: residual path stays clean
-        y = y.transpose(1, 2)             # (B, L, N) — nn.LSTM wants batch_first
-        y, _ = self.rnn(y)                # (B, L, H * dirs)
-        y = self.proj(y)                  # (B, L, N)
-        return x + y.transpose(1, 2)      # (B, N, L), identity + branch
+# this turns the list of band pieces into one tensor shaped (batch, bands, features, frames)
+def subband_norm_forward(subband_norm, bands):
+    band_features = []
+    for (norm, projection), band in zip(subband_norm.blocks, bands):
+        batch_size, channels, band_width, num_frames = band.shape
+        # reshape rather than view, because split_bands uses narrow(), which leaves the band non-contiguous in memory
+        flattened = band.reshape(batch_size, channels * band_width, num_frames)
+        band_features.append(projection(channel_norm_forward(norm, flattened)))
+    return torch.stack(band_features, dim=1)
 
 
+# this builds one residual LSTM block: normalise, run the LSTM, project back, then add the input back on
+def build_res_rnn(feature_dim, hidden_dim, bidirectional=False):
+    """A residual LSTM block (Luo & Yu, TASLP 2023), with the residual connection of He et al. (2016).
 
-class BSNet(nn.Module):
-    """One band-and-sequence block: model along time, then across bands.
-
-    Luo & Yu (TASLP 2023) alternate sequence-level and band-level modelling.
-    Yu et al. (Interspeech 2023) §4.2 stack six such blocks with 192-dim LSTMs.
-
-    (wesep names these band_rnn / band_comm; time_rnn / band_rnn is clearer.)
+    Yu et al. (Interspeech 2023, section 4.2) use a 192-unit LSTM in a stack of six.
+    The same block runs along time or across bands, depending on how the caller reshapes its input.
+    It must be one-directional along time, because a backward pass would read the future, and it should be bidirectional across bands, because frequency has no past or future.
     """
-    def __init__(self, feature_dim, hidden_dim):
-        super().__init__()
-        # TIME axis: unidirectional -- a backward pass reads the future.
-        self.time_rnn = ResRNN(feature_dim, hidden_dim,  bidirectional=False)
-        # BAND axis: ALWAYS bidirectional, even in the causal model. Frequency is
-        # not a causal dimension and all bands of a frame arrive together.
-        # This is correct, not an oversight.
-        self.band_rnn = ResRNN(feature_dim, hidden_dim,  bidirectional=True)
+    block = nn.Module()
+    block.norm = build_channel_norm(feature_dim)
+    block.rnn = nn.LSTM(feature_dim, hidden_dim, num_layers=1, batch_first=True, bidirectional=bidirectional)
+    # A bidirectional LSTM gives twice as many outputs, so the projection back to feature_dim has to take both directions.
+    block.proj = nn.Linear(hidden_dim * (2 if bidirectional else 1), feature_dim)
+    return block
 
 
-    def forward(self, x):
-          """(B, K, N, T) -> (B, K, N, T)"""
-          B, K, N, T = x.shape
-  
-          # along TIME: each (clip, band) pair is an independent sequence.
-          # B and K are already adjacent, so a plain reshape is correct.
-          y = self.time_rnn(x.reshape(B * K, N, T)).reshape(B, K, N, T)
- 
-          # across BANDS: each (clip, frame) pair is an independent sequence.
-          # T must be moved next to B first -- reshaping without this permute
-          # silently succeeds and scrambles bands with frames.
-          z = y.permute(0, 3, 2, 1).reshape(B * T, N, K)
-          z = self.band_rnn(z)
-          return z.reshape(B, T, N, K).permute(0, 3, 2, 1)
+# this runs one residual LSTM block on features shaped (batch, features, sequence length) and returns the same shape
+def res_rnn_forward(block, features):
+    # Normalising first keeps the residual path itself untouched.
+    hidden = channel_norm_forward(block.norm, features)
+    # The LSTM wants (batch, sequence length, features).
+    hidden = hidden.transpose(1, 2)
+    hidden, final_state = block.rnn(hidden)
+    hidden = block.proj(hidden)
+    # Add the input back on, the residual connection.
+    return features + hidden.transpose(1, 2)
 
 
-      
-class BandSequenceModel(nn.Module):
-    """The six-layer stack (Yu et al., Interspeech 2023 §4.2)."""
-    def __init__(self, feature_dim, hidden_dim, num_repeat=6):
-        super().__init__()
-        self.blocks = nn.ModuleList(
-            [BSNet(feature_dim, hidden_dim) for _ in range(num_repeat)]
-        )
+# this builds one band-and-sequence block: an LSTM along time, then an LSTM across the bands
+def build_bsnet(feature_dim, hidden_dim):
+    """One band-and-sequence block (Luo & Yu, TASLP 2023). Yu et al. (Interspeech 2023, section 4.2) stack six of them.
 
-    def forward(self, x):
-        """(B, K, N, T) -> (B, K, N, T)."""
-        for blk in self.blocks:
-            x = blk(x)
-        return x
-
-
-class Estimator(nn.Module):
-    """Per-band complex mask + residual spectrogram.
-    
-    Yu et al., Interspeech 2023 §2: band-specific MLPs predict a complex T-F mask M; "regarding the artifacts brought by the complex mask, an MLP is additionally used to directly predict the residual spectrogram R", giving eq. 2:  S = M (x) X + R.  Width 384 is the paper's; depth 2 follows the wesep reference, which the paper does not specify. GLU: Dauphin et al. 2017.
-
-    The wesep reference omits the residual branch -- including it is deliberate.
+    WeSep calls the two parts band_rnn and band_comm. time_rnn and band_rnn say more clearly which axis each one runs along.
     """
-    def __init__(self, band_widths, feature_dim, mlp_hidden=384, n_hidden=2):
-        super().__init__()
-        self.band_widths = list(band_widths)
-        self.trunks, self.mask_heads = nn.ModuleList(), nn.ModuleList()
-        self.res_heads = nn.ModuleList()  # the additional head that predicts the residual spectrogram R
-        
-        for bw in self.band_widths:
-            layers = [ChannelWiseLayerNorm(feature_dim)]
-            d = feature_dim
-            for _ in range(n_hidden):
-                layers += [nn.Conv1d(d, mlp_hidden, 1), nn.Tanh()]
-                d = mlp_hidden
-            self.trunks.append(nn.Sequential(*layers))
-            # 4*bw = (value, gate) x (real, imag) x bw bins
-            self.mask_heads.append(nn.Conv1d(mlp_hidden, 4 * bw, 1))
-            self.res_heads.append(nn.Conv1d(mlp_hidden, 2 * bw, 1))
+    block = nn.Module()
+    # Along time the LSTM runs forward only, because a backward pass would read the future.
+    block.time_rnn = build_res_rnn(feature_dim, hidden_dim, bidirectional=False)
+    # Across bands it is always bidirectional, even in the causal model, because all the bands of a frame arrive together.
+    block.band_rnn = build_res_rnn(feature_dim, hidden_dim, bidirectional=True)
+    return block
 
-    # use this method to actually move the features through the model and get the output complex spectrogram
-    def forward(self, feats, mix_bands):
-        """feats: (B, K, N, T);  mix_bands: list of K x (B, BW, T) complex-> (B, F, T) complex"""
-        masks, residuals = [], []
-        for i, bw in enumerate(self.band_widths):
-            h = self.trunks[i](feats[:, i])                  # (B, H, T)
-            B, _, T = h.shape
 
-            # need to do the GLU activation here to BOUND an unstable mask
-            raw  = self.mask_heads[i](h)                        # (B, 4*bw, T)
-            masks.append(F.glu(raw, dim=1).reshape(B, 2, bw, T))
-            residuals.append(self.res_heads[i](h).reshape(B, 2, bw, T))
+# this runs one band-and-sequence block on features shaped (batch, bands, features, frames) and returns the same shape
+def bsnet_forward(block, features):
+    batch_size, num_bands, feature_dim, num_frames = features.shape
 
-        mask = torch.cat(masks, dim=2)                          # (B, 2, F, T)
-        mix  = torch.cat(mix_bands, dim=-2)                     # (B, F, T) complex
-        mr, mi = mask[:, 0], mask[:, 1]
+    # Along time, every (clip, band) pair is its own sequence. The batch and band axes are already next to each other, so a plain reshape is enough.
+    time_input = features.reshape(batch_size * num_bands, feature_dim, num_frames)
+    time_output = res_rnn_forward(block.time_rnn, time_input).reshape(batch_size, num_bands, feature_dim, num_frames)
 
-        xr, xi = mix.real, mix.imag
-        er = xr * mr - xi * mi               # S = M (x) X, complex multiply
-        ei = xr * mi + xi * mr
-        r = torch.cat(residuals, dim=2)
-        er, ei = er + r[:, 0], ei + r[:, 1]
-        return torch.complex(er, ei)
+    # Across bands, every (clip, frame) pair is its own sequence. The frame axis has to be moved next to the batch axis first,
+    # because reshaping without the permute still runs but mixes bands up with frames.
+    band_input = time_output.permute(0, 3, 2, 1).reshape(batch_size * num_frames, feature_dim, num_bands)
+    band_output = res_rnn_forward(block.band_rnn, band_input)
+    return band_output.reshape(batch_size, num_frames, feature_dim, num_bands).permute(0, 3, 2, 1)
+
+
+# this builds the stack of band-and-sequence blocks that does the separating (Yu et al., Interspeech 2023, section 4.2)
+def build_band_sequence_model(feature_dim, hidden_dim, num_repeat=6):
+    separator = nn.Module()
+    separator.blocks = nn.ModuleList()
+    for block_index in range(num_repeat):
+        separator.blocks.append(build_bsnet(feature_dim, hidden_dim))
+    return separator
+
+
+# this runs the features through every block of the stack in turn
+def band_sequence_model_forward(separator, features):
+    for block in separator.blocks:
+        features = bsnet_forward(block, features)
+    return features
+
+
+# this builds the per-band heads that predict a complex mask and a residual spectrogram
+def build_estimator(band_widths, feature_dim, mlp_hidden):
+    """Per-band complex mask plus a residual spectrogram (Yu et al., Interspeech 2023, section 2).
+
+    Each band gets a small MLP that predicts a complex mask M. A second head predicts a residual spectrogram R, to repair the artefacts a mask alone leaves, so the estimate is S = M times X plus R (their equation 2).
+    The hidden width of 384 is from the paper. Each trunk has one hidden layer, where the WeSep reference uses two (Wang et al., 2024; decisions-m1.md 2026-08-19). The mask uses a GLU (Dauphin et al., 2017).
+    The WeSep reference leaves the residual head out. Keeping it here is deliberate.
+    """
+    estimator = nn.Module()
+    estimator.band_widths = list(band_widths)
+    estimator.trunks = nn.ModuleList()
+    estimator.mask_heads = nn.ModuleList()
+    estimator.res_heads = nn.ModuleList()  # the additional head that predicts the residual spectrogram R
+
+    for band_width in estimator.band_widths:
+        # Each trunk is the norm, then one convolution and a tanh.
+        estimator.trunks.append(nn.ModuleList([build_channel_norm(feature_dim), nn.Conv1d(feature_dim, mlp_hidden, 1), nn.Tanh()]))
+        # Four outputs per bin: a value and a gate, each with a real and an imaginary part.
+        estimator.mask_heads.append(nn.Conv1d(mlp_hidden, 4 * band_width, 1))
+        estimator.res_heads.append(nn.Conv1d(mlp_hidden, 2 * band_width, 1))
+    return estimator
+
+
+# use this method to actually move the features through the model and get the output complex spectrogram
+def estimator_forward(estimator, features, mixture_bands):
+    """Turn the separator's features, shaped (batch, bands, features, frames), into the estimated complex spectrogram, shaped (batch, frequency, frames).
+
+    mixture_bands is the list of complex mixture pieces from split_bands, which the mask is applied to.
+    """
+    masks = []
+    residuals = []
+    for band_index, band_width in enumerate(estimator.band_widths):
+        trunk = estimator.trunks[band_index]
+        hidden = channel_norm_forward(trunk[0], features[:, band_index])
+        for layer in trunk[1:]:
+            hidden = layer(hidden)
+        batch_size, hidden_size, num_frames = hidden.shape
+
+        # need to do the GLU activation here to BOUND an unstable mask
+        mask_values = estimator.mask_heads[band_index](hidden)
+        masks.append(F.glu(mask_values, dim=1).reshape(batch_size, 2, band_width, num_frames))
+        residuals.append(estimator.res_heads[band_index](hidden).reshape(batch_size, 2, band_width, num_frames))
+
+    mask = torch.cat(masks, dim=2)
+    mixture = torch.cat(mixture_bands, dim=-2)
+    mask_real, mask_imag = mask[:, 0], mask[:, 1]
+    mixture_real, mixture_imag = mixture.real, mixture.imag
+
+    # Apply the mask by complex multiplication, S = M times X, then add the residual R.
+    estimate_real = mixture_real * mask_real - mixture_imag * mask_imag
+    estimate_imag = mixture_real * mask_imag + mixture_imag * mask_real
+    residual = torch.cat(residuals, dim=2)
+    estimate_real, estimate_imag = estimate_real + residual[:, 0], estimate_imag + residual[:, 1]
+    return torch.complex(estimate_real, estimate_imag)

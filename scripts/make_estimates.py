@@ -1,16 +1,9 @@
-"""Write estimate.wav for every trial in a split, using OUR BSRNN checkpoint.
+"""Write estimate.wav for every trial in a split, using one of our checkpoints.
 
-    python scripts/make_estimates.py --split sir0 --checkpoint models/model_sir0_cuecontext-wer-e21.pt \
-        --config experiments/configs/bsrnn_cue_context.yaml --condition both   # the 103 scored trials
+    python scripts/make_estimates.py --split sir0 --checkpoint models/model_sir0_cuecontext-wer-e21.pt --condition both   # the 103 scored trials
 
-This is the OUR-MODEL front-end. The walk over trials, the audio conventions
-and the provenance file live in src/estimates/runner.py, shared with
-scripts/make_estimates_wesep.py so that a second system differs from this one
-by its model and by nothing else. Anything that would change the comparison
-belongs in the runner; anything specific to loading a torch checkpoint of ours
-belongs here.
-
-The model is built once and reused for every trial.
+The walk over trials and the audio conventions live in src/estimates/runner.py, shared with scripts/make_estimates_wesep.py, so the two systems differ only by their model.
+The model is built from the checkpoint's own config, so the weights always fit, and it is built once and reused for every trial.
 """
 
 import argparse
@@ -19,152 +12,73 @@ from datetime import date
 from pathlib import Path
 
 import torch
-import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src.estimates.runner import read_trials, write_estimates  # noqa: E402
-from src.run_log import timed  # noqa: E402
-from train import (SPLIT_MANIFESTS, build_context_encoder,  # noqa: E402
-                   build_model, context_kwargs)
+from src.estimates.runner import read_trials, write_estimates
+from src.models.bsrnn import extract
+from src.run_log import timed
+from train import build_model, build_speaker_encoder, speaker_embedding
+
+# Each split a system is scored on, and the name of its manifest and audio folder.
+EVAL_SPLITS = {
+    "sir0": "sir0_val",  # validation, where checkpoints were selected
+    "sir0pub": "eval_public",  # public test split (decisions-m3.md 2026-09-24)
+    "sir0priv": "eval_private",  # scored once, after selection (decisions-m4.md 2026-10-07)
+    "ami": "ami_eval",  # AMI transfer set
+}
 
 
-def resolve_checkpoint(given, split):
-    """--checkpoint, or the conventional location for this split.
-
-    Errors list what was tried AND what exists, because the alternative is
-    torch.load's FileNotFoundError on a path the caller mistyped.
-    """
-    if given is not None:
-        p = Path(given)
-        if p.exists():
-            return p
-        found = sorted(str(q) for q in Path(".").rglob("model_*.pt")
-                       if ".git" not in q.parts)
-        raise SystemExit(f"no checkpoint at {given!r}.\nCheckpoints on disk:\n  "
-                         + "\n  ".join(found or ["(none)"]))
-    cand = Path("models") / f"model_{split}.pt"
-    if cand.exists():
-        return cand
-    raise SystemExit(f"no checkpoint for --split {split}: looked for {cand}")
-
-
-def build_extractor(checkpoint_path, config, device):
-    """Load the checkpoint and return (extractor, checkpoint dict, drift dict).
-
-    The model is built from the CHECKPOINT's config so the weights always fit;
-    the current config may carry loss keys it predates. Same split as
-    scripts/derive_w_g.py.
-    """
-    ckpt = torch.load(checkpoint_path, map_location=device, weights_only=False)
-    model = build_model(ckpt["config"])
-    model.load_state_dict(ckpt["model"])
+# this loads a checkpoint and returns a function that extracts one whole clip with it, plus the checkpoint itself
+def build_extractor(checkpoint_path, device):
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    model = build_model(checkpoint["config"])
+    model.load_state_dict(checkpoint["model"])
     model.to(device).eval()
+    # The speaker encoder is built from the checkpoint's config too, so evaluation embeds a speaker exactly as training did. It is None for the baseline.
+    encoder = build_speaker_encoder(checkpoint["config"], device)
 
-    # ITEM 1c. Built from the CHECKPOINT's config, like the model itself, so an
-    # eval cannot silently use different encoder settings from the run it is
-    # scoring. None for the baseline, and context_kwargs() is then a no-op.
-    encoder = build_context_encoder(ckpt["config"], device)
-
-    # Report model-config drift rather than refusing: it does not stop the
-    # weights loading, but it does change what they MEAN.
-    drift = {k: (ckpt["config"].get("model", {}).get(k), v)
-             for k, v in config.get("model", {}).items()
-             if ckpt["config"].get("model", {}).get(k) != v}
-
-    def extract(mixture, enrollment, sample_rate):    # noqa: ARG001
+    def run(mixture, enrollment, sample_rate):
         with torch.no_grad():
-            enrol = torch.from_numpy(enrollment).unsqueeze(0).to(device)
-            # ONE forward per clip here -- runner.py is whole-clip, not chunked --
-            # so the encoder runs once per trial and costs nothing per frame.
-            est = model(torch.from_numpy(mixture).unsqueeze(0).to(device), enrol,
-                        **context_kwargs(encoder, enrol))
-        return est.squeeze(0).cpu().numpy()
-
-    return extract, ckpt, drift
+            enrollment_tensor = torch.from_numpy(enrollment).unsqueeze(0).to(device)
+            mixture_tensor = torch.from_numpy(mixture).unsqueeze(0).to(device)
+            # One forward pass per clip, so the encoder runs once per trial and costs nothing per frame.
+            estimate = extract(model, mixture_tensor, enrollment_tensor, enrol_embedding=speaker_embedding(encoder, enrollment_tensor))
+        return estimate.squeeze(0).cpu().numpy()
+    return run, checkpoint
 
 
+# this is where rendering starts
 def main():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--split", required=True, choices=sorted(SPLIT_MANIFESTS))
-    ap.add_argument("--checkpoint", default=None,
-                    help="default: models/model_<split>.pt")
-    ap.add_argument("--config", default="experiments/configs/bsrnn_cue_context.yaml")
-    ap.add_argument("--out", default=None,
-                    help="default experiments/results/<today>-est-<split>")
-    ap.add_argument("--manifest-dir", default="data/manifests")
-    ap.add_argument("--data-root", default="data")   # audio lives under rendered/
-    ap.add_argument("--condition", default=None,
-                    help="render only this condition, e.g. 'both', or a comma-separated "
-                         "list. Default: every "
-                         "trial in the manifest, which is what earlier runs did. "
-                         "Whatever you choose, choose the SAME for every system "
-                         "being compared -- a system rendered on a different "
-                         "subset is not comparable.")
-    ap.add_argument("--limit", type=int, default=None, help="first N trials only")
-    ap.add_argument("--force", action="store_true",
-                    help="re-render every trial even if estimate.wav is already "
-                         "there. OFF by default: a pass resumes, keeping the "
-                         "estimates a previous interrupted run completed. Use "
-                         "this when the files on disk are known bad -- a "
-                         "directory written by a DIFFERENT run is refused "
-                         "outright rather than resumed, so --force is not "
-                         "needed for that.")
-    args = ap.parse_args()
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--split", required=True, choices=sorted(EVAL_SPLITS))
+    parser.add_argument("--checkpoint", required=True)
+    parser.add_argument("--out", default=None, help="default experiments/results/<today>-est-<split>")
+    parser.add_argument("--manifest-dir", default="data/manifests")
+    parser.add_argument("--data-root", default="data")
+    parser.add_argument("--condition", default=None, help="render only this condition, for example 'both'. Use the same choice for every system being compared")
+    args = parser.parse_args()
 
-    config = yaml.safe_load(open(args.config))
-    seed = int(config["seed"])
-    torch.manual_seed(seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"  checkpoint: {args.checkpoint}")
+    run, checkpoint = build_extractor(args.checkpoint, device)
+    seed = int(checkpoint["config"]["seed"])
+    torch.manual_seed(seed)
 
-    checkpoint = resolve_checkpoint(args.checkpoint, args.split)
-    print(f"  checkpoint: {checkpoint}")
-    extract, ckpt, drift = build_extractor(checkpoint, config, device)
-    if drift:
-        print(f"  WARNING: model config drift, output does not reflect training: {drift}")
-
-    val_manifest, val_audio = SPLIT_MANIFESTS[args.split][1]
-    trials = read_trials(
-        manifest_csv=Path(args.manifest_dir) / f"{val_manifest}.csv",
-        audio_root=Path(args.data_root) / "rendered" / val_audio,
-        limit=args.limit,
-        condition=args.condition,
-    )
-    out_root = Path(args.out or
-                    f"experiments/results/{date.today().isoformat()}-est-{args.split}")
-    written, reused = 0, 0
-
-    # The run_times.md row must name what this pass actually COMPUTED. A resumed
-    # pass that rendered 200 of 1,421 trials in 20 minutes would otherwise log a
-    # 1,421-trial rate that is off by a factor of seven, and that row is what the
-    # next session plans against.
-    with timed("scripts/make_estimates.py",
-               scope=lambda: (f"{written} trials rendered"
-                              + (f" (+{reused} reused)" if reused else "")
-                              + f", {args.split}"),
-               rate=lambda: f"{device.type}, whole-clip"):
-        meta = write_estimates(
-            extract=extract,
-            trials=trials,
-            out_root=out_root,
-            sample_rate=int(config["data"]["sample_rate"]),
-            provenance={
-                "script": "scripts/make_estimates.py",
-                "system": "ours-bsrnn",
-                "seed": seed,
-                "config": args.config,
-                "split": args.split,
-                "manifest": val_manifest,
-                "condition": args.condition,
-                "checkpoint": {"path": str(checkpoint), "epoch": ckpt.get("epoch"),
-                               "best_val": ckpt.get("best_val"),
-                               "seed": ckpt.get("seed")},
-                "model_config_drift": {k: list(v) for k, v in drift.items()} or None,
-                "device": device.type,
-            },
-            force=args.force,
-        )
-        written, reused = meta["n_written"], meta["n_reused"]
+    manifest = EVAL_SPLITS[args.split]
+    trials = read_trials(Path(args.manifest_dir) / f"{manifest}.csv", Path(args.data_root) / "rendered" / manifest, None, args.condition)
+    out_root = Path(args.out or f"experiments/results/{date.today().isoformat()}-est-{args.split}")
+    provenance = {
+        "script": "scripts/make_estimates.py",
+        "system": "ours-bsrnn",
+        "seed": seed,
+        "split": args.split,
+        "manifest": manifest,
+        "condition": args.condition,
+        "checkpoint": {"path": str(args.checkpoint), "epoch": checkpoint.get("epoch"), "best_val": checkpoint.get("best_val"), "seed": checkpoint.get("seed")},
+        "device": device.type,
+    }
+    with timed("scripts/make_estimates.py", scope=lambda: f"{len(trials)} trials rendered, {args.split}", rate=lambda: f"{device.type}, whole-clip"):
+        write_estimates(run, trials, out_root, int(checkpoint["config"]["data"]["sample_rate"]), provenance)
 
 
 if __name__ == "__main__":

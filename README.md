@@ -26,6 +26,8 @@ Milestone 5. Experiment freeze 2026-10-14, submission 2026-11-05. Thesis: `repor
 
 ± is the SD of the 3 whole-run scores. Judge `gemini-3.7-flash`, audio in / text out, prompt `src/live_model_metric/judge_prompt.txt` (sha256[:12] `d118b7d3bf30`), runs 2026-09-25 to 2026-09-27 (`decisions-m4.md` 2026-09-27).
 
+This table is the 2026-09-29 snapshot: its Baseline row is the earlier baseline (`10000-e6`, since deleted). The report's baseline is the matched-protocol `matched-e11` below; its figures are in the report.
+
 **Read these three caveats with the table:**
 
 - **The extension invents more words than doing nothing:** 2.20 per clip against 1.27. Part of the gain comes from cutting hard, and Gemini hears some cuts as words. Clips with 2+ invented words: 46.9 % against 30.7 %, a gap outside the noise on a paired test (`decisions-m4.md` 2026-09-27).
@@ -38,17 +40,17 @@ Milestone 5. Experiment freeze 2026-10-14, submission 2026-11-05. Thesis: `repor
 
 | name in the report | checkpoint (`models/`, gitignored) | what it is |
 |---|---|---|
-| Baseline | `model_sir0_10000-e6.pt` | Causal band-split RNN (Luo & Yu 2023) with a spectral voice cue from the enrolment (TF-Map, Zhang et al. 2025). 7.19 M parameters, 9,955 training trials, epoch 6 of 16 |
+| Baseline | `model_sir0_baseline-matched-e11.pt` | Causal band-split RNN (Luo & Yu 2023) with a spectral voice cue from the enrolment (TF-Map, Zhang et al. 2025). 7.19 M parameters, trained under the extension's protocol (checkpoint selection by word error rate). Config `experiments/configs/bsrnn_baseline_matched.yaml` |
 | Extension | `model_sir0_cuecontext-wer-e21.pt` | Baseline + the cue split into parts (item 1a) + a frozen ECAPA speaker embedding (Desplanques et al. 2020) fused into the separator (item 1c). 7.28 M trainable. ECAPA runs once before the stream, so it adds no per-chunk cost. Config `experiments/configs/bsrnn_cue_context.yaml` |
 | WeSep | `../wesep_pretrained/tfmap_context_causal_100` | Borrowed pretrained model (Wang et al. 2024), an outside reference only. Not causal, so it cannot run live |
 
-`models/README.md` says why each checkpoint is kept. The e21 selection is in `decisions-m2.md` 2026-09-26.
+`models/README.md` says why each checkpoint is kept. The e21 selection is in `decisions-m2.md` 2026-09-26. All experiment code that neither final model uses was removed on 2026-10-22; git history before that date has it.
 
 ## Repo map
 
 | path | what it holds |
 |---|---|
-| `src/data/` | Trial sampling, voice-activity detection, rendering, per-frame speaker-state labels |
+| `src/data/` | Trial sampling, voice-activity detection, rendering, the training data loader |
 | `src/models/` | The extractor (`bsrnn.py`), voice cue (`conditioning.py`), speaker encoder (`context_encoder.py`), losses, stateful streaming (`streaming.py`) |
 | `src/live_model_metric/` | **The metric.** Words wrong, other-speaker leakage (ICR), invented words (FR), the Gemini judge, speech gate, SDR/SIR/SAR, DNSMOS |
 | `src/estimates/` | The shared runner that writes `estimate.wav` for any system, ours or WeSep |
@@ -56,12 +58,12 @@ Milestone 5. Experiment freeze 2026-10-14, submission 2026-11-05. Thesis: `repor
 | `scripts/` | Every runnable step. The main ones are listed below |
 | `experiments/configs/` | Every YAML config. No hyperparameter lives in source |
 | `experiments/results/` | One directory per run. Mostly gitignored, so **the decision logs are the tracked record** |
-| `docs/decisions/` | Spec, milestones, one decision log per milestone (`decisions-m0.md` … `-m4.md`), `decisions-pending.md` |
+| `docs/decisions/` | Spec, milestones, one decision log per milestone (`decisions-m0.md` … `-m4.md`, and `-m8.md` for the AMI fine-tune), `decisions-pending.md` |
 | `docs/data/` | Data construction, metric definitions, glossary |
 | `docs/run_times.md` | Measured wall time of every job over a minute. Check it before planning a run |
 | `docs/weak-points-register.md` | The standing audit. Read it before reopening evaluation or the objective |
-| `report/`, `presentations/` | Thesis LaTeX and slides |
-| `tests/` | pytest suite: 515 tests, 11 min on the laptop (2026-09-21) |
+| `report/` | Thesis LaTeX |
+| `tests/` | pytest suite. Last full run's time: `docs/run_times.md` |
 
 ## Setup
 
@@ -114,31 +116,23 @@ done
 
 Recipes for changing the data: `docs/data/changing-the-data.md`.
 
-### 2. Train (Kaggle GPU)
+### 2. Train (GPU)
 
-The laptop has no usable GPU and 15.7 GB RAM is too little for a full run, so train on Kaggle:
-
-```bash
-scripts/make_kaggle_bundle.py --split sir0 --code-only   # code zip; drop --code-only to rebuild the data zip
-scripts/make_kaggle_notebook.py                          # writes notebooks/kaggle_train_mid.ipynb
-scripts/preflight_kaggle.py                              # which config the uploaded bundle will ACTUALLY train
-```
-
-What the notebook runs:
+The laptop has no usable GPU and 15.7 GB RAM is too little for a full run. Both final models were trained on a Kaggle Tesla T4; the upload tooling was removed on 2026-10-22 (git history has it). On any CUDA machine with the data:
 
 ```bash
-scripts/train.py --split sir0 --config experiments/configs/bsrnn_cue_context.yaml
+scripts/train.py --config experiments/configs/bsrnn_cue_context.yaml        # extension
+scripts/train.py --config experiments/configs/bsrnn_baseline_matched.yaml   # baseline
 ```
 
-The extension took two 14-epoch sessions of 11.2 h each on a Tesla T4. All hyperparameters come from the config. `--resume` continues a run and refuses if the config changed. `train.py` refuses to point its in-loop word-error probe (which picks checkpoints) at `sir0_privval` or `eval_private`.
+The extension took two 14-epoch sessions of 11.2 h each on a Tesla T4. All hyperparameters come from the config. `--epochs` ends a session early and `--resume` continues from the best checkpoint, refusing if the config changed. Training reads only `sir0_train` and `sir0_val`, and the in-loop word-error probe (which picks checkpoints) reads `sir0_val`, so training never touches a held-out split.
 
 ### 3. Evaluate
 
 ```bash
 # one checkpoint -> estimate.wav per trial (14 min for 123 trials)
 scripts/make_estimates.py --split sir0 --condition both \
-    --checkpoint models/model_sir0_cuecontext-wer-e21.pt \
-    --config experiments/configs/bsrnn_cue_context.yaml --out experiments/results/<date>-est-<tag>
+    --checkpoint models/model_sir0_cuecontext-wer-e21.pt --out experiments/results/<date>-est-<tag>
 
 # score it: Gemini judge (primary), then the offline ASR used in the report
 scripts/evaluate.py --split sir0_val --est <est dir> --metrics content --listener judge
@@ -147,16 +141,11 @@ scripts/evaluate.py --config experiments/configs/eval_offline_asr_turbo.yaml --s
 # every trial case separately (both / target only / other speaker only / noise only)
 scripts/eval_by_case.py --est <est dir> --split sir0_val --listener judge
 
-# the whole battery in the right order; --dry-run first
-scripts/run_eval_suite.py --tag e21 --checkpoint models/model_sir0_cuecontext-wer-e21.pt \
-    --config experiments/configs/bsrnn_cue_context.yaml --dry-run
-
 # speed: 80 ms chunks, CPU
-scripts/measure_rtf.py --checkpoint models/model_sir0_cuecontext-wer-e21.pt \
-    --config experiments/configs/bsrnn_cue_context.yaml --chunk-ms 80 --threads 4 --device cpu
+scripts/measure_rtf.py --checkpoint models/model_sir0_cuecontext-wer-e21.pt
 ```
 
-WeSep estimates: `scripts/make_estimates_wesep.py` under `../wesep_venv`. To listen to one trial: `scripts/pass_a_test_case_through.py`.
+WeSep estimates: `scripts/make_estimates_wesep.py` under `../wesep_venv`.
 
 **Rules the results depend on:**
 
@@ -170,7 +159,7 @@ WeSep estimates: `scripts/make_estimates_wesep.py` under `../wesep_venv`. To lis
 scripts/demo_live.py        # then open the printed URL (127.0.0.1:8765)
 ```
 
-You record or upload a target voice, an enrolment and optionally another speaker. The demo builds a mixture the way trials are built, streams it through the extractor 80 ms at a time, then sends the mixture, the extracted audio and the clean target to Gemini with the benchmark prompt. Settings and checkpoint (currently `cuecontext-wer-e13`) are in `experiments/configs/demo_live.yaml`. Each run is logged to `experiments/results/demo-live/`.
+You record or upload a target voice, an enrolment and optionally another speaker, or pick the other speaker from three fixed LibriSpeech voices (`examples.interferer_voices`). The demo builds a mixture the way trials are built, streams it through the extractor 80 ms at a time, then sends the mixture, the extracted audio and the clean target to Gemini with the benchmark prompt. Settings and checkpoint (currently `cuecontext-wer-e21`, the report's extension) are in `experiments/configs/demo_live.yaml`. Each run is logged to `experiments/results/demo-live/`.
 
 ### Tests
 

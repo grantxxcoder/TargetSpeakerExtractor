@@ -303,7 +303,7 @@ git commit -m "Pin speaker-disjoint splits (seed 42)"
 
 **On the laptop: everything except the training run.** Downloading and preparing corpora. Writing and debugging the generator. Generating a handful of mixtures and *listening to them*, the highest-value debugging step in the project (no GPU needed). Building the manifest. Writing the metric harness. Running the judge (an API call, run on Google's servers). Every unit test.
 
-Use `smoke_train` / `smoke_val` for this: 25 speakers total, a few hundred mixtures, a model shrunk to a couple of layers. The goal is a pipeline that runs end to end, not a result. If the smoke config trains for 50 steps without crashing and the loss moves, the code is right and only compute is missing.
+(The `smoke` training split this step used was removed on 2026-10-22. Check the plumbing with the unit tests and forward-only passes instead.)
 
 **On the HPC or GCP: the training run only.** Same code, different config file.
 

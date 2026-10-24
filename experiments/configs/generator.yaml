@@ -1,16 +1,5 @@
-# Mixture generator parameters.
-# What each value means and where it came from: docs/data/data-construction-parameters.md
-#
-# [low, high] is sampled uniformly per trial. A single value is fixed.
-#
-# Each parameter below carries two comments: what it controls in plain English,
-# and "typical:" — roughly what the value would be in an ordinary room with two
-# people talking. The typical figures are indicative starting points for the
-# average-case discussion raised on 2026-08-12, NOT measured values. Confirm them
-# in the pilot before relying on any of them (data-construction-parameters.md §11).
-#
-# Where a range is already noticeably harder than typical, the comment says so.
-# Those are the candidates for a narrower "base case" band.
+# Mixture generator parameters. What each value means and where it came from: docs/data/data-construction-parameters.md.
+# [low, high] is drawn uniformly per trial, and a single value is fixed.
 
 seed: 42
 sample_rate: 16000
@@ -20,329 +9,53 @@ paths:
   wham_noise: data/wham_noise_16k
   splits: experiments/configs/splits.yaml
 
-# B2: where speech actually is inside each recording. Not a per-trial parameter --
-# it is one cached pass over the corpus (scripts/build_vad_index.py), and every
-# overlap and activity figure is measured against its output.
-#
-# THIS BLOCK DEFINES WHAT "OVERLAP" MEANS. Quote min_silence_duration_ms wherever
-# an overlap number is quoted. Changing anything here invalidates the VAD index and
-# every manifest built from it. decisions-m0.md 2026-08-15.
+# What counts as speech, for overlap, activity, the noise screen and the speech gate (decisions-m0.md 2026-08-15).
+# Changing anything here invalidates the VAD index and every manifest built from it.
 vad:
-  # How long a pause must be before it counts as "stopped talking". THE knob.
-  # At 100 ms (Silero's default) a sentence shreds into near-word fragments and
-  # "overlap" comes to mean simultaneous phonation. At 500 ms it over-merges --
-  # trailing silence collapses to 0.017 s, i.e. end-of-file silence gets absorbed
-  # into speech. 250 ms gives phrase-level turns: both people mid-utterance, which
-  # is what a listener calls talking over someone.
-  # Measured 2026-08-15 over 2,000 utterances: the whole 100-500 ms range moves
-  # speech/duration only 0.849 -> 0.897, so the headline is robust to this choice.
-  # That robustness is the reason to be comfortable with it, not the value itself.
-  min_silence_duration_ms: 250
+  min_silence_duration_ms: 250   # a pause this long counts as stopping talking, which gives phrase-level turns
+  threshold: 0.5                 # Silero's default speech probability
+  min_speech_duration_ms: 100    # below Silero's 250 so short words such as "yes" are kept
+  speech_pad_ms: 30              # Silero's default
+  expected_model_version: 6.2.1  # the weights every overlap figure came from
 
-  # Speech probability above which a frame counts as speech. Silero's default.
-  # Sensitivity at 250 ms: 0.872 at thr 0.3, 0.860 at 0.5, 0.853 at 0.7 -- so this
-  # matters even less than the pause length.
-  threshold: 0.5
-
-  # Discard speech bursts shorter than this. Below Silero's 250 ms default on
-  # purpose: 250 would drop genuine short words ("yes", "no") and undercount real
-  # speech, which is the opposite of what this whole exercise is correcting.
-  min_speech_duration_ms: 100
-
-  # Padding added to each end of every detected segment, to avoid clipping the
-  # onset of a plosive or the tail of a fricative. Silero's default.
-  speech_pad_ms: 30
-
-  # Fail loudly if the installed weights are not the ones these numbers came from.
-  # Same discipline as pinning the judge model id: an unnoticed upgrade would move
-  # every overlap figure in the thesis without touching a tracked file.
-  expected_model_version: 6.2.1
-
-# B2: WHAM! was recorded in real cafes, bars and restaurants, so some noise beds
-# contain audible background talkers. Those words reach the mixture but appear in
-# no transcript, so the metric would score them as speech the model invented --
-# and they add a third talker to what CLAUDE.md declares a two-speaker task.
-#
-# scripts/screen_noise_speech.py measured every clip into
-# data/index/noise_speech_{split}.csv; this is the cutoff applied to that report.
-# Changing it changes which clips exist, so it invalidates every manifest.
-# decisions-m0.md 2026-08-16.
+# Noise beds whose longest unbroken run of speech reaches this many seconds are dropped (decisions-m0.md 2026-08-16).
 noise_speech_rejection:
-  # Drop a clip if its longest unbroken run of detected speech reaches this many
-  # seconds. Below about half a second the detector is usually firing on a laugh,
-  # a door or a clatter rather than a word, and rejecting those would cost pool
-  # for no gain. Costs 4.1 % of tr, 2.0 % of cv, 1.3 % of tt.
   max_speech_run_s: 0.5
 
 defaults:
-  # How long each generated clip is, start to finish.
-  # Typical: ~17.5 s. Chosen to sit near REAL-TSE's clip length.
-  mixture_length_s: [15.0, 20.0]
-
-  # Fraction of the clip where BOTH people are talking at once. Cannot exceed
-  # target_activity_ratio, so it is clipped per trial to whatever that drew.
-  # Typical: REAL-TSE, our anchor benchmark, averages ~0.5 — this range means
-  # ~0.45, so it is deliberately matched to the anchor, not accidentally hard.
-  # An ordinary meeting overlaps far less (~0.10-0.15), so the set is already
-  # harder than daily conversation BY DESIGN. Do not "fix" that without deciding
-  # to diverge from the anchor.
-  # FLOOR LOWERED 0.2 -> 0.0 (PR3, B9). The old floor meant no present trial
-  # could have zero overlap, so "did two voices overlap?" answered "is the
-  # target absent?" on every row. B9's fix needs genuine turn-taking trials
-  # with no overlap at all to exist on the PRESENT side of that pool.
-  # This is NOT the ceiling narrowing 0.7 -> 0.45 that difficulty-dial.md
-  # section 3 defers to supervisor agreement -- the ceiling is untouched, so
-  # the deliberate match to REAL-TSE still holds.
-  # The band is clipped per trial to target_activity_ratio, because a speaker
-  # cannot overlap more of the window than they speak in.
-  overlap_ratio: [0.0, 0.7]
-
-  # How close the achieved overlap must land to the requested one, or the trial
-  # is thrown away and redrawn. Smaller = stricter = more rejected trials.
-  overlap_tolerance: 0.03
-
-  # Fraction of the clip the target spends talking. Each source is a run of
-  # consecutive utterances from one chapter; the leftover time becomes gaps.
-  # Typical: REAL-TSE is ~0.75, so this matches the anchor exactly. An ordinary
-  # two-person conversation is ~0.4-0.5, so again: harder than daily speech by
-  # design, matched to the benchmark.
-  # NOW VARIES (PR3, B9). Pinned at 0.75 it forced high overlap and removed the
-  # short-utterance case entirely: the target spoke a mean of 1.1 utterances,
-  # one unbroken ~14 s monologue. Varying it is what creates genuine
-  # turn-taking, and it is the binding constraint on overlap -- you cannot
-  # overlap more of the window than you speak in.
-  # This band is `hard`; `base` narrows it to [0.45, 0.78] below.
-  #
-  # CEILING LOWERED 0.85 -> 0.78 (2026-08-16, B2). Once activity is measured from
-  # detected speech rather than file duration, 0.85 is unreachable: LibriSpeech
-  # files are only ~86 % speech, so 0.85 of the window as voice needs ~0.99 of it
-  # packed with audio, and the most `lay_out` has ever achieved is 0.946. Trials
-  # drawing above the limit fail all 20 attempts and are dropped, which would
-  # silently thin out the talkative end of the band. decisions-m0.md 2026-08-16.
-  target_activity_ratio: [0.15, 0.78]
-
-  # How far the achieved talking time may drift from the ratio above.
+  mixture_length_s: [15.0, 20.0]       # near REAL-TSE's clip length
+  overlap_ratio: [0.0, 0.7]            # clipped per trial to target_activity_ratio; the 0.7 ceiling matches REAL-TSE on purpose (B9)
+  overlap_tolerance: 0.03              # a trial missing its requested overlap by more than this is redrawn
+  target_activity_ratio: [0.15, 0.78]  # the ceiling is the most a ~86 % speech corpus can reach (decisions-m0.md 2026-08-16)
   activity_tolerance: 0.1
-
-  # Most recordings that may be strung together to make one speaker's turn.
-  # Currently the target averages only 1.1, because LibriSpeech utterances are
-  # long enough to fill the window on their own.
   max_utterances_per_source: 6
-
-  # How much louder the target is than the interfering speaker, in dB.
-  # Negative = the interferer is louder. This is the main difficulty axis.
-  # Typical: ~0 to +6 dB for two people at similar distance from the mic.
-  sir_db: [-5.0, 15.0]
-  # Example: make SIR a truncated normal instead of uniform. Same bounds, mass
-  # pulled toward the typical case -- an interferer louder than the target goes
-  # from 25% of trials to 17%.
-  #------------------------------------------------------------------------------------- 
-  #sir_db: {dist: truncnorm, lo: -5.0, hi: 15.0, mu: 5.0, sigma: 6.0}
-  #------------------------------------------------------------------------------------
-  # Scope: a spec written HERE applies to `hard` (which inherits defaults) and to
-  # any regime that does not name this parameter itself. It does NOT reach a
-  # regime that overrides it -- `base` sets its own sir_db below, so editing this
-  # line alone would leave every base trial unchanged. To change base, edit it in
-  # the `regimes:` block further down THIS file. There is no separate regime file.
-  #
-  # truncnorm consumes exactly one uniform, same as a [lo, hi] range, so swapping
-  # the shape of one parameter does not shift any other parameter's draws.
-
-
-  # How much louder the target is than the background noise bed, in dB.
-  # Typical: ~15-20 dB in an office or home; ~5-10 dB in a busy cafe.
+  sir_db: [-5.0, 15.0]                 # target level minus interferer level; the sir0 splits override it
   snr_db: [0.0, 20.0]
-
-  # Absolute loudness of the target, BS.1770 integrated (decisions-m0.md 2026-08-12).
-  # Stops every trial sitting at the same volume. In silent-target trials the
-  # interferer is normalised to this instead (decisions-m0.md 2026-08-11).
-  # Typical: broadcast reference is -23 LUFS; this range sits below it to leave
-  # headroom for the interferer and noise on top.
-  target_loudness_lufs: [-33.0, -25.0]
-
-  # If the summed audio exceeds this fraction of full scale, quieten the mixture
-  # AND every stem by the same amount, so SIR and SNR are preserved.
-  clip_ceiling: 0.95
-
-  # Reverberation time: how long echoes take to fade by 60 dB. Higher = boomier.
-  # Typical: ~0.3-0.5 s for a carpeted meeting room or office.
-  # NOTE: 66.8% of trials exceed the 200-300 ms streaming window, so the model
-  # cannot hear the tail it is scored on. See decisions-pending B11.
-  # Floor raised 0.15 -> 0.25 (PR2). A 0.15 s T60 in a room this size implies
-  # near-anechoic wall absorption, so the low end was the UNREALISTIC end, not
-  # the easy one -- raising it improves realism and difficulty together.
-  # difficulty-dial.md sections 1 and 3.
+  target_loudness_lufs: [-33.0, -25.0] # BS.1770 loudness of the anchor (decisions-m0.md 2026-08-12)
   t60_s: [0.25, 0.6]
-
-  # Room floor plan. Shoebox, so length x width.
-  # Typical: ~5-7 m a side for a meeting room. 10 m is a large hall.
   room_length_m: [5.0, 10.0]
   room_width_m: [5.0, 10.0]
-
-  # Floor-to-ceiling height.
-  # Typical: ~2.4-2.7 m in an ordinary office or home.
-  # HIGHER THAN TYPICAL — 3-4 m is a hall or an older building.
   room_height_m: [3.0, 4.0]
-
-  # How far each speaker stands from the microphone, measured horizontally.
-  # (The true 3-D distance is slightly larger once height differs — up to 2.18 m.)
-  # Typical: ~0.5-1 m for a laptop or phone; 1-2 m for a table mic.
-  source_distance_m: [0.1, 2.0]
-
-  # Height of each speaker's mouth above the floor.
-  # Typical: ~1.2 m seated, ~1.6 m standing.
+  source_distance_m: [0.1, 2.0]        # horizontal distance from the mic
   source_height_m: [0.9, 1.8]
-
-  # Height of the microphone above the floor.
-  # Typical: ~0.75 m for a mic sitting on a table.
-  # HIGHER THAN TYPICAL — 0.9-1.8 m is a stand or a head-height mic.
   mic_height_m: [0.9, 1.8]
-
-  # The cutoff that separates "early" echoes from the late reverb tail. Echoes
-  # before this are kept in the clean target; everything after is what the model
-  # must remove. Depends on A1, still undecided.
-  early_reflections_ms: 50
-
-  # Length of the sample of the target's voice given to the model so it knows
-  # who to listen for. Fixed, not sampled (decisions-m0.md 2026-08-12).
-  # Set to a [low, high] pair to sweep it as an experiment.
-  enrollment_length_s: 5.0
-
-  # Chance the enrollment clip gets a random EQ applied, faking a different
-  # microphone, so the model matches on voice rather than on recording channel.
-  enrollment_eq_prob: 0.5
-
-  # Chance the two speakers are the same gender. Same-gender pairs are the hard
-  # case and must be reportable separately.
-  # Typical: ~0.5 for randomly paired people.
-  # Only meaningful when there IS an interferer, so it is blank on target_only
-  # and noise_only rows.
+  enrollment_length_s: 5.0             # fixed (decisions-m0.md 2026-08-12)
+  enrollment_eq_prob: 0.5              # chance of a random EQ on the enrolment, standing in for another microphone
   same_gender_fraction: 0.5
-
-  # B9's four trial types, drawn once per trial. Replaces
-  # target_absent_fraction, which is now DERIVED from this
-  # (interferer_only + noise_only) so the two can never disagree.
-  #
-  # The two zero-overlap types are deliberately the same size, which puts
-  # P(target absent | no overlap) at exactly 0.50 -- a coin flip, so the
-  # shortcut carries no information. Any other ratio leaves it partly
-  # predictive. decisions-m0.md 2026-08-13 (B9).
-  #
-  #   both             both speak, overlapping
-  #   target_only      the target speaks, nobody interrupts. The most common
-  #                    real condition, and it appeared in ZERO trials before
-  #   interferer_only  the target is silent, one other voice
-  #   noise_only       nobody speaks at all, noise bed only
+  # B9's four trial types (decisions-m0.md 2026-08-13). The two zero-overlap types are equal, so overlap says nothing about absence.
   composition:
     both: 0.50
     target_only: 0.25
     interferer_only: 0.20
     noise_only: 0.05
 
-# One regime is drawn per trial; every regime-scoped parameter for that trial
-# then comes from that regime's bands. Drawn once per trial rather than once per
-# parameter: with six parameters chosen independently, an all-base trial would
-# occur ~1.6% of the time and the base condition would barely exist.
-#
-# `hard` has no block because it inherits `defaults` wholesale. `base` is
-# therefore a SUB-RANGE of `hard`, so the recorded `regime` column is
-# provenance, not difficulty, and must never be a B13 reporting stratum -- base
-# and hard overlap, so comparing them would understate the gap.
-#
-# If training proves too hard, filter to `regime == base`. No rebuild needed.
-# That is the whole point of this block. decisions-m0.md 2026-08-13 (B12).
-#
-# Only the six parameters listed in src/data/sampling.py REGIME_SCOPED may
-# appear here; anything else is rejected at load.
-regimes:
-  weights: {base: 0.6, hard: 0.4}
-  base:
-    # Ranked #1 for damage in difficulty-dial.md section 2. The full range keeps
-    # a louder-than-target interferer, which is real but uncommon.
-    sir_db: [0.0, 12.0]
-    # 0 dB noise is beyond a busy cafe; 8 dB is a normal room.
-    snr_db: [8.0, 20.0]
-    # Ceiling only. The 0.25 floor is already the global floor.
-    t60_s: [0.25, 0.5]
-    source_distance_m: [0.1, 2.0]
-    # B9 gives this a real band. `base` keeps the target reasonably talkative;
-    # `hard` reaches down to 0.15, where the target says very little and there
-    # is far less of it to anchor on.
-    # Ceiling follows the global one down, 0.85 -> 0.78. decisions-m0.md 2026-08-16.
-    target_activity_ratio: [0.45, 0.78]
-    # NOT narrowed here, deliberately:
-    #   overlap_ratio        -- its 0.7 ceiling is matched to REAL-TSE on
-    #                           purpose. difficulty-dial.md section 3 puts this
-    #                           LAST and requires supervisor agreement plus a
-    #                           decisions-m0.md entry, not a config edit.
-    #   (target_activity_ratio was listed here until PR3. B9 has now decided
-    #    what varying it means, so it is narrowed above.)
-    #   source_distance_m is no longer narrowed either: the band was widened to
-    #    0.1 m to cover hearables, and `base` follows it.
-
-# B4: the eval splits carry the same composition as train, so the strata stay
-# comparable between what the model saw and what it is judged on. They no
-# longer set target_absent_fraction: 0.0 -- and they need target_only trials
-# for the same reason train does, or "no overlap -> absent" becomes perfectly
-# predictive again inside eval. decisions-m0.md 2026-08-13 (B4, B9).
+# n_trials is how many to draw and noise_split is the WHAM! pool, never shared between training and evaluation.
+# speakers_from borrows another split's speakers from splits.yaml. A regime is drawn once per trial; base narrows the ranges and hard keeps the defaults (B12).
+# regimes: null draws every parameter from the wide ranges, which is how the eval splits work (decisions-m0.md 2026-08-13).
 splits:
-  # n_trials: how many to generate. noise_split: which WHAM! noise pool to draw
-  # from, never crossed between training and evaluation.
-  # regimes: null opts a split out, so every parameter is drawn independently
-  # from the wide ranges and `regime` records "none". The eval splits do this:
-  # under regimes a hard trial draws wide SIR AND wide overlap together, which
-  # correlates them, so B13's per-condition tables would report one effect twice.
-  # Eval is never filtered, so it gains nothing from regimes. decisions-m0.md
-  # 2026-08-13.
-  # target_absent_fraction: share of trials where the target never speaks at all,
-  # which is what teaches the model to stay silent rather than invent words.
-  train:        {n_trials: 20000, noise_split: tr}
-  # val matches train's absent fraction so validation can exercise the
-  # push-to-silence half of the loss.
-  val:          {n_trials: 200,   noise_split: cv}
-  # Supervisor decided 2026-08-12 that eval must carry silent-target trials too;
-  # the fraction and the scoring rule are still open. See decisions-pending B4.
-  eval_public:  {n_trials: 500,   noise_split: tt, regimes: null}
-  eval_private: {n_trials: 500,   noise_split: tt, regimes: null}
-  smoke_train:  {n_trials: 50,    noise_split: tr}
-  smoke_val:    {n_trials: 20,    noise_split: cv}
-  # sir0: see the block below `subsets:`. Symmetric target/interferer loudness.
-  # `speakers_from` borrows train's / val's speaker list so splits.yaml -- a
-  # generated, pinned file -- needs no hand edit. Speaker-disjointness is
-  # inherited from the borrowed split.
-  # sir_db is set at BOTH levels on purpose: the split-level value is what
-  # `hard` inherits, and the regimes block below stops `base` re-narrowing it.
-  # Everything else is identical to train, so this split differs in one axis.
+  # sir0 centres the target-to-interferer level on zero, so "keep the louder voice" is a coin flip and only the enrolment can say who to keep (decisions-m2.md 2026-08-25).
   sir0_train:
-    n_trials: 10000       # 5,000 until 2026-09-03, 2,000 until 2026-08-31.
-                          # Raised to 10,000 as the THIRD point on the data-scaling
-                          # curve (1,989 -> 4,976 -> 9,955). 4,976 answered "does
-                          # the gap narrow" -- it did, margin over pass-through
-                          # 0.55 -> 0.99 dB -- but left "how much more is worth
-                          # buying" open. Three points fit a slope; two do not.
-                          # 10,000 not 20,000 deliberately: it fits ONE Kaggle
-                          # session (~42 min/epoch projected from the measured
-                          # 1,244 s at 4,976) and halves the upload, which is the
-                          # constraint that already forced K=4 -> K=3 on 08-31.
-                          # ADDITIVE: rows 0-4,975 verified byte-identical to the
-                          # 5,000 manifest on 2026-09-03, so the 15 GB already
-                          # rendered is reused and only ~4,979 trials are new.
-                          # Prompted by the 2026-09-03 WeSep row, which beats this
-                          # baseline on every metric while trained on 100 h.
-                          # ---- previous rationale, kept ----
-                          # 2,000 until 2026-08-31. Raised because the 1,989-trial
-                          # run memorised its training set: train separation
-                          # improved every epoch while held-out fell below
-                          # pass-through (decisions-m2.md 2026-08-29). 2.5x is the
-                          # DIAGNOSTIC size, not the maximum -- it is enough to
-                          # answer "does the train/held-out gap narrow", and if it
-                          # does not, the data-volume diagnosis is wrong and a
-                          # bigger render would have been wasted. ~16 GB rendered,
-                          # ~1,360 s/epoch projected from the measured 540 at
-                          # 1,989, so ~29 epochs fit one Kaggle session.
-                          # sir0_val STAYS AT 200 and must not be re-rendered:
-                          # the whole comparison is against the 08-29 baseline and
-                          # is only valid if the val set is byte-identical.
+    n_trials: 10000
     noise_split: tr
     speakers_from: train
     sir_db: [-10.0, 10.0]
@@ -365,94 +78,5 @@ splits:
         t60_s: [0.25, 0.5]
         source_distance_m: [0.1, 2.0]
         target_activity_ratio: [0.45, 0.78]
-
-  # Expanded development split, added 2026-09-13. decisions-m3.md.
-  #
-  # WHY IT EXISTS. The paired bootstrap on 2026-09-12 measured sir0_val's
-  # resolution at +-8 LCF-WER points over its 103 `both` trials, so any arm
-  # moving the metric less than ~5 points is unreadable. Resolving a 2-point
-  # effect needs ~15x the trials. This split supplies them.
-  #
-  # SPEAKERS COME FROM eval_private, which was RELEASED from holdout duty on
-  # 2026-09-13 (Grant's decision). eval_public remains the untouched final
-  # holdout. The 20 speakers are disjoint from train, from val and from
-  # eval_public -- verified, not assumed.
-  #
-  # WHY NOT JUST REUSE THE eval_private RENDERS. They predate interferer.wav,
-  # which evaluate.py requires for EVERY leakage metric (ICR@2, mean_leak,
-  # wrong_from_interferer). Re-rendering is mandatory, so the distribution
-  # became a free choice rather than an inherited one.
-  #
-  # SIR IS WIDER THAN sir0_val, NOT EASIER: [-10, +15] is a SUPERSET of
-  # sir0_val's [-10, +10]. Measured 2026-09-12, the two ends are different
-  # problems -- at SIR < -5 dB leakage is 0.65 of our wrong content words and we
-  # beat the raw mixture by 1.3 WER; at SIR >= +5 leakage is 0.08 and we still
-  # sit 25 points above the clean-target ceiling. The easy end therefore
-  # isolates FABRICATION, which is 41.5 % of the error mass and has no other
-  # measurement in this project. Results on this split are reported PER SIR
-  # BAND, never as a single blended mean -- blending re-hides exactly the
-  # structure the widening was for.
-  #
-  # NOISE IS cv, NOT eval_private's tt. tt is the pool eval_public draws from,
-  # and developing against those clips would leak noise into the final holdout.
-  #
-  # Regimes copy sir0_val's block verbatim so the two splits differ in ONE axis.
-  sir0_privval:
-    n_trials: 2800
-    noise_split: cv
-    speakers_from: eval_private
-    sir_db: [-10.0, 15.0]
-    regimes:
-      weights: {base: 0.6, hard: 0.4}
-      base:
-        snr_db: [8.0, 20.0]
-        t60_s: [0.25, 0.5]
-        source_distance_m: [0.1, 2.0]
-        target_activity_ratio: [0.45, 0.78]
-
-# Mid-size prototyping split. NOT generated: these are deterministic,
-# condition-stratified SUBSETS of the manifests above, written by
-# scripts/make_subset_manifest.py and reading the already-rendered audio in
-# data/rendered/train and data/rendered/val. No new trials, no new audio.
-#
-# Exists because the 50-trial smoke split has only 20 speakers, and the failure
-# it produced was an enrolment-blind mute (decisions-m2.md 2026-08-25): the
-# model never learned to use the enrolment, so it could not tell target-present
-# from target-absent and muted everything. Speaker diversity is what that needs,
-# so subsetting train's 1172 speakers is the point -- widening smoke's 20 would
-# not have tested it.
-subsets:
-  mid_train: {n_trials: 2000, source: train, stratify_by: condition}
-  mid_val:   {n_trials: 200,  source: val,   stratify_by: condition}
-
-# ---------------------------------------------------------------------------
-# sir0: `mid` with ONE thing changed -- the target/interferer loudness ratio is
-# centred on zero instead of being 90 % target-louder.
-#
-# WHY. Measured 2026-08-25 on mid_train: 90 % of two-speaker trials have the
-# target LOUDER than the interferer (median +6 dB), because `regimes.base`
-# narrows sir_db to [0, 12]. So "keep the loud voice" answers the question ~90 %
-# of the time and needs no enrollment at all. Measured on the same data: plain
-# loudness identifies the dominant speaker 81.5 % of the time where the target
-# is 6+ dB louder, against 58 % for the speaker cue. The model has no reason to
-# learn conditioning and, measured, does not: swapping the enrollment moves its
-# output by 2.6 %.
-#
-# difficulty-dial.md (2026-08-13) ranked sir_db #1 of 14 and said it outright:
-# "At -5 dB the interferer is louder than the target, so nothing but the
-# enrollment can identify which voice to keep." It framed the narrowing as
-# DIFFICULTY relief. It is also RELEVANCE relief, and those are not the same
-# thing -- a task can be easy and still require the enrollment.
-#
-# [-10, 10] is symmetric, so the shortcut becomes a coin flip. Width kept wide
-# rather than [-6, 6] on purpose: it leaves easy trials (target +10 dB) for the
-# model to bootstrap on instead of making every trial equally hard. Realism cost
-# is real and acknowledged -- difficulty-dial.md calls -10 dB "plausible but
-# uncommon". decisions-m2.md 2026-08-25.
-#
-# `mid` is NOT replaced. It is the control arm: same model, same loss, only the
-# loudness distribution differs.
-splits_extra_note: |
-  sir0_train / sir0_val are declared under `splits:` above, not here -- they are
-  GENERATED trials (new audio), not subsets of an existing manifest like `mid`.
-# ---------------------------------------------------------------------------
+  eval_public:  {n_trials: 500, noise_split: tt, regimes: null}
+  eval_private: {n_trials: 500, noise_split: tt, regimes: null}

@@ -1,15 +1,8 @@
-"""Build a two-speaker trial from arbitrary audio, the way the dataset was built.
+"""Builds a two-speaker trial from any audio, the way the dataset was built.
 
-Reuses src/data/render.py so a demo mixture is levelled and reverberated as the
-training trials were: BS.1770 loudness (A3), target and interferer each through
-their own image-source RIR in one shoebox room, WHAM! noise at an SNR relative
-to the target, the shared 0.95 peak guard (A6), and a dry enrolment levelled to
-the target's loudness (A4).
-
-DIFFERENCES FROM render_trial, stated: the target recording is used as-is
-rather than laid out from VAD onsets; the interferer is looped to cover it; the
-room is drawn here from generator.yaml's ranges rather than read from a
-manifest row; no enrolment EQ.
+It reuses src/data/render.py, so a demo mixture is levelled and reverberated as the training trials were: BS.1770 loudness (A3), the target and the interferer each through their own image-source RIR in one shoebox room,
+WHAM! noise at an SNR relative to the target, the shared 0.95 peak guard (A6), and a dry enrolment levelled to the target's loudness (A4).
+It differs from render_trial in four stated ways: the target recording is used as it is rather than laid out from VAD onsets, the interferer is looped to cover it, the room is drawn here from generator.yaml's ranges, and the enrolment gets no EQ.
 """
 
 import csv
@@ -21,166 +14,200 @@ import soundfile as sf
 
 from src.data.render import convolve_to, gain_to, impulse_responses, wrap_noise
 
-
-def trim_silence(x, sr, top_db=40.0, frame_s=0.02):
-    """Drop leading/trailing frames more than `top_db` below the loudest.
-    Browser recordings start with a click and a second of room tone."""
-    n = int(sr * frame_s)
-    if len(x) < 2 * n:
-        return x
-    frames = x[:len(x) // n * n].reshape(-1, n)
-    rms_db = 10 * np.log10((frames ** 2).mean(axis=1) + 1e-12)
-    keep = np.flatnonzero(rms_db > rms_db.max() - top_db)
-    return x[keep[0] * n:(keep[-1] + 1) * n]
+# Browser recordings start with a click and a second of room tone, so frames this far below the loudest are trimmed from both ends.
+TRIM_BELOW_DB = 40.0
+TRIM_FRAME_S = 0.02
 
 
-def sample_room(rng, cfg):
-    """dims, t60, mic, [target_pos, interferer_pos] from generator.yaml's ranges."""
-    dims = [rng.uniform(*cfg["room_length_m"]), rng.uniform(*cfg["room_width_m"]),
-            rng.uniform(*cfg["room_height_m"])]
-    m = cfg["wall_margin_m"]
-    for _ in range(1000):
-        mic = [rng.uniform(m, dims[0] - m), rng.uniform(m, dims[1] - m),
-               rng.uniform(*cfg["mic_height_m"])]
+# this drops the leading and trailing frames that are much quieter than the loudest
+def trim_silence(audio, sample_rate):
+    frame_length = int(sample_rate * TRIM_FRAME_S)
+    if len(audio) < 2 * frame_length:
+        return audio
+    frames = audio[:len(audio) // frame_length * frame_length].reshape(-1, frame_length)
+    level_db = 10 * np.log10((frames ** 2).mean(axis=1) + 1e-12)
+    loud_frames = np.flatnonzero(level_db > level_db.max() - TRIM_BELOW_DB)
+    return audio[loud_frames[0] * frame_length:(loud_frames[-1] + 1) * frame_length]
+
+
+# this draws a value uniformly between the two ends of a configured range
+def draw_between(generator, bounds):
+    return generator.uniform(bounds[0], bounds[1])
+
+
+# this draws a room, its T60, the microphone and the two source positions from generator.yaml's ranges
+def sample_room(generator, config):
+    dimensions = [draw_between(generator, config["room_length_m"]), draw_between(generator, config["room_width_m"]), draw_between(generator, config["room_height_m"])]
+    margin = config["wall_margin_m"]
+    for attempt in range(1000):
+        microphone = [generator.uniform(margin, dimensions[0] - margin), generator.uniform(margin, dimensions[1] - margin), draw_between(generator, config["mic_height_m"])]
         sources = []
-        for _ in range(2):
-            d, a = rng.uniform(*cfg["source_distance_m"]), rng.uniform(0, 2 * np.pi)
-            sources.append([mic[0] + d * np.cos(a), mic[1] + d * np.sin(a),
-                            rng.uniform(*cfg["source_height_m"])])
-        if all(m <= s[0] <= dims[0] - m and m <= s[1] <= dims[1] - m for s in sources):
-            return dims, float(rng.uniform(*cfg["t60_s"])), mic, sources
+        for source_index in range(2):
+            distance = draw_between(generator, config["source_distance_m"])
+            angle = generator.uniform(0, 2 * np.pi)
+            sources.append([microphone[0] + distance * np.cos(angle), microphone[1] + distance * np.sin(angle), draw_between(generator, config["source_height_m"])])
+        inside = True
+        for source in sources:
+            if not (margin <= source[0] <= dimensions[0] - margin and margin <= source[1] <= dimensions[1] - margin):
+                inside = False
+        if inside:
+            return dimensions, float(draw_between(generator, config["t60_s"])), microphone, sources
     raise RuntimeError("could not place two sources in the room")
 
 
-def loop_to(x, n, offset):
-    """`x` repeated to fill samples [offset, n) of a length-n track."""
-    track = np.zeros(n)
-    if offset < n:
-        reps = -(-(n - offset) // len(x))
-        track[offset:] = np.tile(x, reps)[:n - offset]
+# this repeats the audio to fill samples offset to length of a track that long
+def loop_to(audio, length, offset):
+    track = np.zeros(length)
+    if offset < length:
+        repeats = (length - offset + len(audio) - 1) // len(audio)
+        track[offset:] = np.tile(audio, repeats)[:length - offset]
     return track
 
 
-def build_mixture(target, interferer, cfg, rng, sir_db, snr_db, reverb, noise_dir):
-    """float arrays at cfg['sample_rate'] -> dict of stems + what was drawn.
-
-    `snr_db` None = no noise. Returns mixture, target (the reference as it sits
-    in the mixture: through its own room when reverb is on, A1), interferer,
-    and `meta` recording every draw so the record can reproduce it.
-    """
-    sr = cfg["sample_rate"]
-    meter = pyln.Meter(sr)
-    lufs = cfg["target_lufs"]
-    n = len(target)
-    dry_i = loop_to(interferer, n, int(round(cfg["interferer_offset_s"] * sr)))
-    meta = {"sir_db": sir_db, "snr_db": snr_db, "reverb": reverb,
-            "target_lufs": lufs, "interferer_offset_s": cfg["interferer_offset_s"]}
+# this builds the mixture and returns its stems, plus a record of every draw so the run can be reproduced
+def build_mixture(target, interferer, config, generator, sir_db, snr_db, reverb, noise_dir):
+    """snr_db of None means no noise. The target stem is the reference as it sits in the mixture, so it goes through its own room when reverb is on (A1)."""
+    sample_rate = config["sample_rate"]
+    meter = pyln.Meter(sample_rate)
+    target_lufs = config["target_lufs"]
+    length = len(target)
+    dry_interferer = loop_to(interferer, length, int(round(config["interferer_offset_s"] * sample_rate)))
+    meta = {"sir_db": sir_db, "snr_db": snr_db, "reverb": reverb, "target_lufs": target_lufs, "interferer_offset_s": config["interferer_offset_s"]}
 
     if reverb:
-        dims, t60, mic, sources = sample_room(rng, cfg)
-        n_out = n + int(round(t60 * sr))          # A5: pad so the tail decays
-        rir_t, rir_i = impulse_responses(dims, t60, mic, sources, sr)
-        pad = lambda x: np.pad(x, (0, n_out - n))  # noqa: E731
-        wet_t, wet_i = convolve_to(pad(target), rir_t, n_out), convolve_to(pad(dry_i), rir_i, n_out)
-        meta["room"] = {"dims_m": dims, "t60_s": t60, "mic": mic, "sources": sources}
+        dimensions, t60, microphone, sources = sample_room(generator, config)
+        # The output is padded so the reverb tail can decay (A5).
+        output_length = length + int(round(t60 * sample_rate))
+        target_rir, interferer_rir = impulse_responses(dimensions, t60, microphone, sources, sample_rate)
+        wet_target = convolve_to(np.pad(target, (0, output_length - length)), target_rir, output_length)
+        wet_interferer = convolve_to(np.pad(dry_interferer, (0, output_length - length)), interferer_rir, output_length)
+        meta["room"] = {"dims_m": dimensions, "t60_s": t60, "mic": microphone, "sources": sources}
     else:
-        n_out, wet_t, wet_i = n, target.astype(np.float64), dry_i
+        output_length = length
+        wet_target = target.astype(np.float64)
+        wet_interferer = dry_interferer
 
-    t = wet_t * gain_to(wet_t, lufs, meter)
-    i = wet_i * gain_to(wet_i, lufs - sir_db, meter)
-    noise = np.zeros(n_out)
+    target_stem = wet_target * gain_to(wet_target, target_lufs, meter)
+    interferer_stem = wet_interferer * gain_to(wet_interferer, target_lufs - sir_db, meter)
+    noise = np.zeros(output_length)
     if snr_db is not None:
         clips = sorted(Path(noise_dir).glob("*.*"))
-        clip = clips[rng.integers(len(clips))]
-        offset = float(rng.uniform(0, sf.info(clip).duration))
-        noise = wrap_noise(clip, offset, n_out, sr)
-        noise = noise * gain_to(noise, lufs - snr_db, meter)
+        clip = clips[generator.integers(len(clips))]
+        offset = float(generator.uniform(0, sf.info(clip).duration))
+        noise = wrap_noise(clip, offset, output_length, sample_rate)
+        noise = noise * gain_to(noise, target_lufs - snr_db, meter)
         meta["noise"] = {"clip": str(clip), "offset_s": offset}
 
-    mixture = t + i + noise
-    peak = max(np.abs(mixture).max(), np.abs(t).max(), np.abs(i).max())
-    g = cfg["peak"] / peak if peak > cfg["peak"] else 1.0      # A6, one gain for all
-    meta["common_gain"] = float(g)
-    f32 = lambda x: (x * g).astype(np.float32)  # noqa: E731
-    return {"mixture": f32(mixture), "target": f32(t), "interferer": f32(i),
-            "meta": meta}
+    mixture = target_stem + interferer_stem + noise
+    # One gain for all three stems, so the mixture never clips (A6).
+    peak = max(np.abs(mixture).max(), np.abs(target_stem).max(), np.abs(interferer_stem).max())
+    common_gain = 1.0
+    if peak > config["peak"]:
+        common_gain = config["peak"] / peak
+    meta["common_gain"] = float(common_gain)
+    return {"mixture": (mixture * common_gain).astype(np.float32), "target": (target_stem * common_gain).astype(np.float32), "interferer": (interferer_stem * common_gain).astype(np.float32), "meta": meta}
 
 
-def level_enrollment(enrollment, cfg):
-    """Dry, at most enrollment_max_s from the middle, at the target's LUFS (A4)."""
-    sr = cfg["sample_rate"]
-    n = int(cfg["enrollment_max_s"] * sr)
-    if len(enrollment) > n:
-        start = (len(enrollment) - n) // 2
-        enrollment = enrollment[start:start + n]
-    out = enrollment * gain_to(enrollment.astype(np.float64), cfg["target_lufs"],
-                               pyln.Meter(sr))
-    peak = np.abs(out).max()
-    return (out * (cfg["peak"] / peak if peak > cfg["peak"] else 1.0)).astype(np.float32)
+# this keeps at most enrollment_max_s from the middle of the enrolment, dry, levelled to the target's loudness (A4)
+def level_enrollment(enrollment, config):
+    sample_rate = config["sample_rate"]
+    max_length = int(config["enrollment_max_s"] * sample_rate)
+    if len(enrollment) > max_length:
+        start = (len(enrollment) - max_length) // 2
+        enrollment = enrollment[start:start + max_length]
+    levelled = enrollment * gain_to(enrollment.astype(np.float64), config["target_lufs"], pyln.Meter(sample_rate))
+    peak = np.abs(levelled).max()
+    peak_gain = 1.0
+    if peak > config["peak"]:
+        peak_gain = config["peak"] / peak
+    return (levelled * peak_gain).astype(np.float32)
 
 
-# --- "use example voices": LibriSpeech speakers from ONE public split ---------
+# The rest serves "use example voices": LibriSpeech speakers from one public split.
 
-def _speakers(root, split_ids):
-    sexes = {}
-    with open(Path(root).parent / "SPEAKERS.TXT") as fh:
-        for row in csv.reader(fh, delimiter="|"):
+# this maps each given LibriSpeech speaker to "F" or "M", from SPEAKERS.TXT
+def speaker_sexes(librispeech_root, split_speakers):
+    all_sexes = {}
+    with open(Path(librispeech_root).parent / "SPEAKERS.TXT") as handle:
+        for row in csv.reader(handle, delimiter="|"):
             if row and not row[0].startswith(";"):
-                sexes[row[0].strip()] = row[1].strip()
-    return {s: sexes[s] for s in split_ids}
+                all_sexes[row[0].strip()] = row[1].strip()
+    sexes = {}
+    for speaker in split_speakers:
+        sexes[speaker] = all_sexes[speaker]
+    return sexes
 
 
-def _utterances(root, speaker):
-    """[(path, seconds, text)] for one speaker."""
-    out = []
-    for trans in sorted(Path(root, speaker).glob("*/*.trans.txt")):
-        for line in trans.read_text().splitlines():
-            utt, text = line.split(" ", 1)
-            path = trans.parent / f"{utt}.flac"
-            out.append((path, sf.info(path).duration, text))
-    return out
+# this lists one speaker's utterances as (path, seconds, text)
+def utterances(librispeech_root, speaker):
+    found = []
+    for transcript_file in sorted(Path(librispeech_root, speaker).glob("*/*.trans.txt")):
+        for line in transcript_file.read_text().splitlines():
+            utterance_id, text = line.split(" ", 1)
+            path = transcript_file.parent / f"{utterance_id}.flac"
+            found.append((path, sf.info(path).duration, text))
+    return found
 
 
-def pick_example(rng, root, split_ids, target_seconds, enrollment_s):
-    """Target utterance in `target_seconds`, a DIFFERENT utterance of the same
-    speaker for enrolment, and an opposite-sex speaker as interferer.
+# this shuffles one speaker's utterances and joins them until they cover the given length. build_mixture loops the audio if it is still short
+def draw_utterances(generator, librispeech_root, speaker, seconds):
+    candidates = utterances(librispeech_root, speaker)
+    generator.shuffle(candidates)
+    chosen = []
+    total_seconds = 0.0
+    for candidate in candidates:
+        chosen.append(candidate)
+        total_seconds += candidate[1]
+        if total_seconds >= seconds:
+            break
+    pieces = []
+    utterance_ids = []
+    for candidate in chosen:
+        pieces.append(sf.read(candidate[0], dtype="float32")[0])
+        utterance_ids.append(candidate[0].stem)
+    return np.concatenate(pieces), utterance_ids
 
-    Opposite sex because the demo should show the mechanism, not the hardest
-    case; same-sex is harder (decisions-m3.md 2026-09-26, right voice for e21:
-    72.4 % same-gender vs 89.7 % cross-gender).
+
+# this picks a target utterance, a different utterance of the same speaker as the enrolment, and an interferer
+def pick_example(generator, librispeech_root, split_speakers, target_seconds, enrollment_s, interferer_speaker, exclude):
+    """The interferer is interferer_speaker when one is given, else a random opposite-sex speaker, because the demo should show the mechanism rather than the hardest case.
+    Speakers in exclude are never the target, so the target can never be one of the selectable interferer voices.
     """
-    speakers = _speakers(root, split_ids)
-    order = list(speakers)
-    rng.shuffle(order)
-    for spk in order:
-        utts = _utterances(root, spk)
-        targets = [u for u in utts if target_seconds[0] <= u[1] <= target_seconds[1]]
+    sexes = speaker_sexes(librispeech_root, split_speakers)
+    order = list(sexes)
+    generator.shuffle(order)
+    for speaker in order:
+        if speaker in exclude or speaker == interferer_speaker:
+            continue
+        speaker_utterances = utterances(librispeech_root, speaker)
+        targets = []
+        for candidate in speaker_utterances:
+            if target_seconds[0] <= candidate[1] <= target_seconds[1]:
+                targets.append(candidate)
         if not targets:
             continue
-        tgt = targets[rng.integers(len(targets))]
-        enrols = [u for u in utts if u[0] != tgt[0] and u[1] >= enrollment_s]
-        if not enrols:
+        target = targets[generator.integers(len(targets))]
+        enrolments = []
+        for candidate in speaker_utterances:
+            if candidate[0] != target[0] and candidate[1] >= enrollment_s:
+                enrolments.append(candidate)
+        if not enrolments:
             continue
-        enr = enrols[rng.integers(len(enrols))]
-        others = [s for s in order if speakers[s] != speakers[spk]]
-        itf_spk = others[rng.integers(len(others))]
-        itf_utts = _utterances(root, itf_spk)
-        rng.shuffle(itf_utts)
-        itf, total = [], 0.0
-        for u in itf_utts:                       # enough to cover the target
-            itf.append(u)
-            total += u[1]
-            if total >= tgt[1]:
-                break
-        read = lambda p: sf.read(p, dtype="float32")[0]  # noqa: E731
+        enrolment = enrolments[generator.integers(len(enrolments))]
+        if interferer_speaker is None:
+            opposite_sex = []
+            for other in order:
+                if sexes[other] != sexes[speaker]:
+                    opposite_sex.append(other)
+            chosen_interferer = opposite_sex[generator.integers(len(opposite_sex))]
+        else:
+            chosen_interferer = interferer_speaker
+        interferer_audio, interferer_ids = draw_utterances(generator, librispeech_root, chosen_interferer, target[1])
         return {
-            "target": read(tgt[0]),
-            "enrollment": read(enr[0]),
-            "interferer": np.concatenate([read(u[0]) for u in itf]),
-            "reference_text": tgt[2],
-            "ids": {"target": tgt[0].stem, "enrollment": enr[0].stem,
-                    "interferer": [u[0].stem for u in itf],
-                    "target_speaker": f"{spk} ({speakers[spk]})",
-                    "interferer_speaker": f"{itf_spk} ({speakers[itf_spk]})"},
+            "target": sf.read(target[0], dtype="float32")[0],
+            "enrollment": sf.read(enrolment[0], dtype="float32")[0],
+            "interferer": interferer_audio,
+            "reference_text": target[2],
+            "ids": {"target": target[0].stem, "enrollment": enrolment[0].stem, "interferer": interferer_ids, "target_speaker": f"{speaker} ({sexes[speaker]})", "interferer_speaker": f"{chosen_interferer} ({sexes[chosen_interferer]})"},
         }
     raise RuntimeError("no speaker has an utterance in the requested length range")

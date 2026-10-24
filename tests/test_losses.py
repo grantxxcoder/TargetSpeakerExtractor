@@ -28,13 +28,13 @@ import pytest
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src.models.losses import LossBSRNN  # noqa: E402
+from src.models.losses import bsrnn_loss, loss_gain_match, loss_multi_res_stft, loss_target_absent, loss_target_present
 
 SR = 16000
 T = 64000           # 4 s at 16 kHz, the training chunk length
 N_FFT = 512
 # tau is no longer one number: tau_pres floors L_pres, tau_abs floors L_abs
-# (split 2026-08-25). The absent tests below read loss.tau_abs off the fixture
+# (split 2026-08-25). The absent tests below read loss["absent_floor"] off the fixture
 # rather than a module constant, so changing the default cannot silently make
 # them assert the wrong floor -- which is exactly what happened at the split.
 TAU_PRES = 0.001
@@ -42,9 +42,8 @@ TAU_PRES = 0.001
 
 @pytest.fixture
 def loss():
-    # wm/w are required constructor args; the values only matter to the
-    # __call__ tests, which state their own arithmetic.
-    return LossBSRNN(wm=6.6, w=0.458)
+    """The loss settings both final models were trained with, as train.build_loss_settings reads them from the configs."""
+    return {"absent_weight": 0.458, "multi_resolution_weight": 9.62, "present_floor": 0.001, "absent_floor": 0.01, "compression_exponent": 0.3, "window_lengths_ms": (8, 16, 32, 64), "sample_rate": 16000, "gain_weight": 1.69, "gain_deadzone_db": 3.0}
 
 
 @pytest.fixture
@@ -90,7 +89,7 @@ def test_present_is_exactly_minus_30_on_a_perfect_output(loss):
     it only lands on -30 if every quantity in the ratio is an ENERGY (squared)
     and the floor is applied to the right one."""
     s = speechlike(0)
-    assert float(loss._loss_target_present(s, s)[0]) == pytest.approx(-30.0, abs=1e-4)
+    assert float(loss_target_present(s, s, TAU_PRES)[0]) == pytest.approx(-30.0, abs=1e-4)
 
 
 @pytest.mark.parametrize("gain", [0.05, 0.2, 1.0, 5.0, 100.0])
@@ -101,15 +100,15 @@ def test_present_is_invariant_to_output_gain(loss, gain):
     unbounded reward for amplifying (measured: g=5 -> -43.98, g=100 -> -70).
     Flooring on ||s_proj||^2 makes them cancel."""
     s = speechlike(1)
-    assert float(loss._loss_target_present(s, gain * s)[0]) == pytest.approx(-30.0, abs=1e-3)
+    assert float(loss_target_present(s, gain * s, TAU_PRES)[0]) == pytest.approx(-30.0, abs=1e-3)
 
 
 def test_present_is_gain_invariant_on_an_imperfect_output(loss):
     """Gain invariance must hold away from the ceiling too, not only at -30."""
     s, x = speechlike(2), speechlike(2) + 0.5 * speechlike(3)
-    ref = float(loss._loss_target_present(s, x)[0])
+    ref = float(loss_target_present(s, x, TAU_PRES)[0])
     for gain in (0.01, 1.0, 100.0):
-        assert float(loss._loss_target_present(s, gain * x)[0]) == pytest.approx(ref, abs=1e-3)
+        assert float(loss_target_present(s, gain * x, TAU_PRES)[0]) == pytest.approx(ref, abs=1e-3)
 
 
 def test_present_matches_plain_si_sdr_away_from_the_floor(loss):
@@ -117,7 +116,7 @@ def test_present_matches_plain_si_sdr_away_from_the_floor(loss):
     term must agree with a textbook SI-SDR. Guards against the floor quietly
     distorting the normal operating range."""
     s, x = speechlike(4), speechlike(4) + 0.5 * speechlike(5)
-    assert float(loss._loss_target_present(s, x)[0]) == pytest.approx(
+    assert float(loss_target_present(s, x, TAU_PRES)[0]) == pytest.approx(
         float(plain_si_sdr(s, x)[0]), abs=0.05)
 
 
@@ -126,7 +125,7 @@ def test_present_is_finite_when_the_model_collapses_to_silence(loss):
     NaN, which no clamp removes -- hence eps on BOTH sides. 0.0 dB is worse than
     the ~-6 dB of passing the mixture through, so collapse is not an attractor."""
     s = speechlike(6)
-    v = float(loss._loss_target_present(s, torch.zeros_like(s))[0])
+    v = float(loss_target_present(s, torch.zeros_like(s), TAU_PRES)[0])
     assert math.isfinite(v) and v == pytest.approx(0.0, abs=1e-4)
 
 
@@ -135,7 +134,7 @@ def test_present_is_nan_on_a_silent_target_by_design(loss):
     caller must select present rows first. Pinning it as a test documents the
     masking requirement in a way a comment cannot."""
     s = speechlike(7)
-    assert math.isnan(float(loss._loss_target_present(torch.zeros_like(s), s)[0]))
+    assert math.isnan(float(loss_target_present(torch.zeros_like(s), s, TAU_PRES)[0]))
 
 
 # --- L_abs: push-to-silence, CARTSE eq (2), normalised --------------------
@@ -144,8 +143,8 @@ def test_absent_floor_is_10log10_tau_abs_on_perfect_silence(loss):
     """The floor is 10log10(tau_abs), i.e. -20 dB at the default tau_abs=0.01,
     not the -30 dB it was when a single tau served both halves."""
     x = speechlike(8)
-    assert float(loss._loss_target_absent(x, torch.zeros_like(x))[0]) == pytest.approx(
-        10 * math.log10(loss.tau_abs), abs=1e-4)
+    assert float(loss_target_absent(x, torch.zeros_like(x), loss["absent_floor"])[0]) == pytest.approx(
+        10 * math.log10(loss["absent_floor"]), abs=1e-4)
 
 
 def test_absent_do_nothing_anchor_is_not_zero(loss):
@@ -154,16 +153,16 @@ def test_absent_do_nothing_anchor_is_not_zero(loss):
     numerator. A test asserting exactly 0.0 fails for a reason that looks like a
     bug and is not."""
     x = speechlike(9)
-    assert float(loss._loss_target_absent(x, x)[0]) == pytest.approx(
-        10 * math.log10(1 + loss.tau_abs), abs=1e-5)
+    assert float(loss_target_absent(x, x, loss["absent_floor"])[0]) == pytest.approx(
+        10 * math.log10(1 + loss["absent_floor"]), abs=1e-5)
 
 
 def test_absent_is_positive_when_amplifying(loss):
     """>0 dB means louder than the mixture. A bug indicator, not a bad score --
     4x the energy is +6.02 dB."""
     x = speechlike(10)
-    assert float(loss._loss_target_absent(x, 2 * x)[0]) == pytest.approx(
-        10 * math.log10(4 + loss.tau_abs), abs=1e-3)
+    assert float(loss_target_absent(x, 2 * x, loss["absent_floor"])[0]) == pytest.approx(
+        10 * math.log10(4 + loss["absent_floor"]), abs=1e-3)
 
 
 @pytest.mark.parametrize("scale", [0.01, 1.0, 100.0])
@@ -172,14 +171,14 @@ def test_absent_is_scale_invariant(loss, scale):
     so two loudness-matched silent outputs get different gradients. Dividing by
     ||x||^2 removes that."""
     x = speechlike(11)
-    ref = float(loss._loss_target_absent(x, 0.1 * x)[0])
-    assert float(loss._loss_target_absent(scale * x, scale * 0.1 * x)[0]) == pytest.approx(ref, abs=1e-3)
+    ref = float(loss_target_absent(x, 0.1 * x, loss["absent_floor"])[0])
+    assert float(loss_target_absent(scale * x, scale * 0.1 * x, loss["absent_floor"])[0]) == pytest.approx(ref, abs=1e-3)
 
 
 # --- L_MR: multi-resolution STFT, Yu et al. eq (3) ------------------------
 
 def _mr(loss, a, b):
-    return loss._loss_multi_res_stft(a, b, loss.windows, loss.p)
+    return loss_multi_res_stft(a, b, loss["window_lengths_ms"], loss["compression_exponent"], loss["sample_rate"])
 
 
 def test_mrstft_is_exactly_zero_on_a_perfect_output(loss):
@@ -201,8 +200,8 @@ def test_mrstft_windows_are_milliseconds_not_samples(loss):
     """windows=(8, 16, 32, 64) are MS and convert to n_fft (128, 256, 512, 1024)
     at 16 kHz. Passed straight through, n_fft=8 gives a 5-bin FFT that still
     trains and is meaningless."""
-    assert loss.windows == (8, 16, 32, 64)
-    assert [int(round(w * loss.sample_rate / 1000)) for w in loss.windows] == [128, 256, 512, 1024]
+    assert loss["window_lengths_ms"] == (8, 16, 32, 64)
+    assert [int(round(w * loss["sample_rate"] / 1000)) for w in loss["window_lengths_ms"]] == [128, 256, 512, 1024]
 
 
 @pytest.mark.parametrize("gain", [0.5, 2.0])
@@ -231,9 +230,9 @@ def test_mrstft_is_more_sensitive_to_a_band_hole_than_si_sdr(loss):
     energy_removed = 1 - float((holed ** 2).sum()) / float((s ** 2).sum())
     assert energy_removed < 0.01, "fixture is not speech-shaped enough for this test"
 
-    p_perfect, p_nothing = float(loss._loss_target_present(s, s)[0]), float(loss._loss_target_present(s, x)[0])
+    p_perfect, p_nothing = float(loss_target_present(s, s, TAU_PRES)[0]), float(loss_target_present(s, x, TAU_PRES)[0])
     m_perfect, m_nothing = float(_mr(loss, s, s)[0]), float(_mr(loss, s, x)[0])
-    frac_pres = (float(loss._loss_target_present(s, holed)[0]) - p_perfect) / (p_nothing - p_perfect)
+    frac_pres = (float(loss_target_present(s, holed, TAU_PRES)[0]) - p_perfect) / (p_nothing - p_perfect)
     frac_mr = (float(_mr(loss, s, holed)[0]) - m_perfect) / (m_nothing - m_perfect)
 
     assert frac_mr > 2 * frac_pres, f"L_MR {frac_mr:.3f} vs L_pres {frac_pres:.3f}"
@@ -250,13 +249,12 @@ def batch(n=12, absent_idx=(2, 5, 9)):
 
 
 def test_call_weighting_matches_the_written_objective(loss):
-    """L = (1-w) * mean_present[L_pres + wm*L_MR] + w * mean_absent[L_abs].
+    """L = (1-w) * mean_present[L_pres + wm*L_MR + wg*L_gain] + w * mean_absent[L_abs].
     Recomputed by hand from the parts dict, so a swapped w/wm is caught -- both
     are weights, and swapping them trains the wrong thing without erroring."""
     s, x, absent = batch()
-    total, parts = loss(s, x, x, absent)
-    expected = ((1 - loss.w) * (parts["L_pres"] + loss.wm * parts["L_MR"])
-                + loss.w * parts["L_abs"])
+    total, parts = bsrnn_loss(s, x, x, absent, loss)
+    expected = (1 - loss["absent_weight"]) * (parts["L_pres"] + loss["multi_resolution_weight"] * parts["L_MR"] + loss["gain_weight"] * parts["L_gain"]) + loss["absent_weight"] * parts["L_abs"]
     assert float(total) == pytest.approx(expected, rel=1e-5)
 
 
@@ -264,14 +262,14 @@ def test_call_survives_a_batch_with_no_absent_crops(loss):
     """~1.5 % of batches at batch 12 and the measured 0.297 absent rate
     (0.703^12). An unguarded mean over an empty selection is NaN."""
     s, x, absent = batch(absent_idx=())
-    total, parts = loss(s, x, x, absent)
+    total, parts = bsrnn_loss(s, x, x, absent, loss)
     assert math.isfinite(float(total))
     assert parts["n_absent"] == 0 and math.isnan(parts["L_abs"])
 
 
 def test_call_survives_a_batch_with_no_present_crops(loss):
     s, x, absent = batch(absent_idx=tuple(range(12)))
-    total, parts = loss(s, x, x, absent)
+    total, parts = bsrnn_loss(s, x, x, absent, loss)
     assert math.isfinite(float(total))
     assert parts["n_present"] == 0 and math.isnan(parts["L_pres"])
 
@@ -282,8 +280,8 @@ def test_call_rejects_a_present_crop_whose_target_is_silent(loss):
     target silence (decisions-m1.md 2026-08-18), so the label sends ~1 crop in
     17 down the L_pres path with an all-zero target."""
     s, x, _ = batch()
-    with pytest.raises(AssertionError, match="crop_absent disagrees"):
-        loss(s, x, x, torch.zeros(12, dtype=torch.bool))
+    with pytest.raises(ValueError, match="silent target"):
+        bsrnn_loss(s, x, x, torch.zeros(12, dtype=torch.bool), loss)
 
 
 def test_call_parts_dict_has_a_stable_key_set(loss):
@@ -292,7 +290,7 @@ def test_call_parts_dict_has_a_stable_key_set(loss):
     keys = {"L_pres", "L_MR", "L_gain", "L_abs", "n_present", "n_absent", "total"}
     for idx in ((), (2, 5, 9), tuple(range(12))):
         s, x, absent = batch(absent_idx=idx)
-        assert set(loss(s, x, x, absent)[1]) == keys
+        assert set(bsrnn_loss(s, x, x, absent, loss)[1]) == keys
 
 
 @pytest.mark.parametrize("absent_idx", [(), (2, 5, 9), tuple(range(12))])
@@ -301,7 +299,7 @@ def test_call_gradients_are_finite(loss, absent_idx):
     it appears, so this is checked on all three batch compositions."""
     s, x, absent = batch(absent_idx=absent_idx)
     out = x.clone().requires_grad_(True)
-    loss(s, out, x, absent)[0].backward()
+    bsrnn_loss(s, out, x, absent, loss)[0].backward()
     assert bool(torch.isfinite(out.grad).all())
 
 
@@ -321,14 +319,14 @@ def test_gain_match_is_zero_inside_the_deadzone(loss):
     target = speechlike(seed=11, batch=4)
     for gain_db in (0.0, 2.9, -2.9):
         output = target * (10 ** (gain_db / 20))
-        got = loss._loss_gain_match(target, output, delta_db=3.0)
+        got = loss_gain_match(target, output, gain_deadzone_db=3.0)
         assert torch.allclose(got, torch.zeros(4), atol=1e-4), f"nonzero at {gain_db} dB"
 
 
 def test_gain_match_is_linear_in_db_outside_the_deadzone(loss):
     target = speechlike(seed=12, batch=4)
     output = target * (10 ** (-13.0 / 20))       # 13 dB too quiet
-    got = loss._loss_gain_match(target, output, delta_db=3.0)
+    got = loss_gain_match(target, output, gain_deadzone_db=3.0)
     assert torch.allclose(got, torch.full((4,), 10.0), atol=1e-3)
 
 
@@ -337,11 +335,11 @@ def test_gain_match_is_symmetric(loss):
 
     Too loud must cost exactly what too quiet costs. If it ever pays less, the
     model has an unbounded gain direction to run in, which is the failure
-    _loss_target_present was rewritten to remove.
+    loss_target_present was rewritten to remove.
     """
     target = speechlike(seed=13, batch=4)
-    quiet = loss._loss_gain_match(target, target * (10 ** (-13.0 / 20)), delta_db=3.0)
-    loud = loss._loss_gain_match(target, target * (10 ** (+13.0 / 20)), delta_db=3.0)
+    quiet = loss_gain_match(target, target * (10 ** (-13.0 / 20)), gain_deadzone_db=3.0)
+    loud = loss_gain_match(target, target * (10 ** (+13.0 / 20)), gain_deadzone_db=3.0)
     assert torch.allclose(quiet, loud, atol=1e-3)
 
 
@@ -355,7 +353,7 @@ def test_gain_match_prices_the_measured_sir0_collapse(loss):
     """
     target = speechlike(seed=14, batch=2)
     collapsed = target * (10 ** (-18.0 / 20))
-    got = loss._loss_gain_match(target, collapsed, delta_db=3.0)
+    got = loss_gain_match(target, collapsed, gain_deadzone_db=3.0)
     assert torch.allclose(got, torch.full((2,), 15.0), atol=1e-3)
 
 
@@ -368,34 +366,11 @@ def test_gain_match_gradient_survives_near_silence(loss):
     """
     target = speechlike(seed=15, batch=2)
     output = torch.zeros_like(target).requires_grad_(True)
-    loss._loss_gain_match(target, output, delta_db=3.0).sum().backward()
+    loss_gain_match(target, output, gain_deadzone_db=3.0).sum().backward()
     assert torch.isfinite(output.grad).all()
 
 
-def test_wg_defaults_to_zero_and_reproduces_the_three_term_total():
-    """The default must not move a single existing number.
-
-    Guards the A/B: `w_g: 0.0` has to be the 2026-08-20 objective exactly, or
-    the ablation's control arm is not a control.
-    """
-    torch.manual_seed(16)
-    target = speechlike(seed=17, batch=4)
-    output = target * 0.4 + 0.01 * speechlike(seed=18, batch=4)
-    mixture = target + speechlike(seed=19, batch=4)
-    crop_absent = torch.tensor([False, False, True, True])
-
-    off = LossBSRNN(wm=6.6, w=0.458, wg=0.0)
-    total, parts = off(target, output, mixture, crop_absent)
-
-    expected = ((1 - 0.458) * (parts["L_pres"] + 6.6 * parts["L_MR"])
-                + 0.458 * parts["L_abs"])
-    assert total.item() == pytest.approx(expected, abs=1e-5)
-    # ...and it is still computed and logged, which is what the anchor run reads
-    assert parts["L_gain"] == pytest.approx(parts["L_gain"])   # not NaN
-    assert parts["L_gain"] >= 0.0
-
-
-def test_wg_nonzero_enters_the_present_branch_only():
+def test_wg_nonzero_enters_the_present_branch_only(loss):
     """It must scale with (1 - w), never with w: level is a present-crop concept
     and L_abs already owns the absent side."""
     target = speechlike(seed=20, batch=4)
@@ -403,11 +378,13 @@ def test_wg_nonzero_enters_the_present_branch_only():
     mixture = target + speechlike(seed=21, batch=4)
     crop_absent = torch.tensor([False, False, True, True])
 
-    off = LossBSRNN(wm=6.6, w=0.458, wg=0.0)
-    on = LossBSRNN(wm=6.6, w=0.458, wg=1.0)
-    total_off, parts = off(target, output, mixture, crop_absent)
-    total_on, _ = on(target, output, mixture, crop_absent)
+    gain_off = dict(loss)
+    gain_off["gain_weight"] = 0.0
+    gain_on = dict(loss)
+    gain_on["gain_weight"] = 1.0
+    total_off, parts = bsrnn_loss(target, output, mixture, crop_absent, gain_off)
+    total_on, _ = bsrnn_loss(target, output, mixture, crop_absent, gain_on)
 
     delta = total_on.item() - total_off.item()
-    assert delta == pytest.approx((1 - 0.458) * 1.0 * parts["L_gain"], abs=1e-5)
+    assert delta == pytest.approx((1 - loss["absent_weight"]) * 1.0 * parts["L_gain"], abs=1e-5)
     assert delta > 0.0, "a too-quiet output must cost more once L_gain is on"

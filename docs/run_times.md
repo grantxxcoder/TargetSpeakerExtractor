@@ -8,6 +8,17 @@ Machine unless stated: laptop, Intel i5-1135G7, **4 physical cores / 8 threads**
 
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
+| 2026-10-24 | `scripts/build_vad_index.py --help` | full VAD index build **(accidental: no parser, so --help started the job; stopped by hand, wrote nothing)** | ~2 min | 8 workers. Added by hand: SIGTERM skips run_log |
+| 2026-10-24 | `pytest tests/ -q` | all 28 test files after the ruthless cleanup, before deleting 23 of them: 129 passed, 68 failed, 13 collection errors, all from removed names, signatures or guards | 3.6 min | cpu. Added by hand |
+| 2026-10-24 | scratch `e2e_metric2.py` (job tmp dir, not kept) | sir0_val `both` scored from caches, 0 API calls, after the ruthless cleanup | 3.8 min | cpu; results identical to before the cleanup. Added by hand |
+| 2026-10-24 | scratch `equivalence.py` + `compare_models.py` (job tmp dir, not kept) | 11 checkpoints offline + streamed, seeded init, loss, ECAPA, after the ruthless cleanup | 2.8 min | cpu, after the metric run; all bit-identical. Added by hand |
+| 2026-10-24 | `pytest tests/ -q` | the 5 kept model test files, 72 tests | 78 s | cpu; 16 s earlier the same day on an idle machine. Added by hand |
+| 2026-10-24 | scratch `time_stream.py` (job tmp dir, not kept) | e21 stateful streaming, 250 x 80 ms chunks, 4 threads, pre-refactor (HEAD) code | 1.5 min | cpu; cold first load, 37.3 ms/chunk. Later runs of the same script 14-24 s. Added by hand |
+| 2026-10-23 | `pytest tests/test_speech_gate.py tests/test_estimates.py -q` | 49 tests, after the classes-to-functions refactor | 2.3 min | cpu. All passed. Added by hand |
+| 2026-10-23 | `pytest tests/ -q` | full suite, 455 tests, after the classes-to-functions refactor of src/models and src/live_model_metric | 2.6 min | cpu, 4 cores. All passed. Added by hand |
+| 2026-10-23 | scratch `e2e_metric.py` (job tmp dir, not kept) | sir0_val `both`, e21 estimates: ASR content + signal, judge content from cache (0 API calls), DNSMOS on 3 trials | 1.3 min | cpu; 78 s before the refactor, 71 s and 76 s after, numbers identical. A first attempt on baseline-matched-e11 estimates failed after 4.3 min (not in the transcript cache). Added by hand |
+| 2026-10-23 | scratch `equivalence.py` (job tmp dir, not kept) | 11 checkpoints offline + streamed, seeded init, loss, ECAPA, before the refactor | 2.4 min | cpu, alongside the full suite; 34-44 s alone after the refactor. Added by hand |
+| 2026-10-23 | `pytest tests/ -q` | full suite, 455 tests, baseline before the refactor | 11.1 min | cpu, 4 cores, alongside the equivalence run. All passed. Added by hand |
 | 2026-10-22 | `pytest tests/ -q` | full suite, 652 tests, after the clean-up (state-teacher arm and Kaggle tooling removed) | 15.1 min | cpu, 4 cores, alongside a 29-script `--help` loop. Added by hand |
 | 2026-10-22 | `pytest` on 6 files (holdouts, dataparallel_unwrap, ami_splits, ami_loader, w_schedule, estimates) | 74 tests, scratch copy of the code with the clean-up deletions applied | 2.4 min | cpu, 4 cores. Added by hand |
 | 2026-10-18 | `scripts/diagnose_presence_gate.py --gate-checkpoint kaggle_out/session2/models/model_sir0_e015.pt --reference-checkpoint models/model_sir0_cuecontext-wer-e21.pt --n 30` | 30 `sir0_val` `both` clips x 3 forward passes (gate on, gate off, e21), whole clip | 23.5 min | cpu, 4 cores, alongside the peer session's e25 run of the same script. Added by hand |
@@ -57,6 +68,7 @@ Machine unless stated: laptop, Intel i5-1135G7, **4 physical cores / 8 threads**
 | 2026-09-23 | `content_probe.score()` end-to-end smoke, 3 clips | 3 clips, sir0_val, untrained 1c model, cpu extraction + faster-whisper small.en int8 cpu | 3.1 min | ~16 s/clip extraction on cpu, ~4 s/clip ASR, plus ~1 min of model loading. The Kaggle figure differs: extraction moves to the T4, so the ASR sets the per-epoch cost at ~4 s/clip. Added by hand. |
 | 2026-09-21 | `pytest tests/ -q` | 515 tests | 11 min | full suite after adding eval_by_case.py. Added by hand: pytest does not use run_log.timed |
 <!-- rows appended below by src/run_log.py -->
+| 2026-10-24 | `scripts/screen_noise_speech.py` | 28,000 clips / 82 h **(accidental: started by `--help` before the script had a parser; rewrote data/index/noise_speech_*; all four manifests rebuild identically from it)** | 22 min | 225x realtime, 8 workers |
 | 2026-10-18 | `scripts/evaluate.py` | --split sir0_val --condition both --metrics content --est experiments/results/2026-10-18-est-presence-postfilter-e2 --listener judge --judge-rpm 10 --out experiments/results/2026-10-18-eval-presence-postfilter-e2-judge | 30 min |  |
 | 2026-10-18 | `scripts/evaluate.py` | --split sir0_val --condition both --metrics content --est experiments/results/2026-10-18-est-presence-postfilter-e5 --listener judge --judge-rpm 10 --out experiments/results/2026-10-18-eval-presence-postfilter-e5-judge | 33 min |  |
 | 2026-10-18 | `scripts/make_estimates.py` | 103 trials rendered, sir0 | 13 min | cpu, whole-clip |

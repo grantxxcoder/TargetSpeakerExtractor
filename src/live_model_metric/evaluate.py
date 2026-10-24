@@ -1,103 +1,80 @@
-"""Score every metric this project has, on one split, in one call.
-
-Designed for both a terminal and a notebook. The terminal wrapper is
-scripts/evaluate.py; from a notebook:
-
-    from src.live_model_metric.evaluate import evaluate
-    results = evaluate(split="sir0_val", estimate_directory="experiments/results/...")
-    print(results.table())
-    results.frame()                      # pandas, if you want to plot it
+"""Score the reported metrics on one split in one call. scripts/evaluate.py is the command-line wrapper.
 
 Three metric families, each optional so a quick run stays quick:
 
-    content      LCF-WER + its error breakdown, ICR@k, NRR      seconds (cached)
-    signal       SDR / SIR / SAR                                ~1 min
-    perceptual   DNSMOS P.808 and P.835                         ~5 min per system
+    content      LCF-WER and its error breakdown, ICR@2, FR@2      seconds when cached
+    signal       SDR, SIR and SAR                                 about 1 minute
+    perceptual   DNSMOS P.808 and P.835                           about 5 minutes per system
 
-WHAT THIS DOES NOT DO. It does not render estimates -- that is
-scripts/make_estimates.py and takes ~25 minutes, which would make a "quick" call
-a surprise. If the estimate directory is missing it says exactly what to run.
+It does not render estimates, which is scripts/make_estimates.py. Trials and results are plain dictionaries.
 """
 
 import csv
 import json
-import subprocess
-from dataclasses import dataclass, field
 from datetime import date
+from importlib.metadata import version
 from pathlib import Path
+
+import soundfile
+from faster_whisper import WhisperModel
+
+from .dnsmos import mean_scores, score_audio_file
+from .fabrication import compute_fr
+from .icr import compute_icr
+from .judge import BACKEND, DEFAULT_CACHE, MODEL_ID, PROMPT_FILE, MissingCredentials, QuotaExhausted, judge_transcribe, make_judge, prompt_sha
+from .lcf_wer import compute_lcf_wer
+from .separation import decompose
+from .speech_gate import condition_lookup, decide, log_decision, vad_seconds_fn
 
 CONTENT, SIGNAL, PERCEPTUAL = "content", "signal", "perceptual"
 ALL_METRICS = (CONTENT, SIGNAL, PERCEPTUAL)
 ALL_SYSTEMS = ("floor", "estimate", "ceiling")
+ASR, JUDGE = "asr", "judge"
+ALL_LISTENERS = (ASR, JUDGE)
 
 TRANSCRIPT_CACHE = Path("experiments/results/transcripts.csv")
-# The default, and the in-loop probe's listener (content_probe.py), so every
-# number logged before 2026-09-28 is small.en. Report tables use large-v3-turbo
-# via experiments/configs/eval_offline_asr_turbo.yaml. decisions-m3.md 2026-09-28.
+# The default listener, and the in-loop probe's. The report's tables use large-v3-turbo through experiments/configs/eval_offline_asr_turbo.yaml (decisions-m3.md 2026-09-28).
 ASR_MODEL_SIZE = "small.en"
 
-# This file lives at <repo>/src/live_model_metric/evaluate.py, so the repo root is
-# two directories up. Deriving it from the module rather than the working
-# directory means a notebook opened anywhere resolves the same paths as the CLI.
+# Paths are resolved from the repo root, worked out from this file's own location, so the working directory does not matter.
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _resolve(path, root=None):
-    """Relative paths hang off the repo root, absolute paths are left alone."""
+# this makes a relative path hang off the repo root and leaves an absolute path alone
+def resolve_path(path, root):
     if path is None:
         return None
     path = Path(path)
-    return path if path.is_absolute() else Path(root or REPO_ROOT) / path
+    if path.is_absolute():
+        return path
+    return Path(root or REPO_ROOT) / path
 
 
-def _cache_key(audio_path, model_size=ASR_MODEL_SIZE):
+# this gives the transcript cache key for a clip. It includes the file's timestamp and size, so a rewritten clip is transcribed again
+def transcript_cache_key(audio_path, model_size):
     stat = Path(audio_path).stat()
-    return (f"{model_size}|{Path(audio_path).parent.name}|{Path(audio_path).name}"
-            f"|{int(stat.st_mtime)}|{stat.st_size}")
+    return f"{model_size}|{Path(audio_path).parent.name}|{Path(audio_path).name}|{int(stat.st_mtime)}|{stat.st_size}"
 
 
-def _load_cache(cache_path):
+# this reads the transcript cache as key to text. A missing file is an empty cache
+def load_transcript_cache(cache_path):
     cache_path = Path(cache_path)
     if not cache_path.exists():
         return {}
+    cache = {}
     with open(cache_path, newline="") as handle:
-        return {row["key"]: row["text"] for row in csv.DictReader(handle)}
+        for row in csv.DictReader(handle):
+            cache[row["key"]] = row["text"]
+    return cache
 
 
-def _git_commit():
-    try:
-        commit = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True,
-                                text=True, check=True).stdout.strip()
-        dirty = subprocess.run(["git", "status", "--porcelain"], capture_output=True,
-                               text=True).stdout.strip()
-        return commit + ("-dirty" if dirty else "")
-    except Exception:
-        return "unknown"
-
-
-@dataclass
-class Trial:
-    trial_id: str
-    condition: str
-    target_text: str
-    interferer_text: str
-    mixture: Path
-    clean: Path
-    interferer: Path
-    estimate: Path = None
-    signal_to_interference_db: float = None
-
-
-def load_trials(split, condition="both", limit=None,
-                data_root="data", manifest_dir="data/manifests",
-                estimate_directory=None, repo_root=None):
-    manifest = _resolve(manifest_dir, repo_root) / f"{split}.csv"
+# this reads one dictionary per trial from the split manifest: its id, condition, both scripts, the paths of its clips, and its SIR
+def load_trials(split, condition, limit, data_root, manifest_dir, estimate_directory, repo_root):
+    manifest = resolve_path(manifest_dir, repo_root) / f"{split}.csv"
     if not manifest.exists():
-        raise FileNotFoundError(
-            f"no manifest at {manifest}. Repo root resolved to "
-            f"{_resolve('.', repo_root)}; pass repo_root= if that is wrong.")
-    audio_root = _resolve(data_root, repo_root) / "rendered" / split
-    estimate_root = _resolve(estimate_directory, repo_root)
+        raise FileNotFoundError(f"No manifest at {manifest}. The repo root resolved to {resolve_path('.', repo_root)}; pass repo_root if that is wrong.")
+    audio_root = resolve_path(data_root, repo_root) / "rendered" / split
+    estimate_root = resolve_path(estimate_directory, repo_root)
 
     trials = []
     with open(manifest, newline="") as handle:
@@ -108,38 +85,30 @@ def load_trials(split, condition="both", limit=None,
             if not (trial_directory / "meta.json").exists():
                 continue
             meta = json.loads((trial_directory / "meta.json").read_text())
-            trials.append(Trial(
-                trial_id=row["trial_id"],
-                condition=row["condition"],
-                target_text=meta.get("target_text", ""),
-                interferer_text=meta.get("interferer_text", ""),
-                mixture=trial_directory / "mixture.wav",
-                clean=trial_directory / "target.wav",
-                interferer=trial_directory / "interferer.wav",
-                estimate=(estimate_root / row["trial_id"] / "estimate.wav"
-                          if estimate_root else None),
-                signal_to_interference_db=float(row["sir_db"]) if row.get("sir_db") else None,
-            ))
+            estimate = None
+            if estimate_root:
+                estimate = estimate_root / row["trial_id"] / "estimate.wav"
+            signal_to_interference_db = None
+            if row.get("sir_db"):
+                signal_to_interference_db = float(row["sir_db"])
+            trials.append({"trial_id": row["trial_id"], "condition": row["condition"], "target_text": meta.get("target_text", ""), "interferer_text": meta.get("interferer_text", ""), "mixture": trial_directory / "mixture.wav", "clean": trial_directory / "target.wav", "interferer": trial_directory / "interferer.wav", "estimate": estimate, "signal_to_interference_db": signal_to_interference_db})
             if limit is not None and len(trials) >= limit:
                 break
     return trials
 
 
-def transcribe(audio_paths, cache_path=TRANSCRIPT_CACHE, model_size=ASR_MODEL_SIZE,
-               allow_new=True, verbose=True, repo_root=None):
-    """Transcribe, serving what the cache already has.
-
-    `allow_new=False` refuses to run the ASR and raises instead, which is what a
-    quick call wants: a silent 10-minute transcription pass is worse than an error.
-    """
-    cache_path = _resolve(cache_path, repo_root)
-    cache = _load_cache(cache_path)
-    texts, missing = [], []
+# this transcribes clips with the offline ASR, serving what the cache already holds and appending what it had to transcribe
+def transcribe(audio_paths, cache_path, model_size, allow_new, verbose, repo_root):
+    """With allow_new False it refuses to run the ASR and raises instead, because a silent ten-minute transcription pass is worse than an error."""
+    cache_path = resolve_path(cache_path, repo_root)
+    cache = load_transcript_cache(cache_path)
+    texts = []
+    missing = []
     for path in audio_paths:
         if path is None or not Path(path).exists():
             texts.append(None)
             continue
-        key = _cache_key(path, model_size)
+        key = transcript_cache_key(path, model_size)
         if key in cache:
             texts.append(cache[key])
         else:
@@ -149,24 +118,20 @@ def transcribe(audio_paths, cache_path=TRANSCRIPT_CACHE, model_size=ASR_MODEL_SI
     if not missing:
         return texts
     if not allow_new:
-        raise RuntimeError(
-            f"{len(missing)} clips are not transcribed and allow_new=False. "
-            f"First: {missing[0][1]}. Re-run with allow_new=True to transcribe "
-            f"them (small.en ~3 s per clip on CPU; larger models are slower).")
+        raise RuntimeError(f"{len(missing)} clips are not transcribed and allow_new is False. The first is {missing[0][1]}.")
 
-    from faster_whisper import WhisperModel
     if verbose:
-        print(f"  transcribing {len(missing)} clips not in cache with {model_size}",
-              flush=True)
+        print(f"  transcribing {len(missing)} clips not in cache with {model_size}", flush=True)
     model = WhisperModel(model_size, device="cpu", compute_type="int8")
     new_rows = []
     for count, (index, path, key) in enumerate(missing, 1):
-        segments, _ = model.transcribe(str(path), language="en", beam_size=1,
-                                       temperature=0.0, condition_on_previous_text=False)
-        text = " ".join(s.text.strip() for s in segments).strip()
+        segments, info = model.transcribe(str(path), language="en", beam_size=1, temperature=0.0, condition_on_previous_text=False)
+        segment_texts = []
+        for segment in segments:
+            segment_texts.append(segment.text.strip())
+        text = " ".join(segment_texts).strip()
         texts[index] = text
-        new_rows.append({"key": key, "model": model_size,
-                         "trial_id": path.parent.name, "file": path.name, "text": text})
+        new_rows.append({"key": key, "model": model_size, "trial_id": path.parent.name, "file": path.name, "text": text})
         if verbose and count % 25 == 0:
             print(f"    {count}/{len(missing)}", flush=True)
 
@@ -180,294 +145,221 @@ def transcribe(audio_paths, cache_path=TRANSCRIPT_CACHE, model_size=ASR_MODEL_SI
     return texts
 
 
-@dataclass
-class Results:
-    split: str
-    condition: str
-    n_trials: int
-    systems: dict = field(default_factory=dict)
-    provenance: dict = field(default_factory=dict)
-
-    def table(self):
-        rows, columns = [], []
-        for system, scores in self.systems.items():
-            for key in scores:
-                if key not in columns:
-                    columns.append(key)
-        header = f"{'system':<11}" + "".join(f"{c:>15}" for c in columns)
-        rows.append(header)
-        rows.append("-" * len(header))
-        for system, scores in self.systems.items():
-            line = f"{system:<11}"
-            for column in columns:
-                value = scores.get(column)
-                line += f"{'—':>15}" if value is None else f"{value:>15.2f}"
-            rows.append(line)
-        return "\n".join(rows)
-
-    def frame(self):
-        import pandas as pd
-        return pd.DataFrame(self.systems).T
-
-    def save(self, out_directory, repo_root=None):
-        out_directory = _resolve(out_directory, repo_root)
-        out_directory.mkdir(parents=True, exist_ok=True)
-        (out_directory / "results.json").write_text(json.dumps(
-            {"split": self.split, "condition": self.condition,
-             "n_trials": self.n_trials, "systems": self.systems,
-             "provenance": self.provenance}, indent=2))
-        (out_directory / "results.txt").write_text(self.table() + "\n")
-        return out_directory
+# Generated by Claude Code
+def results_table(results):
+    rows, columns = [], []
+    for system, scores in results["systems"].items():
+        for key in scores:
+            if key not in columns:
+                columns.append(key)
+    header = f"{'system':<11}" + "".join(f"{c:>15}" for c in columns)
+    rows.append(header)
+    rows.append("-" * len(header))
+    for system, scores in results["systems"].items():
+        line = f"{system:<11}"
+        for column in columns:
+            value = scores.get(column)
+            line += f"{'—':>15}" if value is None else f"{value:>15.2f}"
+        rows.append(line)
+    return "\n".join(rows)
 
 
-ASR, JUDGE = "asr", "judge"
-ALL_LISTENERS = (ASR, JUDGE)
+# this writes results.json and results.txt into out_directory
+def save_results(results, out_directory, repo_root):
+    out_directory = resolve_path(out_directory, repo_root)
+    out_directory.mkdir(parents=True, exist_ok=True)
+    (out_directory / "results.json").write_text(json.dumps({"split": results["split"], "condition": results["condition"], "n_trials": results["n_trials"], "systems": results["systems"], "provenance": results["provenance"]}, indent=2))
+    (out_directory / "results.txt").write_text(results_table(results) + "\n")
+    return out_directory
 
 
-def _listen(paths, listener, split, manifest_dir, repo_root, cache_path,
-            allow_new, use_gate, judge_kwargs, verbose, asr_model=ASR_MODEL_SIZE):
-    """Turn audio paths into response texts, through the chosen listener.
+# this turns clips into response texts through the chosen listener, with the speech gate applied first
+def listen(paths, listener, split, manifest_dir, repo_root, cache_path, allow_new, judge_repeat, judge_requests_per_minute, verbose, asr_model):
+    """The gate is applied here, once, for whichever listener is chosen, so the judge and the ASR are gated by the same rule (metric-definitions.md 3.1).
 
-    THE SPEECH GATE IS APPLIED HERE, ONCE, FOR WHICHEVER LISTENER IS CHOSEN.
-    That placement is the point: gate the judge and not the ASR (or the reverse)
-    and every difference between them on a speech-free clip measures the gate
-    rather than the listeners. metric-definitions.md 3.1.
-
-    A blocked clip returns "" -- the empty hypothesis, which is 3.1's stated
-    treatment of a listener that reported nothing, so no new scoring rule is
-    introduced and NRR sees the non-response it exists to detect.
+    A blocked clip returns an empty response, which is scored as all deletions. Returns the responses, the gate decisions, and the judge dictionary (None for the ASR).
     """
-    from .speech_gate import (GateDecision, condition_lookup, decide,
-                              log_decision, vad_seconds_fn)
+    lookup = condition_lookup(split, manifest_dir, repo_root)
+    # The VAD model only loads when an estimate is in the batch. The rendered clips are decided from the trial's condition.
+    needs_vad = False
+    for path in paths:
+        if path and Path(path).stem.lower() == "estimate":
+            needs_vad = True
+    vad = None
+    if needs_vad:
+        vad = vad_seconds_fn()
+    decisions = []
+    for path in paths:
+        decision = decide(path, lookup(path), vad)
+        log_decision(decision, path, listener, split, lookup(path))
+        decisions.append(decision)
 
-    if use_gate:
-        lookup = condition_lookup(split, manifest_dir, repo_root)
-        # The VAD model is loaded ONLY if an estimate is actually in this batch.
-        # Anchors are decided by construction and must never pay for a model load.
-        needs_vad = any(Path(x).stem.lower() == "estimate" for x in paths if x)
-        vad = vad_seconds_fn() if needs_vad else None
-        decisions = [decide(x, lookup(x), vad_detect=vad) for x in paths]
-    else:
-        decisions = [GateDecision(True, "gate-disabled")] * len(paths)
-
-    for decision, path in zip(decisions, paths):
-        log_decision(decision, path, listener, split=split,
-                     condition=None if not use_gate else lookup(path))
-
-    blocked = sum(1 for d in decisions if d.fired)
-    if verbose and blocked:
-        print(f"  speech gate blocked {blocked}/{len(paths)} clips "
-              f"(answered locally, no listener call)", flush=True)
+    passing = []
+    for index, decision in enumerate(decisions):
+        if not decision["fired"]:
+            passing.append(index)
+    if verbose and len(passing) < len(paths):
+        print(f"  speech gate blocked {len(paths) - len(passing)}/{len(paths)} clips (answered locally, no listener call)", flush=True)
 
     responses = [""] * len(paths)
-    passing = [i for i, d in enumerate(decisions) if not d.fired]
-
     if listener == JUDGE:
-        from .judge import (Judge, MissingCredentials, NewCallLimitReached,
-                            QuotaExhausted)
-        judge = Judge(verbose=verbose, **(judge_kwargs or {}))
-        judge.failures = []
-        for count, i in enumerate(passing, 1):
+        judge = make_judge(judge_repeat, DEFAULT_CACHE, judge_requests_per_minute, verbose)
+        for count, index in enumerate(passing, 1):
             try:
-                responses[i] = judge(paths[i])
-            except (QuotaExhausted, NewCallLimitReached, MissingCredentials):
-                # Budget or credentials, not one bad clip. Everything bought is
-                # on disk; stop cleanly and let a re-run resume rather than
-                # half-score.
+                responses[index] = judge_transcribe(judge, paths[index])
+            except (QuotaExhausted, MissingCredentials):
+                # The quota or the key, not one bad clip. Everything paid for is on disk, so stop and let a re-run resume.
                 raise
-            except Exception as exc:                       # noqa: BLE001
-                # ONE CLIP MUST NEVER KILL THE RUN. Observed 2026-09-02: a
-                # safety filter refused a single estimate and the traceback
-                # took down a whole pass, discarding the progress report even
-                # though the paid answers were safe. Record it and step over.
-                judge.failures.append((str(paths[i]),
-                                       f"{type(exc).__name__}: {exc}"))
-                responses[i] = ""
+            except Exception as error:
+                # One clip must never kill the run (a safety filter took down a whole pass on 2026-09-02). Record it and score it as a non-response.
+                judge["failures"].append((str(paths[index]), f"{type(error).__name__}: {error}"))
+                responses[index] = ""
                 if verbose:
-                    print(f"    FAILED {Path(paths[i]).parent.name}/"
-                          f"{Path(paths[i]).name}: {type(exc).__name__} "
-                          f"-- scored as a non-response, continuing", flush=True)
+                    print(f"    FAILED {Path(paths[index]).parent.name}/{Path(paths[index]).name}: {type(error).__name__} -- scored as a non-response, continuing", flush=True)
             if verbose and count % 25 == 0:
-                print(f"    judged {count}/{len(passing)}"
-                      f"  (calls {judge.calls_made}, cache {judge.cache_hits})",
-                      flush=True)
-        if judge.failures and verbose:
-            print(f"  {len(judge.failures)} clip(s) failed and were scored as "
-                  f"non-responses -- see judge_failures in the results", flush=True)
+                print(f"    judged {count}/{len(passing)}  (calls {judge['calls_made']}, cache {judge['cache_hits']})", flush=True)
+        if judge["failures"] and verbose:
+            print(f"  {len(judge['failures'])} clip(s) failed and were scored as non-responses -- see judge_failures in the results", flush=True)
         return responses, decisions, judge
 
-    got = transcribe([paths[i] for i in passing], cache_path, model_size=asr_model,
-                     allow_new=allow_new, verbose=verbose, repo_root=repo_root)
-    for i, text in zip(passing, got):
-        responses[i] = text
+    passing_paths = []
+    for index in passing:
+        passing_paths.append(paths[index])
+    texts = transcribe(passing_paths, cache_path, asr_model, allow_new, verbose, repo_root)
+    for index, text in zip(passing, texts):
+        responses[index] = text
     return responses, decisions, None
 
 
-def evaluate(split="sir0_val", condition="both", estimate_directory=None,
-             systems=ALL_SYSTEMS, metrics=ALL_METRICS, limit=None,
-             data_root="data", manifest_dir="data/manifests",
-             cache_path=TRANSCRIPT_CACHE, allow_new_transcripts=True,
-             verbose=True, repo_root=None,
-             listener=ASR, speech_gate=True, judge_kwargs=None,
-             asr_model=ASR_MODEL_SIZE):
-    """Score `systems` on `metrics` for one split. Returns `Results`.
+# this gives the clip a system is scored on: the mixture for the floor, the model's estimate, or the clean target for the ceiling
+def system_path(trial, system):
+    if system == "floor":
+        return trial["mixture"]
+    if system == "estimate":
+        return trial["estimate"]
+    return trial["clean"]
 
-    Relative paths resolve against the repo root, which is derived from this
-    file's own location -- so the working directory does not matter and a
-    notebook needs no `..` prefixes. Pass `repo_root` to override.
-    """
+
+# this scores the chosen systems on the chosen metric families for one split, and returns split, condition, n_trials, systems and provenance
+def evaluate(split, condition, estimate_directory, systems, metrics, limit, data_root, manifest_dir, cache_path, allow_new_transcripts, verbose, repo_root, listener, judge_repeat, judge_requests_per_minute, asr_model):
     metrics = tuple(metrics)
     systems = tuple(systems)
-    trials = load_trials(split, condition, limit, data_root, manifest_dir,
-                         estimate_directory, repo_root)
+    trials = load_trials(split, condition, limit, data_root, manifest_dir, estimate_directory, repo_root)
     if not trials:
-        raise RuntimeError(f"no trials loaded for split={split} condition={condition}")
+        raise RuntimeError(f"No trials loaded for split={split} condition={condition}.")
 
     if "estimate" in systems:
         if estimate_directory is None:
-            raise RuntimeError(
-                "systems includes 'estimate' but estimate_directory is None. "
-                "Render estimates first:\n"
-                "  python scripts/make_estimates.py --split sir0 "
-                "--checkpoint models/<ckpt>.pt --out experiments/results/<name>")
-        missing = [t.trial_id for t in trials if not t.estimate.exists()]
+            raise RuntimeError("The systems include the estimate but no estimate directory was given. Render estimates first with scripts/make_estimates.py.")
+        missing = []
+        for trial in trials:
+            if not trial["estimate"].exists():
+                missing.append(trial["trial_id"])
         if missing:
-            raise RuntimeError(
-                f"{len(missing)} of {len(trials)} trials have no estimate.wav in "
-                f"{estimate_directory} (first: {missing[0]}). Render them with "
-                f"scripts/make_estimates.py")
+            raise RuntimeError(f"{len(missing)} of {len(trials)} trials have no estimate.wav in {estimate_directory} (the first is {missing[0]}). Render them with scripts/make_estimates.py.")
 
-    source_of = {"floor": lambda t: t.mixture,
-                 "estimate": lambda t: t.estimate,
-                 "ceiling": lambda t: t.clean}
-
-    results = Results(split=split, condition=condition, n_trials=len(trials))
-    results.provenance = {
-        "date": date.today().isoformat(),
-        "git_commit": _git_commit(),
-        "split": split, "condition": condition, "n_trials": len(trials),
-        "systems": list(systems), "metrics": list(metrics),
-        "estimate_directory": str(estimate_directory) if estimate_directory else None,
-        "speech_gate": "on" if speech_gate else "OFF",
-    }
+    results = {"split": split, "condition": condition, "n_trials": len(trials), "systems": {}, "provenance": {}}
+    results["provenance"] = {"date": date.today().isoformat(), "split": split, "condition": condition, "n_trials": len(trials), "systems": list(systems), "metrics": list(metrics), "estimate_directory": str(estimate_directory) if estimate_directory else None, "speech_gate": "on"}
     if listener == ASR:
-        from importlib.metadata import version
-        results.provenance.update({
-            "listener": f"faster-whisper=={version('faster-whisper')} "
-                        f"{asr_model} int8 cpu greedy",
-            "listener_role": "STAND-IN for the judge, NOT a live-model result",
-        })
+        results["provenance"]["listener"] = f"faster-whisper=={version('faster-whisper')} {asr_model} int8 cpu greedy"
+        results["provenance"]["listener_role"] = "STAND-IN for the judge, NOT a live-model result"
     else:
-        # CLAUDE.md: every live-model result records the exact model ID, the
-        # exact prompt, the input modality and the run date. All four here.
-        from .judge import DEFAULT_MODEL_ID, DEFAULT_PROMPT_FILE, prompt_sha
-        kw = judge_kwargs or {}
-        prompt_file = kw.get("prompt_file") or DEFAULT_PROMPT_FILE
-        results.provenance.update({
-            "listener": kw.get("model_id", DEFAULT_MODEL_ID),
-            "listener_role": "THE JUDGE -- a live-model result",
-            "judge_backend": kw.get("backend", "aistudio"),
-            "judge_modality": "audio-in / text-out",
-            "judge_prompt_file": str(prompt_file),
-            "judge_prompt_sha256_12": prompt_sha(kw.get("prompt_file")),
-            # Which run of the same audio this is. Estimates only: anchors are
-            # run-once and always serve their single cached answer.
-            "judge_repeat": kw.get("repeat", 0),
-            # True only in the spread study: anchors keyed by repeat, judged again.
-            "judge_repeat_anchors": bool(kw.get("repeat_run_once", False)),
-        })
+        # CLAUDE.md: every live-model result records the exact model ID, the exact prompt, the input modality and the run date.
+        results["provenance"]["listener"] = MODEL_ID
+        results["provenance"]["listener_role"] = "THE JUDGE -- a live-model result"
+        results["provenance"]["judge_backend"] = BACKEND
+        results["provenance"]["judge_modality"] = "audio-in / text-out"
+        results["provenance"]["judge_prompt_file"] = str(PROMPT_FILE)
+        results["provenance"]["judge_prompt_sha256_12"] = prompt_sha()
+        # Which repeat of the same estimates this is. The rendered clips are judged once and always serve that answer.
+        results["provenance"]["judge_repeat"] = judge_repeat
+
+    targets = []
+    interferers = []
+    for trial in trials:
+        targets.append(trial["target_text"])
+        interferers.append(trial["interferer_text"])
 
     for system in systems:
         if verbose:
             print(f"\n=== {system} ===", flush=True)
         scores = {}
-        paths = [source_of[system](t) for t in trials]
+        paths = []
+        for trial in trials:
+            paths.append(system_path(trial, system))
 
         if CONTENT in metrics:
-            from .lcf_wer import compute_lcf_wer
-            from .fabrication import compute_fr
-            from .icr import compute_icr
-            responses, gate_decisions, used_judge = _listen(
-                paths, listener, split, manifest_dir, repo_root, cache_path,
-                allow_new_transcripts, speech_gate, judge_kwargs, verbose,
-                asr_model)
-            scores["gate_blocked"] = sum(1 for d in gate_decisions if d.fired)
+            responses, gate_decisions, used_judge = listen(paths, listener, split, manifest_dir, repo_root, cache_path, allow_new_transcripts, judge_repeat, judge_requests_per_minute, verbose, asr_model)
+            gate_blocked = 0
+            for decision in gate_decisions:
+                if decision["fired"]:
+                    gate_blocked += 1
+            scores["gate_blocked"] = gate_blocked
             if used_judge is not None:
-                scores["judge_calls"] = used_judge.calls_made
-                scores["judge_cache_hits"] = used_judge.cache_hits
-                failures = getattr(used_judge, "failures", [])
-                scores["judge_failed"] = len(failures)
-                # A safety filter that fires on some systems' outputs and not
-                # others is a BIAS in the benchmark, so both counts are reported
-                # per system: persistent refusals, and refusals that passed on
-                # retry (which prove the filter is non-deterministic).
-                scores["filter_blocked"] = used_judge.filter_blocks
-                scores["filter_transient"] = used_judge.filter_transients
-                if failures:
-                    # Reported, never silently dropped. A refusal that lands on
-                    # some systems' outputs and not others is a BIAS in the
-                    # benchmark, so the count travels with the numbers.
-                    results.provenance.setdefault("judge_failures", {})[system] = [
-                        {"clip": c, "error": e[:200]} for c, e in failures]
-            targets = [t.target_text for t in trials]
-            interferers = [t.interferer_text for t in trials]
+                scores["judge_calls"] = used_judge["calls_made"]
+                scores["judge_cache_hits"] = used_judge["cache_hits"]
+                scores["judge_failed"] = len(used_judge["failures"])
+                # A safety filter that fires on some systems' outputs and not others is a bias in the benchmark, so both counts are reported for every system.
+                scores["filter_blocked"] = used_judge["filter_blocks"]
+                scores["filter_transient"] = used_judge["filter_transients"]
+                if used_judge["failures"]:
+                    failure_records = []
+                    for clip, error in used_judge["failures"]:
+                        failure_records.append({"clip": clip, "error": error[:200]})
+                    results["provenance"].setdefault("judge_failures", {})[system] = failure_records
             word = compute_lcf_wer(targets, responses)
             leak = compute_icr(responses, targets, interferers)
-            # Content invented, i.e. in neither speaker's script. The third
-            # disjoint failure mode next to recovered (WER) and leaked (ICR);
-            # insertions pool it with leakage and ICR cannot see it. Read
-            # `invented_per_trial` across systems -- the percentage divides by
-            # the response's own length and so punishes a terser listener. Read
-            # both against the CEILING row, which is not 0. See fabrication.py.
+            # Content invented, in neither speaker's script. Compare systems on invented_per_trial, and read it against the ceiling row, which is not 0.
             made_up = compute_fr(responses, targets, interferers)
-            # NRR removed 2026-09-03: it read 0.0 % on every judge row because
-            # its detector is an empty response and this judge invents instead.
-            # Its one live purpose -- alarming on a mute, which scores a CLEAN
-            # ICR because nothing came out -- is preserved by this count.
-            # metric-definitions.md 3.3, decisions-m4.md 2026-09-03.
-            no_response = (100.0 * made_up.trials_empty / made_up.trials_total
-                           if made_up.trials_total else None)
-            scores.update(lcf_wer=word.word_error_rate,
-                          substitutions=word.substitution_rate,
-                          deletions=word.deletion_rate,
-                          insertions=word.insertion_rate,
-                          icr_at_2=leak.headline,
-                          mean_leak=leak.mean_leaked_percent,
-                          fr_at_2=made_up.headline,
-                          invented_per_trial=made_up.invented_per_trial,
-                          mean_invented=made_up.mean_invented_percent,
-                          no_response=no_response)
+            # The share of empty responses, which catches a muting system that would otherwise score a clean ICR (decisions-m4.md 2026-09-03).
+            no_response = None
+            if made_up["trials_total"]:
+                no_response = 100.0 * made_up["trials_empty"] / made_up["trials_total"]
+            scores["lcf_wer"] = word["word_error_rate"]
+            scores["substitutions"] = word["substitution_rate"]
+            scores["deletions"] = word["deletion_rate"]
+            scores["insertions"] = word["insertion_rate"]
+            scores["icr_at_2"] = leak["icr_at_2"]
+            scores["mean_leak"] = leak["mean_leaked_percent"]
+            scores["fr_at_2"] = made_up["fr_at_2"]
+            scores["invented_per_trial"] = made_up["invented_per_trial"]
+            scores["mean_invented"] = made_up["mean_invented_percent"]
+            scores["no_response"] = no_response
 
         if SIGNAL in metrics:
-            import soundfile
-            from .separation import decompose
-            sdr, sir, sar = [], [], []
+            sdr = []
+            sir = []
+            sar = []
             for trial, path in zip(trials, paths):
-                target, _ = soundfile.read(trial.clean)
-                interferer, _ = soundfile.read(trial.interferer)
-                mixture, _ = soundfile.read(trial.mixture)
-                estimate, _ = soundfile.read(path)
-                n = min(len(target), len(interferer), len(mixture))
-                noise = mixture[:n] - target[:n] - interferer[:n]
-                s = decompose(estimate, target, interferer, noise)
-                sdr.append(s.signal_to_distortion_db)
-                sir.append(s.signal_to_interference_db)
-                sar.append(s.signal_to_artefact_db)
-            scores.update(sdr=sum(sdr)/len(sdr), sir=sum(sir)/len(sir),
-                          sar=sum(sar)/len(sar))
+                target, sample_rate = soundfile.read(trial["clean"])
+                interferer, sample_rate = soundfile.read(trial["interferer"])
+                mixture, sample_rate = soundfile.read(trial["mixture"])
+                estimate, sample_rate = soundfile.read(path)
+                length = min(len(target), len(interferer), len(mixture))
+                noise = mixture[:length] - target[:length] - interferer[:length]
+                separation = decompose(estimate, target, interferer, noise)
+                sdr.append(separation["signal_to_distortion_db"])
+                sir.append(separation["signal_to_interference_db"])
+                sar.append(separation["signal_to_artefact_db"])
+            scores["sdr"] = sum(sdr) / len(sdr)
+            scores["sir"] = sum(sir) / len(sir)
+            scores["sar"] = sum(sar) / len(sar)
 
         if PERCEPTUAL in metrics:
-            from .dnsmos import score_audio_file, mean_scores
             if verbose:
-                print(f"  DNSMOS on {len(paths)} clips (~{len(paths)*2.8/60:.0f} min)",
-                      flush=True)
-            mean = mean_scores([score_audio_file(p) for p in paths])
-            scores.update(p808=mean.p808_mos, sig=mean.sig,
-                          bak=mean.bak, ovrl=mean.ovrl)
+                print(f"  DNSMOS on {len(paths)} clips (~{len(paths)*2.8/60:.0f} min)", flush=True)
+            clip_scores = []
+            for path in paths:
+                clip_scores.append(score_audio_file(path))
+            mean = mean_scores(clip_scores)
+            scores["p808"] = mean["p808_mos"]
+            scores["sig"] = mean["sig"]
+            scores["bak"] = mean["bak"]
+            scores["ovrl"] = mean["ovrl"]
 
-        results.systems[system] = scores
+        results["systems"][system] = scores
         if verbose:
-            print("  " + "  ".join(
-                f"{k}={v:.2f}" for k, v in scores.items() if v is not None), flush=True)
+            # Generated by Claude Code
+            print("  " + "  ".join(f"{k}={v:.2f}" for k, v in scores.items() if v is not None), flush=True)
 
     return results

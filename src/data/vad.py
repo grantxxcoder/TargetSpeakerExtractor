@@ -1,231 +1,121 @@
-"""Voice-activity detection over the utterance corpus (B2).
+"""Finds where the speech is inside each recording (B2, decisions-m0.md 2026-08-15).
 
-Detector: Silero VAD — Silero Team (2021), "Silero VAD: pre-trained enterprise-grade
-Voice Activity Detector", https://github.com/snakers4/silero-vad. Used unmodified.
-
-WHY THIS EXISTS
----------------
-`scripts/build_manifest.py` currently treats a LibriSpeech utterance as speech from
-the first sample to the last, because the file duration is all it has. It is not: a
-read sentence carries silence before the first word, pauses between clauses, and
-silence after the last. Measured over 2,000 utterances (decisions-m0.md 2026-08-15),
-**86.0 % of a file is speech**, with a near-constant **0.331 s of leading silence**
-and 0.129 s of trailing silence.
-
-Measuring overlap from file boundaries therefore overstates it by ~25 %, and the
-error varies per trial (mean 0.071, max 0.274) rather than sitting at a constant
-offset — so it cannot be corrected with a multiplier, and it puts individual trials
-into the wrong B13 overlap bucket.
-
-This module produces the speech map. It changes no audio: mixtures still contain
-the pauses, because that is what speech sounds like. Only the measurement changes.
-
-WHAT IS AND IS NOT HERE
------------------------
-Everything below the `detect()` boundary is pure interval arithmetic with no torch
-dependency, so it is unit-tested directly. `detect()` and `load_model()` are the
-only parts that touch the model.
-
-Nothing here is wired into `scripts/build_manifest.py` yet — that is PR2, which
-rebuilds the manifests. This is PR1: build the map, verify it, change nothing.
-The same split was used for B12 (sampling.py PR1 / wire-in PR2) and worked.
-
-    from src.data import vad
-    segs = vad.detect(wav, vad.load_model(), cfg)   # [(start_s, end_s), ...]
-    vad.total_speech(segs)                          # seconds of actual speech
-    vad.shared_seconds(a, b)                        # genuine simultaneous speech
+The detector is Silero VAD, used unmodified (Silero Team, 2021, "Silero VAD: pre-trained enterprise-grade Voice Activity Detector", https://github.com/snakers4/silero-vad).
+A LibriSpeech file is only about 86 % speech, so overlap and activity are measured from the detected speech rather than from the file's start and end, which overstated overlap by about 25 %.
+The audio itself is never changed. Mixtures keep their pauses, and only the measurement uses this speech map.
 """
 
-from __future__ import annotations
+from importlib.metadata import version
 
-SEG_SEP = "|"      # between segments, matching the manifest's existing convention
-BOUND_SEP = ":"    # within a segment. NOT "-": utterance ids already use hyphens,
-                   # so "-" would make a segment string ambiguous to eyeball.
+from silero_vad import get_speech_timestamps, load_silero_vad
 
-# The four knobs, and the only ones this project varies. Defaults here are Silero's
-# own; the values actually used come from generator.yaml and must be passed in.
-VAD_KEYS = ("threshold", "min_silence_duration_ms",
-            "min_speech_duration_ms", "speech_pad_ms")
+# A segment list is written as "start:end|start:end". The colon is used inside a segment because utterance ids already contain hyphens.
+SEGMENT_SEPARATOR = "|"
+BOUND_SEPARATOR = ":"
 
-_model = None
+# The Silero model, loaded once per process and kept here.
+model_cache = {}
 
 
+# this loads the Silero model from the pip package, which pins the weights, rather than from torch.hub, which fetches whatever is on GitHub that day
 def load_model():
-    """The Silero model, loaded once per process.
-
-    From the pip package, never `torch.hub.load`: hub fetches from GitHub at call
-    time, so a rebuild months later could silently pick up different weights and
-    move every overlap number in the thesis. The pip package pins them.
-    """
-    global _model
-    if _model is None:
-        from silero_vad import load_silero_vad
-        _model = load_silero_vad()
-    return _model
+    if "silero" not in model_cache:
+        model_cache["silero"] = load_silero_vad()
+    return model_cache["silero"]
 
 
+# this gives the installed silero-vad version, which is recorded beside every cache built with it
 def model_version():
-    """Installed silero-vad version, recorded alongside every cache we write."""
-    from importlib.metadata import version
     return version("silero-vad")
 
 
+# this reads the vad block of generator.yaml, which defines what counts as speech everywhere in the project
 def vad_config(config):
-    """The validated `vad:` block from generator.yaml.
-
-    Every knob must be stated explicitly. Falling back to Silero's defaults would
-    let the definition of "overlap" change without appearing in any diff, and that
-    definition is quoted in the thesis next to every overlap figure.
-    """
-    cfg = config.get("vad")
-    if not cfg:
-        raise KeyError("generator.yaml has no `vad:` block; B2 requires one")
-    missing = [k for k in VAD_KEYS if k not in cfg]
-    if missing:
-        raise KeyError(f"vad config is missing {missing}")
-
-    out = {k: cfg[k] for k in VAD_KEYS}
-    if not 0.0 < out["threshold"] < 1.0:
-        raise ValueError(f"vad threshold must be in (0, 1), got {out['threshold']}")
-    for k in VAD_KEYS[1:]:
-        if out[k] < 0:
-            raise ValueError(f"vad {k} must be >= 0, got {out[k]}")
-
-    # A silent weights upgrade would move every overlap number without touching a
-    # tracked file. Same discipline as pinning the judge model id.
-    want = cfg.get("expected_model_version")
-    if want and want != model_version():
-        raise RuntimeError(
-            f"silero-vad is {model_version()}, config expects {want}. Every "
-            f"overlap figure depends on these weights -- either pin the install "
-            f"back, or bump expected_model_version AND rebuild the VAD index and "
-            f"the manifests, recording the change in decisions-m0.md.")
-    return out
+    """The installed weights must be the pinned version, because a silent upgrade would move every overlap figure."""
+    settings = config["vad"]
+    expected_version = settings.get("expected_model_version")
+    if expected_version and expected_version != model_version():
+        raise RuntimeError(f"silero-vad is {model_version()}, but generator.yaml expects {expected_version}. Every overlap figure depends on these weights, so pin the install back or rebuild the VAD index and the manifests.")
+    return {"threshold": settings["threshold"], "min_silence_duration_ms": settings["min_silence_duration_ms"], "min_speech_duration_ms": settings["min_speech_duration_ms"], "speech_pad_ms": settings["speech_pad_ms"]}
 
 
-def detect(wav, model, cfg, sample_rate=16000):
-    """Speech segments in one waveform, as [(start_s, end_s), ...].
-
-    Sample-accurate: Silero's `return_seconds=True` also rounds to `time_resolution`
-    decimal places, which defaults to ONE (0.1 s). Measured on 600 utterances, that
-    rounding shifts mean speech/duration by only +0.0013, but it moves individual
-    utterances by up to 0.042 -- and per-trial precision is exactly what overlap
-    bucketing needs. So we take sample indices and divide ourselves.
-    """
-    from silero_vad import get_speech_timestamps
-    ts = get_speech_timestamps(
-        wav, model,
-        sampling_rate=sample_rate,
-        threshold=cfg["threshold"],
-        min_silence_duration_ms=cfg["min_silence_duration_ms"],
-        min_speech_duration_ms=cfg["min_speech_duration_ms"],
-        speech_pad_ms=cfg["speech_pad_ms"],
-        return_seconds=False,
-    )
-    return [(s["start"] / sample_rate, s["end"] / sample_rate) for s in ts]
+# this finds the speech segments in one waveform, as a list of (start seconds, end seconds)
+def detect(waveform, model, settings, sample_rate):
+    """Silero's own seconds output rounds to 0.1 s, which moves single utterances by up to 0.042, so the sample indices are divided here instead."""
+    timestamps = get_speech_timestamps(waveform, model, sampling_rate=sample_rate, threshold=settings["threshold"], min_silence_duration_ms=settings["min_silence_duration_ms"], min_speech_duration_ms=settings["min_speech_duration_ms"], speech_pad_ms=settings["speech_pad_ms"], return_seconds=False)
+    segments = []
+    for timestamp in timestamps:
+        segments.append((timestamp["start"] / sample_rate, timestamp["end"] / sample_rate))
+    return segments
 
 
-# --- pure interval arithmetic (no torch, no audio) ------------------------
+# this writes segments as text with four decimals, which is 0.1 ms and finer than the detector can resolve
+def format_segments(segments):
+    parts = []
+    for start, end in segments:
+        parts.append(f"{start:.4f}{BOUND_SEPARATOR}{end:.4f}")
+    return SEGMENT_SEPARATOR.join(parts)
 
-def format_segments(segs):
-    """[(0.12, 1.83), ...] -> "0.1200:1.8300|...". Four decimals is 0.1 ms at
-    16 kHz, finer than any boundary the detector can resolve."""
-    return SEG_SEP.join(f"{a:.4f}{BOUND_SEP}{b:.4f}" for a, b in segs)
 
-
+# this reads segments back from text. An empty string is an utterance with no detected speech
 def parse_segments(text):
-    """Inverse of format_segments. Empty string -> [] (an utterance with no
-    detected speech, which is rare but real and must not crash a rebuild)."""
     if not text:
         return []
-    out = []
-    for part in text.split(SEG_SEP):
-        a, b = part.split(BOUND_SEP)
-        out.append((float(a), float(b)))
-    return out
+    segments = []
+    for part in text.split(SEGMENT_SEPARATOR):
+        start, end = part.split(BOUND_SEPARATOR)
+        segments.append((float(start), float(end)))
+    return segments
 
 
-def shift(segs, offset):
-    """Segments moved from utterance-local time onto the mixture timeline."""
-    return [(a + offset, b + offset) for a, b in segs]
+# this moves segments from an utterance's own time onto the mixture timeline
+def shift(segments, offset):
+    shifted = []
+    for start, end in segments:
+        shifted.append((start + offset, end + offset))
+    return shifted
 
 
+# this gives every speech span of one speaker on the mixture timeline, from each utterance's segments and its onset
 def spans_of(segment_lists, onsets):
-    """Every speech span of one speaker on the mixture timeline.
-
-    Replaces build_manifest.spans(), which returned one rectangle per utterance
-    running the full file duration. Same call shape, real intervals.
-    """
-    out = []
-    for segs, onset in zip(segment_lists, onsets):
-        out.extend(shift(segs, onset))
-    return out
+    spans = []
+    for segments, onset in zip(segment_lists, onsets):
+        spans.extend(shift(segments, onset))
+    return spans
 
 
-def merge(segs):
-    """Union of possibly-overlapping segments, sorted and disjoint.
-
-    Silero's own output is already disjoint, so nothing in B2 needed this. It is
-    needed once segments are WIDENED -- extending each one by a reverberation
-    tail makes neighbouring segments run into
-    each other, and `total_speech` would then double-count the overlap.
-    """
-    if not segs:
-        return []
-    out = [list(seg) for seg in sorted(segs)]
-    merged = [out[0]]
-    for a, b in out[1:]:
-        if a <= merged[-1][1]:              # touching counts as contiguous
-            merged[-1][1] = max(merged[-1][1], b)
-        else:
-            merged.append([a, b])
-    return [(a, b) for a, b in merged]
+# this gives the seconds of speech in a list of segments, which Silero guarantees do not overlap
+def total_speech(segments):
+    lengths = []
+    for start, end in segments:
+        lengths.append(end - start)
+    return sum(lengths)
 
 
-def total_speech(segs):
-    """Seconds of speech. Assumes segments are disjoint, which Silero guarantees."""
-    return sum(b - a for a, b in segs)
+# this gives the seconds where both speakers are talking at once
+def shared_seconds(first_spans, second_spans):
+    overlaps = []
+    for first_start, first_end in first_spans:
+        for second_start, second_end in second_spans:
+            overlaps.append(max(0.0, min(first_end, second_end) - max(first_start, second_start)))
+    return sum(overlaps)
 
 
-def shared_seconds(a, b):
-    """Seconds where both span-sets are speaking.
-
-    Identical to build_manifest.shared_seconds; PR2 makes that module import this
-    one rather than keep a second copy. Left duplicated for now only because PR1
-    must not touch build_manifest.py.
-    """
-    return sum(max(0.0, min(x2, y2) - max(x1, y1)) for x1, x2 in a for y1, y2 in b)
-
-
-def onsets_of(segment_lists, onsets, first_only=True):
-    """The moments this speaker STARTS talking, on the mixture timeline.
-
-    `first_only=True` (B13 option A, chosen 2026-08-15) takes the first speech
-    onset of each utterance: the moment they begin that turn. It is the minimal
-    correction to the existing definition, which used each utterance's FILE onset
-    -- same number of events, corrected by the ~0.331 s of leading silence.
-
-    `first_only=False` (option B) takes every speech-segment onset, so an
-    interferer resuming after their own breath pause counts as starting to talk.
-    That reading raised the measured interruption rate from 0.570 to 0.725 purely
-    by widening the definition, which is why it was not chosen.
-    """
-    out = []
-    for segs, onset in zip(segment_lists, onsets):
-        if not segs:
-            continue
-        picked = segs[:1] if first_only else segs
-        out.extend(a + onset for a, _ in picked)
-    return out
+# this gives the moment each utterance's first speech starts, on the mixture timeline
+def onsets_of(segment_lists, onsets):
+    """Only the first speech onset of each utterance counts as starting a turn (B13 option A, decisions-m0.md 2026-08-15)."""
+    turn_onsets = []
+    for segments, onset in zip(segment_lists, onsets):
+        if segments:
+            turn_onsets.append(segments[0][0] + onset)
+    return turn_onsets
 
 
+# this decides whether the interferer starts a turn while the target is mid-utterance
 def is_interrupted(target_spans, interferer_onsets):
-    """B13's interruption condition: the interferer begins a turn while the target
-    is genuinely mid-utterance.
-
-    Strictly inside, so beginning exactly as the target stops is turn-taking.
-    Unchanged in form from build_manifest.is_interrupted -- what changes is that
-    both arguments now come from detected speech rather than file boundaries.
-    decisions-m0.md 2026-08-14 (definition), 2026-08-15 (option A).
-    """
-    return any(t0 < o < t1 for o in interferer_onsets for t0, t1 in target_spans)
+    """Strictly inside a span, so starting exactly as the target stops is turn-taking (decisions-m0.md 2026-08-14)."""
+    for onset in interferer_onsets:
+        for span_start, span_end in target_spans:
+            if span_start < onset < span_end:
+                return True
+    return False

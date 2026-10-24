@@ -1,25 +1,13 @@
-"""Score every metric on one split, from the command line.
+"""Score the reported metrics on one split, from the command line. The library behind it is src/live_model_metric/evaluate.py.
 
-    # everything, all three systems
-    python scripts/evaluate.py --split sir0_val \
-        --est experiments/results/2026-09-01-est-sir0-5000
+    # the report's offline-ASR table
+    python scripts/evaluate.py --config experiments/configs/eval_offline_asr_turbo.yaml --est experiments/results/<estimates>
 
-    # quick check: content metrics only, 20 trials, nothing new transcribed
-    python scripts/evaluate.py --split sir0_val --metrics content --limit 20 --cached-only
+    # the judge, the live-model result
+    python scripts/evaluate.py --split sir0_val --metrics content --listener judge --est experiments/results/<estimates>
 
-    # just the anchors, no model needed
-    python scripts/evaluate.py --split sir0_val --systems floor,ceiling
-
-The library behind this is src/live_model_metric/evaluate.py, which the notebook
-notebooks/evaluate_metrics.ipynb calls directly. Same code either way.
-
-Timings, so nothing is a surprise: content is seconds when the transcripts are
-cached and ~3 s per clip when they are not; signal is about a minute; perceptual
-is about 2.8 s per clip per system. A full three-system run on 103 trials is
-roughly 15 minutes.
-
-It does NOT render estimates. That is scripts/make_estimates.py and takes ~25
-minutes; if the estimate directory is missing this tells you the exact command.
+Content takes seconds when the transcripts are cached and about 3 s per clip when they are not. Signal takes about a minute, and perceptual about 2.8 s per clip per system.
+It does not render estimates. That is scripts/make_estimates.py.
 """
 
 import argparse
@@ -27,142 +15,86 @@ import sys
 from datetime import date
 from pathlib import Path
 
+import yaml
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src.live_model_metric.evaluate import (ALL_LISTENERS, ALL_METRICS,  # noqa: E402
-                                            ALL_SYSTEMS, ASR, ASR_MODEL_SIZE,
-                                            JUDGE, TRANSCRIPT_CACHE, evaluate)
-from src.run_log import timed  # noqa: E402
+from src.live_model_metric.evaluate import ALL_LISTENERS, ALL_METRICS, ALL_SYSTEMS, ASR, ASR_MODEL_SIZE, TRANSCRIPT_CACHE, evaluate, results_table, save_results
+from src.run_log import timed
+
+# The keys an evaluation config may set. Each one sets the default of the flag with the same name, and a flag on the command line still wins.
+CONFIG_KEYS = {"seed", "split", "condition", "metrics", "listener", "asr_model"}
 
 
+# this splits a comma-separated flag into its parts and refuses any part not in allowed
+def comma_list(text, allowed, name):
+    parts = []
+    for part in text.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if part not in allowed:
+            raise SystemExit(f"Unknown {name} {part!r}. Known: {list(allowed)}")
+        parts.append(part)
+    return tuple(parts)
+
+
+# this is where the evaluation starts
 def main():
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--config", default=None,
-                        help="YAML whose keys are this script's flag names "
-                             "(underscored); sets their defaults, and a flag on "
-                             "the command line still wins")
-    parser.add_argument("--seed", type=int, default=42,
-                        help="recorded for provenance only: scoring draws no "
-                             "random numbers (cache lookups, greedy ASR, jiwer)")
-    parser.add_argument("--split", default="sir0_val")
-    parser.add_argument("--condition", default="both",
-                        help="'both' is the only row that has an interferer to remove; "
-                             "pass '' for every condition")
-    parser.add_argument("--est", "--estimate-directory", dest="estimate_directory",
-                        default=None, help="a scripts/make_estimates.py output directory")
+    config_parser = argparse.ArgumentParser(add_help=False)
+    config_parser.add_argument("--config", default=None)
+    known, remaining = config_parser.parse_known_args()
+    config = {}
+    if known.config:
+        config = yaml.safe_load(Path(known.config).read_text()) or {}
+        unknown = sorted(set(config) - CONFIG_KEYS)
+        if unknown:
+            raise SystemExit(f"{known.config}: unknown key(s) {unknown}")
+
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--config", default=None, help="a YAML file setting the defaults of seed, split, condition, metrics, listener and asr_model")
+    parser.add_argument("--seed", type=int, default=config.get("seed", 42), help="recorded for provenance only, because scoring draws no random numbers")
+    parser.add_argument("--split", default=config.get("split", "sir0_val"))
+    parser.add_argument("--condition", default=config.get("condition", "both"), help="'both' is the only condition with an interferer to remove")
+    parser.add_argument("--est", "--estimate-directory", dest="estimate_directory", default=None, help="a scripts/make_estimates.py output folder")
     parser.add_argument("--systems", default=",".join(ALL_SYSTEMS))
-    parser.add_argument("--metrics", default=",".join(ALL_METRICS),
-                        help="content, signal, perceptual (comma-separated)")
+    parser.add_argument("--metrics", default=config.get("metrics", ",".join(ALL_METRICS)), help="content, signal and perceptual, comma-separated")
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--data-root", default="data")
     parser.add_argument("--manifest-dir", default="data/manifests")
     parser.add_argument("--cache", default=str(TRANSCRIPT_CACHE))
-    parser.add_argument("--cached-only", action="store_true",
-                        help="refuse to run the ASR; error instead of a silent "
-                             "10-minute transcription pass")
-    parser.add_argument("--listener", default=ASR, choices=list(ALL_LISTENERS),
-                        help="asr = faster-whisper (--asr-model), the STAND-IN. "
-                             "judge = the live model, i.e. an actual LCF result. "
-                             "Anchors are cached and never re-bought (run-once "
-                             "rule); estimates are keyed by content so a new "
-                             "checkpoint is judged fresh.")
-    parser.add_argument("--asr-model", default=ASR_MODEL_SIZE,
-                        help="faster-whisper model name. Part of the instrument: "
-                             "each name has its own transcript cache entries, "
-                             "and numbers from two names are not comparable.")
-    parser.add_argument("--judge-model", default=None,
-                        help="override the judge model id")
-    parser.add_argument("--judge-prompt", default=None,
-                        help="override the judge prompt file. THE PROMPT IS PART "
-                             "OF THE INSTRUMENT: a different file has its own "
-                             "cache and cannot reuse another prompt's answers.")
+    parser.add_argument("--cached-only", action="store_true", help="refuse to run the ASR and stop with an error instead of a silent transcription pass")
+    parser.add_argument("--listener", default=config.get("listener", ASR), choices=list(ALL_LISTENERS), help="asr is faster-whisper, the stand-in. judge is the live model, an actual LCF result")
+    parser.add_argument("--asr-model", default=config.get("asr_model", ASR_MODEL_SIZE), help="the faster-whisper model. Each model has its own transcript cache entries, and two models' numbers are not comparable")
     parser.add_argument("--judge-rpm", type=int, default=10)
-    parser.add_argument("--judge-repeat", type=int, default=0,
-                        help="repeat index for estimate.wav. 0 is the scored "
-                             "run; 1, 2, ... buy fresh answers to the SAME audio "
-                             "to measure the judge's run-to-run spread. Anchors "
-                             "are run-once and ignore it (served from cache).")
-    parser.add_argument("--judge-repeat-anchors", action="store_true",
-                        help="SPREAD STUDY ONLY: also key floor/ceiling by "
-                             "--judge-repeat, so the anchors are judged again. "
-                             "Without it a repeat run serves the anchors' single "
-                             "cached answer and reports zero spread for them.")
-    parser.add_argument("--judge-max-new-calls", type=int, default=600,
-                        help="hard cap on NEW judge calls. Refuses rather than "
-                             "truncating; cached work is kept and a re-run "
-                             "resumes. sir0_val floor+ceiling+estimate is ~520.")
-    parser.add_argument("--no-gate", action="store_true",
-                        help="disable the speech gate. ONLY for characterising a "
-                             "listener's invention rate on speech-free audio "
-                             "(metric-definitions.md 3.3) -- never for scoring a "
-                             "system.")
+    parser.add_argument("--judge-repeat", type=int, default=0, help="0 is the scored run of the estimates; 1, 2 and so on buy fresh answers to measure the judge's run-to-run spread")
     parser.add_argument("--out", default=None)
-    known, _ = parser.parse_known_args()
-    if known.config:
-        import yaml
-        config = yaml.safe_load(Path(known.config).read_text()) or {}
-        flags = {action.dest for action in parser._actions}
-        unknown = sorted(set(config) - flags)
-        if unknown:
-            raise SystemExit(f"{known.config}: unknown key(s) {unknown}")
-        parser.set_defaults(**config)
     args = parser.parse_args()
 
-    systems = tuple(s.strip() for s in args.systems.split(",") if s.strip())
-    metrics = tuple(m.strip() for m in args.metrics.split(",") if m.strip())
-    unknown = [m for m in metrics if m not in ALL_METRICS]
-    if unknown:
-        raise SystemExit(f"unknown metric(s) {unknown}; known: {list(ALL_METRICS)}")
-    unknown = [s for s in systems if s not in ALL_SYSTEMS]
-    if unknown:
-        raise SystemExit(f"unknown system(s) {unknown}; known: {list(ALL_SYSTEMS)}")
+    systems = comma_list(args.systems, ALL_SYSTEMS, "system")
+    metrics = comma_list(args.metrics, ALL_METRICS, "metric")
+    results = evaluate(args.split, args.condition, args.estimate_directory, systems, metrics, args.limit, args.data_root, args.manifest_dir, args.cache, not args.cached_only, True, None, args.listener, args.judge_repeat, args.judge_rpm, args.asr_model)
+    results["provenance"]["seed"] = args.seed
+    results["provenance"]["config"] = args.config
 
-    results = evaluate(
-        split=args.split,
-        condition=args.condition,
-        estimate_directory=args.estimate_directory,
-        systems=systems,
-        metrics=metrics,
-        limit=args.limit,
-        data_root=args.data_root,
-        manifest_dir=args.manifest_dir,
-        cache_path=args.cache,
-        allow_new_transcripts=not args.cached_only,
-        listener=args.listener,
-        speech_gate=not args.no_gate,
-        asr_model=args.asr_model,
-        judge_kwargs=({k: v for k, v in {
-            "model_id": args.judge_model,
-            "prompt_file": args.judge_prompt,
-            "requests_per_minute": args.judge_rpm,
-            "max_new_calls": args.judge_max_new_calls,
-            "repeat": args.judge_repeat,
-            "repeat_run_once": True if args.judge_repeat_anchors else None,
-        }.items() if v is not None} if args.listener == JUDGE else None),
-    )
-
-    results.provenance.update(seed=args.seed, config=args.config)
-
-    print(f"\n{args.split}  condition={args.condition or 'all'}  n={results.n_trials}\n")
-    print(results.table())
+    # Generated by Claude Code
+    print(f"\n{args.split}  condition={args.condition or 'all'}  n={results['n_trials']}\n")
+    print(results_table(results))
     if args.listener == ASR:
-        print("\nThe listener is an offline ASR standing in for the judge. "
-              "NOT a live-model result.")
+        print("\nThe listener is an offline ASR standing in for the judge. NOT a live-model result.")
     else:
-        prov = results.provenance
-        print(f"\nLIVE-MODEL RESULT. judge={prov['listener']} "
-              f"({prov['judge_modality']}) via {prov['judge_backend']}, "
-              f"prompt sha256[:12]={prov['judge_prompt_sha256_12']}, "
-              f"run {prov['date']}, speech gate {prov['speech_gate']}.")
-        print("Closed models change silently: a comparison across dates is "
-              "invalid unless re-run.")
+        provenance = results["provenance"]
+        print(f"\nLIVE-MODEL RESULT. judge={provenance['listener']} ({provenance['judge_modality']}) via {provenance['judge_backend']}, prompt sha256[:12]={provenance['judge_prompt_sha256_12']}, run {provenance['date']}, speech gate {provenance['speech_gate']}.")
 
-    out = Path(args.out or
-               f"experiments/results/{date.today().isoformat()}-evaluate-{args.split}")
-    results.save(out)
+    out = Path(args.out or f"experiments/results/{date.today().isoformat()}-evaluate-{args.split}")
+    save_results(results, out, None)
     print(f"\nwritten to {out}/")
 
 
+# this gives the scope line for the run-times log: the command line as typed
+def run_scope():
+    return " ".join(sys.argv[1:])
+
+
 if __name__ == "__main__":
-    with timed("scripts/evaluate.py", lambda: " ".join(sys.argv[1:])):
+    with timed("scripts/evaluate.py", run_scope):
         main()

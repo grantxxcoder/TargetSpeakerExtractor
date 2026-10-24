@@ -1,211 +1,113 @@
-"""Validation WORD ERROR RATE, computed inside the training loop.
+"""The validation word error rate computed inside the training loop, which chose both final checkpoints and stepped their learning rate (decisions-m2.md 2026-09-23).
 
-WHY THIS EXISTS. Until 2026-09-23 nothing in training could see content. The
-scheduler, the selector and the early stop all watched signal-domain proxies,
-and item 1a proved those proxies do not rank epochs the way content does: the
-kept epoch 9 reads WORSE THAN DOING NOTHING (ASR LCF-WER 65.63 against a 65.22
-floor) while epoch 15, ranked tenth of fourteen by `present_branch`, reads 52.77.
-A run cannot be steered by a number it never computes. decisions-m2.md
-2026-09-23.
-
-WHAT IT IS. A fixed, small set of whole validation clips, extracted and then
-transcribed by the SAME listener the evaluation harness uses -- faster-whisper
-`small.en`, int8, greedy, `condition_on_previous_text=False` -- and scored with
-the SAME `count_errors` as `metric-definitions.md` 3.1. Default device is cpu,
-which makes the probe byte-identical to the reported instrument. Moving it to
-cuda is faster and is NOT the same instrument, so the device is recorded.
-Since 2026-09-28 the REPORT's tables use large-v3-turbo instead, so this probe
-is no longer the reported instrument, only its default (decisions-m3.md).
-
-WHAT IT IS NOT.
-
-- **Not a loss.** Nothing here is differentiable and nothing backpropagates. It
-  is a number the scheduler and the selector read, exactly as they read
-  `val_L_pres` today.
-- **Not the judge.** The judge cannot go in a training loop: rate limits, cost,
-  and a measured test-retest band of +-4.16 points at k=1 on an n=103 aggregate
-  (`2026-09-22-judge-retest`), which is wider than most epoch-to-epoch moves.
-  The offline ASR correlates r = 0.825 per trial with the judge
-  (`2026-09-15-judge-predictability`), which is enough to RANK epochs and not
-  enough to calibrate them.
-- **Not the reported number.** It runs on a subset, so quote it as a training
-  diagnostic and re-score the chosen checkpoint through `scripts/evaluate.py`.
-
-WER IS NOT SMOOTH, AND THAT IS MEASURED, NOT FEARED. The 2026-09-01 mix-back
-sweep moved the signal monotonically across five settings while LCF-WER went
-65.2, 63.4, 69.6, 67.2, 59.1 -- non-monotonic over a provably linear change,
-because a transcriber's behaviour is not a smooth function of audio quality.
-A scheduler stepping on a jumpy number cuts the learning rate on noise, so this
-module also exposes an exponential moving average and `trend()`. Step the
-scheduler on the SMOOTHED value; read the raw one.
+A fixed set of whole validation clips is extracted and transcribed by the offline ASR (faster-whisper small.en, int8, greedy, on the CPU), then scored with the same count_errors as the reported metric.
+It is not a loss, nothing backpropagates through it, and it runs on a subset, so it is a training diagnostic, not the reported number.
+Word error rate jumps around from epoch to epoch, so the scheduler steps on an exponential moving average of it rather than on the raw value.
 """
 
-import math
+import json
 
 import numpy as np
 import soundfile as sf
+from faster_whisper import WhisperModel
 
 from src.estimates.runner import read_trials
 from src.live_model_metric.lcf_wer import count_errors
 
-# Identical to src/live_model_metric/evaluate.py. Changing either without the
-# other silently makes the training signal and the reported score two different
-# instruments.
+# The same listener as evaluate.py's default. Changing one without the other would make the training signal and the reported score two different instruments.
 ASR_MODEL_SIZE = "small.en"
-ASR_DECODE = dict(language="en", beam_size=1, temperature=0.0,
-                  condition_on_previous_text=False)
+SAMPLE_RATE = 16000
 
 
-def _read_mono(path):
-    audio, _ = sf.read(str(path), dtype="float32", always_2d=False)
-    return audio.mean(axis=1) if audio.ndim > 1 else audio
+# this reads a wav file as one mono channel
+def read_mono(path):
+    audio, sample_rate = sf.read(str(path), dtype="float32", always_2d=False)
+    if audio.ndim > 1:
+        return audio.mean(axis=1)
+    return audio
 
 
-def load_probe_trials(manifest_csv, audio_root, limit=40, condition="both"):
-    """A fixed subset of whole clips that have something to transcribe.
-
-    Manifest order, not a random sample: the probe must score the SAME clips at
-    every epoch of every run, or the curve measures which trials were drawn.
-    Trials whose target never speaks are dropped -- the rate is 0/0 there, not
-    perfect (B4, decisions-m0.md 2026-08-13).
-    """
-    trials = read_trials(manifest_csv, audio_root, limit=None, condition=condition)
+# this picks the first limit "both" trials in manifest order that have a mixture, an enrolment and a non-empty target script
+def load_probe_trials(manifest_csv, audio_root, limit):
+    """The same clips at every epoch of every run, or the curve would measure which trials were drawn. Trials whose target never speaks are skipped, because their rate is 0/0 (decisions-m0.md 2026-08-13)."""
     kept = []
-    for trial in trials:
-        meta_path = trial.directory / "meta.json"
-        mixture = trial.directory / "mixture.wav"
-        enrolment = trial.directory / "enrollment.wav"
+    for trial in read_trials(manifest_csv, audio_root, None, "both"):
+        meta_path = trial["directory"] / "meta.json"
+        mixture = trial["directory"] / "mixture.wav"
+        enrolment = trial["directory"] / "enrollment.wav"
         if not (meta_path.exists() and mixture.exists() and enrolment.exists()):
             continue
-        import json
         text = json.loads(meta_path.read_text()).get("target_text", "")
         if not str(text).strip():
             continue
-        kept.append((trial.trial_id, mixture, enrolment, str(text)))
-        if limit is not None and len(kept) >= limit:
+        kept.append((trial["trial_id"], mixture, enrolment, str(text)))
+        if len(kept) >= limit:
             break
     return kept
 
 
-class ContentProbe:
-    """Scores an extractor on content. `extract` is runner.py's Extractor
-    contract: (mixture_1d, enrolment_1d, sample_rate) -> estimate_1d."""
+# this makes a probe over the given trials. ema_span sets how many epochs the moving average smooths over
+def make_content_probe(trials, ema_span):
+    if not trials:
+        raise ValueError("The content probe got no trials.")
+    return {
+        "trials": trials,
+        "ema_span": max(1, int(ema_span)),
+        "asr": None,
+        "history": [],     # the raw word error rate of every scored epoch
+        "smoothed": [],    # its moving average, which the scheduler and the checkpoint choice read
+    }
 
-    def __init__(self, trials, sample_rate=16000, model_size=ASR_MODEL_SIZE,
-                 device="cpu", compute_type="int8", ema_span=3,
-                 transcriber=None):
-        if not trials:
-            raise ValueError("content probe got no trials")
-        self.trials = trials
-        self.sample_rate = sample_rate
-        self.model_size = model_size
-        self.device = device
-        self.compute_type = compute_type
-        self.ema_span = max(1, int(ema_span))
-        self._asr = None
-        self._transcriber = transcriber      # injected in tests
-        self.history = []                    # raw WER per scored epoch
-        self.smoothed = []
 
-    def describe(self):
-        return (f"faster-whisper {self.model_size} {self.compute_type} "
-                f"{self.device} greedy, {len(self.trials)} clips")
+# this transcribes one clip with the probe's ASR, loading the model on first use
+def probe_transcribe(probe, audio):
+    if probe["asr"] is None:
+        probe["asr"] = WhisperModel(ASR_MODEL_SIZE, device="cpu", compute_type="int8")
+    # English, greedy, and each clip on its own, exactly as evaluate.transcribe decodes.
+    segments, info = probe["asr"].transcribe(np.asarray(audio, dtype="float32"), language="en", beam_size=1, temperature=0.0, condition_on_previous_text=False)
+    texts = []
+    for segment in segments:
+        texts.append(segment.text.strip())
+    return " ".join(texts).strip()
 
-    def _transcribe(self, audio):
-        if self._transcriber is not None:
-            return self._transcriber(audio)
-        if self._asr is None:
-            from faster_whisper import WhisperModel
-            self._asr = WhisperModel(self.model_size, device=self.device,
-                                     compute_type=self.compute_type)
-        segments, _ = self._asr.transcribe(np.asarray(audio, dtype="float32"),
-                                           **ASR_DECODE)
-        return " ".join(s.text.strip() for s in segments).strip()
 
-    def score(self, extract):
-        """Corpus LCF-WER over the probe set. Lower is better.
+# this scores an extractor on the probe's clips and returns the corpus word error rate, lower is better. extract takes (mixture, enrolment, sample rate) and returns the estimate
+def probe_score(probe, extract):
+    """A corpus rate, the total errors over the total reference words, the same form compute_lcf_wer reports."""
+    errors = 0
+    reference_words = 0
+    for trial_id, mixture_path, enrolment_path, text in probe["trials"]:
+        estimate = extract(read_mono(mixture_path), read_mono(enrolment_path), SAMPLE_RATE)
+        counts = count_errors(text, probe_transcribe(probe, estimate))
+        if counts["reference_word_count"] == 0:
+            continue
+        errors += counts["substitutions"] + counts["deletions"] + counts["insertions"]
+        reference_words += counts["reference_word_count"]
+    if reference_words == 0:
+        return float("nan")
+    wer = 100.0 * errors / reference_words
+    probe["history"].append(wer)
+    probe["smoothed"].append(ema(probe["history"], probe["ema_span"]))
+    return wer
 
-        CORPUS rate -- total errors over total reference words -- matching
-        compute_lcf_wer, not a mean of per-trial rates. The two differ whenever
-        utterance lengths differ, and the harness reports the corpus form.
-        """
-        errors = reference_words = 0
-        for _trial_id, mixture_path, enrolment_path, text in self.trials:
-            mixture = _read_mono(mixture_path)
-            enrolment = _read_mono(enrolment_path)
-            estimate = extract(mixture, enrolment, self.sample_rate)
-            counts = count_errors(text, self._transcribe(estimate))
-            if counts.reference_word_count == 0:
-                continue
-            errors += counts.substitutions + counts.deletions + counts.insertions
-            reference_words += counts.reference_word_count
-        if reference_words == 0:
-            return float("nan")
-        wer = 100.0 * errors / reference_words
-        self.history.append(wer)
-        self.smoothed.append(self._ema())
-        return wer
 
-    def warm_start(self, history):
-        """Adopt an earlier run's per-epoch WERs, for a resume.
+# this rebuilds the probe's history from an earlier run when training resumes, so the moving average carries on rather than restarting
+def probe_warm_start(probe, history):
+    """Epochs where the probe did not run are stored as NaN and are dropped."""
+    probe["history"] = []
+    for value in history:
+        if value == value:
+            probe["history"].append(float(value))
+    probe["smoothed"] = []
+    for index in range(1, len(probe["history"]) + 1):
+        probe["smoothed"].append(ema(probe["history"][:index], probe["ema_span"]))
+    return probe
 
-        A 12 h Kaggle session caps a 2,575 s/epoch run at ~16 epochs, so going
-        further means resuming -- and the EMA the scheduler reads is a function
-        of every epoch so far. Restarting it at the session boundary hands
-        ReduceLROnPlateau a step change that is an artefact of where the session
-        ended, not of the model. NaNs are dropped: epochs where the probe did
-        not run carry no information about the level.
-        """
-        self.history = [float(v) for v in history if v == v]
-        self.smoothed = []
-        for index in range(1, len(self.history) + 1):
-            kept, self.history = self.history, self.history[:index]
-            self.smoothed.append(self._ema())
-            self.history = kept
-        return self
 
-    def _ema(self):
-        alpha = 2.0 / (self.ema_span + 1.0)
-        value = self.history[0]
-        for point in self.history[1:]:
-            value = alpha * point + (1 - alpha) * value
-        return value
-
-    def trend(self, window=4):
-        """Is the run still improving? Least-squares slope of the last `window`
-        SMOOTHED points, in WER points per scored epoch.
-
-        Negative means still getting better, so there is headroom and the run is
-        worth continuing. This is the question item 1a could not answer: its
-        content was still improving at the last epoch, and nothing in the loop
-        was watching.
-        """
-        points = self.smoothed[-window:]
-        if len(points) < 2:
-            return float("nan")
-        n = len(points)
-        xs = list(range(n))
-        mean_x = sum(xs) / n
-        mean_y = sum(points) / n
-        denominator = sum((x - mean_x) ** 2 for x in xs)
-        if denominator == 0:
-            return float("nan")
-        return sum((x - mean_x) * (y - mean_y)
-                   for x, y in zip(xs, points)) / denominator
-
-    def verdict(self, window=4, flat=0.25):
-        """One line for the epoch report. `flat` is the slope below which the
-        curve is called level, in WER points per epoch."""
-        slope = self.trend(window)
-        if math.isnan(slope):
-            return "content: too few points to read a trend"
-        best = min(self.history)
-        latest = self.history[-1]
-        if slope < -flat:
-            state = "STILL IMPROVING -- headroom, keep training"
-        elif slope > flat:
-            state = "GETTING WORSE -- past the useful epochs"
-        else:
-            state = "FLAT -- no headroom visible"
-        return (f"content: WER {latest:.2f} (best {best:.2f}, "
-                f"slope {slope:+.2f}/epoch) {state}")
+# this is the exponential moving average of a history, read at its last point, with alpha = 2 / (span + 1)
+def ema(history, span):
+    alpha = 2.0 / (span + 1.0)
+    value = history[0]
+    for point in history[1:]:
+        value = alpha * point + (1 - alpha) * value
+    return value

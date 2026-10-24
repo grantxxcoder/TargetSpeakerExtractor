@@ -1,152 +1,54 @@
-"""Parameter sampling for the mixture generator: the two regimes and the
-distribution shapes decided in B12.
+"""Draws the mixture parameters for one trial, with the two difficulty regimes of B12 (decisions-m0.md 2026-08-13).
 
-Implements docs/decisions/decisions-m0.md, "2026-08-13 — B12 architecture: two
-regimes, a sampler layer, no relational constraints". Band values live in
-docs/data/difficulty-dial.md §2.
-
-Nothing here is wired into scripts/build_manifest.py yet — that is PR2, which
-must reproduce the current manifest byte-identically. This module is tested on
-its own because every number in every later experiment comes out of it.
-
-    regime = draw_regime(rng, cfg)      # once per trial
-    params = resolve(cfg, regime)       # that trial's parameter bands
-    sir    = draw(rng, params["sir_db"])
-
-Spec forms accepted by draw():
-
-    3.0                                  fixed, consumes no randomness
-    [lo, hi]                             uniform  (the existing config syntax)
-    {dist: fixed,    value: x}
-    {dist: uniform,  lo: a, hi: b}
-    {dist: truncnorm, lo: a, hi: b, mu: m, sigma: s}
+A parameter is either a fixed number or a [low, high] range drawn uniformly. One regime is drawn per trial, and a regime only narrows some of the default ranges.
 """
 
-from __future__ import annotations
 
-from scipy.stats import norm
-
-# The six parameters a regime may narrow. Everything else is global: either a
-# deliberate worst case or an experimental variable B13 stratifies on
-# independently, so it must not move with difficulty.
-REGIME_SCOPED = (
-    "sir_db", "snr_db", "overlap_ratio",
-    "t60_s", "source_distance_m", "target_activity_ratio",
-)
-
-
+# this draws one value. A fixed number uses no randomness, and a range uses exactly one uniform draw
 def draw(rng, spec):
-    """One value from a parameter spec. Consumes at most one uniform."""
-    if isinstance(spec, (int, float)):
-        return float(spec)
-
     if isinstance(spec, list):
-        if len(spec) != 2:
-            raise ValueError(f"list spec must be [lo, hi], got {spec!r}")
-        return float(rng.uniform(*spec))
-
-    if not isinstance(spec, dict):
-        raise TypeError(f"unsupported spec {spec!r}")
-
-    dist = spec.get("dist")
-    if dist == "fixed":
-        return float(spec["value"])
-    if dist == "uniform":
-        return float(rng.uniform(spec["lo"], spec["hi"]))
-    if dist == "truncnorm":
-        return _truncnorm(rng, spec["lo"], spec["hi"], spec["mu"], spec["sigma"])
-    raise ValueError(f"unknown dist {dist!r} in {spec!r}")
+        return float(rng.uniform(spec[0], spec[1]))
+    return float(spec)
 
 
-def _truncnorm(rng, lo, hi, mu, sigma):
-    """Truncated normal by inverse CDF over a single rng.uniform draw.
-
-    Deliberately not scipy.stats.truncnorm.rvs(random_state=rng): rvs uses
-    rejection sampling, so the number of uniforms consumed per sample can
-    change with a scipy version. That would silently change what `seed: 42`
-    means and make the logged seed worthless. This consumes exactly one.
-    """
-    if not lo < hi:
-        raise ValueError(f"truncnorm needs lo < hi, got [{lo}, {hi}]")
-    if sigma <= 0:
-        raise ValueError(f"truncnorm needs sigma > 0, got {sigma}")
-    a, b = norm.cdf((lo - mu) / sigma), norm.cdf((hi - mu) / sigma)
-    if b - a <= 0:
-        raise ValueError(f"truncnorm window [{lo}, {hi}] has no mass under "
-                         f"mu={mu}, sigma={sigma}")
-    x = mu + sigma * norm.ppf(a + rng.uniform() * (b - a))
-    return float(min(max(x, lo), hi))  # ppf can overshoot by a float epsilon
-
-
-def draw_regime(rng, cfg):
-    """The trial's regime, drawn once. None when cfg declares no regimes.
-
-    One regime per trial, not one per parameter: with six parameters chosen
-    independently the all-base case would occur in ~1.6 % of trials, so the
-    base condition would barely exist. Drawn once it is exactly its weight.
-    """
-    regimes = cfg.get("regimes")
+# this draws the trial's regime once, or returns None for a split without regimes
+def draw_regime(rng, regimes):
+    """The names are sorted so the draw does not depend on the order of the YAML file."""
     if not regimes:
         return None
     weights = regimes["weights"]
-    names = sorted(weights)  # sorted, so the draw does not depend on YAML order
-    total = sum(float(weights[n]) for n in names)
-    if total <= 0:
-        raise ValueError(f"regime weights must sum to > 0, got {weights!r}")
-    u = rng.uniform() * total
-    acc = 0.0
+    names = sorted(weights)
+    weight_values = []
     for name in names:
-        acc += float(weights[name])
-        if u < acc:
+        weight_values.append(float(weights[name]))
+    draw_point = rng.uniform() * sum(weight_values)
+    cumulative = 0.0
+    for name in names:
+        cumulative += float(weights[name])
+        if draw_point < cumulative:
             return name
-    return names[-1]  # float rounding only
+    # Only float rounding can reach this line.
+    return names[-1]
 
 
+# this merges a split's own settings over the defaults, and keeps its regimes block apart so it is never mistaken for a parameter
 def split_config(config, split):
-    """(sampling config, flat cfg) for one split of the generator config.
-
-    A split inherits the top-level `regimes:` block unless it declares its own;
-    `regimes: null` opts out, which is how the eval splits draw every parameter
-    independently from the wide ranges (decisions-m0.md 2026-08-13). `regimes` is
-    popped rather than merged, so it can never be mistaken for a parameter.
-    """
-    split_cfg = dict(config["splits"][split])
-    regimes = split_cfg.pop("regimes", config.get("regimes"))
-    cfg = {**config["defaults"], **split_cfg}
-
-    # B9 replaced `target_absent_fraction` with a four-way composition. It is
-    # derived here rather than configured, so the two can never disagree: a
-    # config carrying both would let the stated absent rate drift away from the
-    # rate actually drawn, and nothing would report the difference.
-    comp = cfg.get("composition")
-    if comp:
-        cfg["target_absent_fraction"] = (float(comp["interferer_only"])
-                                         + float(comp["noise_only"]))
-    return {"defaults": cfg, "regimes": regimes}, cfg
+    """The eval splits set regimes to null, so every parameter is drawn from the wide default ranges."""
+    settings = dict(config["defaults"])
+    regimes = None
+    for key, value in config["splits"][split].items():
+        if key == "regimes":
+            regimes = value
+        else:
+            settings[key] = value
+    return settings, regimes
 
 
-def resolve(cfg, regime):
-    """The parameter bands for one trial: defaults, overlaid by the regime.
-
-    `hard` inherits defaults wholesale and so needs no override block; `base`
-    is therefore a sub-range of `hard`, which is why the recorded `regime`
-    column is provenance and not difficulty, and must not be a B13 reporting
-    stratum. A regime may only narrow the six REGIME_SCOPED parameters.
-    """
-    params = dict(cfg["defaults"])
-    if regime is None:
-        return params
-
-    regimes = cfg.get("regimes") or {}
-    if regime not in regimes.get("weights", {}):
-        raise KeyError(f"unknown regime {regime!r}")
-
-    for key, spec in (regimes.get(regime) or {}).items():
-        if key not in REGIME_SCOPED:
-            raise KeyError(f"regime {regime!r} overrides {key!r}, which is "
-                           f"global; only {list(REGIME_SCOPED)} are scoped")
-        if key not in params:
-            raise KeyError(f"regime {regime!r} overrides {key!r}, absent from "
-                           f"defaults")
-        params[key] = spec
+# this gives the parameter ranges for one trial: the split's settings, narrowed by the regime
+def resolve(settings, regimes, regime):
+    """The hard regime has no block of its own, so it keeps the full ranges."""
+    params = dict(settings)
+    if regime is not None and regime in regimes:
+        for key, spec in regimes[regime].items():
+            params[key] = spec
     return params

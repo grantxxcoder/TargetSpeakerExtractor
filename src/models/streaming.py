@@ -1,177 +1,159 @@
-"""Stateful chunk-by-chunk inference for the causal BSRNN_TFMAP family.
+"""Running the extractor chunk by chunk, for the live demo.
 
-`BSRNN_TFMAP.forward()` takes a whole clip. Every stage inside it works on one
-STFT frame at a time EXCEPT the time-axis LSTM in each separator block, so a
-stream has to carry exactly three things from one chunk to the next:
+extract() takes a whole clip. Every stage inside it works one STFT frame at a time except the time-axis LSTMs, so a stream only has to carry three things from one chunk to the next:
+the last window-minus-hop input samples, each separator block's LSTM state, and the tail of the overlap-add that is not final yet.
+With those carried, the streamed output equals the whole-clip output up to float rounding, so the demo runs exactly the model that was evaluated.
 
-    1. the last n_fft - hop input samples   (the STFT's left context)
-    2. each block's time-LSTM (h, c)        (the model's only memory)
-    3. the overlap-add tail of the iSTFT    (samples not yet final)
+The stream's state is a plain dictionary, made by stream_start and updated in place by stream_push and stream_flush.
+Streaming STFT and weighted overlap-add follow Allen & Rabiner, Proc. IEEE 1977.
 
-With those carried, streamed output equals whole-clip output up to float
-rounding (tests/test_streaming.py). That is the property a live demo needs: it
-runs the model that was evaluated, not an approximation of it. Independent
-chunks are NOT equivalent -- the seams were measured 2026-08-24.
-
-The enrolment's spectrogram and speaker embedding are computed once, before
-the first chunk, as a deployed system would.
-
-Streaming STFT / weighted overlap-add: Allen & Rabiner, Proc. IEEE 1977.
-The model itself: Luo & Yu, TASLP 2023; Yu et al., Interspeech 2023 (bsrnn.py).
+Claude Code used to generate this file (Hard).
 """
 
 import torch
 
+from src.models.bsrnn import fuse_context
+from src.models.conditioning import tfmap
+from src.models.modules import channel_norm_forward, estimator_forward, res_rnn_forward, split_bands, subband_norm_forward
+from src.models.stft import stft_forward
 
-def _bsnet_step(block, x, state):
-    """BSNet.forward with the time-LSTM's state passed in and returned.
 
-    Mirrors modules.BSNet / ResRNN line for line; only `rnn(h)` becomes
-    `rnn(h, state)`. The band LSTM runs within a frame, so it has no state.
+# this runs one band-and-sequence block on new frames, carrying the time LSTM's state in and out
+def bsnet_step(block, features, state):
+    """The same as modules.bsnet_forward, except the time LSTM starts from state and returns its new state. The band LSTM works within a frame, so it needs no state."""
+    batch_size, num_bands, feature_dim, num_frames = features.shape
+    time_rnn = block.time_rnn
+    time_input = features.reshape(batch_size * num_bands, feature_dim, num_frames)
+    hidden, state = time_rnn.rnn(channel_norm_forward(time_rnn.norm, time_input).transpose(1, 2), state)
+    time_output = (time_input + time_rnn.proj(hidden).transpose(1, 2)).reshape(batch_size, num_bands, feature_dim, num_frames)
+    band_input = time_output.permute(0, 3, 2, 1).reshape(batch_size * num_frames, feature_dim, num_bands)
+    band_output = res_rnn_forward(block.band_rnn, band_input)
+    return band_output.reshape(batch_size, num_frames, feature_dim, num_bands).permute(0, 3, 2, 1), state
+
+
+# this starts a chunk-by-chunk STFT that frames the audio exactly as stft_forward frames a whole clip
+def causal_stft_start(stft):
+    """The extractor uses it for its input, and the demo uses it to draw the spectrogram of the audio actually played out."""
+    device = stft.window.device
+    return {"n_fft": stft.n_fft, "hop": stft.hop_length, "padding": stft.padding, "window": stft.window, "left_context": torch.zeros(stft.padding, device=device), "pending_samples": torch.zeros(0, device=device)}
+
+
+# this adds new audio and returns the frames that are now complete, shaped (1, frequency, new frames)
+@torch.no_grad()
+def causal_stft_push(analysis, samples):
+    window = analysis["window"]
+    hop = analysis["hop"]
+    new_samples = torch.as_tensor(samples, dtype=torch.float32, device=window.device).reshape(-1)
+    buffer = torch.cat([analysis["pending_samples"], new_samples])
+    num_frames = buffer.numel() // hop
+    analysis["pending_samples"] = buffer[num_frames * hop:]
+    if num_frames == 0:
+        return torch.zeros(1, analysis["n_fft"] // 2 + 1, 0, dtype=torch.complex64, device=window.device)
+    # The left context from the previous chunk plus the complete hops makes exactly num_frames full frames.
+    segment = torch.cat([analysis["left_context"], buffer[:num_frames * hop]])
+    analysis["left_context"] = segment[-analysis["padding"]:]
+    return torch.stft(segment[None], analysis["n_fft"], hop, analysis["n_fft"], window, center=False, return_complex=True)
+
+
+# this starts a stream for one enrolled speaker. enrol_embedding is None for the baseline
+def stream_start(model, enrollment, enrol_embedding):
+    """Push audio in chunks of any size with stream_push, then call stream_flush for the rest.
+
+    The output lags the input by one window minus one hop (24 ms at 512/128), plus whatever part of a hop is still waiting.
+    The enrolment's spectrogram is computed once, here, as a deployed system would.
     """
-    B, K, N, T = x.shape
-    rnn = block.time_rnn
-    y = x.reshape(B * K, N, T)
-    h, state = rnn.rnn(rnn.norm(y).transpose(1, 2), state)
-    y = (y + rnn.proj(h).transpose(1, 2)).reshape(B, K, N, T)
-    z = block.band_rnn(y.permute(0, 3, 2, 1).reshape(B * T, N, K))
-    return z.reshape(B, T, N, K).permute(0, 3, 2, 1), state
+    if model.training:
+        raise ValueError("Call model.eval() before streaming.")
+    stft = model.stft
+    device = stft.window.device
+    enrollment = torch.as_tensor(enrollment, dtype=torch.float32, device=device).reshape(1, -1)
+    with torch.no_grad():
+        enrollment_magnitude = stft_forward(stft, enrollment).abs()
+    return {
+        "model": model,
+        "n_fft": stft.n_fft,
+        "hop": stft.hop_length,
+        "padding": stft.padding,
+        "window": stft.window,
+        "device": device,
+        "enrollment_magnitude": enrollment_magnitude,
+        "enrol_embedding": enrol_embedding,
+        "analysis": causal_stft_start(stft),
+        "lstm_states": [None] * len(model.separator.blocks),
+        # The overlap-add tail and its window envelope, still waiting for later frames.
+        "overlap_tail": torch.zeros(stft.n_fft - stft.hop_length, device=device),
+        "envelope_tail": torch.zeros(stft.n_fft - stft.hop_length, device=device),
+        # The left padding still to be dropped from the front of the output.
+        "samples_to_drop": stft.padding,
+        "samples_in": 0,
+        "samples_out": 0,
+    }
 
 
-class CausalSTFT:
-    """STFT.forward, one chunk at a time: frames come out exactly as the
-    whole-clip transform frames them (left pad n_fft - hop, center=False).
-
-    Used for the extractor's input and, in the demo, to draw the spectrogram
-    of the audio actually emitted -- not the model's pre-iSTFT estimate, which
-    carries energy the overlap-add cancels.
-    """
-
-    def __init__(self, stft):
-        self.n_fft, self.hop, self.pad = stft.n_fft, stft.hop_length, stft.padding
-        self.window = stft.window
-        self._left = torch.zeros(self.pad, device=self.window.device)
-        self._pending = torch.zeros(0, device=self.window.device)
-
-    @torch.no_grad()
-    def push(self, samples):
-        """1-D audio -> (1, F, m) complex, m = the frames now complete."""
-        x = torch.as_tensor(samples, dtype=torch.float32,
-                            device=self.window.device).reshape(-1)
-        buf = torch.cat([self._pending, x])
-        m = buf.numel() // self.hop
-        self._pending = buf[m * self.hop:]
-        if m == 0:
-            return torch.zeros(1, self.n_fft // 2 + 1, 0, dtype=torch.complex64,
-                               device=self.window.device)
-        seg = torch.cat([self._left, buf[:m * self.hop]])   # (m-1)*hop + n_fft
-        self._left = seg[-self.pad:]
-        return torch.stft(seg[None], self.n_fft, self.hop, self.n_fft, self.window,
-                          center=False, return_complex=True)
+# this adds new audio and returns the output samples that are now final, plus the mixture spectrogram of the new frames for the demo to draw
+@torch.no_grad()
+def stream_push(stream, samples):
+    new_samples = torch.as_tensor(samples, dtype=torch.float32, device=stream["device"]).reshape(-1)
+    stream["samples_in"] += new_samples.numel()
+    mixture_frames = causal_stft_push(stream["analysis"], new_samples)
+    num_frames = mixture_frames.shape[-1]
+    if num_frames == 0:
+        empty = mixture_frames[0].abs().cpu().numpy()
+        return {"audio": empty[0, :0], "mix_mag": empty}
+    estimate_frames = stream_frames(stream, mixture_frames)
+    audio = stream_overlap_add(stream, estimate_frames, num_frames)
+    return {"audio": audio.cpu().numpy(), "mix_mag": mixture_frames[0].abs().cpu().numpy()}
 
 
-class StreamingExtractor:
-    """Push audio in any chunk size; get back every output sample now final.
+# this pads the end with zeros to the frame count the whole-clip STFT uses and returns the last output, so the stream emits exactly as many samples as went in
+@torch.no_grad()
+def stream_flush(stream):
+    samples_in = stream["samples_in"]
+    samples_out_before = stream["samples_out"]
+    # The same frame count as stft_frame_count, written as a ceiling division.
+    num_frames = -(-(samples_in + stream["padding"]) // stream["hop"])
+    output = stream_push(stream, torch.zeros(num_frames * stream["hop"] - samples_in, device=stream["device"]))
+    output["audio"] = output["audio"][:samples_in - samples_out_before]
+    stream["samples_in"] = samples_in
+    stream["samples_out"] = samples_in
+    return output
 
-        stream = StreamingExtractor(model, enrollment, enrol_embedding)
-        for chunk in mic:
-            out = stream.push(chunk)      # dict: audio, mix_mag, est_mag
-        tail = stream.flush()
 
-    Output lags input by n_fft - hop samples (24 ms at 512/128) plus whatever
-    part of a hop is still pending: sample s is final only once every frame
-    overlapping it has been computed.
-    """
+# this runs the model from the STFT frames to the estimated frames, the same steps as extract(), for the new frames only
+def stream_frames(stream, mixture_frames):
+    model = stream["model"]
+    cue = tfmap(mixture_frames.abs(), stream["enrollment_magnitude"], model.tfmap_scale, model.tfmap_parts, model.tfmap_part_scales)
+    network_input = torch.cat([torch.stack([mixture_frames.real, mixture_frames.imag], dim=1), cue], dim=1)
+    mixture_bands = split_bands(mixture_frames, model.band_widths)
+    input_bands = split_bands(network_input, model.band_widths)
+    features = fuse_context(model, subband_norm_forward(model.subband_norm, input_bands), stream["enrol_embedding"])
+    for block_index, block in enumerate(model.separator.blocks):
+        features, stream["lstm_states"][block_index] = bsnet_step(block, features, stream["lstm_states"][block_index])
+    return estimator_forward(model.estimator, features, mixture_bands)
 
-    def __init__(self, model, enrollment, enrol_embedding=None):
-        if model.training:
-            raise ValueError("call model.eval() first")
-        self.model = model
-        stft = model.stft
-        self.n_fft, self.hop, self.pad = stft.n_fft, stft.hop_length, stft.padding
-        self.window = stft.window
-        self.device = stft.window.device
-        enrollment = torch.as_tensor(enrollment, dtype=torch.float32,
-                                     device=self.device).reshape(1, -1)
-        with torch.no_grad():
-            self.enrol_mag = stft(enrollment).abs()       # (1, F, Te), once
-        self.context = enrol_embedding
-        self.reset()
 
-    def reset(self):
-        z = lambda n: torch.zeros(n, device=self.device)  # noqa: E731
-        self._analysis = CausalSTFT(self.model.stft)
-        self._states = [None] * len(self.model.separator.blocks)
-        self._ola = z(self.n_fft - self.hop)   # tail, padded coordinates
-        self._env = z(self.n_fft - self.hop)
-        self._skip = self.pad            # padded -> original offset still to drop
-        self.n_in = 0
-        self.n_out = 0
-
-    @torch.no_grad()
-    def push(self, samples):
-        """1-D float audio in -> dict of numpy arrays out.
-
-        audio    newly final output samples (may be empty)
-        mix_mag  (F, m) |X| of the m frames this call computed
-        est_mag  (F, m) |S|, the model's pre-iSTFT estimate for the same frames
-        """
-        x = torch.as_tensor(samples, dtype=torch.float32, device=self.device).reshape(-1)
-        self.n_in += x.numel()
-        X = self._analysis.push(x)                            # (1, F, m)
-        m = X.shape[-1]
-        if m == 0:
-            empty = X[0].abs().cpu().numpy()
-            return {"audio": empty[0, :0], "mix_mag": empty, "est_mag": empty}
-        S = self._frames(X)
-        audio = self._overlap_add(S, m)
-        return {"audio": audio.cpu().numpy(),
-                "mix_mag": X[0].abs().cpu().numpy(),
-                "est_mag": S[0].abs().cpu().numpy()}
-
-    @torch.no_grad()
-    def flush(self):
-        """Zero-pad to the frame count the offline STFT uses, emit the rest.
-
-        After flush the total emitted equals the total pushed, sample for
-        sample, which is what makes streamed and whole-clip output comparable.
-        """
-        n_real, before = self.n_in, self.n_out
-        n_frames = -(-(n_real + self.pad) // self.hop)         # ceil, = STFT._n_frames
-        out = self.push(torch.zeros(n_frames * self.hop - n_real, device=self.device))
-        out["audio"] = out["audio"][:n_real - before]
-        self.n_in = self.n_out = n_real
-        return out
-
-    def _frames(self, X):
-        """forward() from the STFT to the estimate, for m frames at once."""
-        m = self.model
-        tf = m.tfmap(X.abs(), self.enrol_mag)
-        feats_in = torch.cat([torch.stack([X.real, X.imag], dim=1), tf], dim=1)
-        mix_bands, feat_bands = m.split(X), m.split(feats_in)
-        z = m._fuse_context(m.subband_norm(feat_bands), self.context)
-        for i, block in enumerate(m.separator.blocks):
-            z, self._states[i] = _bsnet_step(block, z, self._states[i])
-        return m.estimator(z, mix_bands)
-
-    def _overlap_add(self, S, m):
-        """STFT.inverse, incrementally. Samples before the next frame's start
-        will receive no further contributions, so they are final."""
-        frames = torch.fft.irfft(S[0], n=self.n_fft, dim=0) * self.window[:, None]
-        length = (m - 1) * self.hop + self.n_fft
-        acc = torch.zeros(length, device=self.device)
-        env = torch.zeros(length, device=self.device)
-        acc[:self._ola.numel()] += self._ola
-        env[:self._env.numel()] += self._env
-        w2 = self.window.pow(2)
-        for k in range(m):
-            acc[k * self.hop:k * self.hop + self.n_fft] += frames[:, k]
-            env[k * self.hop:k * self.hop + self.n_fft] += w2
-        done = m * self.hop
-        self._ola, self._env = acc[done:], env[done:]
-        out = acc[:done] / env[:done].clamp_min(1e-11)
-        drop = min(self._skip, out.numel())
-        self._skip -= drop
-        out = out[drop:]
-        self.n_out += out.numel()
-        return out
+# this does stft_inverse a little at a time: samples before the next frame starts get no more contributions, so they are final
+def stream_overlap_add(stream, estimate_frames, num_frames):
+    n_fft = stream["n_fft"]
+    hop = stream["hop"]
+    window = stream["window"]
+    frames = torch.fft.irfft(estimate_frames[0], n=n_fft, dim=0) * window[:, None]
+    length = (num_frames - 1) * hop + n_fft
+    summed = torch.zeros(length, device=stream["device"])
+    envelope = torch.zeros(length, device=stream["device"])
+    summed[:stream["overlap_tail"].numel()] += stream["overlap_tail"]
+    envelope[:stream["envelope_tail"].numel()] += stream["envelope_tail"]
+    squared_window = window.pow(2)
+    for frame_index in range(num_frames):
+        start = frame_index * hop
+        summed[start:start + n_fft] += frames[:, frame_index]
+        envelope[start:start + n_fft] += squared_window
+    finished = num_frames * hop
+    stream["overlap_tail"] = summed[finished:]
+    stream["envelope_tail"] = envelope[finished:]
+    output = summed[:finished] / envelope[:finished].clamp_min(1e-11)
+    drop = min(stream["samples_to_drop"], output.numel())
+    stream["samples_to_drop"] -= drop
+    output = output[drop:]
+    stream["samples_out"] += output.numel()
+    return output

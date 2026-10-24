@@ -63,6 +63,7 @@ input[type=text] { font: inherit; font-size: 14px; flex: 1 1 320px; min-width: 0
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 .seg button { border: 0; border-radius: 0; background: var(--panel-2); }
 .seg button.on { background: var(--accent-2); color: #fff; }
+.voices .lbl { font-size: 13px; color: var(--muted); }
 .spec { position: relative; margin-top: 10px; }
 .spec-title { font-size: 13px; color: var(--muted); margin-bottom: 4px; display: flex; justify-content: space-between; }
 .spec-title b { color: var(--text); font-weight: 600; }
@@ -242,7 +243,7 @@ async function decodeTo16k(arrayBuffer) {
 const ROLES = [
   { role: "target", title: "Target voice", desc: "What the target says. The audience hears this buried in the mixture." },
   { role: "enrollment", title: "Enrolment", desc: "A different recording of the same person. This is all the model knows about who to follow." },
-  { role: "interferer", title: "Other speaker (optional)", desc: "The voice to remove. Left empty, one is picked from LibriSpeech's public test speakers." },
+  { role: "interferer", title: "Other speaker (optional)", desc: "The voice to remove. Pick one of the three voices below, or upload or record your own. Left empty, one is picked at random from LibriSpeech's public test speakers." },
 ];
 const have = {};
 
@@ -252,6 +253,7 @@ function buildSourceCards() {
     const card = document.createElement("div");
     card.className = "card"; card.id = `card-${r.role}`;
     card.innerHTML = `<h3>${r.title}</h3><p class="desc">${r.desc}</p>
+      ${r.role === "interferer" ? '<div class="row voices" hidden></div>' : ""}
       <div class="row">
         <button data-act="upload">Upload</button>
         <button data-act="record" class="rec">● Record</button>
@@ -270,12 +272,31 @@ function buildSourceCards() {
     card.querySelector('[data-act="record"]').onclick = (ev) => toggleRecord(r.role, ev.currentTarget);
     const clear = card.querySelector('[data-act="clear"]');
     if (clear) clear.onclick = async () => {
-      await postJSON("/api/clear/interferer"); delete have.interferer;
+      await postJSON("/api/clear/interferer"); delete have.interferer; markVoice(null);
       card.classList.remove("filled"); card.querySelector("audio").hidden = true;
       card.querySelector(".label").textContent = ""; invalidateMix();
     };
     host.appendChild(card);
   }
+}
+
+// The three fixed interferer voices (demo_live.yaml examples.interferer_voices).
+function buildVoiceButtons(voices) {
+  const row = document.querySelector("#card-interferer .voices");
+  if (!row || !voices || !voices.length) return;
+  row.innerHTML = `<span class="lbl">Pick a voice:</span><div class="seg">${voices.map((v, i) =>
+    `<button data-voice="${i}" title="LibriSpeech speaker ${escapeHtml(v.speaker)}">${escapeHtml(v.label)} · ${v.sex === "F" ? "female" : "male"}</button>`).join("")}</div>`;
+  row.hidden = false;
+  row.querySelectorAll("[data-voice]").forEach((b) => (b.onclick = async () => {
+    busy(b, true, "Drawing…");
+    try { showSource(await postJSON("/api/voice", { voice: Number(b.dataset.voice) })); }
+    catch (e) { toast(`Voice: ${e.message}`); }
+    busy(b, false);
+  }));
+}
+function markVoice(index) {
+  document.querySelectorAll("#card-interferer [data-voice]").forEach((b) =>
+    b.classList.toggle("on", index != null && Number(b.dataset.voice) === index));
 }
 
 async function sendSource(role, arrayBuffer) {
@@ -292,6 +313,7 @@ function showSource(v) {
   card.querySelector(".label").textContent = `${v.seconds.toFixed(1)} s · ${v.label}`;
   card.classList.add("filled");
   have[v.role] = true;
+  if (v.role === "interferer") markVoice(v.voice);
   invalidateMix();
 }
 
@@ -614,6 +636,7 @@ function renderGemini(res) {
     $("reverb").checked = !!CFG.defaults.reverb;
     $("stChunk").textContent = `${CFG.chunk_ms} ms`;
     $("benchNote").textContent = CFG.benchmark_note || "";
+    buildVoiceButtons(CFG.interferer_voices);
   } catch (e) { toast(`Server: ${e.message}`); }
   sirLabel(); snrLabel(); reverbHint();
   requestAnimationFrame(tick);
