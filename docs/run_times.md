@@ -69,6 +69,7 @@ Machine unless stated: laptop, Intel i5-1135G7, **4 physical cores / 8 threads**
 | 2026-09-23 | `content_probe.score()` end-to-end smoke, 3 clips | 3 clips, sir0_val, untrained 1c model, cpu extraction + faster-whisper small.en int8 cpu | 3.1 min | ~16 s/clip extraction on cpu, ~4 s/clip ASR, plus ~1 min of model loading. The Kaggle figure differs: extraction moves to the T4, so the ASR sets the per-epoch cost at ~4 s/clip. Added by hand. |
 | 2026-09-21 | `pytest tests/ -q` | 515 tests | 11 min | full suite after adding eval_by_case.py. Added by hand: pytest does not use run_log.timed |
 <!-- rows appended below by src/run_log.py -->
+| 2026-10-27 | `scripts/make_estimates.py` | 249 trials rendered, sir0priv | 28 min | cpu, whole-clip |
 | 2026-10-27 | `experiments/results/2026-10-27-test-set-paired-ci/paired_ci_test.py` | eval_private both, 4 systems x 248 trials, judge cache only (check run) | 2 min |  |
 | 2026-10-24 | `scripts/screen_noise_speech.py` | 28,000 clips / 82 h **(accidental: started by `--help` before the script had a parser; rewrote data/index/noise_speech_*; all four manifests rebuild identically from it)** | 22 min | 225x realtime, 8 workers |
 | 2026-10-18 | `scripts/evaluate.py` | --split sir0_val --condition both --metrics content --est experiments/results/2026-10-18-est-presence-postfilter-e2 --listener judge --judge-rpm 10 --out experiments/results/2026-10-18-eval-presence-postfilter-e2-judge | 30 min |  |

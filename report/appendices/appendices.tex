@@ -1,16 +1,3 @@
-\section{Room construction}
-\label{app:rooms}
-\label{sec:room_construction}
-
-The acoustics are a controllable variable rather than a property of whichever room happened to be recorded. Rooms are rectangular (``shoebox'') and the room accoustics are simulated using \texttt{pyroomacoustics} 0.10.1 \cite{scheibler2018pyroomacoustics}. For every trial the renderer draws the room's three dimensions, a reverberation time, and independent positions for the microphone and the two talkers. Wall absorption is not drawn directly but solved using the Sabine formula and the draw is rejected and retaken if the combination is not physically possible. Both talkers are placed in the same room and share the microphone.
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=0.4\textwidth]{figures/room_example_a.pdf}
-  \caption{Plan view of the room rendered for trial \texttt{train-42-007495}. The room measures $8.85 \times 6.38 \times \SI{3.14}{\metre}$ (\SI{177}{\cubic\metre}) with a reverberation time of \SI{0.250}{\second}, for which the Sabine relation gives a wall absorption of \num{0.5479}. The microphone sits at $(3.50, 3.18, 1.28)$~m, the target at $(2.94, 4.39, 1.66)$~m and the interferer at $(4.14, 3.00, 1.57)$~m, placing them \SI{1.39}{\metre} and \SI{0.72}{\metre} from the microphone respectively.}
-  \label{fig:room_a}
-\end{figure}
-
 
 \section{Construction parameters}
 \label{app:params}
@@ -82,13 +69,6 @@ Every parameter below is drawn independently per trial from the stated distribut
     \texttt{base} $T_{60}$ & $[0.25, 0.5]$ s   & Regime override \\
   \end{xltabular}
 \endgroup
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.7\textwidth]{figures/enrollment_provenance.pdf}
-    \caption{Distribution of the source of the enrollment clips across the dataset.}
-    \label{fig:enrollment_distribution}
-\end{figure}
 
 
 \section{AMI evaluation set}
