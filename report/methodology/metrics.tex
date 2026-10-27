@@ -1,6 +1,6 @@
 \subsection{Metrics}
 \label{sec:metrics}
- The metrics are where the main contribution of the work lies. Since the main task is intelligibility of the target speaker for live transcribers and not necessarily the \textit{quality} of the extracted target speaker speech, the metrics that are designed in this section aim to reflect that objective. LCF-WER, ICR and FR measure what the listener recovers and split its errors into leaked and invented words \textbf{(RQ2)}, while DNSMOS, the signal-to-distortion ratios and the offline recogniser's word error rate are the conventional measures compared against them \textbf{(RQ1)}.
+ The metrics are where the main contribution of the work lies. Since the main task is intelligibility of the target speaker for the listeners and not necessarily the \textit{quality} of the extracted target speaker speech, the metrics that are designed in this section aim to reflect that objective. LCF-WER, ICR and FR measure what the listener recovers and split its errors into leaked and invented words \textbf{(RQ2)}, while DNSMOS, the signal-to-distortion ratios and the offline recogniser's word error rate are the conventional measures compared against them \textbf{(RQ1)}.
 
 \subsubsection{Transcripts and references}
 \label{sec:transcripts}
@@ -17,7 +17,7 @@ where $S$ is the number of substitutions, $D$ is the number of deletions, $I$ is
 
 \subsubsection{Interferer Content Rate}
 \label{sec:icr}
-The Interferer Content Rate (ICR) is the first metric used to highlight one particular nuance of the LCF-WER metric: when the live model transcribes a word that the target never said, that word was either invented by the model or heard from the interfering speaker. The Interferer Content Rate (ICR) measures the second case (\ref{ai:metrics}).
+The Interferer Content Rate (ICR) is the first metric used to highlight one particular nuance of the LCF-WER metric: when the live model transcribes a word that the target never said, that word was either invented by the model or heard from the interfering speaker. ICR measures the second case (\ref{ai:metrics}).
 
 \paragraph{Content Words.} The ICR metric needs to identify which words are likely to be words that are not filler words that a model can easily hallucinate. Firstly, the words that are not considered content words are removed from consideration using a stopword list, taken from the NLTK English stopword corpus \cite{bird2009nltk}. Function words are removed because almost any two English sentences share them, so an overlap counted over these words would rather count as grammatical issues than content. These content words will be used to make an interferer-exclusive bag of words, which indicates which words the model picks up from the interfering speaker. Specifically, a content word is \emph{available to leak} on trial $i$ if the interfering speaker said it and the target did not. Each word is counted once per trial: $a_i$ is the number of words available to leak on trial $i$, and $\ell_i$ the number of those that leaked.
 
@@ -32,12 +32,9 @@ Only trials with at least $k$ available words are eligible, since a trial with a
 \begin{equation}
 \textup{mean leak} = \frac{1}{|\mathcal{T}|} \sum_{i \in \mathcal{T}} \frac{\ell_i}{a_i},
 \label{eq:meanleak}
-\end{equation}
-                                                                                                                              
+\end{equation}                                                                                                                              
 Lower percentages are better for both metrics.                               
                                                                                                                                             
-
-
 \subsubsection{Fabrication Rate}
 \label{sec:fr}
 The Fabrication Rate (FR) highlights the case where the model has hallucinated a word that is neither present in the target or the interferer and is only computable with exact transcriptions as given in LibriSpeech~\cite{panayotov2015librispeech}. The FR metric is defined as follows:
@@ -46,9 +43,9 @@ Over the set $\mathcal{T}$ of trials with a non-empty response, the statistic is
     \textup{FR}_{\textup{count}} = \frac{1}{|\mathcal{T}|} \sum_{i \in \mathcal{T}} \big| \mathcal{I}_i \big|,
     \label{eq:frcount}
 \end{equation}
-where $\mathcal{I}_i$ is the set of words in the $i$-th trial's output that are not present in either the target or interferer (\ref{ai:metrics}). A rate of fabrication is also defined by whether a trial contains at least $k$ invented words as defined in Equation~\ref{eq:frk}.  
+where $\mathcal{I}_i$ is the set of words in the $i$-th trial's output that are not present in either the target or interferer (\ref{ai:metrics}). A rate of fabrication is also defined by whether a trial contains at least $k$ invented words as defined in \eqref{eq:frk}.  
 \begin{equation}
-    \textup{FR}@k = \frac{1}{|\mathcal{T}|} \sum_{i \in \mathcal{T}} \mathbb{1}\! \left[\, \big| \mathcal{I}_i \big| \ge k \,\right],
+    \textup{FR}@k = \frac{1}{|\mathcal{T}|} \sum_{i \in \mathcal{T}} \mathbf{1}\! \left[\, \big| \mathcal{I}_i \big| \ge k \,\right],
     \qquad k = 2 \text{ chosen in this work.}
     \label{eq:frk}
 \end{equation}
@@ -56,25 +53,23 @@ where $\mathbb{1}\!$ is the indicator function. An invented word is not necessar
 
 \subsubsection{Deep Noise Suppression Mean Opinion Score}
 \label{sec:dnsmos}
-DNSMOS \cite{reddy2021dnsmos,reddy2022dnsmos835} is a neural network that predicts what a collection of humans would have rated an audio clip on a scale of 1--5, where 1 is bad and 5 is excellent. Two variants are report: ITU-T P.835 \cite{itu2003p835}, which gives speech quality (SIG), background quality (BAK) and overall quality (OVRL) and ITU-T P.808 \cite{itu2018p808}, a single score that the REAL-TSE organisers adopted after entrants were found to game the P.835 metric. 
+DNSMOS \cite{reddy2021dnsmos,reddy2022dnsmos835} is a neural network that predicts what a collection of humans would have rated an audio clip on a scale of 1--5, where 1 is bad and 5 is excellent. Two variants are reported: ITU-T P.835 \cite{itu2003p835}, which gives speech quality (SIG), background quality (BAK) and overall quality (OVRL) and ITU-T P.808 \cite{itu2018p808}, a single score that the REAL-TSE organisers adopted after entrants were found to game the P.835 metric. 
 
 \subsubsection{Signal to Distortion/Interference/Artefact Ratios}
 \label{sec:sdiar}
-SDR is used to measure how wrong the output audio is in total, and the SIR and SAR are used to measure in which direction the output audio is wrong. The SIR measures how much real audio that is not target speech is present in the output audio such as an interfering speaker or background noise, and the SAR measures how much of the output audio is not real audio, such as artefacts from the model. The output is split by orthogonal projection \cite{vincent2006bsseval} into the target part $s_\textup{proj}$ of Equation~\ref{eq:alpha}, the interference $e_\textup{int}$ explained by the other speaker $d$ and the noise, and the artefact $e_\textup{art}$ explained by none of the sources, so that $\hat{s} = s_\textup{proj} + e_\textup{int} + e_\textup{art}$:
+SDR is used to measure how wrong the output audio is in total, and the SIR and SAR are used to measure in which direction the output audio is wrong. The SIR measures how much real audio that is not target speech is present in the output audio such as an interfering speaker or background noise, and the SAR measures how much of the output audio is not real audio, such as artefacts from the model. The output is split by orthogonal projection \cite{vincent2006bsseval} into the target part $s_\textup{proj}$ of \eqref{eq:alpha}, the interference $e_\textup{int}$ explained by the other speaker $d$ and the noise, and the artefact $e_\textup{art}$ explained by none of the sources, so that $\hat{s} = s_\textup{proj} + e_\textup{int} + e_\textup{art}$:
 \begin{equation}
-\textup{SDR} = 10\log_{10} \dfrac{\lVert s_\textup{proj}\rVert^2}{\lVert e_\textup{int} + e_\textup{art}\rVert^2}
-\end{equation}
-\begin{equation}
-\textup{SIR} = 10\log_{10} \dfrac{\lVert s_\textup{proj}\rVert^2}{\lVert e_\textup{int}\rVert^2}
-\end{equation}
-\begin{equation}
-\textup{SAR} = 10\log_{10} \dfrac{\lVert s_\textup{proj} + e_\textup{int}\rVert^2}{\lVert e_\textup{art}\rVert^2}
+\begin{aligned}
+\textup{SDR} &= 10\log_{10} \dfrac{\lVert s_\textup{proj}\rVert^2}{\lVert e_\textup{int} + e_\textup{art}\rVert^2}, \\
+\textup{SIR} &= 10\log_{10} \dfrac{\lVert s_\textup{proj}\rVert^2}{\lVert e_\textup{int}\rVert^2}, \\
+\textup{SAR} &= 10\log_{10} \dfrac{\lVert s_\textup{proj} + e_\textup{int}\rVert^2}{\lVert e_\textup{art}\rVert^2},
+\end{aligned}
+\label{eq:sdr-sir-sar}
 \end{equation}
 which are all measured in decibels (dB) where the higher ratio means better extraction of the target from the other audio in question. 
 
-\subsubsection{Anchors}                                  
+\subsubsection{Reference Points}                                  
 \label{sec:anchors}
-% floor, ceiling, text floor, text ceiling; a bare score is meaningless
 The following terms are used to describe the lower and upper bounds of the results section. The floor references passing the full mixture audio, unprocessed to a listener as the worst case scenario, and the ceiling references passing a clean target audio to the listener as best case. The ceiling system is perfect separation and the listener hears only the target audio. The floor and ceiling systems are not real systems, but rather reference points for the listener to compare against. 
 \subsubsection{Uncertainty}
 \label{sec:uncertainty}

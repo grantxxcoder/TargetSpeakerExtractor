@@ -81,6 +81,7 @@
 \usepackage{xltabular}  % longtable with tabularx's X columns (appendix tables)
 \usepackage{multirow}
 \usepackage{float}  % [H]: place a table exactly where it is written
+\usepackage{placeins}  % \FloatBarrier: keeps the results' figures and tables under their own subsection
 \newcommand{\mytable}{
     \centering
     \small
@@ -118,7 +119,8 @@
 \addto\extrasenglish{%  % \autoref at every heading depth reads "Section"
   \def\sectionautorefname{Section}%
   \def\subsectionautorefname{Section}%
-  \def\subsubsectionautorefname{Section}}
+  \def\subsubsectionautorefname{Section}%
+  \def\paragraphautorefname{Section}}
 
 % Pseudo-code
 \usepackage{algpseudocode}  % should go after \usepackage{hyperref}

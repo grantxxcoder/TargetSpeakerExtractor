@@ -3,8 +3,8 @@
 The extension architecture is based on the baseline architecture of \autoref{sec:architecture}, with two modifications. The first change is how the cue is passed to the network (\autoref{sec:splitting_cue}). The second change gives the network more information about the target speaker's voice (\autoref{sec:speaker_context_embedding}). The final change adds a gate to better infer whether the target speaker is present in a frame (\autoref{sec:present}). 
 \subsubsection{Splitting the cue into parts}
 \label{sec:splitting_cue}
-The baseline architecture passes the network the TF-Map cue of \cite{zhang2025multi} and includes the energy-recovery projection (Equation~\ref{eq:tfmap-energy}). By Equation~\ref{eq:tfmap-unit}, every mixture frame is its loudness times its shape,
-  $|X_t| = \big\lVert |X_t| \big\rVert\,\tilde{x}_t$. Substituting this into $m_t$ of Equation~\ref{eq:tfmap-energy} shows what the baseline's
+The baseline architecture passes the network the TF-Map cue of \cite{zhang2025multi} and includes the energy-recovery projection \eqref{eq:tfmap-energy}. By \eqref{eq:tfmap-unit}, every mixture frame is its loudness times its shape,
+  $|X_t| = \big\lVert |X_t| \big\rVert\,\tilde{x}_t$. Substituting this into $m_t$ of \eqref{eq:tfmap-energy} shows what the baseline's
   single number contains:
   \begin{equation}
     m_t = \big\langle\, |X_t|,\ u_t \,\big\rangle
@@ -17,7 +17,7 @@ The baseline architecture passes the network the TF-Map cue of \cite{zhang2025mu
     c_t = \cos\theta_t = \big\langle \tilde{x}_t,\ u_t \big\rangle
     \label{eq:cue-similarity}
   \end{equation}
-is the cosine similarity of Equation~\ref{eq:tfmap-cos} which is measured with the blended template of $u_t$ instead of an enrollment frame. The problem with $m_t$ in the baseline architecture is that once multiplying the loudness and the similarity into a scalar, the network cannot distinguish between a frame that is very loud but not similar to the target and a frame that is very similar but not loud. The idea is to pass the parts instead of the product (\ref{ai:eq-cue}). Two parts are already defined: the template direction $u_t$ of Equation~\ref{eq:tfmap-energy} and the similarity $c_t$ of Equation~\ref{eq:cue-similarity}. The third part is new and is the residual
+is the cosine similarity of \eqref{eq:tfmap-cos} which is measured with the blended template of $u_t$ instead of an enrollment frame. The problem with $m_t$ in the baseline architecture is that once multiplying the loudness and the similarity into a scalar, the network cannot distinguish between a frame that is very loud but not similar to the target and a frame that is very similar but not loud. The idea is to pass the parts instead of the product (\ref{ai:eq-cue}). Two parts are already defined: the template direction $u_t$ of \eqref{eq:tfmap-energy} and the similarity $c_t$ of \eqref{eq:cue-similarity}. The third part is new and is the residual
 \begin{equation}
   r_t = |X_t| - m_t u_t,
   \label{eq:cue-residual}
@@ -105,7 +105,7 @@ Frame 1 has no previous frame, so it takes the stationary probability $\rho$ of 
   \rho = \frac{A_{01}}{A_{01} + A_{10}}.
   \label{eq:stationary}
   \end{equation}
-The actual transition matrix used in the prior can be found in Appendix~\ref{sec:appendix-gate}. 
+The actual transition matrix used in the prior can be found in \autoref{sec:appendix-gate}. 
 
 \paragraph{Objective.} Training should make the clean target speech $s$ as probable as possible given the mixture and the enrollment. 
 

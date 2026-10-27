@@ -69,6 +69,15 @@ Machine unless stated: laptop, Intel i5-1135G7, **4 physical cores / 8 threads**
 | 2026-09-23 | `content_probe.score()` end-to-end smoke, 3 clips | 3 clips, sir0_val, untrained 1c model, cpu extraction + faster-whisper small.en int8 cpu | 3.1 min | ~16 s/clip extraction on cpu, ~4 s/clip ASR, plus ~1 min of model loading. The Kaggle figure differs: extraction moves to the T4, so the ASR sets the per-epoch cost at ~4 s/clip. Added by hand. |
 | 2026-09-21 | `pytest tests/ -q` | 515 tests | 11 min | full suite after adding eval_by_case.py. Added by hand: pytest does not use run_log.timed |
 <!-- rows appended below by src/run_log.py -->
+| 2026-10-27 | `experiments/results/2026-10-27-ami-paired-ci/paired_ci_ami.py` | --baseline-estimates experiments/results/2026-10-27-est-ami-baseline-matched-e11 | 2 min |  |
+| 2026-10-27 | `experiments/results/2026-10-27-ami-paired-ci/paired_ci_ami.py` | ami_eval both, 4 systems, judge cache only | 3 min |  |
+| 2026-10-27 | `experiments/results/2026-10-27-ami-paired-ci/paired_ci_ami.py` | ami_eval both, 4 systems, judge cache only | 4 min |  |
+| 2026-10-27 | `scripts/evaluate.py` | --split ami_eval --condition both --est experiments/results/2026-10-27-est-ami-baseline-matched-e11 --metrics content --listener judge --out experiments/results/2026-10-27-eval-ami-baseline-matched-e11-judge | 59 min |  |
+| 2026-10-27 | `scripts/plot_per_trial_agreement.py` | sir0_val both, 4 systems x 103 trials x 3 Gemini runs, judge and transcript caches, per-trial SDR | 4 min |  |
+| 2026-10-27 | `scripts/plot_per_trial_agreement.py` | sir0_val both, 4 systems x 103 trials x 3 Gemini runs, judge and transcript caches, per-trial SDR **(failed)** | 3 min |  |
+| 2026-10-27 | `scripts/plot_per_trial_agreement.py` | sir0_val both, 4 systems x 103 trials, judge and transcript caches, per-trial SDR | 2 min |  |
+| 2026-10-27 | `scripts/plot_per_trial_agreement.py` | sir0_val both, 4 systems x 103 trials, judge and transcript caches, per-trial SDR | 5 min |  |
+| 2026-10-27 | `scripts/make_estimates.py` | 300 trials rendered, ami | 30 min | cpu, whole-clip |
 | 2026-10-27 | `experiments/results/2026-10-27-test-set-paired-ci/paired_ci_test.py` | --baseline-estimates experiments/results/2026-10-27-est-private-baseline-matched-e11 | 2 min |  |
 | 2026-10-27 | `experiments/results/2026-10-27-test-set-paired-ci/paired_ci_test.py` | --baseline-estimates experiments/results/2026-10-27-est-private-baseline-matched-e11 | 2 min |  |
 | 2026-10-27 | `scripts/evaluate.py` | --split eval_private --condition both --est experiments/results/2026-10-27-est-private-baseline-matched-e11 --metrics content --listener judge --out experiments/results/2026-10-27-eval-private-baseline-matched-e11-judge-retry2 | 81 s |  |

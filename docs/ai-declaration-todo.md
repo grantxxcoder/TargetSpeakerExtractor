@@ -16,6 +16,9 @@ Every Claude Code contribution to the report revision that still needs (a) a lin
 | 10 | §5 test-set numbers and paired intervals | Wrote `experiments/results/2026-10-27-test-set-paired-ci/paired_ci_test.py` | AI6 code (hard) | [ ] | [ ] |
 | 12 | §3.3.3 presence gate | Chose and applied the replacement symbols for the clashes (y, h̄, var, ω, ω₀, ψ, β, ν, 𝒵); wrote the sentence defining λ and giving β, λ; fixed typos and equation punctuation | AI7b / AI2 | [ ] | [ ] |
 | 13 | §3.2 l.6, 26, 31, 36, 106, 116, 134, 166; §3.3 l.47, 203 | Rewrote these sentences for grammar at the author's instruction (wording is Claude's) | AI2 | [ ] | n/a |
+| 14 | §3.4 intro, §3.4.6, §4.1.4 (iii), whole report | Wrote the metrics RQ sentence; merged the SDR/SIR/SAR displays; reworded WeSep reason (iii); moved Training curves; converted all manual cross-references to \autoref/\eqref | AI2 | [ ] | [ ] |
+| 15 | Fig 5.1 per-trial agreement bar chart (RQ1) | Wrote `scripts/plot_per_trial_agreement.py` (per-trial SDR, Gemini and Whisper from caches; stacked bars of SDR-improved trials by Gemini outcome, split by SIR, three-run Gemini mean); drafted caption; per-trial data in `experiments/results/2026-10-27-per-trial-agreement/` | AI3 / AI6 | [ ] | [ ] |
+| 16 | §5 structure | Rebuilt §5 into RQ1–RQ3 + unseen/real sections from the author's sentences (moved, split, two paragraphs and one figure deleted); wrote the TODO comments with numbers | AI2 | [ ] | n/a |
 | 11 | Results, references | Removed Table 5.1, the latency table, two AMI table rows; stripped bib notes; switched AI tags to round brackets (at the author's instruction) | AI2 | [ ] | n/a |
 
 Rewrite every Claude-drafted caption and sentence in your own words before submission; the declaration then says Claude drafted, you rewrote.

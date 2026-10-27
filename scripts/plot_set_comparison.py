@@ -5,8 +5,7 @@
 One panel per set, all on the same axis, so a reader can see both whether the ranking of the systems holds and how much harder real recordings are.
 Validation (sir0_val, 103 two-speaker trials) points are the mean of three judge runs with intervals that redraw whole speakers (experiments/results/2026-10-07-ci-clustered).
 Test (eval_private, 248 two-speaker trials) points are one judge run with intervals that redraw whole target speakers (experiments/results/2026-10-27-test-set-paired-ci/ci.json). The matched baseline was judged on 2026-10-27 and the other systems on 2026-10-08.
-AMI (300 real meeting stretches) points are one run with intervals that redraw whole meetings (experiments/results/2026-10-12-ami-ft-final/paired_ci.json).
-The matched baseline was never scored on the AMI set, so that row says so instead of showing a point.
+AMI (300 real meeting stretches) points are one run with intervals that redraw whole meetings (experiments/results/2026-10-27-ami-paired-ci/ci.json). The matched baseline was judged on 2026-10-27 and the other systems on 2026-10-06.
 On AMI the reference point is the target's own headset, which also picks up the other speaker, so it is not a clean target.
 Judge: gemini-3.7-flash, AI Studio, audio in and text out, prompt d118b7d3bf30.
 Claude Code wrote this script from the author's figure specification (2026-10-27).
@@ -44,7 +43,7 @@ MUTED = "#6B6B6B"
 RESULTS = Path(__file__).resolve().parents[1] / "experiments/results"
 VALIDATION_DIRECTORY = RESULTS / "2026-10-07-ci-clustered"
 TEST_FILE = RESULTS / "2026-10-27-test-set-paired-ci/ci.json"
-AMI_FILE = RESULTS / "2026-10-12-ami-ft-final/paired_ci.json"
+AMI_FILE = RESULTS / "2026-10-27-ami-paired-ci/ci.json"
 
 # The rows from top to bottom, with each system's colour and marker. Models are diamonds and the two reference points are squares, as in the leak-versus-invention map.
 ROWS = [
@@ -64,9 +63,9 @@ VALIDATION_FILES = {
     "Target alone": "target_alone.json",
 }
 
-# The names each file uses for each system. The baseline is absent from the AMI file.
+# The names each file uses for each system.
 TEST_NAMES = {"No processing": "No processing", "Baseline": "Baseline", "Extension": "Extension", "WeSep": "WeSep", "Target alone": "Target alone"}
-AMI_NAMES = {"No processing": "No processing", "Extension": "e21", "WeSep": "WeSep", "Target alone": "Target's headset"}
+AMI_NAMES = {"No processing": "No processing", "Baseline": "Baseline", "Extension": "Extension", "WeSep": "WeSep", "Target alone": "Target's headset"}
 
 X_LIMIT = 140.0
 
@@ -81,23 +80,15 @@ def read_validation():
     return points
 
 
-# this reads the test word error rate and interval of every system, all scored on the same resampled speakers
-def read_test():
-    with open(TEST_FILE) as handle:
+# this reads the word error rate and interval of every system from one ci.json, where all systems were scored on the same resampled speakers or meetings
+def read_ci(file_path, system_names):
+    with open(file_path) as handle:
         scored_systems = json.load(handle)["systems"]
     points = {}
-    for system, stored_name in TEST_NAMES.items():
-        scores = scored_systems[stored_name]
-        points[system] = (scores["lcf_wer"], scores["ci95"][0], scores["ci95"][1])
-    return points
-
-
-# this reads the word error rate and interval of every system that was scored on one of the paired_ci.json sets
-def read_paired_set(set_name, system_names):
-    with open(AMI_FILE) as handle:
-        scored_systems = json.load(handle)["sets"][set_name]["systems"]
-    points = {}
     for system, stored_name in system_names.items():
+        # A system missing from the file is drawn as "not scored".
+        if stored_name not in scored_systems:
+            continue
         scores = scored_systems[stored_name]
         points[system] = (scores["lcf_wer"], scores["ci95"][0], scores["ci95"][1])
     return points
@@ -129,8 +120,8 @@ def main():
     arguments = parser.parse_args()
 
     validation = read_validation()
-    test = read_test()
-    ami = read_paired_set("ami_eval", AMI_NAMES)
+    test = read_ci(TEST_FILE, TEST_NAMES)
+    ami = read_ci(AMI_FILE, AMI_NAMES)
 
     figure, axes = plt.subplots(1, 3, figsize=(TEXTWIDTH_IN, FIGURE_HEIGHT_IN), sharey=True, gridspec_kw={"wspace": 0.12})
     draw_panel(axes[0], validation, "(a) Validation, 103 trials", None)

@@ -513,6 +513,30 @@ Judge `gemini-3.7-flash`, audio-in / text-out, prompt sha `d118b7d3bf30`, run 20
 
 Open: meeting-clustered bootstrap on e21 − WeSep; e21 with the 110 inputs levelled (local diagnostic) to test the quiet-input explanation.
 
+## 2026-10-27 — AMI: matched baseline e11 through the judge
+
+Judge `gemini-3.7-flash`, aistudio, audio-in / text-out, prompt `d118b7d3bf30`, run 2026-10-27, one run, speech gate on. `ami_eval` `both`, n = 300. Render `experiments/results/2026-10-27-est-ami-baseline-matched-e11/` (`models/model_sir0_baseline-matched-e11.pt`, seed 42). Judge: `...-baseline-matched-e11-judge{,-retry}/`; 1 client timeout, answered by the retry. Git commit `71614bf`, recorded by hand. Other systems are the 2026-10-06 runs.
+
+Intervals: `experiments/results/2026-10-27-ami-paired-ci/` (58 meetings redrawn, 10,000 draws, seed 42). Reproduces the four published points and intervals of `2026-10-12-ami-ft-final/paired_ci.json` exactly.
+
+| n = 300, lower is better | No processing | Baseline e11 | e21 | WeSep | Target's headset |
+|---|---|---|---|---|---|
+| LCF-WER | 115.51 | 101.50 | 91.26 | **80.56** | 72.53 |
+| 95 % CI | [103.95, 128.89] | [94.40, 109.36] | [84.29, 98.87] | [73.49, 88.32] | [62.52, 83.72] |
+| target words missed | 3.46 | 27.33 | 45.25 | 27.71 | 2.31 |
+| mean leak | 82.80 | 31.63 | 25.19 | **19.64** | 51.96 |
+| invented / trial | 1.48 | 3.35 | **1.83** | 2.65 | 1.13 |
+| gate-blocked | 0 | 58 | 110 | 38 | 0 |
+
+| Paired, first minus second | Difference | 95 % CI |
+|---|---|---|
+| Baseline − No processing | −14.01 | [−22.41, −6.42] |
+| e21 − Baseline | −10.24 | [−15.84, −4.29] |
+
+- **An empty output scores exactly 100 %** (pooled LCF-WER, every target word a deletion). The floor is above 100, so on AMI muting always beats doing nothing. The baseline's interval contains 100: it is not distinguishable from outputting silence. e21's lies below 100.
+- The baseline's gain over no processing is mostly leak removal (82.8 → 31.6 %) paid for in missed target words (3.5 → 27.3 %) and more than double the invented words.
+- `report/figures/set_comparison.pdf` panel (c) now shows the baseline.
+
 ## 2026-10-07 — eval_private scored ONCE for the selection-free headline
 
 **Decided 2026-10-07 (Grant), after all selection on `sir0_val` is finished.** Baseline 10000-e6, e21 and WeSep are rendered on `eval_private` `both` (249 trials, 20 speakers never trained, tuned or selected on) and judged once each: `gemini-3.7-flash`, aistudio, audio-in / text-out, prompt `d118b7d3bf30`, run date recorded per result. Driver `eval_private.sh` (render, then judge); render-only split `sir0priv` added to `scripts/train.py` and `scripts/make_estimates_wesep.py` (training on it is refused).

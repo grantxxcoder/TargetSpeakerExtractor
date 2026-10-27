@@ -1,137 +1,22 @@
 \section{Results}
 \label{sec:results}
+% TODO (author): one line answering each research question, with the test set as the headline.
+% Validation results are optimistic, because checkpoints were chosen on the validation set.
 
-
-\subsection{Why the metric is needed}
-\label{sec:results_metric}
-The distinction between \autoref{sec:icr} and \autoref{sec:fr} matters when investigating the insertion and substitution error of the LCF-WER metric. With Gemini as the listener, the fabrication and leakage error trade against each other. Two fine tunes were run on the extension where 6 additional epochs were trained. As shown in \autoref{fig:tradeoff}, the interferer weighted fine tune shows the clear reduction in how much the interferer speaker's content is leaked into the output, but at the expense of more invented words (as more artefacts are introduced hence more hallucination). This is shown by the mean percentage of the interferer words leaked into the output improving by 3.26 percentage points, but the number of invented words increasing. The artefact weighted fine tune shows the opposite situation with a heavy increase in leaked words but slight reduction in invented words. Each error has a different cause and solution, and thus should be treated separately, which would be hidden by the LCF-WER metric alone. 
-
-% Leak-versus-invention map, replacing the fine-tune table. Drawn by Claude Code from the author's specification:
-%   ../tse_venv/bin/python scripts/plot_tradeoff_map.py --out report/figures/tradeoff_map.pdf
-% Judge gemini-3.7-flash, AI Studio, audio in / text out, prompt d118b7d3bf30, sir0_val both (n = 103).
-% Run dates: anchors 2026-09-02 and 2026-09-27 (x2); baseline e11 2026-10-09 (x3); extension e21 2026-09-25, 2026-09-26 (x2);
-% WeSep 2026-09-03 and 2026-09-27 (x2); e27 2026-09-25; fine-tunes 2026-10-03.
-% Paired changes vs the control fine-tune, 95 % CI (experiments/results/2026-10-03-bootstrap-interf-ft/report_2x2_2026-10-03.txt):
-%   leak weight: leaked -3.26 [-6.59, -0.03] pp, invented +0.72 [+0.27, +1.21], LCF-WER +0.47 [-3.20, +4.15]
-%   artefact weight: leaked +14.66 [+9.09, +20.52] pp, invented -0.20 [-0.65, +0.25], LCF-WER +9.34 [+3.65, +15.37]
-\begin{figure}[htbp]
-\centering
-\includegraphics{figures/tradeoff_map.pdf}
-\caption{Leaked against invented words on the 103 two-speaker validation trials, where lower-left is better. Diamonds are models, squares are reference points, and brackets give the LCF-WER (\%). (a) Mean of three Gemini runs, with $\pm 1$ SD bars. (b) The extension's epochs and its fine-tunes from epoch 21, each judged once except epoch 21.}
-\label{fig:tradeoff}
-\end{figure}
-
-
-\subsection{Content fidelity}
-\label{sec:results_content}
- The content fidelity metrics are used to measure how the live artificial intelligence system is able to interpret the audio after the extraction process. The live system is a black box, non-deterministic system, the stability of the interpretation of the audio is also important to consider. The sections to follow consider the content fidelity for a live judge on both real and the simulated data.
-
-\subsubsection{The live judge}
-\label{sec:results_content_judge}
-The live judge results are shown in \autoref{tab:content_judge}. These results are most indicative of the overall performance of the extractor system as the live judge is the end user of the extraction process. To better understand the variability of the live judge on the same audio, \autoref{fig:judge_runs} shows how the different systems changed in the LCF-WER metric across three independent runs.
-\begin{table}[htbp]
-\centering
-\caption{Content recovered by Gemini. \texttt{gemini-3.7-flash}, audio in and text out. Each value is the average of 3 runs on the same 103 trials, and $\pm$ is the standard deviation of those three run scores. 95\,\% CI is the range for the 3-run LCF-WER in percentage points, redrawing whole speakers (\autoref{sec:uncertainty}) and \autoref{fig:judge_runs} shows how much the runs differ. Lower is better in every column.}
-\label{tab:content_judge}
-\small
-\setlength{\tabcolsep}{5pt}
-\begin{tabular}{@{}lcccccc@{}}
-\toprule
- & LCF-WER \lowerbetter & 95\,\% CI & ICR@2 \lowerbetter & mean leak \lowerbetter & invented \lowerbetter & FR@2 \lowerbetter \\
-system & (\%) &  & (\%) & (\%) & /trial & (\%) \\
-\midrule
-Floor  & 62.94\,$\pm$\,0.37 & [56.02, 70.18] & 75.73\,$\pm$\,0.00 & 63.90\,$\pm$\,0.65 & 1.27\,$\pm$\,0.03 & 30.7\,$\pm$\,3.1 \\
-Baseline & 53.26\,$\pm$\,1.82 & [46.23, 60.35] & 58.58\,$\pm$\,2.02 & 42.20\,$\pm$\,0.87 & 2.52\,$\pm$\,0.20 & 49.8\,$\pm$\,1.5 \\
-Extension & 39.59\,$\pm$\,0.34 & [33.35, 45.92] & 33.66\,$\pm$\,2.02 & 23.08\,$\pm$\,0.97 & 2.20\,$\pm$\,0.11 & 46.9\,$\pm$\,2.0 \\
-WeSep & \textbf{25.80}\,$\pm$\,0.56 & [20.71, 31.14] & \textbf{25.24}\,$\pm$\,0.97 & \textbf{13.04}\,$\pm$\,0.32 & \textbf{1.80}\,$\pm$\,0.02 & \textbf{38.6}\,$\pm$\,2.3 \\
-Ceiling & 1.19\,$\pm$\,0.18 & [0.80, 1.60] & 0.00\,$\pm$\,0.00 & 0.00\,$\pm$\,0.00 & 0.22\,$\pm$\,0.03 & 0.3\,$\pm$\,0.6 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{figures/judge_run_variation.pdf}
-\caption{How much Gemini's LCF-WER changed across the three runs in \autoref{tab:content_judge}, where change is the highest of the three run scores minus the lowest. (a) The box plot showing how the change varies per clip over the averaged runs. A clip's score can pass 100\,\% and can occur when Gemini adds words through hallucination or by including interfering speech. (b) Change in the overall score over all 103 clips. Floor and ceiling (grey) are reference points.}
-\label{fig:judge_runs}
-\end{figure}
-
- The baseline improves the LCF-WER by 9.68 points, which is a 15.4\,\% relative improvement over the floor. There is a decisive improvement however in the baseline model's performance over the floor with regard to including an interfering speaker's content, as the average percentage of interfering words included in the output is 17.15 points lower than the floor. This came at a trade-off with the number of hallucinated words. The baseline system subsequently has fabricated/invented more words on average per trial as seen in the table. Finally, the baseline system also more frequently fabricates, as indicated by FR@2. Therefore, both the frequency and quantity of fabrication have increased over passing the audio unprocessed. 
-
-The baseline system is a clear improvement over the floor, which is indicative that the extractor has begun to find a signal in the mixture that is associated with the target speaker. For the extension, the inclusion of the pretrained ECAPA speaker encoder and passing the enrollment audio in parts instead of a single embedding has markedly improved the performance of the extractor. The LCF-WER has improved by 13.67 points over the baseline, which is a 25.7\,\% relative improvement. The extension has both reduced the share of leaked words per trial and the frequency of leakage by substantial amounts. Unlike the leakage, the extension did not drastically invent less words per trial, with only a slight improvement from 2.52 to 2.20 words per trial. However, both baseline and the extension invent well above the floor which is at 1.27 words invented per trial.
-
-\autoref{fig:judge_runs} demonstrates the stability of the LCF-WER across the three independent runs measured per clip. The baseline demonstrates the worst stability, changing by 1.82 points, with greater variability as compared to floor. The extension has the best stability even when compared to WeSep. On single clips, there are outlier performance changes of up to 209 points (when one run results in 209 more errors per 100 reference words than another run), these outliers could be incredibly difficult cases that are not indicative of the overall performance of the system. However, as seen in the bar plot, the extension on average has the smallest changes in overall performance across the three runs, although performs much worse on outlier cases as seen in the box plot.
-\begin{table}[htbp]
-\centering
-\caption{Gemini's response in each trial case of \autoref{sec:trial_construction}. Cases 1 and 2, where the target spoke, report LCF-WER. Case 3, where only the other speaker spoke, reports the words Gemini output per trial, where 0 is correct, and how many outputs were silenced. Case 4 (noise only, $n = 8$) is omitted where no system produced a word, and every output was below the speech gate.}
-\label{tab:content_cases}
-\small
-\begin{tabular}{@{}lcccc@{}}
-\toprule
- & Case 1: both & Case 2: target only & \multicolumn{2}{c}{Case 3: other speaker only} \\
-\cmidrule(lr){2-2}\cmidrule(lr){3-3}\cmidrule(lr){4-5}
- & LCF-WER \lowerbetter & LCF-WER \lowerbetter & words/trial \lowerbetter & silenced \higherbetter \\
-system & (\%, $n = 103$) & (\%, $n = 47$) & ($n = 42$) & (of 42) \\
-\midrule
-Floor     & 62.94 & 1.65 & 30.69 & 0 \\
-Baseline  & 53.26 & 2.48 & 24.12 & 8 \\
-Extension & 39.59 & \textbf{3.56} & \textbf{16.50} & \textbf{18} \\
-WeSep     & \textbf{25.80} & 5.40 & 17.95 & 7 \\
-Ceiling   & 1.19  & 1.46 & ---   & --- \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-
-Table \ref{tab:content_cases} highlights where the extension shines. For the cases where the extractor needs to either suppress only background noise surrounding a target or only interfering speech, the extension performs better than WeSep. Secondly, if the extractor needs to suppress background noise such that a voice activity detector (VAD) does not detect any speech, the extension is able to do this more often than WeSep getting 18 noisy clips suppressed as compared against WeSep's 7. The improvement in the extension's performance can be attributed to the diversity of training examples that include those specific cases. Interestingly, all the models perform worse on the target-only case than just leaving the target unprocessed. This is likely due to the robustness of Gemini to background noise, leaving the extractor model to introduce artefacts that are misinterpreted by Gemini. Overall, the extension has shown improvement over WeSep in different acoustic scenarios, although it still falls short when considering pure speech extraction with multiple speakers. 
-
-
-\subsubsection{Real recordings}
-\label{sec:results_ami}
-% Three-set comparison. Drawn by Claude Code from the author's specification:
-%   ../tse_venv/bin/python scripts/plot_set_comparison.py --out report/figures/set_comparison.pdf
-% Judge gemini-3.7-flash, AI Studio, audio in / text out, prompt d118b7d3bf30.
-% Validation: 3-run means, run dates as in fig:tradeoff, CIs experiments/results/2026-10-07-ci-clustered.
-% Test: eval_private both, n = 248 (trial 000372 removed for every system), one run 2026-10-08; matched baseline e11 one run 2026-10-27. AMI: n = 300, one run 2026-10-06.
-% Test CIs: experiments/results/2026-10-27-test-set-paired-ci/ci.json. AMI CIs: experiments/results/2026-10-12-ami-ft-final/paired_ci.json. The matched baseline was not scored on AMI.
-\begin{figure}[htbp]
-\centering
-\includegraphics{figures/set_comparison.pdf}
-\caption{Gemini's LCF-WER for each system on the three evaluation sets, where lower is better. Bars are 95\,\% intervals that redraw whole speakers, or whole meetings for AMI. Validation points are the mean of three runs and the others are one run. On AMI the reference is the target's own headset, which also picks up the other speaker.}
-\label{fig:sets}
-\end{figure}
-\autoref{tab:ami_results} shows Gemini's results on the AMI meeting recordings of \autoref{app:ami}, and \autoref{fig:sets} compares the LCF-WER on the validation, test and AMI sets. The conclusion is the same as for the simulated data: the extension improves the LCF-WER over doing nothing, although the offline WeSep system performs better for the strict extraction task. WeSep has the lowest LCF-WER (80.56\,\%), followed by the extension (91.26\,\%) and then no processing (115.51\,\%). A demonstration of how the model distorts the speech can be seen by the target words missed metric, where Gemini is able by itself without any processing to only miss 3.46\,\% of the target words, but even with WeSep, Gemini misses 27.71\,\% of the target words. This indicates how the extractor degrades the target speech at the cost of removing the background interfering speech. This is due to the artefacts introduced by the extractor, as seen in the increase in invented words per trial (1.48 to 1.83) and rate of fabrication (38.33\,\% to 49.46\,\%) for the extension. 
-\begin{table}[htbp]
-\centering
-\caption{Content recovered by Gemini on 300 real two-speaker stretches of AMI meeting recordings (\autoref{app:ami}). Lower is better in every column.}
-\label{tab:ami_results}
-\small
-\begin{tabular}{@{}lcccc@{}}
-\toprule
- & No processing & Extension & WeSep & Target's headset \\
-\midrule
-target words missed (\%) \lowerbetter & 3.46 & 45.25 & \textbf{27.71} & 2.31 \\
-ICR@2 (\%) \lowerbetter            & 89.14 & 33.71 & \textbf{27.72} & 58.80 \\
-mean leak (\%) \lowerbetter        & 82.80 & 25.19 & \textbf{19.64} & 51.96 \\
-invented /trial \lowerbetter       & 1.48  & \textbf{1.83} & 2.65 & 1.13 \\
-FR@2 (\%) \lowerbetter             & 38.33 & \textbf{49.46} & 64.17 & 30.10 \\
-silenced (of 300) \lowerbetter     & 0 & 110 & \textbf{38} & 0 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-
+\subsection{RQ1: Conventional measures and the listener}
+\label{sec:results_rq1}
+\label{sec:results_signal}
 % CLAIMS THIS SECTION MUST SUPPORT:
-%  (a) No signal-domain measure predicts what the listener recovered: SI-SDR
-%      improved by 1.99 dB while 30 % of trials got WORSE on content, and delta-SDR
-%      explains only ~4 % of the variance in content outcome.
+%  (a) Per trial (validation, one Gemini run, experiments/results/2026-10-27-per-trial-agreement):
+%      SDR gain vs fall in Gemini word error r = 0.28 baseline, 0.49 extension, 0.55 WeSep
+%      (r^2 = 0.08 / 0.24 / 0.31). SDR rose but Gemini got worse on 30 % / 14 % / 12 % of trials.
+%      Whisper vs Gemini per clip r = 0.75 over all clips (0.81 / 0.86 / 0.50 per system).
+%      Old 1.99 dB / 30 % / ~4 % figures came from an earlier model and Whisper small.en: do not reuse.
 %  (b) SAR is the single column the baseline wins, and it is the one that says
 %      why: WeSep removes 7.1 dB more interferer and pays for it in artefact.
 %  (c) NEVER quote delta-SAR. The floor's +30 dB is an artefact of the cap, not a
 %      measurement, so any improvement against it is meaningless. Absolute SAR
 %      of +10.34 dB means roughly 9 % of the output energy was invented.
-\subsection{Conventional metrics}
-\label{sec:results_signal}
 The three kinds of separation considered in this project are the target from the background noise (distortion), interference from other speakers and finally from artefacts introduced by the extractor system. The signal-domain separation results are shown in \autoref{tab:conventional}. These metrics highlight what the extractor system is doing in the signal domain and can best be used to understand the trade-offs between the different types of separation. A note about the values in the table: SAR for the floor and ceiling are both at +30 dB, since these systems do not contain a model there can be no artefacts introduced. 
 \begin{table}[htbp]
 \centering
@@ -152,13 +37,108 @@ Ceiling   & $+30.00$ & $+30.00$ & $+30.00$ & 3.550 & 4.175 & 3.592 & 3.429 \\
 \bottomrule
 \end{tabular}
 \end{table}
+% Per-trial agreement figure (does SDR going up mean Gemini did better?). Drawn by Claude Code from the author's specification:
+%   env -u GEMINI_API_KEY ../tse_venv/bin/python scripts/plot_per_trial_agreement.py --out report/figures/per_trial_agreement.pdf
+% Gemini: mean of repeats 0-2 per trial from the judge cache (gemini-3.7-flash, AI Studio, audio in / text out, prompt d118b7d3bf30);
+% SDR as in evaluate.py. Per-trial data (Whisper too, not drawn): experiments/results/2026-10-27-per-trial-agreement/.
+\begin{figure}[htbp]
+\centering
+\includegraphics{figures/per_trial_agreement.pdf}
+\caption{Of the 103 two-speaker validation trials, those on which each extractor raised SDR above the unprocessed mixture (count in brackets), split by whether Gemini's word error on that trial then fell, stayed the same or rose, and by whether the target was quieter (SIR below 0\,dB) or louder than the other speaker. Each trial's word error is the mean of Gemini's three runs, and the numbers on the bars are trial counts.}
+\label{fig:per_trial}
+\end{figure}
 The extension has significantly improved the SIR metric over the baseline, and is comparable to the WeSep model. The gap in performance between the extension and WeSep therefore seems to lie in the SAR and SDR metrics. Therefore when considering how to improve the extension, the next iteration should potentially target mechanisms that reduce the artefacts introduced by the extractor system as artefacts are hypothesised to increase the fabrication rate. The baseline has the highest model SAR metric. This should not be attributed to the model being better at reducing artefacts, but rather due to the simplistic nature of the model design. The baseline model is not as aggressive in masking out the interfering speaker's content, and therefore does not introduce as many artefacts into the output. 
 
 Considering P.808 in isolation, the extension has a comparable overall quality score to WeSep. By the one perceptual quality metric the extension produces audio that is as pleasing to a human listener (by the P.808 model standards) as the WeSep model. When considering the other three metrics, the WeSep model has a better SIG and OVRL score than the extension. The extension scores lower than the floor for both the SIG and OVRL metrics, and yet as seen in the content fidelity results, the extension has improved the content fidelity over the floor by a significant margin. This demonstrates that the perceptual quality metrics are not good indicators for the purposes of this research project. The metric in itself is subjective to the actual perceptual system and does not provide indication that what sounds good to a human listener is necessarily better for the content fidelity of the target speaker's audio.
 
 
-\subsection{Latency and throughput}
+% TODO (author): add Whisper's word error (large-v3-turbo) and Gemini's LCF-WER as columns of tab:conventional.
+%   Whisper: no processing 63.04, baseline 48.92, extension 41.01, WeSep 29.13, target alone 1.98 (experiments/results/2026-09-28-eval-asr-turbo-*, 2026-10-09-eval-asr-turbo-baseline-matched-e11).
+% TODO (author): answer RQ1 in plain words (across systems, and per trial from fig:per_trial).
+
+\FloatBarrier
+\subsection{RQ2: Leaked and invented words}
+\label{sec:results_rq2}
+\label{sec:results_metric}
+The live judge results are shown in \autoref{tab:content_judge}. These results are most indicative of the overall performance of the extractor system as the live judge is the end user of the extraction process.
+\begin{table}[htbp]
+\centering
+\caption{Content recovered by Gemini. \texttt{gemini-3.7-flash}, audio in and text out. Each value is the average of 3 runs on the same 103 trials, and $\pm$ is the standard deviation of those three run scores. 95\,\% CI is the range for the 3-run LCF-WER in percentage points, redrawing whole speakers (\autoref{sec:uncertainty}). Lower is better in every column.}
+\label{tab:content_judge}
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+ & LCF-WER \lowerbetter & 95\,\% CI & ICR@2 \lowerbetter & mean leak \lowerbetter & invented \lowerbetter & FR@2 \lowerbetter \\
+system & (\%) &  & (\%) & (\%) & /trial & (\%) \\
+\midrule
+Floor  & 62.94\,$\pm$\,0.37 & [56.02, 70.18] & 75.73\,$\pm$\,0.00 & 63.90\,$\pm$\,0.65 & 1.27\,$\pm$\,0.03 & 30.7\,$\pm$\,3.1 \\
+Baseline & 53.26\,$\pm$\,1.82 & [46.23, 60.35] & 58.58\,$\pm$\,2.02 & 42.20\,$\pm$\,0.87 & 2.52\,$\pm$\,0.20 & 49.8\,$\pm$\,1.5 \\
+Extension & 39.59\,$\pm$\,0.34 & [33.35, 45.92] & 33.66\,$\pm$\,2.02 & 23.08\,$\pm$\,0.97 & 2.20\,$\pm$\,0.11 & 46.9\,$\pm$\,2.0 \\
+WeSep & \textbf{25.80}\,$\pm$\,0.56 & [20.71, 31.14] & \textbf{25.24}\,$\pm$\,0.97 & \textbf{13.04}\,$\pm$\,0.32 & \textbf{1.80}\,$\pm$\,0.02 & \textbf{38.6}\,$\pm$\,2.3 \\
+Ceiling & 1.19\,$\pm$\,0.18 & [0.80, 1.60] & 0.00\,$\pm$\,0.00 & 0.00\,$\pm$\,0.00 & 0.22\,$\pm$\,0.03 & 0.3\,$\pm$\,0.6 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+ The baseline improves the LCF-WER by 9.68 points, which is a 15.4\,\% relative improvement over the floor. There is a decisive improvement however in the baseline model's performance over the floor with regard to including an interfering speaker's content, as the average percentage of interfering words included in the output is 17.15 points lower than the floor. This came at a trade-off with the number of hallucinated words. The baseline system subsequently has fabricated/invented more words on average per trial as seen in the table. Finally, the baseline system also more frequently fabricates, as indicated by FR@2. Therefore, both the frequency and quantity of fabrication have increased over passing the audio unprocessed. 
+
+The extension has both reduced the share of leaked words per trial and the frequency of leakage by substantial amounts. Unlike the leakage, the extension did not drastically invent less words per trial, with only a slight improvement from 2.52 to 2.20 words per trial. However, both baseline and the extension invent well above the floor which is at 1.27 words invented per trial.
+
+The distinction between \autoref{sec:icr} and \autoref{sec:fr} matters when investigating the insertion and substitution error of the LCF-WER metric. With Gemini as the listener, the fabrication and leakage error trade against each other. Two fine tunes were run on the extension where 6 additional epochs were trained. As shown in \autoref{fig:tradeoff}, the interferer weighted fine tune shows the clear reduction in how much the interferer speaker's content is leaked into the output, but at the expense of more invented words (as more artefacts are introduced hence more hallucination). This is shown by the mean percentage of the interferer words leaked into the output improving by 3.26 percentage points, but the number of invented words increasing. The artefact weighted fine tune shows the opposite situation with a heavy increase in leaked words but slight reduction in invented words. Each error has a different cause and solution, and thus should be treated separately, which would be hidden by the LCF-WER metric alone. 
+
+% Leak-versus-invention map, replacing the fine-tune table. Drawn by Claude Code from the author's specification:
+%   ../tse_venv/bin/python scripts/plot_tradeoff_map.py --out report/figures/tradeoff_map.pdf
+% Judge gemini-3.7-flash, AI Studio, audio in / text out, prompt d118b7d3bf30, sir0_val both (n = 103).
+% Run dates: anchors 2026-09-02 and 2026-09-27 (x2); baseline e11 2026-10-09 (x3); extension e21 2026-09-25, 2026-09-26 (x2);
+% WeSep 2026-09-03 and 2026-09-27 (x2); e27 2026-09-25; fine-tunes 2026-10-03.
+% Paired changes vs the control fine-tune, 95 % CI (experiments/results/2026-10-03-bootstrap-interf-ft/report_2x2_2026-10-03.txt):
+%   leak weight: leaked -3.26 [-6.59, -0.03] pp, invented +0.72 [+0.27, +1.21], LCF-WER +0.47 [-3.20, +4.15]
+%   artefact weight: leaked +14.66 [+9.09, +20.52] pp, invented -0.20 [-0.65, +0.25], LCF-WER +9.34 [+3.65, +15.37]
+\begin{figure}[htbp]
+\centering
+\includegraphics{figures/tradeoff_map.pdf}
+\caption{Leaked against invented words on the 103 two-speaker validation trials, where lower-left is better. Diamonds are models, squares are reference points, and brackets give the LCF-WER (\%). (a) Mean of three Gemini runs, with $\pm 1$ SD bars. (b) The extension's epochs and its fine-tunes from epoch 21, each judged once except epoch 21.}
+\label{fig:tradeoff}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Gemini's response in each trial case of \autoref{sec:trial_construction}. Cases 1 and 2, where the target spoke, report LCF-WER. Case 3, where only the other speaker spoke, reports the words Gemini output per trial, where 0 is correct, and how many outputs were silenced. Case 4 (noise only, $n = 8$) is omitted where no system produced a word, and every output was below the speech gate.}
+\label{tab:content_cases}
+\small
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+ & Case 1: both & Case 2: target only & \multicolumn{2}{c}{Case 3: other speaker only} \\
+\cmidrule(lr){2-2}\cmidrule(lr){3-3}\cmidrule(lr){4-5}
+ & LCF-WER \lowerbetter & LCF-WER \lowerbetter & words/trial \lowerbetter & silenced \higherbetter \\
+system & (\%, $n = 103$) & (\%, $n = 47$) & ($n = 42$) & (of 42) \\
+\midrule
+Floor     & 62.94 & 1.65 & 30.69 & 0 \\
+Baseline  & 53.26 & 2.48 & 24.12 & 8 \\
+Extension & 39.59 & \textbf{3.56} & \textbf{16.50} & \textbf{18} \\
+WeSep     & \textbf{25.80} & 5.40 & 17.95 & 7 \\
+Ceiling   & 1.19  & 1.46 & ---   & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\autoref{tab:content_cases} highlights where the extension shines. For the cases where the extractor needs to either suppress only background noise surrounding a target or only interfering speech, the extension performs better than WeSep. Secondly, if the extractor needs to suppress background noise such that a voice activity detector (VAD) does not detect any speech, the extension is able to do this more often than WeSep getting 18 noisy clips suppressed as compared against WeSep's 7. The improvement in the extension's performance can be attributed to the diversity of training examples that include those specific cases. Interestingly, all the models perform worse on the target-only case than just leaving the target unprocessed. This is likely due to the robustness of Gemini to background noise, leaving the extractor model to introduce artefacts that are misinterpreted by Gemini. Overall, the extension has shown improvement over WeSep in different acoustic scenarios, although it still falls short when considering pure speech extraction with multiple speakers. 
+
+% TODO (author): answer RQ2 in plain words.
+
+\FloatBarrier
+\subsection{RQ3: Voice information in real time}
+\label{sec:results_rq3}
 \label{sec:results_latency}
+The baseline system is a clear improvement over the floor, which is indicative that the extractor has begun to find a signal in the mixture that is associated with the target speaker. For the extension, the inclusion of the pretrained ECAPA speaker encoder and passing the enrollment audio in parts instead of a single embedding has markedly improved the performance of the extractor. The LCF-WER has improved by 13.67 points over the baseline, which is a 25.7\,\% relative improvement.
+% TODO (author) numbers for RQ3:
+%   test set (n = 248): baseline 48.46, extension 41.81; extension - baseline -6.65 [-10.66, -3.18] (experiments/results/2026-10-27-test-set-paired-ci).
+%   same epoch (13), validation, one run each: baseline 58.47, extension 42.93.
+%   ablation (validation, earlier protocol): cue split only 45.23 = cue split + ECAPA 45.23 (experiments/results/2026-09-27-arms-vs-baseline);
+%   ECAPA on 1,079 unseen crops: same-gender voice picking -1.6 pp [-3.4, +0.2] (experiments/results/2026-10-02-cue-directional-privval-1a-vs-1c).
+%   voice picking, different / same gender: extension 89.7 / 72.4 %; earlier baseline checkpoint 71.8 / 52.6 %.
+%   computation per 80 ms chunk: baseline 55.4 ms, extension 55.0 ms.
 
 % Delay figure, replacing the latency table. Drawn by Claude Code from the author's specification:
 %   ../tse_venv/bin/python scripts/plot_latency.py --out report/figures/latency.pdf
@@ -173,3 +153,47 @@ Considering P.808 in isolation, the extension has a comparable overall quality s
 
 The latency and throughput results are shown in \autoref{fig:latency}. The baseline and the extension are able to meet the real-time factor and latency requirements for a live system. The WeSep model is not able to meet the requirements and therefore cannot be used in a live system. Furthermore, the extension did not miss any chunks and the worst case delay was 196 milliseconds, which is below the 200--300 millisecond requirement. 
 
+% TODO (author): answer RQ3 in plain words.
+
+\FloatBarrier
+\subsection{Unseen and real recordings}
+\label{sec:results_transfer}
+\label{sec:results_ami}
+% Three-set comparison. Drawn by Claude Code from the author's specification:
+%   ../tse_venv/bin/python scripts/plot_set_comparison.py --out report/figures/set_comparison.pdf
+% Judge gemini-3.7-flash, AI Studio, audio in / text out, prompt d118b7d3bf30.
+% Validation: 3-run means, run dates as in fig:tradeoff, CIs experiments/results/2026-10-07-ci-clustered.
+% Test: eval_private both, n = 248 (trial 000372 removed for every system), one run 2026-10-08; matched baseline e11 one run 2026-10-27. AMI: n = 300, one run 2026-10-06; matched baseline e11 one run 2026-10-27.
+% Test CIs: experiments/results/2026-10-27-test-set-paired-ci/ci.json. AMI CIs: experiments/results/2026-10-27-ami-paired-ci/ci.json.
+\begin{figure}[htbp]
+\centering
+\includegraphics{figures/set_comparison.pdf}
+\caption{Gemini's LCF-WER for each system on the three evaluation sets, where lower is better. Bars are 95\,\% intervals that redraw whole speakers, or whole meetings for AMI. Validation points are the mean of three runs and the others are one run. On AMI the reference is the target's own headset, which also picks up the other speaker.}
+\label{fig:sets}
+\end{figure}
+\autoref{tab:ami_results} shows Gemini's results on the AMI meeting recordings of \autoref{app:ami}, and \autoref{fig:sets} compares the LCF-WER on the validation, test and AMI sets. The conclusion is the same as for the simulated data: the extension improves the LCF-WER over doing nothing, although the offline WeSep system performs better for the strict extraction task. WeSep has the lowest LCF-WER (80.56\,\%), followed by the extension (91.26\,\%) and then no processing (115.51\,\%). A demonstration of how the model distorts the speech can be seen by the target words missed metric, where Gemini is able by itself without any processing to only miss 3.46\,\% of the target words, but even with WeSep, Gemini misses 27.71\,\% of the target words. This indicates how the extractor degrades the target speech at the cost of removing the background interfering speech. This is due to the artefacts introduced by the extractor, as seen in the increase in invented words per trial (1.48 to 1.83) and rate of fabrication (38.33\,\% to 49.46\,\%) for the extension. 
+% AMI table: baseline e11 from experiments/results/2026-10-27-eval-ami-baseline-matched-e11-judge-retry (run 2026-10-27); the others from experiments/results/2026-10-06-ami-summary (run 2026-10-06).
+\begin{table}[htbp]
+\centering
+\caption{Content recovered by Gemini on 300 real two-speaker stretches of AMI meeting recordings (\autoref{app:ami}). Lower is better in every column.}
+\label{tab:ami_results}
+\small
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+ & No processing & Baseline & Extension & WeSep & Target's headset \\
+\midrule
+target words missed (\%) \lowerbetter & 3.46 & \textbf{27.33} & 45.25 & 27.71 & 2.31 \\
+ICR@2 (\%) \lowerbetter            & 89.14 & 44.19 & 33.71 & \textbf{27.72} & 58.80 \\
+mean leak (\%) \lowerbetter        & 82.80 & 31.63 & 25.19 & \textbf{19.64} & 51.96 \\
+invented /trial \lowerbetter       & 1.48  & 3.35 & \textbf{1.83} & 2.65 & 1.13 \\
+FR@2 (\%) \lowerbetter             & 38.33 & 65.38 & \textbf{49.46} & 64.17 & 30.10 \\
+silenced (of 300) \lowerbetter     & 0 & 58 & 110 & \textbf{38} & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% TODO (author): test-set paragraph. Paired differences, n = 248 (experiments/results/2026-10-27-test-set-paired-ci/report.txt):
+%   extension - no processing -10.24 [-18.06, -3.43]; baseline - no processing -3.59 [-9.33, +1.97] (inside the noise);
+%   extension - baseline -6.65 [-10.66, -3.18]; WeSep - extension -7.73 [-12.02, -3.48].
+
+\FloatBarrier
