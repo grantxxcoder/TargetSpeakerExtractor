@@ -6,9 +6,9 @@
 \label{sec:transcripts}
 When a system produces output, either the offline or the live model with the prompt of \autoref{app:prompt}, it gives a transcript. The two anchors get transcribed as well to give the untouched mixture and the clean target. Every transcript is scored against the LibriSpeech reference transcript of the target speaker, and the interferer speaker. Before scoring, each transcript is normalised using Whisper's \texttt{EnglishTextNormalizer} \cite{whisper_normalizer,radford2023whisper}. This includes lowercasing, removing punctuation, contractions expanded and numbers written consistently.
 
-\subsubsection{Live-model Content Fidelity Word Error Rate}
+\subsubsection{Listener Content Fidelity Word Error Rate}
 \label{sec:lcfwer}
-The Live-model Content Fidelity Word Error Rate (LCF-WER) a word error rate applied to a live-model transcription of the audio. The equation is as follows:
+The Listener Content Fidelity Word Error Rate (LCF-WER) a word error rate applied to a live-model transcription of the audio. The equation is as follows:
 \begin{equation}
     \textup{WER} = \frac{S + D + I}{N}
 \end{equation}
@@ -17,7 +17,7 @@ where $S$ is the number of substitutions, $D$ is the number of deletions, $I$ is
 
 \subsubsection{Interferer Content Rate}
 \label{sec:icr}
-The Interferer Content Rate (ICR) is the first metric used to highlight one particular nuance of the LCF-WER metric: when the live model transcribes a word that the target never said, that word was either invented by the model or heard from the interfering speaker. The Interferer Content Rate (ICR) measures the second case [\ref{ai:metrics}].
+The Interferer Content Rate (ICR) is the first metric used to highlight one particular nuance of the LCF-WER metric: when the live model transcribes a word that the target never said, that word was either invented by the model or heard from the interfering speaker. The Interferer Content Rate (ICR) measures the second case (\ref{ai:metrics}).
 
 \paragraph{Content Words.} The ICR metric needs to identify which words are likely to be words that are not filler words that a model can easily hallucinate. Firstly, the words that are not considered content words are removed from consideration using a stopword list, taken from the NLTK English stopword corpus \cite{bird2009nltk}. Function words are removed because almost any two English sentences share them, so an overlap counted over these words would rather count as grammatical issues than content. These content words will be used to make an interferer-exclusive bag of words, which indicates which words the model picks up from the interfering speaker. Specifically, a content word is \emph{available to leak} on trial $i$ if the interfering speaker said it and the target did not. Each word is counted once per trial: $a_i$ is the number of words available to leak on trial $i$, and $\ell_i$ the number of those that leaked.
 
@@ -46,7 +46,7 @@ Over the set $\mathcal{T}$ of trials with a non-empty response, the statistic is
     \textup{FR}_{\textup{count}} = \frac{1}{|\mathcal{T}|} \sum_{i \in \mathcal{T}} \big| \mathcal{I}_i \big|,
     \label{eq:frcount}
 \end{equation}
-where $\mathcal{I}_i$ is the set of words in the $i$-th trial's output that are not present in either the target or interferer [\ref{ai:metrics}]. A rate of fabrication is also defined by whether a trial contains at least $k$ invented words as defined in Equation~\ref{eq:frk}.  
+where $\mathcal{I}_i$ is the set of words in the $i$-th trial's output that are not present in either the target or interferer (\ref{ai:metrics}). A rate of fabrication is also defined by whether a trial contains at least $k$ invented words as defined in Equation~\ref{eq:frk}.  
 \begin{equation}
     \textup{FR}@k = \frac{1}{|\mathcal{T}|} \sum_{i \in \mathcal{T}} \mathbb{1}\! \left[\, \big| \mathcal{I}_i \big| \ge k \,\right],
     \qquad k = 2 \text{ chosen in this work.}

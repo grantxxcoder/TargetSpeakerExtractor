@@ -78,7 +78,6 @@
   pages   = {8--29},
   year    = {2023},
   doi     = {10.1109/MSP.2023.3240008},
-  note    = {Also arXiv:2301.13341}
 }
 
 % Coined "the cocktail party problem". Verified on Crossref 2026-09-28.
@@ -146,7 +145,6 @@
                Aggregation in {TDNN} Based Speaker Verification},
   booktitle = {Proc. Interspeech 2020},
   year      = {2020},
-  note      = {Also arXiv:2005.07143}
 }
 
 % The implementation the pretrained ECAPA checkpoint is loaded through
@@ -165,7 +163,6 @@
                Negative Audio Enrollments},
   booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
   year      = {2025},
-  note      = {Also arXiv:2502.16611}
 }
 
 % TODO shen2025lext: volume and pages -- not on the arXiv page; take them from
@@ -176,7 +173,6 @@
   title   = {Listen to Extract: Onset-Prompted Target Speaker Extraction},
   journal = {IEEE Transactions on Audio, Speech and Language Processing},
   year    = {2025},
-  note    = {Also arXiv:2505.05114}
 }
 
 % TODO zhang2025multi: page range -- not listed on OpenAIRE; take it from IEEE Xplore.
@@ -285,8 +281,6 @@
   volume    = {202},
   pages     = {28492--28518},
   year      = {2023},
-  note      = {Also arXiv:2212.04356. The English text normaliser used in this
-               work is defined in Appendix C}
 }
 
 % The implementation actually used, not the reference implementation: a
@@ -322,8 +316,6 @@
                   Generation Models},
   year         = {2024},
   howpublished = {arXiv:2406.02430},
-  note         = {Its Seed-TTS-eval benchmark scores English word error with
-                  Whisper large-v3}
 }
 
 @misc{wang2025solospeech,
@@ -335,7 +327,6 @@
                   Speech Extraction through a Cascaded Generative Pipeline},
   year         = {2025},
   howpublished = {arXiv:2505.19314},
-  note         = {Scores word error with Whisper large-v3-turbo}
 }
 
 % The normaliser is Whisper's, packaged for standalone use. Cite
@@ -346,8 +337,7 @@
   title        = {whisper-normalizer: Standalone text normalisation from
                   {OpenAI} {Whisper}},
   year         = {2026},
-  note         = {Version 0.1.15. Implements the {EnglishTextNormalizer} of
-                  \cite{radford2023whisper}. Accessed: 2026-08-31},
+  note         = {Version 0.1.15. Accessed: 2026-08-31},
   howpublished = {\url{https://pypi.org/project/whisper-normalizer/}}
 }
 
@@ -365,9 +355,6 @@
   title     = {Natural Language Processing with Python},
   publisher = {O'Reilly Media},
   year      = {2009},
-  note      = {The English stopword list is taken from the {NLTK} stopwords
-               corpus and snapshotted into this project's source tree so the
-               list cannot change with a library upgrade}
 }
 
 % ---------------------------------------------------------------------------
@@ -384,9 +371,19 @@
   author       = {{Google DeepMind}},
   title        = {{Gemini} {Live} {API}},
   year         = {2026},
-  note         = {Accessed: 2026-08-31. Exact model identifier to be recorded
-                 with each result},
+  note         = {Accessed: 2026-08-31},
   howpublished = {\url{https://ai.google.dev/gemini-api/docs/live}}
+}
+
+% The judge actually used for every reported result (src/live_model_metric/judge.py).
+% Release date from the Gemini API deprecations page, checked 2026-10-26; that page
+% also states the endpoint now routes requests to gemini-3.8-flash.
+@misc{google2026geminiflash,
+  author       = {{Google DeepMind}},
+  title        = {{Gemini} 3.7 {Flash}},
+  year         = {2026},
+  note         = {Model \texttt{gemini-3.7-flash}. Queried 2026-09-02 to 2026-10-18},
+  howpublished = {\url{https://ai.google.dev/gemini-api/docs/models}}
 }
 
 % ---------------------------------------------------------------------------
@@ -405,7 +402,6 @@
   volume    = {36},
   pages     = {46595--46623},
   year      = {2023},
-  note      = {Also arXiv:2306.05685}
 }
 
 @inproceedings{yang2024airbench,
@@ -420,7 +416,6 @@
   year      = {2024},
   publisher = {Association for Computational Linguistics},
   doi       = {10.18653/v1/2024.acl-long.109},
-  note      = {Also arXiv:2402.07729}
 }
 
 % Closest prior art to LCF: an audio-in LLM used as the scorer.
@@ -437,7 +432,6 @@
   year      = {2026},
   publisher = {Association for Computational Linguistics},
   doi       = {10.18653/v1/2026.eacl-long.168},
-  note      = {Also arXiv:2507.12705 (2025)}
 }
 
 @misc{foo2026glitters,
@@ -474,7 +468,6 @@
   year      = {2024},
   publisher = {ACM},
   doi       = {10.1145/3630106.3658996},
-  note      = {Also arXiv:2402.08021}
 }
 
 % A low WER can hide hallucinated text.
@@ -489,7 +482,6 @@
   year      = {2025},
   publisher = {Association for Computational Linguistics},
   doi       = {10.18653/v1/2025.findings-acl.1190},
-  note      = {Also arXiv:2502.12414}
 }
 
 % Technical report. MetricGAN+ denoising raised semantic WER for Whisper,
@@ -526,7 +518,6 @@
   pages     = {146--150},
   year      = {2021},
   doi       = {10.1109/WASPAA52581.2021.9632720},
-  note      = {Also arXiv:2110.14139}
 }
 
 % Origin of WSJ0-2mix: two WSJ0 utterances summed digitally, no noise or reverb.
@@ -642,8 +633,6 @@
   number  = {4},
   pages   = {1462--1469},
   year    = {2006},
-  note    = {Source of the decomposition into interference and artefact ratios
-             ({SIR} and {SAR})}
 }
 
 % The two ITU-T listening-test protocols. These are the HUMAN test procedures;
@@ -660,9 +649,6 @@
   address     = {Geneva},
   year        = {2003},
   month       = nov,
-  note        = {Rates the same clip three times on separate axes ({SIG},
-                 {BAK}, {OVRL}) so a system cannot hide noise by damaging
-                 speech. Approved 11/2003 and not revised since}
 }
 
 @techreport{itu2018p808,
@@ -675,9 +661,6 @@
   address     = {Geneva},
   year        = {2018},
   month       = jun,
-  note        = {One overall rating per clip. A separate protocol from
-                 {P.835}, not a summary of it. Revised 06/2021; the 2018
-                 text is the one the {DNSMOS} papers follow}
 }
 
 @inproceedings{reddy2021dnsmos,
@@ -698,8 +681,6 @@
                Speech and Signal Processing ({ICASSP})},
   pages     = {886--890},
   year      = {2022},
-  note      = {Returns {SIG}, {BAK} and {OVRL} separately, per {ITU-T} {P.835}.
-               {OVRL} is the score the {REAL-TSE} Challenge saw over-optimised}
 }
 
 % Authors and venue verified 2026-09-29 (arXiv API + Crossref). Whisper large-v3
@@ -715,10 +696,6 @@
   pages     = {1--5},
   year      = {2025},
   doi       = {10.1109/ICASSP49660.2025.10890105},
-  note      = {Evaluates {VAD} gating against confidence thresholding and
-               pattern matching; finds both give meaningful reductions and
-               that no single method eliminates the problem. Also
-               arXiv:2501.11378}
 }
 
 % ---------------------------------------------------------------------------
@@ -740,9 +717,6 @@
   pages     = {28--39},
   year      = {2005},
   publisher = {Springer},
-  note      = {Workshop held 2005; Springer proceedings dated 2006.
-               Licensed {CC BY 4.0}. Source of the secondary real-audio
-               transfer set}
 }
 
 % Trial cutting for the AMI set is borrowed from here; differences (two
@@ -767,8 +741,6 @@
   booktitle = {Proceedings of Interspeech},
   pages     = {1368--1372},
   year      = {2019},
-  note      = {Licensed {CC BY-NC 4.0}, which is the binding constraint on
-               redistribution of every constructed mixture}
 }
 
 @misc{cosentino2020librimix,
@@ -778,8 +750,6 @@
                   Separation},
   howpublished = {arXiv:2005.11262},
   year         = {2020},
-  note         = {Reference only, never run here. Cited for its level-setting
-                  convention, which this project follows}
 }
 
 @inproceedings{scheibler2018pyroomacoustics,
@@ -790,8 +760,7 @@
                Speech and Signal Processing ({ICASSP})},
   pages     = {351--355},
   year      = {2018},
-  note      = {Version 0.10.1. Shoebox room impulse responses by the
-               image-source method, with a Sabine {T60} feasibility check}
+  note         = {Version 0.10.1}
 }
 
 @misc{silero2021vad,
@@ -800,8 +769,7 @@
                   Detector},
   howpublished = {\url{https://github.com/snakers4/silero-vad}},
   year         = {2021},
-  note         = {Version 6.2.1, used unmodified. Defines what counts as speech
-                  for both the corpus index and the evaluation speech gate}
+  note         = {Version 6.2.1}
 }
 
 @techreport{itu2015bs1770,
@@ -813,8 +781,6 @@
   number      = {BS.1770-4},
   address     = {Geneva},
   year        = {2015},
-  note        = {Integrated loudness, as implemented by \texttt{pyloudnorm}
-                 0.2.0. All trial levels are set in these units}
 }
 
 % TODO: the 31 May 2026 registration deadline is a challenge-website fact, not
@@ -838,10 +804,6 @@
   address   = {South Brisbane, QLD, Australia},
   publisher = {{IEEE}},
   doi       = {10.1109/ICASSP.2015.7178964},
-  note      = {Source of every mixture in this work and of the starred
-               references $y^\star$. Chosen because it supplies both a clean
-               per-speaker signal and exact ground-truth text, neither of which
-               real conversational corpora provide}
 }
 
 @book{sabine1922,
@@ -956,7 +918,6 @@
   volume    = {27},
   pages     = {3581--3589},
   year      = {2014},
-  note      = {Also arXiv:1406.5298}
 }
 
 @inproceedings{maddison2017concrete,

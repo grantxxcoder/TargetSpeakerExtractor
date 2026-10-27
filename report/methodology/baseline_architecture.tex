@@ -1,7 +1,6 @@
 \subsection{Baseline model architecture}
 \label{sec:architecture}
 The baseline architecture section describes the architecture that was used as a backbone in the REAL-TSE baseline \cite{wang2026realtse}. The architecture in this work is built from scratch, but the design is that of the baseline.
-\input{figures/baseline_architecture}
 \subsubsection{Band-split Recurrent Neural Network (BSRNN)}
 \label{sec:bsrnn}
 Luo and Yu \cite{luo2023music} propose the BSRNN model as a frequency-domain separation model that is designed for high sample rate audio. The implemented BSRNN is adapted to speech with a Time-Frequency Map enrollment conditioning module \cite{zhang2025multi} to turn it into a target speaker extraction model.
@@ -19,16 +18,8 @@ X(f, t) = \sum_{n=0}^{N-1} x[tH + n]\,h[n]\,e^{-\mathrm{j}2\pi fn/N},
 
 \subsubsection{Band plan}
 \label{sec:bandplan}
- Figure~\ref{fig:bandplan} shows the band plan against a real mixture in the training set. The band plan in this work follows the implementation from Zhang et al.\ \cite{zhang2025multi} for their \SI{16}{\kHz} target speaker extraction model and used by the challenge baseline built on it. The split is 257 frequency bins into 32 bands as seen in the figure, but no reason is given in the original paper for these particular boundaries, and no explanation is given in previous papers. More bands are allocated to the lower frequencies as speech is more densely concentrated there and requires more resolution.
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{figures/bandplan-wesep.png}
-\caption{The band plan used here, shown against a four-second mixture from the training set. The right graph shows the width of each band in hertz.}
-\label{fig:bandplan}
-\end{figure}
-
-
+  The band plan in this work follows the implementation from Zhang et al.\ \cite{zhang2025multi} for their \SI{16}{\kHz} target speaker extraction model and used by the challenge baseline built on it. The split is 257 frequency bins into 32 bands as seen in the figure, but no reason is given in the original paper for these particular boundaries, and no explanation is given in previous papers. More bands are allocated to the lower frequencies as speech is more densely concentrated there and requires more resolution.
+  
 \subsubsection{Per-band normalisation}
 \label{sec:subbandnorm}
 

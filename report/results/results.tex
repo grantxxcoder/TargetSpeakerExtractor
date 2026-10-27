@@ -4,25 +4,22 @@
 
 \subsection{Why the metric is needed}
 \label{sec:results_metric}
-The distinction between \autoref{sec:icr} and \autoref{sec:fr} matters when investigating the insertion and substitution error of the LCF-WER metric. With Gemini as the listener, the fabrication and leakage error trade against each other. Two fine tunes were run on the extension where 6 additional epochs were trained. As shown in Table~\ref{tab:metric_evidence}, the interferer weighted fine tune shows the clear reduction in how much the interferer speaker's content is leaked into the output, but at the expense of more invented words (as more artefacts are introduced hence more hallucination). This is shown by the mean percentage of the interferer words leaked into the output improving by 3.26 percentage points, but the number of invented words increasing. The artefact weighted fine tune shows the opposite situation with a heavy increase in leaked words but slight reduction in invented words. Each error has a different cause and solution, and thus should be treated separately, which would be hidden by the LCF-WER metric alone. 
+The distinction between \autoref{sec:icr} and \autoref{sec:fr} matters when investigating the insertion and substitution error of the LCF-WER metric. With Gemini as the listener, the fabrication and leakage error trade against each other. Two fine tunes were run on the extension where 6 additional epochs were trained. As shown in \autoref{fig:tradeoff}, the interferer weighted fine tune shows the clear reduction in how much the interferer speaker's content is leaked into the output, but at the expense of more invented words (as more artefacts are introduced hence more hallucination). This is shown by the mean percentage of the interferer words leaked into the output improving by 3.26 percentage points, but the number of invented words increasing. The artefact weighted fine tune shows the opposite situation with a heavy increase in leaked words but slight reduction in invented words. Each error has a different cause and solution, and thus should be treated separately, which would be hidden by the LCF-WER metric alone. 
 
-\begin{table}[htbp]
+% Leak-versus-invention map, replacing the fine-tune table. Drawn by Claude Code from the author's specification:
+%   ../tse_venv/bin/python scripts/plot_tradeoff_map.py --out report/figures/tradeoff_map.pdf
+% Judge gemini-3.7-flash, AI Studio, audio in / text out, prompt d118b7d3bf30, sir0_val both (n = 103).
+% Run dates: anchors 2026-09-02 and 2026-09-27 (x2); baseline e11 2026-10-09 (x3); extension e21 2026-09-25, 2026-09-26 (x2);
+% WeSep 2026-09-03 and 2026-09-27 (x2); e27 2026-09-25; fine-tunes 2026-10-03.
+% Paired changes vs the control fine-tune, 95 % CI (experiments/results/2026-10-03-bootstrap-interf-ft/report_2x2_2026-10-03.txt):
+%   leak weight: leaked -3.26 [-6.59, -0.03] pp, invented +0.72 [+0.27, +1.21], LCF-WER +0.47 [-3.20, +4.15]
+%   artefact weight: leaked +14.66 [+9.09, +20.52] pp, invented -0.20 [-0.65, +0.25], LCF-WER +9.34 [+3.65, +15.37]
+\begin{figure}[htbp]
 \centering
-\caption{Effect of weighting one source of error during fine-tuning, with Gemini as the listener. Lower is better in every row. Negative values are improvements.}
-\label{tab:metric_evidence}
-\small
-\begin{tabular}{@{}lrcrc@{}}
-\toprule
-& \multicolumn{2}{c}{Leak weight} & \multicolumn{2}{c}{Artefact weight} \\
-\cmidrule(lr){2-3}\cmidrule(lr){4-5}
-& change & 95\,\% CI & change & 95\,\% CI \\
-\midrule
-LCF-WER \lowerbetter          & $+0.47$  & $[-3.20,\,+4.15]$ & $+9.34$  & $[+3.65,\,+15.37]$ \\
-mean leak  \lowerbetter        & $-3.26$  & $[-6.59,\,-0.03]$ & $+14.66$ & $[+9.09,\,+20.52]$ \\
-invented words per trial \lowerbetter & $+0.72$ & $[+0.27,\,+1.21]$ & $-0.20$ & $[-0.65,\,+0.25]$ \\
-\bottomrule
-\end{tabular}
-\end{table}
+\includegraphics{figures/tradeoff_map.pdf}
+\caption{Leaked against invented words on the 103 two-speaker validation trials, where lower-left is better. Diamonds are models, squares are reference points, and brackets give the LCF-WER (\%). (a) Mean of three Gemini runs, with $\pm 1$ SD bars. (b) The extension's epochs and its fine-tunes from epoch 21, each judged once except epoch 21.}
+\label{fig:tradeoff}
+\end{figure}
 
 
 \subsection{Content fidelity}
@@ -91,7 +88,19 @@ Table \ref{tab:content_cases} highlights where the extension shines. For the cas
 
 \subsubsection{Real recordings}
 \label{sec:results_ami}
-\autoref{tab:ami_results} shows Gemini's results on the AMI meeting recordings of \autoref{app:ami}. The conclusion is the same as for the simulated data: the extension improves the LCF-WER over doing nothing, although the offline WeSep system performs better for the strict extraction task. WeSep has the lowest LCF-WER (80.56\,\%), followed by the extension (91.26\,\%) and then no processing (115.51\,\%). A demonstration of how the model distorts the speech can be seen by the target words missed metric, where Gemini is able by itself without any processing to only miss 3.46\,\% of the target words, but even with WeSep, Gemini misses 27.71\,\% of the target words. This indicates how the extractor degrades the target speech at the cost of removing the background interfering speech. This is due to the artefacts introduced by the extractor, as seen in the increase in invented words per trial (1.48 to 1.83) and rate of fabrication (38.33\,\% to 49.46\,\%) for the extension. 
+% Three-set comparison. Drawn by Claude Code from the author's specification:
+%   ../tse_venv/bin/python scripts/plot_set_comparison.py --out report/figures/set_comparison.pdf
+% Judge gemini-3.7-flash, AI Studio, audio in / text out, prompt d118b7d3bf30.
+% Validation: 3-run means, run dates as in fig:tradeoff, CIs experiments/results/2026-10-07-ci-clustered.
+% Test: eval_private both, n = 248 (trial 000372 removed for every system), one run 2026-10-08. AMI: n = 300, one run 2026-10-06.
+% Test and AMI CIs: experiments/results/2026-10-12-ami-ft-final/paired_ci.json. The matched baseline was not scored on test or AMI.
+\begin{figure}[htbp]
+\centering
+\includegraphics{figures/set_comparison.pdf}
+\caption{Gemini's LCF-WER for each system on the three evaluation sets, where lower is better. Bars are 95\,\% intervals that redraw whole speakers, or whole meetings for AMI. Validation points are the mean of three runs and the others are one run. On AMI the reference is the target's own headset, which also picks up the other speaker.}
+\label{fig:sets}
+\end{figure}
+\autoref{tab:ami_results} shows Gemini's results on the AMI meeting recordings of \autoref{app:ami}, and \autoref{fig:sets} compares the LCF-WER on the validation, test and AMI sets. The conclusion is the same as for the simulated data: the extension improves the LCF-WER over doing nothing, although the offline WeSep system performs better for the strict extraction task. WeSep has the lowest LCF-WER (80.56\,\%), followed by the extension (91.26\,\%) and then no processing (115.51\,\%). A demonstration of how the model distorts the speech can be seen by the target words missed metric, where Gemini is able by itself without any processing to only miss 3.46\,\% of the target words, but even with WeSep, Gemini misses 27.71\,\% of the target words. This indicates how the extractor degrades the target speech at the cost of removing the background interfering speech. This is due to the artefacts introduced by the extractor, as seen in the increase in invented words per trial (1.48 to 1.83) and rate of fabrication (38.33\,\% to 49.46\,\%) for the extension. 
 \begin{table}[htbp]
 \centering
 \caption{Content recovered by Gemini on 300 real two-speaker stretches of AMI meeting recordings (\autoref{app:ami}). Lower is better in every column.}
@@ -101,8 +110,6 @@ Table \ref{tab:content_cases} highlights where the extension shines. For the cas
 \toprule
  & No processing & Extension & WeSep & Target's headset \\
 \midrule
-LCF-WER (\%) \lowerbetter          & 115.51 & 91.26 & \textbf{80.56} & 72.53 \\
-\quad 95\,\% CI               & [103.95, 128.89] & [84.29, 98.87] & [73.49, 88.32] & [62.52, 83.72] \\
 target words missed (\%) \lowerbetter & 3.46 & 45.25 & \textbf{27.71} & 2.31 \\
 ICR@2 (\%) \lowerbetter            & 89.14 & 33.71 & \textbf{27.72} & 58.80 \\
 mean leak (\%) \lowerbetter        & 82.80 & 25.19 & \textbf{19.64} & 51.96 \\
@@ -153,23 +160,16 @@ Considering P.808 in isolation, the extension has a comparable overall quality s
 \subsection{Latency and throughput}
 \label{sec:results_latency}
 
-\begin{table}[htbp]
+% Delay figure, replacing the latency table. Drawn by Claude Code from the author's specification:
+%   ../tse_venv/bin/python scripts/plot_latency.py --out report/figures/latency.pdf
+% Timing runs: experiments/results/2026-09-28-rtf-idle-{baseline,e21}-r{1,2,3} (median of three), 2026-09-03-rtf-wesep-cpu (one run).
+% The baseline runs timed checkpoint 10000-e6, the same architecture and parameter count (7,189,644) as the matched baseline e11.
+\begin{figure}[htbp]
 \centering
-\caption{Baseline and extension figures are the median of three runs each, alternated in one session on an otherwise idle machine, with the range in brackets. The requirement is $\textup{RTF} < 1$ \emph{and} latency within \SI{200}{}--\SI{300}{\milli\second}. The first is the binding constraint, because a chunk that finishes inside its own duration meets the latency budget automatically.}
-\label{tab:latency}
-\small
-\begin{tabular}{@{}lccccc@{}}
-\toprule
- & \multicolumn{2}{c}{RTF \lowerbetter} & \multicolumn{2}{c}{latency (\si{\milli\second}) \lowerbetter} & meets \\
-\cmidrule(lr){2-3}\cmidrule(lr){4-5}
-system & mean & p99 & mean & p99 & budget \\
-\midrule
-Baseline      & 0.69 (0.66--0.70) & 0.79 (0.79--0.86) & 175 (173--176) & 183 (183--189) & yes \\
-Extension & 0.69 (0.68--0.71) & 0.78 (0.77--0.82) & 175 (175--177) & 182 (182--185) & yes \\
-WeSep & 2.854 & 5.300 & 348.3 & 544.0 & no \\
-\bottomrule
-\end{tabular}
-\end{table}
+\includegraphics{figures/latency.pdf}
+\caption{Delay and accuracy. (a) LCF-WER on the validation set against mean end-to-end delay, with a line to the 99th-percentile delay and the real-time factor (RTF) in brackets. (b) Mean delay split into the 80\,ms chunk, the 40\,ms STFT lookahead and computation, with the 200--300\,ms budget dashed. Timed on an Intel Core i5-1135G7 laptop CPU (4 cores, 8 threads, 15\,GB RAM) with 4 PyTorch threads, median of three runs. Chunks are processed without carried state, so the times are estimates (10--20\,\% error). The baseline was timed on an earlier checkpoint of the same architecture.}
+\label{fig:latency}
+\end{figure}
 
-The latency and throughput results are shown in \autoref{tab:latency}. The baseline and the extension are able to meet the real-time factor and latency requirements for a live system. The WeSep model is not able to meet the requirements and therefore cannot be used in a live system. Furthermore, the extension did not miss any chunks and the worst case delay was 196 milliseconds, which is below the 200--300 millisecond requirement. 
+The latency and throughput results are shown in \autoref{fig:latency}. The baseline and the extension are able to meet the real-time factor and latency requirements for a live system. The WeSep model is not able to meet the requirements and therefore cannot be used in a live system. Furthermore, the extension did not miss any chunks and the worst case delay was 196 milliseconds, which is below the 200--300 millisecond requirement. 
 

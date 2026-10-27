@@ -17,7 +17,7 @@ The baseline architecture passes the network the TF-Map cue of \cite{zhang2025mu
     c_t = \cos\theta_t = \big\langle \tilde{x}_t,\ u_t \big\rangle
     \label{eq:cue-similarity}
   \end{equation}
-is the cosine similarity of Equation~\ref{eq:tfmap-cos} which is measured with the blended template of $u_t$ instead of an enrollment frame. The problem with $m_t$ in the baseline architecture is that once multiplying the loudness and the similarity into a scalar, the network cannot distinguish between a frame that is very loud but not similar to the target and a frame that is very similar but not loud. The idea is to pass the parts instead of the product [\ref{ai:eq-cue}]. Two parts are already defined: the template direction $u_t$ of Equation~\ref{eq:tfmap-energy} and the similarity $c_t$ of Equation~\ref{eq:cue-similarity}. The third part is new and is the residual
+is the cosine similarity of Equation~\ref{eq:tfmap-cos} which is measured with the blended template of $u_t$ instead of an enrollment frame. The problem with $m_t$ in the baseline architecture is that once multiplying the loudness and the similarity into a scalar, the network cannot distinguish between a frame that is very loud but not similar to the target and a frame that is very similar but not loud. The idea is to pass the parts instead of the product (\ref{ai:eq-cue}). Two parts are already defined: the template direction $u_t$ of Equation~\ref{eq:tfmap-energy} and the similarity $c_t$ of Equation~\ref{eq:cue-similarity}. The third part is new and is the residual
 \begin{equation}
   r_t = |X_t| - m_t u_t
   \label{eq:cue-residual}
@@ -205,7 +205,7 @@ Next using the identity of $\mathrm{KL}\big(\mathrm{Bern}(a)\,\|\,\mathrm{Bern}(
   \end{aligned}
 \end{equation}
 
-\paragraph{Training and inference.} The expectation of $\ell(\hat{s}(z), s)$ of Equation~\ref{eq:obj} will be too expensive to compute as an average over all $2^T$ possible sequences of $z_{1:T}$. Instead leverage Monte Carlo sampling to approximate the expectation [\ref{ai:eq-gate}]. Only one sequence of $z_{1:T}$ is drawn per training clip and is an unbiased estimate of the expectation \cite{kingma2014autoencoding}. A sample $z_t \in \{0, 1\}$ drawn from a $\mathrm{Bern}(\pi_t)$, however, will potentially not change when $\pi_t$ is changed slightly, so $\partial z_t / \partial \pi_t = 0$ and thus the extraction loss sends no gradient to the gate. This is solved using a soft draw with the binary Concrete distribution \cite{maddison2017concrete, jang2017categorical}. 
+\paragraph{Training and inference.} The expectation of $\ell(\hat{s}(z), s)$ of Equation~\ref{eq:obj} will be too expensive to compute as an average over all $2^T$ possible sequences of $z_{1:T}$. Instead leverage Monte Carlo sampling to approximate the expectation (\ref{ai:eq-gate}). Only one sequence of $z_{1:T}$ is drawn per training clip and is an unbiased estimate of the expectation \cite{kingma2014autoencoding}. A sample $z_t \in \{0, 1\}$ drawn from a $\mathrm{Bern}(\pi_t)$, however, will potentially not change when $\pi_t$ is changed slightly, so $\partial z_t / \partial \pi_t = 0$ and thus the extraction loss sends no gradient to the gate. This is solved using a soft draw with the binary Concrete distribution \cite{maddison2017concrete, jang2017categorical}. 
  \begin{equation}
     \tilde{z}_t = \sigma\!\left(\frac{1}{\tau}\Big(\log\frac{\pi_t}{1-\pi_t} + \log U_t - \log(1-U_t)\Big)\right), \qquad U_t \sim
   \mathcal{U}(0,1),
