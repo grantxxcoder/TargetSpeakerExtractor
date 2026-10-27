@@ -14,6 +14,8 @@ Every Claude Code contribution to the report revision that still needs (a) a lin
 | 8 | Fig 5.5 delay | Wrote `scripts/plot_latency.py`; drafted caption | AI3 | [ ] | [ ] |
 | 9 | §4.2.2 | Wrote the two sentences on choosing epoch 21 over 27 | AI2 | [ ] | [ ] |
 | 10 | §5 test-set numbers and paired intervals | Wrote `experiments/results/2026-10-27-test-set-paired-ci/paired_ci_test.py` | AI6 code (hard) | [ ] | [ ] |
+| 12 | §3.3.3 presence gate | Chose and applied the replacement symbols for the clashes (y, h̄, var, ω, ω₀, ψ, β, ν, 𝒵); wrote the sentence defining λ and giving β, λ; fixed typos and equation punctuation | AI7b / AI2 | [ ] | [ ] |
+| 13 | §3.2 l.6, 26, 31, 36, 106, 116, 134, 166; §3.3 l.47, 203 | Rewrote these sentences for grammar at the author's instruction (wording is Claude's) | AI2 | [ ] | n/a |
 | 11 | Results, references | Removed Table 5.1, the latency table, two AMI table rows; stripped bib notes; switched AI tags to round brackets (at the author's instruction) | AI2 | [ ] | n/a |
 
 Rewrite every Claude-drafted caption and sentence in your own words before submission; the declaration then says Claude drafted, you rewrote.

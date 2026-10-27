@@ -538,3 +538,24 @@ Judge `gemini-3.7-flash`, aistudio, audio-in / text-out, prompt `d118b7d3bf30`, 
 
 - Ranking unchanged from n = 249 (49.11 / 42.17 / 33.87): removal moves no system by more than 0.4 points.
 - The recitation refusal reached the code as `judge_failed`, not `filter_blocked`, because a 400 bypasses the filter classifier. Open: classify recitation 400s as filter blocks.
+
+## 2026-10-27 — matched baseline e11 scored on eval_private (closes the 2026-10-07 promise)
+
+Judge `gemini-3.7-flash`, aistudio, audio-in / text-out, prompt `d118b7d3bf30`, run 2026-10-27, one run, speech gate on. Render `experiments/results/2026-10-27-est-private-baseline-matched-e11/` (`models/model_sir0_baseline-matched-e11.pt`, seed 42). Judge: `...-baseline-matched-e11-judge{,-retry,-retry2}/`; 6 client timeouts on the first pass, all answered by retry2. Git commit `71614bf` (clean tree), recorded by hand: the scripts no longer write it. Other systems are the 2026-10-08 runs.
+
+Intervals: `experiments/results/2026-10-27-test-set-paired-ci/` (n = 248, 000372 removed, 20 target speakers redrawn, 10,000 draws, seed 42). The four existing systems reproduce their published values exactly.
+
+| n = 248, LCF-WER, lower is better | No processing | Baseline e11 | e21 | WeSep | Target alone |
+|---|---|---|---|---|---|
+| point | 52.05 | 48.46 | 41.81 | **34.08** | 1.78 |
+| 95 % CI | [44.81, 60.65] | [42.17, 55.58] | [35.64, 48.72] | [28.74, 40.06] | [1.33, 2.19] |
+
+| Paired, first minus second | Difference | 95 % CI | Verdict |
+|---|---|---|---|
+| Baseline − No processing | −3.59 | [−9.33, +1.97] | not shown to help |
+| e21 − Baseline | −6.65 | [−10.66, −3.18] | e21 better |
+| e21 − No processing | −10.24 | [−18.06, −3.43] | e21 better |
+
+- The baseline's gain over no processing shrinks from 9.7 points on `sir0_val` to 3.6 on test and is no longer distinguishable from zero. Two causes, not separated: e11 was the best of its judged epochs on `sir0_val` (selection optimism), and `eval_private` is easier (no processing 52.05 vs 62.94).
+- n = 249 (000372 kept): baseline 48.16, no processing 51.78. Leak 33.22 % vs 47.68 %; invented / trial 2.24 vs 1.47.
+- `report/figures/set_comparison.pdf` panel (b) now shows the baseline (`scripts/plot_set_comparison.py` reads the test panel from the new `ci.json`).

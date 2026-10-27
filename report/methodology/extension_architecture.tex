@@ -1,6 +1,6 @@
 \subsection{Extension model architecture}
 \label{sec:e_architecture}
-The extension architecture is based on the baseline architecture of \autoref{sec:architecture}, with two modifications. The first gives the network more information about the target speaker's voice (\autoref{sec:speaker_context_embedding}), together with a change to how the cue is passed to the network (\autoref{sec:splitting_cue}). The second adds a gate to better infer whether the target speaker is present in a frame (\autoref{sec:present}). 
+The extension architecture is based on the baseline architecture of \autoref{sec:architecture}, with two modifications. The first change is how the cue is passed to the network (\autoref{sec:splitting_cue}). The second change gives the network more information about the target speaker's voice (\autoref{sec:speaker_context_embedding}). The final change adds a gate to better infer whether the target speaker is present in a frame (\autoref{sec:present}). 
 \subsubsection{Splitting the cue into parts}
 \label{sec:splitting_cue}
 The baseline architecture passes the network the TF-Map cue of \cite{zhang2025multi} and includes the energy-recovery projection (Equation~\ref{eq:tfmap-energy}). By Equation~\ref{eq:tfmap-unit}, every mixture frame is its loudness times its shape,
@@ -19,7 +19,7 @@ The baseline architecture passes the network the TF-Map cue of \cite{zhang2025mu
   \end{equation}
 is the cosine similarity of Equation~\ref{eq:tfmap-cos} which is measured with the blended template of $u_t$ instead of an enrollment frame. The problem with $m_t$ in the baseline architecture is that once multiplying the loudness and the similarity into a scalar, the network cannot distinguish between a frame that is very loud but not similar to the target and a frame that is very similar but not loud. The idea is to pass the parts instead of the product (\ref{ai:eq-cue}). Two parts are already defined: the template direction $u_t$ of Equation~\ref{eq:tfmap-energy} and the similarity $c_t$ of Equation~\ref{eq:cue-similarity}. The third part is new and is the residual
 \begin{equation}
-  r_t = |X_t| - m_t u_t
+  r_t = |X_t| - m_t u_t,
   \label{eq:cue-residual}
 \end{equation}
 which is the part of the mixture frame that the template of the target does not explain. A property of the residual is that it is orthogonal to the template, shown by:
@@ -27,45 +27,45 @@ which is the part of the mixture frame that the template of the target does not 
   \big\langle r_t, u_t \big\rangle
   = \big\langle |X_t| - m_t u_t, u_t \big\rangle
   = \big\langle |X_t|, u_t \big\rangle - m_t \big\langle u_t, u_t \big\rangle
-  = m_t - m_t = 0.
+  = m_t - m_t = 0,
   \label{eq:cue-residual-orthogonal}
 \end{equation}
 where the last equality uses the fact that $u_t$ is a unit vector. The orthogonality thus allows a frame to be split exactly into the equation:
 \begin{equation}
-  |X_t| = m_t u_t + r_t
+  |X_t| = m_t u_t + r_t.
   \label{eq:cue-split}
 \end{equation}
-Therefore we can rebuild $\phi_t$ exactly as:
+The baseline cue can be recovered exactly as:
 \begin{equation}
-  \phi_t = c_t\big\lVert |X_t| \big\rVert u_t
+  \phi_t = c_t\big\lVert |X_t| \big\rVert u_t.
   \label{eq:cue-rebuild}
 \end{equation}
-
+The three parts replace the single channel cue and thus the network input grows from 3 to 5 channels. The new parts do not carry new information, as each part can be derived from the baseline's inputs, but recovering the parts would require a square root and a division operation, which the network's $1\times1$ projections cannot compute.
 
 \subsubsection{Speaker context embedding}
 \label{sec:speaker_context_embedding}
-When considering Section~\ref{sec:splitting_cue} the cue is still only described by the enrollment's spectra. Target speakers that have similar pitch and vocal characteristics thus produce similar templates. Measured on the baseline architecture, the extractor was able to select the right voice \SI{71.8}{\percent} of the time when two speakers were of different gender, but only \SI{52.6}{\percent} when they were the same gender. The idea for this extension is to incorporate further target speaker identity. The second extension is to add a speaker embedding for each target speaker. Each enrollment clip is passed through a frozen speaker recognition network, ECAPA-TDNN \cite{desplanques2020ecapa} using the SpeechBrain checkpoint trained on VoxCeleb \cite{ravanelli2021speechbrain}, to produce a 192-dimensional embedding. The embedding is then passed through a small learned layer to produce a 128-dimensional vector to be used in the extractor. ECAPA itself is large at 20.77 million parameters and hence would cause storage concerns if it were included in the extractor. However, the ECAPA network can be run once per enrollment clip and the resulting embedding can be stored for later use. This allows for the extractor to be served locally on a device without needing to have the full ECAPA network, only the stored embedding for the target speaker.
+Even split into parts, the cue (\autoref{sec:splitting_cue}) is described only by the enrollment's spectra. Target speakers that have similar pitch and vocal characteristics thus produce similar templates. Measured on the baseline architecture, the extractor was able to select the right voice \SI{71.8}{\percent} of the time when two speakers were of different gender, but only \SI{52.6}{\percent} when they were the same gender. The idea for this extension is to incorporate further target speaker identity. The second extension is to add a speaker embedding for each target speaker. Each enrollment clip is passed through a frozen speaker recognition network, ECAPA-TDNN \cite{desplanques2020ecapa} using the SpeechBrain checkpoint trained on VoxCeleb \cite{ravanelli2021speechbrain}, to produce a 192-dimensional embedding. The embedding is then passed through a small learned layer that maps a 192-dimensional embedding of $e$ to a 128-dimensional vector to be used in the extractor. ECAPA itself is large at 20.77 million parameters and hence would cause storage concerns if it were included in the extractor. However, the ECAPA network is run once per enrollment clip and the resulting embedding is stored, so ECAPA never runs while streaming.
 
 The WeSep toolkit \cite{wang2024wesep}, an established open-source implementation of the baseline architecture, supports two uses of the embedding. The first (which is the one used in this work) is to consider utterance-level embedding, and the second is to consider contextual embedding of Zhang et al. \cite{zhang2025multi}. Although WeSep supports the contextual embedding, it was discarded as an option for this work because it recomputes the embedding for every frame of the mixture, which is computationally expensive. 
 
 \subsubsection{Target presence gate}
 \label{sec:present}
-The baseline architecture has no explicit, underlying mechanism to determine whether the target speaker is present in a frame. The gate provides this probabilistic estimate and is trained jointly with the extractor. The gate represents a two-state Markov chain, where the states are \emph{present} and \emph{absent}. 
+The idea of the gate is to target leaked words \textbf{(RQ2)}. The gate should silence the frames in which the target speaker is not present. The baseline architecture has no explicit, underlying mechanism to determine whether the target speaker is present in a frame. The gate provides this probabilistic estimate and is trained jointly with the extractor. The gate represents a two-state Markov chain, where the states are \emph{present} and \emph{absent}. 
 \paragraph{Gated output.} Let $Z_t \in \{0, 1\}$ be the random variable that is $1$ if the target speaker is present in frame $t$ and $0$ otherwise. The extractor's output frame from \eqref{eq:estimator} is then gated by whether the target speaker is present by $z_t$:
    \begin{equation}
-  \hat{S}_t(z_t) = z_t \big( M_t \otimes X_t + R_t \big),
+  \hat{S}_t(z_t) = z_t \big( M_t \otimes X_t + R_t \big).
   \label{eq:gated-output}
   \end{equation} 
-The gate reads the separator output $u_{k,t} \in \mathbb{R}^{128}$ of band $k \in \{1, \dots, 32\}$  (\autoref{sec:bsnet}):
+The gate reads the separator output $y_{k,t} \in \mathbb{R}^{128}$ of band $k \in \{1, \dots, 32\}$  (\autoref{sec:bsnet}):
 \begin{equation}
-  h_t = \frac{1}{32}\sum_{k=1}^{32} u_{k,t}, \qquad
-  \hat{h}_{t,n} = \frac{h_{t,n} - \mu_t}{\sqrt{s_t^2 + \epsilon}}, \qquad
-  \pi_t = \sigma(w^\top \hat{h}_t + b),
+  h_t = \frac{1}{32}\sum_{k=1}^{32} y_{k,t}, \qquad
+  \hat{h}_{t,n} = \frac{h_{t,n} - \bar{h}_t}{\sqrt{\operatorname{var}(h_t) + \epsilon}}, \qquad
+  \pi_t = \sigma(\omega^\top \hat{h}_t + \omega_0),
 \label{eq:gate-posterior}
 \end{equation}
-with $\mu_t = \frac{1}{128}\sum_{n=1}^{128} h_{t,n}$, $s_t^2 = \frac{1}{128}\sum_{n=1}^{128}(h_{t,n} - \mu_t)^2$ and $\epsilon = 10^{-5}$. Here $h_t$ is the average of the bands state, $\hat{h}_t$ is that state standardised across the channels. $\pi_t$ is the probability that the target speaker is present in frame $t$, $w \in \mathbb{R}^{128}$, $b \in \mathbb{R}$, and let $\phi = (w, b)$. The approximate posterior over the sequence of target presence variables $z_{1:T}$ \cite{kingma2014autoencoding} is then given by:
+with $\bar{h}_t = \frac{1}{128}\sum_{n=1}^{128} h_{t,n}$, $\operatorname{var}(h_t) = \frac{1}{128}\sum_{n=1}^{128}(h_{t,n} - \bar{h}_t)^2$ and $\epsilon = 10^{-5}$. Here $h_t$ is the average of the band states, $\hat{h}_t$ is that state standardised across the channels. $\pi_t$ is the probability that the target speaker is present in frame $t$, $\omega \in \mathbb{R}^{128}$, $\omega_0 \in \mathbb{R}$, and let $\psi = (\omega, \omega_0)$. The approximate posterior over the sequence of target presence variables $z_{1:T}$ \cite{kingma2014autoencoding} is then given by:
 \begin{equation}
-  q_\phi(z_{1:T} \mid x, e) = \prod_{t=1}^{T}  \mathrm{Bern}(z_t; \pi_t),
+  q_\psi(z_{1:T} \mid x, e) = \prod_{t=1}^{T}  \mathrm{Bern}(z_t; \pi_t),
   \label{eq:gate-posterior-sequence}
 \end{equation}
 where $x$ is the mixture and $e$ is the enrollment. The product over frames follows the mean field assumption.
@@ -73,21 +73,21 @@ where $x$ is the mixture and $e$ is the enrollment. The product over frames foll
 \begin{equation}
 \begin{aligned}
   p(z_{1:T}) &= p(z_1) \prod_{t=2}^{T} p(z_t \mid z_{t-1}) \\
-             &= p(z_1) \prod_{t=2}^{T} A_{z_{t-1}, z_t} \quad \text{where } A_{i,j} = p(z_j \mid z_i)
+             &= p(z_1) \prod_{t=2}^{T} A_{z_{t-1} z_t} \quad \text{where } A_{ij} = p(z_t{=}j \mid z_{t-1}{=}i).
 \end{aligned}
 \label{eq:gate-prior-sequence}
 \end{equation}
-$A$ is fixed from the training labels and is the transition matrix of the Markov chain. Let $D=d$ denote the random variable for the number of consecutive frames of a speech run (consecutive $z_t = 1$). Therefore, expressed as a probablity:
+$A$ is fixed from the training labels and is the transition matrix of the Markov chain. Let $D$ denote the random variable for the number of consecutive frames of a speech run (consecutive $z_t = 1$). Therefore, expressed as a probability:
 \begin{equation}
   \begin{aligned}
-  p(D=d) &= A_{1,1}^{d-1} A_{1,0}, \qquad d \in \{1, 2, \dots\}\\
-        &= A_{1,1}^{d-1} (1 - A_{1,1})
+  p(D=d) &= A_{11}^{d-1} A_{10}, \qquad d \in \{1, 2, \dots\}\\
+        &= A_{11}^{d-1} (1 - A_{11}),
   \end{aligned}
   \label{eq:gate-duration}
 \end{equation}
 therefore $D$ is a geometric distribution with
 \begin{equation}
-  \mathbb{E}[D] = \frac{1}{1 - A_{1,1}}.
+  \mathbb{E}[D] = \frac{1}{1 - A_{11}}.
   \label{eq:gate-duration-mean}
 \end{equation} 
 Next, to set the transition matrix $A$, sample the mean speech run length in the training data, $\bar{d}_\textup{on}$, which is the maximum likelihood estimate of $\mathbb{E}[D]$, and treating silence runs (sample mean $\bar{d}_\textup{off}$) the same way, gives
@@ -102,88 +102,92 @@ Frame 1 has no previous frame, so it takes the stationary probability $\rho$ of 
   \begin{equation} 
   \rho = \rho A_{11} + (1 - \rho) A_{01}
   \;\Longrightarrow\;
-  \rho = \frac{A_{01}}{A_{01} + A_{10}}
+  \rho = \frac{A_{01}}{A_{01} + A_{10}}.
   \label{eq:stationary}
   \end{equation}
 The actual transition matrix used in the prior can be found in Appendix~\ref{sec:appendix-gate}. 
 
-\paragraph{Objective.} Training should maake the clean target speech $s$ as probable as possible given the mixture and the enrollment. 
+\paragraph{Objective.} Training should make the clean target speech $s$ as probable as possible given the mixture and the enrollment. 
 
 \begin{equation}
   \begin{aligned}
   \log p_\theta(s \mid x, e)
     &= \log \sum_{z} p_\theta(s \mid x, e, z)\, p(z) \\
-    &= \log \mathbb{E}_{z \sim q_\phi(z \mid x,
-  e)}\!\left[\frac{p_\theta(s \mid x, e, z)\, p(z)}{q_\phi(z \mid x,
+    &= \log \mathbb{E}_{z \sim q_\psi(z \mid x,
+  e)}\!\left[\frac{p_\theta(s \mid x, e, z)\, p(z)}{q_\psi(z \mid x,
   e)}\right] \\
-    &\ge \mathbb{E}_{z \sim q_\phi(z \mid x, e)}\!\left[\log\frac{p_\theta(s \mid x, e, z)\, p(z)}{q_\phi(z \mid x, e)}\right] \quad \text{By Jensen's Inequality} \\
-    &= \mathbb{E}_{z \sim q_\phi(z \mid x, e)}\big[\log p_\theta(s \mid x, e, z)\big] - \mathbb{E}_{z \sim q_\phi(z \mid x, e)}\big[\log q_\phi(z \mid x, e) -  \log p(z) \big] \\
-    &= \mathbb{E}_{z \sim q_\phi(z \mid x, e)}\big[\log p_\theta(s \mid x, e, z)\big] - \mathrm{KL}\big(q_\phi(z \mid x, e) \,\|\, p(z)\big).
+    &\ge \mathbb{E}_{z \sim q_\psi(z \mid x, e)}\!\left[\log\frac{p_\theta(s \mid x, e, z)\, p(z)}{q_\psi(z \mid x, e)}\right] \quad \text{By Jensen's Inequality} \\
+    &= \mathbb{E}_{z \sim q_\psi(z \mid x, e)}\big[\log p_\theta(s \mid x, e, z)\big] - \mathbb{E}_{z \sim q_\psi(z \mid x, e)}\big[\log q_\psi(z \mid x, e) -  \log p(z) \big] \\
+    &= \mathbb{E}_{z \sim q_\psi(z \mid x, e)}\big[\log p_\theta(s \mid x, e, z)\big] - \mathrm{KL}\big(q_\psi(z \mid x, e) \,\|\, p(z)\big).
   \end{aligned} 
   \label{eq:elbo}
   \end{equation}
 
-The first term of \eqref{eq:elbo} requires a probability, but only a loss is available during training: $\ell(\hat{s}, s)=(\hat{s}-s)^2$, the loss of \eqref{eq:total} on the gated output. Let the loss be modelled as a Gaussian with $\kappa = 2\sigma^2$:
+The first term of \eqref{eq:elbo} requires a probability, but only a loss is available during training: $\ell(\hat{s}, s)=(\hat{s}-s)^2$, the loss of \eqref{eq:total} on the gated output. Let the loss be modelled as a Gaussian with variance $\nu^2$, and let $\beta = 2\nu^2$:
 \begin{equation}
-  p_\theta(s \mid x, e, z) = \frac{1}{Z}
-  \exp\!\left(-\frac{\ell(\hat{s}(z), s)}{\kappa}\right),
+  p_\theta(s \mid x, e, z) = \frac{1}{\mathcal{Z}}
+  \exp\!\left(-\frac{\ell(\hat{s}(z), s)}{\beta}\right),
   \qquad
-  \log p_\theta(s \mid x, e, z) = -\frac{\ell(\hat{s}(z), s)}{\kappa} -  \log Z
+  \log p_\theta(s \mid x, e, z) = -\frac{\ell(\hat{s}(z), s)}{\beta} -  \log \mathcal{Z},
   \label{eq:pseudo-likelihood}
   \end{equation}
-where $Z$ is the normalisation constant. Substitute \eqref{eq:pseudo-likelihood} into \eqref{eq:elbo} to give:
+where $\mathcal{Z}$ is the normalisation constant. Substitute \eqref{eq:pseudo-likelihood} into \eqref{eq:elbo} to give:
 \begin{equation}
   \begin{aligned}
-  \log p_\theta(s \mid x, e) &\ge \mathbb{E}_{z \sim q_\phi(z \mid x, e)}\big[-\frac{\ell(\hat{s}(z), s)}{\kappa} - \log Z\big] - \mathrm{KL}\big(q_\phi(z \mid x, e) \,\|\, p(z)\big) \\
-  &= -\frac{1}{\kappa} \mathbb{E}_{z \sim q_\phi(z \mid x, e)}\big[\ell(\hat{s}(z), s)\big] - \log Z - \mathrm{KL}\big(q_\phi(z \mid x, e) \,\|\, p(z)\big)
+  \log p_\theta(s \mid x, e) &\ge \mathbb{E}_{z \sim q_\psi(z \mid x, e)}\big[-\frac{\ell(\hat{s}(z), s)}{\beta} - \log \mathcal{Z}\big] - \mathrm{KL}\big(q_\psi(z \mid x, e) \,\|\, p(z)\big) \\
+  &= -\frac{1}{\beta} \mathbb{E}_{z \sim q_\psi(z \mid x, e)}\big[\ell(\hat{s}(z), s)\big] - \log \mathcal{Z} - \mathrm{KL}\big(q_\psi(z \mid x, e) \,\|\, p(z)\big).
   \end{aligned}
   \label{eq:objgate}
 \end{equation}
-Let the right hand side of \eqref{eq:objgate} form part of the objective to obtain 
+Let the right-hand side of \eqref{eq:objgate} form part of the objective to obtain 
 \begin{equation}
 \begin{aligned}
-  \mathcal{L}(\theta, \phi) &= -\frac{1}{\kappa}\,\mathbb{E}_{z \sim q_\phi(z \mid x,e)}\big[\ell(\hat s(z), s)\big] - \log Z - \mathrm{KL}\big(q_\phi(z \mid x, e)\,\|\,p(z)\big) \\
-  -\kappa\,\mathcal{L}(\theta, \phi) &= \mathbb{E}_{z \sim q_\phi(z \mid x,e)}\big[\ell(\hat s(z), s)\big] + \kappa\log Z + \kappa\,\mathrm{KL}\big(q_\phi(z \mid x, e)\,\|\,p(z)\big) \\
-  &\propto \mathbb{E}_{z \sim q_\phi(z \mid x,e)}\big[\ell(\hat s(z), s)\big] + \kappa\,\mathrm{KL}\big(q_\phi(z \mid x, e)\,\|\,p(z)\big)
+  \mathcal{L}(\theta, \psi) &= -\frac{1}{\beta}\,\mathbb{E}_{z \sim q_\psi(z \mid x,e)}\big[\ell(\hat s(z), s)\big] - \log \mathcal{Z} - \mathrm{KL}\big(q_\psi(z \mid x, e)\,\|\,p(z)\big) \\
+  -\beta\,\mathcal{L}(\theta, \psi) &= \mathbb{E}_{z \sim q_\psi(z \mid x,e)}\big[\ell(\hat s(z), s)\big] + \beta\log \mathcal{Z} + \beta\,\mathrm{KL}\big(q_\psi(z \mid x, e)\,\|\,p(z)\big) \\
+  &\propto \mathbb{E}_{z \sim q_\psi(z \mid x,e)}\big[\ell(\hat s(z), s)\big] + \beta\,\mathrm{KL}\big(q_\psi(z \mid x, e)\,\|\,p(z)\big).
 \end{aligned}
 \label{eq:gaussian}
 \end{equation}
-The ELBO at this point does not use the labels $v_t$ for whether the target is present and thus nothing forces $\pi_t$ to follow whether the target is speaking. Since $v_t$ is known for every frame in training, it was decided to be included in a binary cross entropy between $\pi_t$ and $v_t$. This idea was suggested by Kingma et al.\ \cite{kingma2014semisupervised} in an image classification context. The final objective to train the presence gate is then:
+The ELBO at this point does not use the labels $v_t$ for whether the target is present and thus nothing forces $\pi_t$ to follow whether the target is speaking. Since $v_t$ is known for every frame in training, it is included in a binary cross-entropy between $\pi_t$ and $v_t$. This idea was suggested by Kingma et al.\ \cite{kingma2014semisupervised} in an image classification context. The final objective to train the presence gate is then:
 \begin{equation}
-  \mathcal{J}(\theta, \phi) = \mathbb{E}_{z \sim q_\phi(z \mid x, e)}\big[\ell(\hat s(z), s)\big] + \kappa\,\mathrm{KL}\big(q_\phi(z \mid x, e)\,\|\,p(z)\big) - \lambda\sum_{t=1}^{T}\big[v_t\log\pi_t + (1-v_t)\log(1-\pi_t)\big]
+  \begin{aligned}
+  \mathcal{J}(\theta, \psi) = {}& \mathbb{E}_{z \sim q_\psi(z \mid x, e)}\big[\ell(\hat s(z), s)\big] + \beta\,\mathrm{KL}\big(q_\psi(z \mid x, e)\,\|\,p(z)\big) \\
+  & - \lambda\sum_{t=1}^{T}\big[v_t\log\pi_t + (1-v_t)\log(1-\pi_t)\big],
+  \end{aligned}
   \label{eq:obj}
 \end{equation}
+where $\lambda$ weights the label term. The gated run used $\beta = 0.01274$ and $\lambda = 0.04689$.
 
-\paragraph{Closed Form KL.} The KL term of \eqref{eq:gaussian} is intractable. Suppose 
+\paragraph{Closed Form KL.} The KL term of \eqref{eq:gaussian} is intractable, but under the mean-field posterior has a closed form. Suppose 
 \begin{equation}
-  \mathrm{KL}\big(q_\phi(z \mid x, e)\,\|\,p(z)\big) = \mathbb{E}_{z \sim q_\phi(z \mid x,e)}\big[\log q_\phi(z \mid x, e)\big] - \mathbb{E}_{z \sim q_\phi(z \mid x,e)}\big[\log p(z)\big]
+  \mathrm{KL}\big(q_\psi(z \mid x, e)\,\|\,p(z)\big) = \mathbb{E}_{z \sim q_\psi(z \mid x,e)}\big[\log q_\psi(z \mid x, e)\big] - \mathbb{E}_{z \sim q_\psi(z \mid x,e)}\big[\log p(z)\big],
 \end{equation}
 then term 1 can be simplified as follows:
 \begin{equation}
   \begin{aligned}
-      \log q_\phi(z \mid x, e) &= \sum_{t=1}^{T}\big[z_t\log\pi_t + (1-z_t)\log(1-\pi_t)\big] \\
-     \mathbb{E}_{z \sim q_\phi(z \mid x,e)}\big[\log q_\phi(z \mid x, e)\big] &= \sum_{t=1}^{T}\big[\pi_t\log\pi_t + (1-\pi_t)\log(1-\pi_t)\big]
+      \log q_\psi(z \mid x, e) &= \sum_{t=1}^{T}\big[z_t\log\pi_t + (1-z_t)\log(1-\pi_t)\big] \\
+     \mathbb{E}_{z \sim q_\psi(z \mid x,e)}\big[\log q_\psi(z \mid x, e)\big] &= \sum_{t=1}^{T}\big[\pi_t\log\pi_t + (1-\pi_t)\log(1-\pi_t)\big],
       \label{eq:term1}
     \end{aligned}
 \end{equation}
-where $\mathbb{E}_{z \sim q_\phi(z \mid x,e)}\big[z_t\big] = \pi_t$. Term 2 simplifies as follows:
+where $\mathbb{E}_{z \sim q_\psi(z \mid x,e)}\big[z_t\big] = \pi_t$. Term 2 simplifies as follows:
 \begin{equation}
   \begin{aligned}
-    \log p(z) &= \log p(z_1) + \sum_{t=2}^{T}\log A_{z_{t-1} z_t}
+    \log p(z) &= \log p(z_1) + \sum_{t=2}^{T}\log A_{z_{t-1} z_t}.
   \end{aligned}
   \label{eq:term2}
 \end{equation}
-Recalling that being in state $i$ at a time frame $t$ is modelled by the Bernoulli distribution, therefore for the first frame only consider the case of belonging to a state with no transitions, and from the first state onwards, consider the transitions. The expectation of \eqref{eq:term2} is then:
+Recalling that being in state $i$ at a time frame $t$ is modelled by the Bernoulli distribution, therefore for the first frame only consider the case of belonging to a state with no transitions, and from the second frame onwards, consider the transitions. The expectation of \eqref{eq:term2} is then:
 \begin{equation}
 \begin{aligned}
-  \mathbb{E}_{z \sim q_\phi(z \mid x,e)}\big[\log p(z)\big] 
-  &= \mathbb{E}_{z \sim q_\phi(z \mid x,e)}\big[\log p(z_1) + \sum_{t=2}^{T}\log A_{z_{t-1} z_t}\big] \\
-  &= \mathbb{E}_{z \sim q_\phi(z \mid x,e)}\Big[z_1\log \rho + (1-z_1)\log (1 - \rho) \\
+  \mathbb{E}_{z \sim q_\psi(z \mid x,e)}\big[\log p(z)\big] 
+  &= \mathbb{E}_{z \sim q_\psi(z \mid x,e)}\big[\log p(z_1) + \sum_{t=2}^{T}\log A_{z_{t-1} z_t}\big] \\
+  &= \mathbb{E}_{z \sim q_\psi(z \mid x,e)}\Big[z_1\log \rho + (1-z_1)\log (1 - \rho) \\
   &\quad + \sum_{t=2}^{T}\big(z_{t-1}z_t\log A_{11} + z_{t-1}(1-z_t)\log A_{10} \\
   &\quad + (1-z_{t-1})z_t\log A_{01} + (1-z_{t-1})(1-z_t)\log A_{00}\big)\Big]^\dagger \\
   &= \pi_1\log\rho + (1-\pi_1)\log(1-\rho) + \\
     &\quad \sum_{t=2}^{T}\Big[\pi_{t-1}\pi_t\log A_{11} + \pi_{t-1}(1-\pi_t)\log A_{10} \\
-    &\quad + (1-\pi_{t-1})\pi_t\log A_{01}  + (1-\pi_{t-1})(1-\pi_t)\log A_{00}\Big]^\ddagger
+    &\quad + (1-\pi_{t-1})\pi_t\log A_{01}  + (1-\pi_{t-1})(1-\pi_t)\log A_{00}\Big]^\ddagger.
   \label{eq:term2-expectation}
 \end{aligned}
 \end{equation}
@@ -191,27 +195,27 @@ $\dagger$ where $p(z_1 = 1) = \rho$ from \eqref{eq:stationary}, and since $z_t \
 Therefore subtracting \eqref{eq:term2-expectation} from \eqref{eq:term1} and removing $t=1$ from the first summation yields
 \begin{equation}
   \begin{aligned}
-    \mathrm{KL}\big(q_\phi(z \mid x, e)\,\|\,p(z)\big) &= \pi_1\big(\log \frac{\pi_1}{\rho}\big) + (1-\pi_1)\big(\log \frac{1-\pi_1}{1-\rho}\big) + \\
+    \mathrm{KL}\big(q_\psi(z \mid x, e)\,\|\,p(z)\big) &= \pi_1\big(\log \frac{\pi_1}{\rho}\big) + (1-\pi_1)\big(\log \frac{1-\pi_1}{1-\rho}\big) + \\
     &\quad \sum_{t=2}^{T}\Big[\pi_{t-1}\Big[\pi_t\log\frac{\pi_t}{A_{11}} + (1-\pi_t)\log\frac{1-\pi_t}{A_{10}}\Big] + \\
-     &\quad (1-\pi_{t-1})\Big[\pi_t\log\frac{\pi_t}{A_{01}} + (1-\pi_t)\log\frac{1-\pi_t}{A_{00}}\Big]\Big]
+     &\quad (1-\pi_{t-1})\Big[\pi_t\log\frac{\pi_t}{A_{01}} + (1-\pi_t)\log\frac{1-\pi_t}{A_{00}}\Big]\Big].
   \end{aligned}
 \end{equation}
-Next using the identity of $\mathrm{KL}\big(\mathrm{Bern}(a)\,\|\,\mathrm{Bern}(b)\big) = a\log\frac{a}{b} + (1-a)\log\frac{1-a}{1-b}$ we can simplify the KL term to a closed form:
+Using the identity $\mathrm{KL}\big(\mathrm{Bern}(a)\,\|\,\mathrm{Bern}(b)\big) = a\log\frac{a}{b} + (1-a)\log\frac{1-a}{1-b}$, the KL term simplifies to:
 \begin{equation}
   \begin{aligned}
-    &= \mathrm{KL}\big(\mathrm{Bern}(\pi_1)\,\|\,\mathrm{Bern}(\rho)\big) + \sum_{t=2}^{T}\Big[\pi_{t-1}\,\mathrm{KL}\big(\mathrm{Bern}(\pi_t)\,\|\,\mathrm{Bern}(A_{11})\big) + \\
-    &\quad (1-\pi_{t-1})\,\mathrm{KL}\big(\mathrm{Bern}(\pi_t)\,\|\,\mathrm{Bern}(A_{01})\big)\Big]
+    \mathrm{KL}\big(q_\psi(z \mid x, e)\,\|\,p(z)\big) &= \mathrm{KL}\big(\mathrm{Bern}(\pi_1)\,\|\,\mathrm{Bern}(\rho)\big) + \sum_{t=2}^{T}\Big[\pi_{t-1}\,\mathrm{KL}\big(\mathrm{Bern}(\pi_t)\,\|\,\mathrm{Bern}(A_{11})\big) + \\
+    &\quad (1-\pi_{t-1})\,\mathrm{KL}\big(\mathrm{Bern}(\pi_t)\,\|\,\mathrm{Bern}(A_{01})\big)\Big].
     \label{eq:kl-closed-form}
   \end{aligned}
 \end{equation}
 
-\paragraph{Training and inference.} The expectation of $\ell(\hat{s}(z), s)$ of Equation~\ref{eq:obj} will be too expensive to compute as an average over all $2^T$ possible sequences of $z_{1:T}$. Instead leverage Monte Carlo sampling to approximate the expectation (\ref{ai:eq-gate}). Only one sequence of $z_{1:T}$ is drawn per training clip and is an unbiased estimate of the expectation \cite{kingma2014autoencoding}. A sample $z_t \in \{0, 1\}$ drawn from a $\mathrm{Bern}(\pi_t)$, however, will potentially not change when $\pi_t$ is changed slightly, so $\partial z_t / \partial \pi_t = 0$ and thus the extraction loss sends no gradient to the gate. This is solved using a soft draw with the binary Concrete distribution \cite{maddison2017concrete, jang2017categorical}. 
+\paragraph{Training and inference.} The expectation of $\ell(\hat{s}(z), s)$ of \eqref{eq:obj} is too expensive to compute as an average over all $2^T$ possible sequences of $z_{1:T}$. Instead leverage Monte Carlo sampling to approximate the expectation (\ref{ai:eq-gate}). Only one sequence of $z_{1:T}$ is drawn per training clip and is an unbiased estimate of the expectation \cite{kingma2014autoencoding}. A sample $z_t \in \{0, 1\}$ drawn from a $\mathrm{Bern}(\pi_t)$, however, will potentially not change when $\pi_t$ is changed slightly, so $\partial z_t / \partial \pi_t = 0$ and thus the extraction loss sends no gradient to the gate. This is solved using a soft draw with the binary Concrete distribution \cite{maddison2017concrete, jang2017categorical}. 
  \begin{equation}
     \tilde{z}_t = \sigma\!\left(\frac{1}{\tau}\Big(\log\frac{\pi_t}{1-\pi_t} + \log U_t - \log(1-U_t)\Big)\right), \qquad U_t \sim
   \mathcal{U}(0,1),
     \label{eq:concrete}
   \end{equation}
-  where $\tau > 0$ is a temperature. The noise $U_t$ does not depend on $\phi$, so $\tilde{z}_t$ is a differentiable function of $\pi_t$ (the reparameterisation trick \cite{kingma2014autoencoding}), and as $\tau \to 0$ it tends to a hard $\mathrm{Bern}(\pi_t)$ draw where $\tau$ is annealed, linearly per epoch from $1$ to $0.5$. At inference a single deterministic output is needed. The output that minimises the expected squared error to the random gated output \eqref{eq:gated-output} is its mean,
+  where $\tau > 0$ is a temperature. The noise $U_t$ does not depend on $\psi$, so $\tilde{z}_t$ is a differentiable function of $\pi_t$ (the reparameterisation trick \cite{kingma2014autoencoding}), and as $\tau \to 0$ it tends to a hard $\mathrm{Bern}(\pi_t)$ draw where $\tau$ is annealed, linearly per epoch from $1$ to $0.5$. At inference a single deterministic output is needed. The output that minimises the expected squared error to the random gated output \eqref{eq:gated-output} is its mean,
   \begin{equation}
     \hat{S}_t = \mathbb{E}_{z_t \sim \mathrm{Bern}(\pi_t)}\big[z_t\,(M_t \otimes X_t + R_t)\big] = \pi_t\,(M_t \otimes X_t + R_t),
     \label{eq:gate-inference}

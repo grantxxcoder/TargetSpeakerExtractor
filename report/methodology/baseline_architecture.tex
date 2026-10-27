@@ -3,37 +3,31 @@
 The baseline architecture section describes the architecture that was used as a backbone in the REAL-TSE baseline \cite{wang2026realtse}. The architecture in this work is built from scratch, but the design is that of the baseline.
 \subsubsection{Band-split Recurrent Neural Network (BSRNN)}
 \label{sec:bsrnn}
-Luo and Yu \cite{luo2023music} propose the BSRNN model as a frequency-domain separation model that is designed for high sample rate audio. The implemented BSRNN is adapted to speech with a Time-Frequency Map enrollment conditioning module \cite{zhang2025multi} to turn it into a target speaker extraction model.
+Luo and Yu \cite{luo2023music} propose the BSRNN model as a frequency-domain separation model that is designed for high sample rate audio. The implemented BSRNN is adapted to speech with a TF-Map enrollment conditioning module \cite{zhang2025multi} to turn it into a target speaker extraction model.
 
 
 \subsubsection{Short-time Fourier transform}
 \label{sec:stft}
-The model operates in the time-frequency domain rather than a waveform. To ensure the input audio is in suitable form, a short-time Fourier transform (STFT) is applied by cutting the waveform into short, overlapping frames. A window function is applied to each frame, and then a discrete Fourier transform is applied to each windowed frame. The result is a complex-valued spectrogram, a two-dimensional representation of the audio signal. On the horizontal axis is time, and on the vertical axis is frequency. The discrete Fourier transform is defined as:
-\begin{equation}
-X(f, t) = \sum_{n=0}^{N-1} x[tH + n]\,h[n]\,e^{-\mathrm{j}2\pi fn/N},
-\label{eq:stft}
-\end{equation}
- where $N$ is the window length, $H$ the hop between frames, $h[n]$ a Hann window and $\mathrm{j}$ the imaginary unit. Following Yu et al.\ \cite{yu2023high}, $N = 512$ and $H = 128$ at \SI{16}{\kHz}: a \SI{32}{\ms} window moving in \SI{8}{\ms} steps, giving 257 frequency bins. Frames are not centred on timestamps as this would imply future information which is not suitable for streaming tasks. Instead, the signal is padded with $N - H$ samples at the start of a sequence.
-
+The model operates in the time-frequency domain rather than a waveform. To ensure the input audio is in suitable form, a short-time Fourier transform (STFT) is applied by cutting the waveform into short, overlapping frames. A window function is applied to each frame, and then a discrete Fourier transform is applied to each windowed frame. The result is a complex-valued spectrogram, a two-dimensional representation of the audio signal. On the horizontal axis is time, and on the vertical axis is frequency. 
 
 \subsubsection{Band plan}
 \label{sec:bandplan}
-  The band plan in this work follows the implementation from Zhang et al.\ \cite{zhang2025multi} for their \SI{16}{\kHz} target speaker extraction model and used by the challenge baseline built on it. The split is 257 frequency bins into 32 bands as seen in the figure, but no reason is given in the original paper for these particular boundaries, and no explanation is given in previous papers. More bands are allocated to the lower frequencies as speech is more densely concentrated there and requires more resolution.
-  
+  The band plan in this work follows the implementation from Zhang et al.\ \cite{zhang2025multi} for their \SI{16}{\kHz} target speaker extraction model and used by the challenge baseline built on it. The split is 257 frequency bins into 32 bands, but no reason is given in the original paper for these particular boundaries, and no explanation is given in previous papers. More bands are allocated to the lower frequencies as speech is more densely concentrated there and requires more resolution.
+
 \subsubsection{Per-band normalisation}
 \label{sec:subbandnorm}
 
- Normalisation is applied across the values of a band \emph{within a single frame}. This is a deliberate design choice that \emph{opposes} Yu et al.\ \cite{yu2023high}, who use batch normalisation for their online configuration. The opposition is for the following reasons: \textit{(i)} during training, the mean and variance are computed from the current batch, but during inference, these statistics are computed from the entire training set. The function that is optimised during training is therefore not the function that is deployed. \textit{(ii)} The variability of the data does not give a reliable estimate of the true distribution. The statistics of a batch therefore depend on what was drawn where trials that will not reflect the statistics seen at inference. \textit{(iii)} Single frame normalisation carries no state and is unaffected by the amount of audio processed, so a four-second training chunk is normalised exactly as a stream that has been running for a minute.
+ Normalisation is applied across the values of a band \emph{within a single frame}. This is a deliberate design choice that \emph{opposes} Yu et al.\ \cite{yu2023high}, who use batch normalisation for their online configuration. The opposition is for the following reasons: \textit{(i)} during training, the mean and variance are computed from the current batch, but during inference, these statistics are computed from the entire training set. The function that is optimised during training is therefore not the function that is deployed. \textit{(ii)} A batch of three trials is too small to estimate the statistics reliably. \textit{(iii)} Single frame normalisation carries no state and is unaffected by the amount of audio processed, so a four-second training chunk is normalised exactly as a stream that has been running for a minute.
 
  \subsubsection{Residual LSTM block}
 \label{sec:resrnn}
 
-Two kinds of sequential structures are modelled: time and frequency. Time is unidirectional, but frequency is bidirectional, as all of the bands of a frame are available at the same instant and can be traversed in either direction. The block is used for both kinds of modelling, with the same structure but different parameters. At inference time, since the model is running in a streaming fashion, the LSTM's internal state is preserved between frames and information can be carried forward indefinitely. The LSTM is therefore a natural fit for the task, and it is used in the same way for both the time and frequency sequences. Each block completed the following taking inspiration from \cite{luo2023music}: the input is normalised, passed through the LSTM, and projected back to the original width. Finally, the input is added back to the output of the projection, forming a residual connection. A single LSTM layer is given a width of 192, which is Yu et al.'s \cite{yu2023high} choice for their \SI{16}{\kHz} model. The input to the block is 128 wide, which is projected to 192 for the LSTM and then projected back to 128 for the residual addition. 
+Two kinds of sequential structures are modelled: time and frequency. Time is unidirectional, but frequency is bidirectional, as all of the bands of a frame are available at the same instant and can be traversed in either direction. The block is used for both kinds of modelling, with the same structure but different parameters. At inference time, since the model is running in a streaming fashion, the LSTM's internal state is preserved between frames and information can be carried forward indefinitely. Following Luo and Yu \cite{luo2023music}, each block works as follows: the input is normalised, passed through the LSTM, and projected back to the original width. Finally, the input is added back to the output of the projection, forming a residual connection. A single LSTM layer is given a width of 192, which is Yu et al.'s \cite{yu2023high} choice for their \SI{16}{\kHz} model. The input to the block is 128 wide, which is projected to 192 for the LSTM and then projected back to 128 for the residual addition. 
 
 \subsubsection{Band and sequence model}
 \label{sec:bsnet}
 
-The band and sequence model is the implementation of the residual LSTM block of Section~\ref{sec:resrnn} in a stack of six blocks again following Yu et al.\ \cite{yu2023high}, using the input from Section~\ref{sec:subbandnorm}. After the per-band normalisation and projection, there are 32 bands of 128 features each. Each of these blocks make two passes: over the time dimension (unidirectional), and then make a pass over the frequency dimension (bidirectional). Pairing the two passes in a single block is the design of Luo and Yu \cite{luo2023music}, who motivate it by analogy with dual-path recurrent networks for speech separation rather than by an argument specific to bands. The effect of stacking the blocks is to allow for the accumulation of evidence over longer time spans.
+The band and sequence model is the implementation of the residual LSTM block of Section~\ref{sec:resrnn} in a stack of six blocks again following Yu et al.\ \cite{yu2023high}, using the input from Section~\ref{sec:subbandnorm}. After the per-band normalisation and projection, there are 32 bands of 128 features each. Each block makes two passes: over time (unidirectional), then over frequency (bidirectional). Pairing the two passes in a single block is the design of Luo and Yu \cite{luo2023music}, who motivate it by analogy with dual-path recurrent networks for speech separation rather than by an argument specific to bands. The effect of stacking the blocks is to allow for the accumulation of evidence over longer time spans.
 
 \subsubsection{Estimation module}
 \label{sec:estimator}
@@ -103,7 +97,7 @@ L_\textup{pres}
 Lower is better. The $\tau_\textup{pres} = 10^{-3}$ term in the denominator is a floor and caps the best score at \SI{-30}{dB}, which is a suggestion from CARTSE \cite{li2026cartse}. An output whose residual error already sits \SI{30}{dB} below the target is close enough to be treated as solved, so it would be wasteful to keep spending gradient on it. The measure has two blind spots. It views the leaked interferer, noise and artefacts as an identical error per unit of energy. Secondly, the ratio is dominated by the low frequencies and thus the quieter bands that carry the consonants can be reconstructed poorly without much penalty. 
 
 \paragraph{Multi-resolution spectral term.}
-Equation~\eqref{eq:lpres} cannot express \emph{where} in the spectrum the error lies, a model that reconstructs the loud low bands well and the quiet high bands poorly is barely penalised and, being scale-invariant, it does not constrain the output's absolute loudness at all. Thus the to address this, we consider multiple resolutions of $s$ and $\hat{s}$ such that the reconstruction of both the low and high frequency bands at different scales is encouraged. A spectral term allows for this following \cite{yu2023high}:
+Equation~\eqref{eq:lpres} cannot express \emph{where} in the spectrum the error lies: a model that reconstructs the loud low bands well and the quiet high bands poorly is barely penalised and, being scale-invariant, it does not constrain the output's absolute loudness at all. To address this, $s$ and $\hat{s}$ are compared at several resolutions so that the reconstruction of both the low and high frequency bands at different scales is encouraged. A spectral term allows for this following \cite{yu2023high}:
 \begin{equation}
 L_\textup{MR} = \frac{1}{|\mathcal{N}|} \sum_{N \in \mathcal{N}}
   \Big(
@@ -113,7 +107,7 @@ L_\textup{MR} = \frac{1}{|\mathcal{N}|} \sum_{N \in \mathcal{N}}
   \Big),
 \label{eq:lmr}
 \end{equation}
-where $S_N$ and $\hat{S}_N$ are the spectrograms of the target and the output (Equation~\ref{eq:stft}) with window length $N$ and hop $N/4$, and each norm is averaged over its time-frequency coefficients.
+where $S_N$ and $\hat{S}_N$ are the spectrograms of the target and the output (\autoref{sec:stft}), with window length $N$ and hop $N/4$, and each norm is averaged over its time-frequency coefficients.
 
  The exponent $p = 0.3$ compresses magnitudes, which will highlight the quieter components relative to loud ones so that an error in a low-energy region is not diluted just because it is quiet. Without the compression the term would be dominated by the same loud low bands that already dominate \eqref{eq:lpres}. The real and imaginary terms are left uncompressed and they are what make the term sensitive to phase: a magnitude-only loss would be indifferent to the phase that the complex mask of Section~\ref{sec:estimator} is free to change. Finally the term is evaluated at several window lengths namely: \num{8}, \num{16}, \num{32} and \SI{64}{\ms}. This is with respect to the model's own \SI{32}{\ms} framing. The model builds its output by masking \SI{32}{\ms} frames and overlapping them, so the places where most errors would occur can be expected to exist at frame boundaries. The \SI{8}{\ms} and \SI{16}{\ms} windows resolve this and the \SI{64}{\ms} window catches harmonic structure that the short ones blur.
 
@@ -131,7 +125,7 @@ model amplified the mixture, which is a direct failure. The inclusion of the den
 
 
 \paragraph{Output level.}
-$L_\textup{pres}$ is scale-invariant and $L_\textup{abs}$ rewards silence, leaving a gap in the training that would otherwise allow a model to simply mute its output. This gap is filled by the third term, which ensures that the model does the following: \textit{(i)} prevents the indiscriminate output of silence, and \textit{(ii)} ensures a reasonable level of output. It bounds the output level against the target's, with a dead zone of $\pm\delta$:
+$L_\textup{pres}$ is scale-invariant and $L_\textup{abs}$ rewards silence, leaving a gap in the training that would otherwise allow a model to simply mute its output. This gap is filled by the third term, which has two jobs: \textit{(i)} to prevent the indiscriminate output of silence, and \textit{(ii)} to keep the output at a reasonable level. It bounds the output level against the target's, with a dead zone of $\pm\delta$:
 \begin{equation}
 L_\textup{gain} = \max\!\Big(0,\ \Big|\, 20 \log_{10} \frac{\operatorname{rms}(\hat{s})}{\operatorname{rms}(s)} \Big| - \delta \Big),
 \qquad \delta = \SI{3}{dB}.
@@ -161,8 +155,10 @@ The weight $w$ on the silent branch is derived rather than chosen. Silent crops 
 
 
 
-The weight $w_\textup{m}$ on the spectral term is derived from the target present and absent losses. The reason for this term is that equations~\eqref{eq:lpres} and \eqref{eq:lmr} are in different units. $L_\textup{pres}$ is in units with respect to a ratio in decibels, and $L_\textup{MR}$ is the mean absolute difference between compressed magnitudes. Therefore the weighting term $w_\textup{m}$ will reconcile the two terms to be on the same scale.
+The weight $w_\textup{m}$ on the spectral term is derived from $L_\text{pres}$ and $L_\text{MR}$. The reason for this term is that equations~\eqref{eq:lpres} and \eqref{eq:lmr} are in different units. $L_\textup{pres}$ is in units with respect to a ratio in decibels, and $L_\textup{MR}$ is the mean absolute difference between compressed magnitudes. Therefore the weighting term $w_\textup{m}$ will reconcile the two terms to be on the same scale.
 This is done by evaluating on the output that does nothing at all, $\hat{s} = x$, over 300 training crops which will simulate the scenario for the average losses for an untrained model. The median values for $L_\textup{pres}$ and $L_\textup{MR}$ are \num{-5.91} and \num{0.184} respectively. The aim is for the spectral term (Multi-Resolution) to be roughly \SI{30}{\percent} of the present branch at the start of training. The calculation then becomes  
- $$w_\textup{m} = \frac{0.3 \times |L_\textup{pres}|}{L_\textup{MR}} =  \frac{0.3 \times 5.9088}{0.1842} = 9.62$$
+\[
+  w_\textup{m} = \frac{0.3 \times |L_\textup{pres}|}{L_\textup{MR}} = \frac{0.3 \times 5.9088}{0.1842} = 9.62.
+\]
 
 
