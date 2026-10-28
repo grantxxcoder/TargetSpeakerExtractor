@@ -39,6 +39,8 @@ INK = "#222222"
 BLUE = "#0B6E99"
 ORANGE = "#C1440E"
 MUTED = "#6B6B6B"
+# WeSep gets its own colour, the same as in the bar figures; reddish purple from the colour-blind-safe palette of Okabe and Ito (2008).
+WESEP_COLOUR = "#CC79A7"
 
 RESULTS = Path(__file__).resolve().parents[1] / "experiments/results"
 VALIDATION_DIRECTORY = RESULTS / "2026-10-07-ci-clustered"
@@ -50,7 +52,7 @@ ROWS = [
     ("No processing", MUTED, "s"),
     ("Baseline", ORANGE, "D"),
     ("Extension", BLUE, "D"),
-    ("WeSep", INK, "D"),
+    ("WeSep", WESEP_COLOUR, "D"),
     ("Target alone", MUTED, "s"),
 ]
 

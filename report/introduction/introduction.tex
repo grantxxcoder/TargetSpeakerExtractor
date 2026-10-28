@@ -4,7 +4,7 @@ Voice assistants engage with users through direct, live speech-to-speech models 
 
 In this report the \emph{listener} is the speech model that transcribes the extractor's output. The deployment target is Gemini Live \cite{google2026geminilive} though every measurement uses Gemini 3.7 Flash \cite{google2026geminiflash} as its stand-in and is used to select checkpointed models. This work asks three questions:
   \begin{description}
-    \item[RQ1] Do the measures conventionally used to evaluate target speaker extraction (signal-to-distortion ratios, predicted opinion scores and an offline recogniser's word error rate) indicate how much of the target's speech the listener recovers from the extractor's output? (\autoref{sec:results_rq1})
+    \item[RQ1] Do the measures conventionally used to evaluate target speaker extraction (signal-to-distortion ratios and predicted opinion scores) indicate how much of the target's speech the listener recovers from the extractor's output? (\autoref{sec:results_rq1})
     \item[RQ2] When an extractor suppresses the interfering speaker, what are the listener's remaining errors and how are the errors divided between words leaked from the interfering speaker and words that neither speaker said? Does reducing one type of error increase the other? (\autoref{sec:results_rq2})
     \item[RQ3] Within a causal extractor that runs in real time, does giving the network more explicit information about the target's voice reduce the listener's errors and does it improve the model's ability to interpret the target? (\autoref{sec:results_rq3})
   \end{description}

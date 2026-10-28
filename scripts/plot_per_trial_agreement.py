@@ -1,15 +1,16 @@
-"""Draws the report's per-trial agreement figure: when SDR says a trial got better, did Gemini understand that trial better?
+"""Draws the report's per-trial agreement figure: when SDR says a trial got better or worse, did Gemini agree?
 
     env -u GEMINI_API_KEY ../tse_venv/bin/python scripts/plot_per_trial_agreement.py --out report/figures/per_trial_agreement.pdf
 
-For each system, the bars hold the two-speaker validation trials on which the extractor raised SDR above the unprocessed mixture's, split by whether Gemini's word error rate on that trial then fell, stayed the same or rose.
-The trials are split by how loud the target was against the other speaker (SIR below or at least 0 dB), because a trial where the target already dominates leaves Gemini little to gain from extraction.
+For each system, a bar holds every two-speaker validation trial in its group, split first by whether the extractor raised SDR above the unprocessed mixture's or not (solid or hatched), then by whether Gemini's word error rate on that trial fell, stayed the same or rose.
+Every bar in a panel covers the same trials, so the systems are compared on the same denominator; each extractor raises SDR on a different subset of them.
+The trials are split by how loud the target was against the other speaker (SIR below or at least 0 dB), read from the split manifest, so the groups are the same for every system.
 Gemini's word error rate per trial is the mean of its three runs on that audio, so most of the judge's run-to-run noise averages out. Estimates use the repeat-keyed judge cache (repeats 0, 1, 2).
 The unprocessed mixture's three runs are read straight from experiments/results/judge_responses.csv, because the cache keeps one answer per rendered clip; its repeat 0 rebuilds to 63.24 % against the published 63.27 %, repeats 1 and 2 match exactly.
 Gemini's answers come from the cache only, so nothing is paid for; a clip with no cached answer failed in its published run and is scored empty, as that run scored it. The speech gate is applied with the same speech_gate.decide as in scoring. SDR follows evaluate.py's signal metric.
 Whisper's per-trial word error rate and the correlations are written to summary.json but not drawn.
 The per-trial values and a summary are written to experiments/results/2026-10-27-per-trial-agreement/. With --replot the figure is redrawn from them without rescoring.
-Claude Code wrote this script from the author's figure specification (2026-10-27).
+Claude Code wrote this script from the author's figure specification (2026-10-27), and redrew it on 2026-10-28 to show every trial, after the author found the SDR-rose-only bars could not be compared.
 """
 
 import argparse
@@ -23,6 +24,8 @@ from pathlib import Path
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib import patheffects
+from matplotlib.patches import Patch
 import soundfile
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -245,7 +248,7 @@ def read_per_trial():
     return per_trial
 
 
-# this draws the figure: for each SIR group and system, the trials where SDR improved, split by whether Gemini then did better, the same or worse
+# this draws the figure: for each SIR group and system, every trial in the group, split by whether SDR rose or fell and then by whether Gemini did better, the same or worse
 def draw(output_path):
     per_trial = read_per_trial()
     mixture = per_trial["No processing"]
@@ -257,38 +260,46 @@ def draw(output_path):
         in_group = mixture["sir"] < 0
         if target_louder:
             in_group = mixture["sir"] >= 0
-        labels = []
+        group_size = int(np.sum(in_group))
         for row, name in enumerate(names):
             sdr_up = (per_trial[name]["sdr"] > mixture["sdr"]) & in_group
-            better = int(np.sum(sdr_up & (per_trial[name]["gemini"] < mixture["gemini"])))
-            worse = int(np.sum(sdr_up & (per_trial[name]["gemini"] > mixture["gemini"])))
+            sdr_down = (per_trial[name]["sdr"] <= mixture["sdr"]) & in_group
+            gemini_better = per_trial[name]["gemini"] < mixture["gemini"]
+            gemini_worse = per_trial[name]["gemini"] > mixture["gemini"]
+            better = int(np.sum(sdr_up & gemini_better))
+            worse = int(np.sum(sdr_up & gemini_worse))
             improved = int(np.sum(sdr_up))
             same = improved - better - worse
+            fell_better = int(np.sum(sdr_down & gemini_better))
+            fell_worse = int(np.sum(sdr_down & gemini_worse))
+            fell = int(np.sum(sdr_down))
+            fell_same = fell - fell_better - fell_worse
             if name not in findings:
                 findings[name] = {}
-            findings[name][title] = {"trials_in_group": int(np.sum(in_group)), "sdr_improved": improved, "gemini_better": better, "gemini_same": same, "gemini_worse": worse}
-            labels.append(f"{name} ({improved})")
-            # Each bar is a share of its own SDR-improved trials, so the bars are read on one scale; the counts are written on them.
-            left = 0.0
-            for count, colour, text_colour, label in ((better, MUTED, "white", "Gemini did better"), (same, LIGHT_GREY, INK, "Gemini unchanged"), (worse, ORANGE, "white", "Gemini did worse")):
-                width = 100.0 * count / improved
-                show_label = None
-                if row == 0 and panel == 0:
-                    show_label = label
-                axis.barh(row, width, left=left, height=0.62, color=colour, linewidth=0, label=show_label)
+            findings[name][title] = {"trials_in_group": group_size, "sdr_improved": improved, "gemini_better": better, "gemini_same": same, "gemini_worse": worse, "sdr_fell": fell, "sdr_fell_gemini_better": fell_better, "sdr_fell_gemini_same": fell_same, "sdr_fell_gemini_worse": fell_worse}
+            # The bar is drawn in trials, so every bar in a panel spans the whole group; the trials where SDR fell are hatched and sit after a dividing line.
+            left = 0
+            segments = ((better, MUTED, "white", ""), (same, LIGHT_GREY, INK, ""), (worse, ORANGE, "white", ""), (fell_better, MUTED, "white", "////"), (fell_same, LIGHT_GREY, INK, "////"), (fell_worse, ORANGE, "white", "////"))
+            for count, colour, text_colour, hatch in segments:
+                axis.barh(row, count, left=left, height=0.62, color=colour, edgecolor="white", linewidth=0, hatch=hatch)
+                # A count on a hatched part gets an outline in the bar's own colour, so it stays readable over the hatching.
+                outline = []
+                if hatch:
+                    outline = [patheffects.withStroke(linewidth=2.5, foreground=colour)]
                 if count > 0:
-                    axis.text(left + width / 2, row, str(count), fontsize=8, color=text_colour, ha="center", va="center")
-                left += width
+                    axis.text(left + count / 2, row, str(count), fontsize=8, color=text_colour, ha="center", va="center", path_effects=outline)
+                left += count
+            axis.plot([improved, improved], [row - 0.36, row + 0.36], color=INK, linewidth=0.9)
         axis.set_yticks(range(len(names)))
-        axis.set_yticklabels(labels)
+        axis.set_yticklabels(names)
         axis.set_ylim(len(names) - 0.5, -0.5)
         axis.tick_params(axis="y", length=0)
-        axis.set_xlim(0, 100)
-        axis.set_title(title, fontsize=9)
+        axis.set_xlim(0, group_size)
+        axis.set_title(f"{title} ({group_size} trials)", fontsize=9)
         axis.spines["left"].set_visible(False)
-        axis.set_xlabel("Trials where SDR rose (%)")
-    handles, legend_labels = axes[0].get_legend_handles_labels()
-    figure.legend(handles, legend_labels, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=3, frameon=False, handlelength=1.2, columnspacing=1.6)
+        axis.set_xlabel("Trials")
+    handles = [Patch(facecolor=MUTED, label="Gemini did better"), Patch(facecolor=LIGHT_GREY, label="Gemini unchanged"), Patch(facecolor=ORANGE, label="Gemini did worse"), Patch(facecolor="white", edgecolor=INK, linewidth=0.6, label="SDR rose (solid)"), Patch(facecolor="white", edgecolor=INK, linewidth=0.6, hatch="////", label="SDR fell (hatched)")]
+    figure.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=5, frameon=False, handlelength=1.2, columnspacing=1.4)
 
     for name in names:
         sdr_gain = per_trial[name]["sdr"] - mixture["sdr"]

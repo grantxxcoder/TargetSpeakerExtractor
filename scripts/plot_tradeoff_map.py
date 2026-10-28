@@ -2,8 +2,8 @@
 
     ../tse_venv/bin/python scripts/plot_tradeoff_map.py --out report/figures/tradeoff_map.pdf
 
-Panel (a) places the five systems of the main results table, each the mean of its three judge runs with a one-SD bar from those three run scores.
-Panel (b) zooms on the extension: its chosen epoch 21, its last epoch 27, and the three six-epoch fine-tunes that start from it (control, leak-weighted, artefact-weighted).
+It places the five systems of the main results, each the mean of its three judge runs with a one-SD bar from those three run scores.
+The fine-tunes of the extension are not drawn here; they are a table in results.tex (tab:tradeoff), which replaced this figure's second panel on 2026-10-28.
 Diamonds are models and squares are the two reference points (no processing, target alone).
 Every value is read from the judge runs' results.json, the same files and run lists as experiments/results/2026-09-27-judge-plain-sd/plain_sd.py.
 Judge: gemini-3.7-flash, AI Studio, audio in and text out, prompt d118b7d3bf30, sir0_val, the 103 two-speaker trials.
@@ -33,12 +33,14 @@ mpl.rcParams.update({
     "savefig.bbox": "tight", "savefig.pad_inches": 0.01, "pdf.fonttype": 42,
     "mathtext.fontset": "stix",
 })
-TEXTWIDTH_IN = 6.3
-FIGURE_HEIGHT_IN = 2.6
+FIGURE_WIDTH_IN = 3.4
+FIGURE_HEIGHT_IN = 2.5
 INK = "#222222"
 BLUE = "#0B6E99"
 ORANGE = "#C1440E"
 MUTED = "#6B6B6B"
+# WeSep gets its own colour, the same as in the bar figures; reddish purple from the colour-blind-safe palette of Okabe and Ito (2008).
+WESEP_COLOUR = "#CC79A7"
 
 RESULTS = Path(__file__).resolve().parents[1] / "experiments/results"
 
@@ -52,18 +54,6 @@ REPEATED_SYSTEMS = {
 }
 # WeSep's first run predates the invented-word count, so plain_sd.py takes it from the 2026-09-27-judge-repeats-wesep rebuild.
 WESEP_FIRST_RUN_INVENTED = 1.796116504854369
-
-# The points judged once: the extension's last epoch and the three fine-tunes from epoch 21 (decisions-m2.md 2026-10-03).
-SINGLE_RUNS = {
-    "Epoch 27": "2026-09-25-eval-cuecontext-wer-e27-judge",
-    "Fine-tune control": "2026-10-03-eval-interf-ft-control-e5-judge",
-    "Leak-weighted": "2026-10-03-eval-interf-ft-e5-judge",
-    "Artefact-weighted": "2026-10-03-eval-artif-ft-e5-judge",
-}
-
-# The axis limits of panel (b), which zooms on the extension.
-ZOOM_LEAK = (13.5, 40.0)
-ZOOM_INVENTED = (1.7, 3.0)
 
 
 # this reads one judge run's scores for one system
@@ -88,12 +78,6 @@ def summarise_repeats(name, system_key, run_directories):
     return {"leak": mean(leaks), "leak_sd": stdev(leaks), "invented": mean(inventeds), "invented_sd": stdev(inventeds), "word_error": mean(word_errors)}
 
 
-# this gives the scores of a point judged only once
-def summarise_single(run_directory):
-    scores = read_scores(run_directory, "estimate")
-    return {"leak": scores["mean_leak"], "invented": scores["invented_per_trial"], "word_error": scores["lcf_wer"]}
-
-
 # this draws one labelled point, with its SD bars when it has them
 def draw_point(axis, point, label, colour, marker, label_offset, label_alignment):
     if "leak_sd" in point:
@@ -111,34 +95,19 @@ def main():
     systems = {}
     for name, (system_key, run_directories) in REPEATED_SYSTEMS.items():
         systems[name] = summarise_repeats(name, system_key, run_directories)
-    singles = {}
-    for name, run_directory in SINGLE_RUNS.items():
-        singles[name] = summarise_single(run_directory)
 
-    figure, (axis_all, axis_zoom) = plt.subplots(1, 2, figsize=(TEXTWIDTH_IN, FIGURE_HEIGHT_IN), gridspec_kw={"width_ratios": [1.0, 1.0], "wspace": 0.28})
+    figure, axis_all = plt.subplots(figsize=(FIGURE_WIDTH_IN, FIGURE_HEIGHT_IN))
 
-    # Panel (a): the five systems of the main table. Models are diamonds and the two reference points are grey squares.
+    # The five systems of the main results. Models are diamonds and the two reference points are grey squares.
     draw_point(axis_all, systems["No processing"], "No processing", MUTED, "s", (0, 9), "center")
     draw_point(axis_all, systems["Baseline"], "Baseline", ORANGE, "D", (6, 6), "left")
     draw_point(axis_all, systems["Extension"], "Extension", BLUE, "D", (0, 10), "center")
-    draw_point(axis_all, systems["WeSep"], "WeSep", INK, "D", (0, -10), "center")
+    draw_point(axis_all, systems["WeSep"], "WeSep", WESEP_COLOUR, "D", (0, -10), "center")
     draw_point(axis_all, systems["Target alone (perfect)"], "Target alone", MUTED, "s", (6, 0), "left")
     axis_all.set_xlim(-3, 72)
     axis_all.set_ylim(0, 3.1)
     axis_all.set_xlabel("Other speaker's words reaching the transcript (%)")
     axis_all.set_ylabel("Invented words per trial")
-    axis_all.set_title("(a) Systems", loc="left")
-
-    # Panel (b): the extension's two epochs and the three fine-tunes started from epoch 21.
-    draw_point(axis_zoom, systems["Extension"], "Epoch 21, chosen", BLUE, "D", (6, -6), "left")
-    draw_point(axis_zoom, singles["Epoch 27"], "Epoch 27", BLUE, "D", (6, 0), "left")
-    draw_point(axis_zoom, singles["Fine-tune control"], "Control fine-tune", BLUE, "D", (0, -10), "center")
-    draw_point(axis_zoom, singles["Leak-weighted"], "Leak-weighted", BLUE, "D", (0, 9), "center")
-    draw_point(axis_zoom, singles["Artefact-weighted"], "Artefact-weighted", BLUE, "D", (0, 9), "center")
-    axis_zoom.set_xlim(ZOOM_LEAK)
-    axis_zoom.set_ylim(ZOOM_INVENTED)
-    axis_zoom.set_xlabel("Other speaker's words reaching the transcript (%)")
-    axis_zoom.set_title("(b) Extension epochs and its fine-tunes", loc="left")
 
     output_path = Path(arguments.out)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -147,8 +116,6 @@ def main():
     # Print the plotted values so they can be checked against the results table. Generated by Claude Code
     for name, point in systems.items():
         print(f"{name:24s} leak {point['leak']:6.2f} +- {point['leak_sd']:5.2f}  invented {point['invented']:5.2f} +- {point['invented_sd']:5.2f}  word error {point['word_error']:6.2f}")
-    for name, point in singles.items():
-        print(f"{name:24s} leak {point['leak']:6.2f}           invented {point['invented']:5.2f}           word error {point['word_error']:6.2f}")
 
 
 if __name__ == "__main__":

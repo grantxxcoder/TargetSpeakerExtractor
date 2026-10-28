@@ -69,6 +69,10 @@ Machine unless stated: laptop, Intel i5-1135G7, **4 physical cores / 8 threads**
 | 2026-09-23 | `content_probe.score()` end-to-end smoke, 3 clips | 3 clips, sir0_val, untrained 1c model, cpu extraction + faster-whisper small.en int8 cpu | 3.1 min | ~16 s/clip extraction on cpu, ~4 s/clip ASR, plus ~1 min of model loading. The Kaggle figure differs: extraction moves to the T4, so the ASR sets the per-epoch cost at ~4 s/clip. Added by hand. |
 | 2026-09-21 | `pytest tests/ -q` | 515 tests | 11 min | full suite after adding eval_by_case.py. Added by hand: pytest does not use run_log.timed |
 <!-- rows appended below by src/run_log.py -->
+| 2026-10-28 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-10-28-est-e21-tracker-d2-kalman-r1q --systems estimate --metrics content --listener judge --out experiments/results/2026-10-28-eval-e21-tracker-d2-kalman-r1q-judge | 36 min |  |
+| 2026-10-28 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-10-28-est-e21-tracker-d1-oracle-energy --systems estimate --metrics content --listener judge --out experiments/results/2026-10-28-eval-e21-tracker-d1-oracle-energy-judge | 30 min |  |
+| 2026-10-28 | `scripts/diagnose_target_tracker.py` | sir0_val both, 103 trials, 4 variants + 200-trial prior | 2 min |  |
+| 2026-10-28 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-09-03-est-wesep-tfmap-causal --systems estimate --metrics signal,perceptual --out experiments/results/2026-10-28-eval-wesep-signal-perceptual | 5 min |  |
 | 2026-10-27 | `experiments/results/2026-10-27-ami-paired-ci/paired_ci_ami.py` | --baseline-estimates experiments/results/2026-10-27-est-ami-baseline-matched-e11 | 2 min |  |
 | 2026-10-27 | `experiments/results/2026-10-27-ami-paired-ci/paired_ci_ami.py` | ami_eval both, 4 systems, judge cache only | 3 min |  |
 | 2026-10-27 | `experiments/results/2026-10-27-ami-paired-ci/paired_ci_ami.py` | ami_eval both, 4 systems, judge cache only | 4 min |  |

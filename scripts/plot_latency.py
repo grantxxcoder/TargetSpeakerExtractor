@@ -40,6 +40,8 @@ INK = "#222222"
 BLUE = "#0B6E99"
 ORANGE = "#C1440E"
 MUTED = "#6B6B6B"
+# WeSep gets its own colour, the same as in the bar figures; reddish purple from the colour-blind-safe palette of Okabe and Ito (2008).
+WESEP_COLOUR = "#CC79A7"
 SHADE = "#ECECEC"
 LIGHT_GREY = "#D9D9D9"
 MID_GREY = "#A6A6A6"
@@ -50,7 +52,7 @@ RESULTS = Path(__file__).resolve().parents[1] / "experiments/results"
 SYSTEMS = {
     "Baseline": {"runs": ["2026-09-28-rtf-idle-baseline-r1", "2026-09-28-rtf-idle-baseline-r2", "2026-09-28-rtf-idle-baseline-r3"], "colour": ORANGE, "word_error": 53.26},
     "Extension": {"runs": ["2026-09-28-rtf-idle-e21-r1", "2026-09-28-rtf-idle-e21-r2", "2026-09-28-rtf-idle-e21-r3"], "colour": BLUE, "word_error": 39.59},
-    "WeSep": {"runs": ["2026-09-03-rtf-wesep-cpu"], "colour": INK, "word_error": 25.80},
+    "WeSep": {"runs": ["2026-09-03-rtf-wesep-cpu"], "colour": WESEP_COLOUR, "word_error": 25.80},
 }
 NO_PROCESSING_WORD_ERROR = 62.94
 BUDGET_MS = (200.0, 300.0)
