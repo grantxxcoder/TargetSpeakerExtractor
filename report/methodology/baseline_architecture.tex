@@ -3,21 +3,21 @@
 The baseline architecture section describes the architecture that was used as a backbone in the REAL-TSE baseline \cite{wang2026realtse}. The architecture in this work is built from scratch, but the design is that of the baseline.
 \subsubsection{Band-split Recurrent Neural Network (BSRNN)}
 \label{sec:bsrnn}
-Luo and Yu \cite{luo2023music} propose the BSRNN model as a frequency-domain separation model that is designed for high sample rate audio. The implemented BSRNN is adapted to speech with a TF-Map enrolment conditioning module \cite{zhang2025multi} to turn it into a target speaker extraction model.
+Luo and Yu \cite{luo2023music} propose the BSRNN model as a frequency-domain separation model that is designed for high-sample-rate audio. The implemented BSRNN is adapted to speech with a TF-Map enrolment conditioning module \cite{zhang2025multi} to turn it into a target speaker extraction model.
 
 
 \subsubsection{Short-time Fourier transform}
 \label{sec:stft}
-The model operates in the time-frequency domain rather than a waveform. To ensure the input audio is in suitable form, a short-time Fourier transform (STFT) is applied by cutting the waveform into short, overlapping frames. A window function is applied to each frame, and then a discrete Fourier transform is applied to each windowed frame. The result is a complex-valued spectrogram, a two-dimensional representation of the audio signal. On the horizontal axis is time, and on the vertical axis is frequency. 
+The model operates in the time-frequency domain rather than on the waveform. To ensure the input audio is in suitable form, a short-time Fourier transform (STFT) is applied by cutting the waveform into short, overlapping frames. A window function is applied to each frame, and then a discrete Fourier transform is applied to each windowed frame. The result is a complex-valued spectrogram, a two-dimensional representation of the audio signal. On the horizontal axis is time, and on the vertical axis is frequency. 
 
 \subsubsection{Band plan}
 \label{sec:bandplan}
-  The band plan in this work follows the implementation from Zhang et al.\ \cite{zhang2025multi} for their \SI{16}{\kHz} target speaker extraction model and used by the challenge baseline built on it. The split is 257 frequency bins into 32 bands, but no reason is given in the original paper for these particular boundaries, and no explanation is given in previous papers. More bands are allocated to the lower frequencies as speech is more densely concentrated there and requires more resolution.
+  The band plan in this work follows the implementation from Zhang et al.\ \cite{zhang2025multi} for their \SI{16}{\kHz} target speaker extraction model, which is also used by the challenge baseline built on it. The split is 257 frequency bins into 32 bands, but no reason is given in the original paper for these particular boundaries, and no explanation is given in previous papers. More bands are allocated to the lower frequencies as speech is more densely concentrated there and requires more resolution.
 
 \subsubsection{Per-band normalisation}
 \label{sec:subbandnorm}
 
- Normalisation is applied across the values of a band \emph{within a single frame}. This is a deliberate design choice that \emph{opposes} Yu et al.\ \cite{yu2023high}, who use batch normalisation for their online configuration. The opposition is for the following reasons: \textit{(i)} during training, the mean and variance are computed from the current batch, but during inference, these statistics are computed from the entire training set. The function that is optimised during training is therefore not the function that is deployed. \textit{(ii)} A batch of three trials is too small to estimate the statistics reliably. \textit{(iii)} Single frame normalisation carries no state and is unaffected by the amount of audio processed, so a four-second training chunk is normalised exactly as a stream that has been running for a minute.
+ Normalisation is applied across the values of a band \emph{within a single frame}. This is a deliberate design choice that \emph{opposes} Yu et al.\ \cite{yu2023high}, who use batch normalisation for their online configuration. The opposition is for the following reasons: \textit{(i)} during training, the mean and variance are computed from the current batch, but during inference, these statistics are computed from the entire training set. The function that is optimised during training is therefore not the function that is deployed. \textit{(ii)} A batch of three trials is too small to estimate the statistics reliably. \textit{(iii)} Single-frame normalisation carries no state and is unaffected by the amount of audio processed, so a four-second training chunk is normalised exactly as a stream that has been running for a minute.
 
  \subsubsection{Residual LSTM block}
 \label{sec:resrnn}
@@ -32,7 +32,7 @@ The band and sequence model is the implementation of the residual LSTM block of 
 \subsubsection{Estimation module}
 \label{sec:estimator}
 
-The estimation module is responsible for producing an output spectrogram that contains the estimated target speaker's speech. This is done by creating an output network per band to reconstruct the target speaker's speech from the features produced by the band and sequence model. Yu et al. realised it would be more efficient to mask the mixture rather than predict the output spectrogram directly. This mask is a number for each time-frequency bin, which the mixture is multiplied by. A mask alone is not enough, as multiplication can only ever scale what a bin already holds. In the cases where the interferer completely dominates a bin, no multiplier recovers the target, as the multiplication operation would not be able to scale the drowned out target. To solve this, the estimation module makes use of a residual spectrogram, which is predicted directly and added. Yu et al.\ \cite{yu2023high} introduce it for exactly this reason, to absorb what the mask alone produces as artefacts. It is useful to not bound this mask and is what the original implementation encouraged. The estimate for a band is then
+The estimation module is responsible for producing an output spectrogram that contains the estimated target speaker's speech. This is done by creating an output network per band to reconstruct the target speaker's speech from the features produced by the band and sequence model. Yu et al.\ realised it would be more efficient to mask the mixture rather than predict the output spectrogram directly. This mask is a number for each time-frequency bin, which the mixture is multiplied by. A mask alone is not enough, as multiplication can only ever scale what a bin already holds. In the cases where the interferer completely dominates a bin, no multiplier recovers the target, as the multiplication operation would not be able to scale the drowned-out target. To solve this, the estimation module makes use of a residual spectrogram, which is predicted directly and added. Yu et al.\ \cite{yu2023high} introduce it for exactly this reason, to absorb what the mask alone produces as artefacts. Leaving this mask unbounded is useful, and is what the original implementation encouraged. The estimate for a band is then
 \begin{equation}
 \hat{S} = M \otimes X + R,
 \label{eq:estimator}
@@ -42,7 +42,7 @@ where $\otimes$ is the complex product, taken bin by bin. The $X$ that the mask 
 
 \subsubsection{Time-frequency map}
 \label{sec:tfmap}
-The TF-Map \cite{zhang2025multi} is the module that turns speech enhancement into target speaker extraction. It compares the mixture with the clean enrolment clip frame by frame, and gives the network a cue of what the target's spectrum should look like at each instant. Let $|X_t|$ be frame $t$ of the mixture's magnitude spectrogram and $|X_{e,j}|$ frame $j$ of the enrolment's. Every frame is first scaled to unit length, so that only the spectral \emph{shape} remains and does not keep the loudness:
+The TF-Map \cite{zhang2025multi} is the module that turns speech enhancement into target speaker extraction. It compares the mixture with the clean enrolment clip frame by frame, and gives the network a cue of what the target's spectrum should look like at each instant. Let $|X_t|$ be frame $t$ of the mixture's magnitude spectrogram and $|X_{e,j}|$ frame $j$ of the enrolment's. Every frame is first scaled to unit length, so that only the spectral \emph{shape} remains, not the loudness:
   \begin{equation}
   \tilde{x}_t = \frac{|X_t|}{\big\lVert |X_t| \big\rVert},
   \qquad
@@ -59,7 +59,7 @@ The TF-Map \cite{zhang2025multi} is the module that turns speech enhancement int
   \label{eq:tfmap-cos}
   \end{equation}
 
-  Zhang et al.\ \cite{zhang2025multi} also normalise the frames and make use of cosine similarity, but they use softmax directly on the inner product rather than scaling it by a factor $\kappa = 16$. After testing it was found that since the similarities lie between $[0, 1]$, the softmax spread the weights too evenly and thus did not give a clear template. The $\kappa$ factor is therefore used to scale the similarities which sharpens the softmax to give a more distinct template. The template only describes the shape and does not indicate whether a target is speaking. As in \cite{zhang2025multi}, the energy is restored by projecting the mixture frame onto the template's direction:
+  Zhang et al.\ \cite{zhang2025multi} also normalise the frames and make use of cosine similarity, but they use softmax directly on the inner product rather than scaling it by a factor $\kappa = 16$. After testing it was found that since the similarities lie in $[0, 1]$, the softmax spread the weights too evenly and thus did not give a clear template. The $\kappa$ factor is therefore used to scale the similarities, which sharpens the softmax to give a more distinct template. The template only describes the shape and does not indicate whether a target is speaking. As in \cite{zhang2025multi}, the energy is restored by projecting the mixture frame onto the template's direction:
   \begin{equation}
   u_t = \frac{\mu_t}{\lVert \mu_t \rVert},
   \qquad
@@ -74,7 +74,7 @@ The TF-Map \cite{zhang2025multi} is the module that turns speech enhancement int
 \subsubsection{Objective function}
 \label{sec:objective}
 
-The objective has to express two different requirements: output the target signal when it is present, otherwise, output silence. A single loss cannot serve both use cases and so the objective is split, and each crop is scored by the branch (target present versus absent) that applies to it.
+The objective has to express two different requirements: output the target signal when it is present, and output silence otherwise. A single loss cannot serve both use cases and so the objective is split, and each crop is scored by the branch (target present versus absent) that applies to it.
 
 Throughout, $x$ is the mixture, $s$ the target reference and $\hat{s}$ the model's output, all in the time domain over one training crop.
 
@@ -97,7 +97,7 @@ L_\textup{pres}
 Lower is better. The $\tau_\textup{pres} = 10^{-3}$ term in the denominator is a floor and caps the best score at \SI{-30}{dB}, which is a suggestion from CARTSE \cite{li2026cartse}. An output whose residual error already sits \SI{30}{dB} below the target is close enough to be treated as solved, so it would be wasteful to keep spending gradient on it. The measure has two blind spots. It views the leaked interferer, noise and artefacts as an identical error per unit of energy. Secondly, the ratio is dominated by the low frequencies and thus the quieter bands that carry the consonants can be reconstructed poorly without much penalty. 
 
 \paragraph{Multi-resolution spectral term.}
-Equation~\eqref{eq:lpres} cannot express \emph{where} in the spectrum the error lies: a model that reconstructs the loud low bands well and the quiet high bands poorly is barely penalised and, being scale-invariant, it does not constrain the output's absolute loudness at all. To address this, $s$ and $\hat{s}$ are compared at several resolutions so that the reconstruction of both the low and high frequency bands at different scales is encouraged. A spectral term allows for this following \cite{yu2023high}:
+Equation~\eqref{eq:lpres} cannot express \emph{where} in the spectrum the error lies: a model that reconstructs the loud low bands well and the quiet high bands poorly is barely penalised and, being scale-invariant, it does not constrain the output's absolute loudness at all. To address this, $s$ and $\hat{s}$ are compared at several resolutions so that the reconstruction of both the low- and high-frequency bands at different scales is encouraged. A spectral term allows for this following \cite{yu2023high}:
 \begin{equation}
 L_\textup{MR} = \frac{1}{|\mathcal{N}|} \sum_{N \in \mathcal{N}}
   \Big(
@@ -121,7 +121,7 @@ L_\textup{abs} = 10 \log_{10}
 \label{eq:labs}
 \end{equation}
  Including the denominator term makes the loss relative to the input, which is directly readable: \SI{0}{dB} means the output is as loud as the mixture, that is, the model did nothing; \SI{-10}{dB} means the interfering speech was suppressed by \SI{10}{dB}. The same $\tau_\textup{abs}$ floors the term at \SI{-20}{dB}, beyond which the output counts as silent. A positive value means the
-model amplified the mixture, which is a direct failure. The inclusion of the denominator also allows for scale invariance, which puts the loss in the same units as the loss for the target present case.
+model amplified the mixture, which is a direct failure. The inclusion of the denominator also allows for scale invariance, which puts the loss in the same units as the loss for the target-present case.
 
 
 \paragraph{Output level.}
@@ -156,7 +156,7 @@ The weight $w$ on the silent branch is derived rather than chosen. Silent crops 
 
 
 The weight $w_\textup{m}$ on the spectral term is derived from $L_\text{pres}$ and $L_\text{MR}$. The reason for this term is that \eqref{eq:lpres} and \eqref{eq:lmr} are in different units. $L_\textup{pres}$ is in units with respect to a ratio in decibels, and $L_\textup{MR}$ is the mean absolute difference between compressed magnitudes. Therefore the weighting term $w_\textup{m}$ will reconcile the two terms to be on the same scale.
-This is done by evaluating on the output that does nothing at all, $\hat{s} = x$, over 300 training crops which will simulate the scenario for the average losses for an untrained model. The median values for $L_\textup{pres}$ and $L_\textup{MR}$ are \num{-5.91} and \num{0.184} respectively. The aim is for the spectral term (Multi-Resolution) to be roughly \SI{30}{\percent} of the present branch at the start of training. The calculation then becomes  
+This is done by evaluating on the output that does nothing at all, $\hat{s} = x$, over 300 training crops which will simulate the scenario for the average losses for an untrained model. The median values for $L_\textup{pres}$ and $L_\textup{MR}$ are \num{-5.91} and \num{0.184} respectively. The aim is for the spectral term (multi-resolution) to be roughly \SI{30}{\percent} of the present branch at the start of training. The calculation then becomes  
 \[
   w_\textup{m} = \frac{0.3 \times |L_\textup{pres}|}{L_\textup{MR}} = \frac{0.3 \times 5.9088}{0.1842} = 9.62.
 \]

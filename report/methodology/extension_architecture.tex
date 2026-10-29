@@ -17,7 +17,7 @@ The baseline architecture passes the network the TF-Map cue of \cite{zhang2025mu
     c_t = \cos\theta_t = \big\langle \tilde{x}_t,\ u_t \big\rangle
     \label{eq:cue-similarity}
   \end{equation}
-is the cosine similarity of \eqref{eq:tfmap-cos} which is measured with the blended template of $u_t$ instead of an enrolment frame. The problem with $m_t$ in the baseline architecture is that once multiplying the loudness and the similarity into a scalar, the network cannot distinguish between a frame that is very loud but not similar to the target and a frame that is very similar but not loud. The idea is to pass the parts instead of the product (\ref{ai:eq-cue}). Two parts are already defined: the template direction $u_t$ of \eqref{eq:tfmap-energy} and the similarity $c_t$ of \eqref{eq:cue-similarity}. The third part is new and is the residual
+is the cosine similarity of \eqref{eq:tfmap-cos} which is measured with the blended template of $u_t$ instead of an enrolment frame. The problem with $m_t$ in the baseline architecture is that once the loudness and the similarity are multiplied into a scalar, the network cannot distinguish between a frame that is very loud but not similar to the target and a frame that is very similar but not loud. The idea is to pass the parts instead of the product (\ref{ai:eq-cue}). Two parts are already defined: the template direction $u_t$ of \eqref{eq:tfmap-energy} and the similarity $c_t$ of \eqref{eq:cue-similarity}. The third part is new and is the residual
 \begin{equation}
   r_t = |X_t| - m_t u_t,
   \label{eq:cue-residual}
@@ -40,18 +40,18 @@ The baseline cue can be recovered exactly as:
   \phi_t = c_t\big\lVert |X_t| \big\rVert u_t.
   \label{eq:cue-rebuild}
 \end{equation}
-The three parts replace the single channel cue and thus the network input grows from 3 to 5 channels. The new parts do not carry new information, as each part can be derived from the baseline's inputs, but recovering the parts would require a square root and a division operation, which the network's $1\times1$ projections cannot compute.
+The three parts replace the single-channel cue and thus the network input grows from 3 to 5 channels. The new parts do not carry new information, as each part can be derived from the baseline's inputs, but recovering the parts would require a square root and a division operation, which the network's $1\times1$ projections cannot compute.
 
 \subsubsection{Speaker context embedding}
 \label{sec:speaker_context_embedding}
 Even split into parts, the cue (\autoref{sec:splitting_cue}) is described only by the enrolment's spectra. Target speakers that have similar pitch and vocal characteristics thus produce similar templates. Measured on the baseline architecture, the extractor was able to select the right voice \SI{71.8}{\percent} of the time when two speakers were of different gender, but only \SI{52.6}{\percent} when they were the same gender. The idea for this extension is to incorporate further target speaker identity. The second extension is to add a speaker embedding for each target speaker. Each enrolment clip is passed through a frozen speaker recognition network, ECAPA-TDNN \cite{desplanques2020ecapa} using the SpeechBrain checkpoint trained on VoxCeleb \cite{ravanelli2021speechbrain}, to produce a 192-dimensional embedding. The embedding is then passed through a small learned layer that maps a 192-dimensional embedding of $e$ to a 128-dimensional vector to be used in the extractor. ECAPA itself is large at 20.77 million parameters and hence would cause storage concerns if it were included in the extractor. However, the ECAPA network is run once per enrolment clip and the resulting embedding is stored, so ECAPA never runs while streaming.
 
-The WeSep toolkit \cite{wang2024wesep}, an established open-source implementation of the baseline architecture, supports two uses of the embedding. The first (which is the one used in this work) is to consider utterance-level embedding, and the second is to consider contextual embedding of Zhang et al. \cite{zhang2025multi}. Although WeSep supports the contextual embedding, it was discarded as an option for this work because it recomputes the embedding for every frame of the mixture, which is computationally expensive. 
+The WeSep toolkit \cite{wang2024wesep}, an established open-source implementation of the baseline architecture, supports two uses of the embedding. The first (which is the one used in this work) is to use an utterance-level embedding, and the second is to use the contextual embedding of Zhang et al. \cite{zhang2025multi}. Although WeSep supports the contextual embedding, it was discarded as an option for this work because it recomputes the embedding for every frame of the mixture, which is computationally expensive. 
 
 \subsubsection{Target presence gate}
 \label{sec:present}
 The idea of the gate is to target leaked words \textbf{(RQ2)}. The gate should silence the frames in which the target speaker is not present. The baseline architecture has no explicit, underlying mechanism to determine whether the target speaker is present in a frame. The gate provides this probabilistic estimate and is trained jointly with the extractor. The gate represents a two-state Markov chain, where the states are \emph{present} and \emph{absent}. 
-\paragraph{Gated output.} Let $Z_t \in \{0, 1\}$ be the random variable that is $1$ if the target speaker is present in frame $t$ and $0$ otherwise. The extractor's output frame from \eqref{eq:estimator} is then gated by whether the target speaker is present by $z_t$:
+\paragraph{Gated output.} Let $Z_t \in \{0, 1\}$ be the random variable that is $1$ if the target speaker is present in frame $t$ and $0$ otherwise. The extractor's output frame from \eqref{eq:estimator} is then gated by $z_t$, which indicates whether the target speaker is present:
    \begin{equation}
   \hat{S}_t(z_t) = z_t \big( M_t \otimes X_t + R_t \big).
   \label{eq:gated-output}
@@ -68,8 +68,8 @@ with $\bar{h}_t = \frac{1}{128}\sum_{n=1}^{128} h_{t,n}$, $\operatorname{var}(h_
   q_\psi(z_{1:T} \mid x, e) = \prod_{t=1}^{T}  \mathrm{Bern}(z_t; \pi_t),
   \label{eq:gate-posterior-sequence}
 \end{equation}
-where $x$ is the mixture and $e$ is the enrolment. The product over frames follows the mean field assumption.
-\paragraph{Markov Prior.} The prior leverages the first order Markov property (as a target who speaks in one \SI{8}{\ms} frame is likely to speak in the next \cite{rabiner1989tutorial}) and is factorised as:
+where $x$ is the mixture and $e$ is the enrolment. The product over frames follows the mean-field assumption.
+\paragraph{Markov prior.} The prior leverages the first-order Markov property (as a target who speaks in one \SI{8}{\ms} frame is likely to speak in the next \cite{rabiner1989tutorial}) and is factorised as:
 \begin{equation}
 \begin{aligned}
   p(z_{1:T}) &= p(z_1) \prod_{t=2}^{T} p(z_t \mid z_{t-1}) \\
@@ -85,12 +85,12 @@ $A$ is fixed from the training labels and is the transition matrix of the Markov
   \end{aligned}
   \label{eq:gate-duration}
 \end{equation}
-therefore $D$ is a geometric distribution with
+therefore $D$ follows a geometric distribution with
 \begin{equation}
   \mathbb{E}[D] = \frac{1}{1 - A_{11}}.
   \label{eq:gate-duration-mean}
 \end{equation} 
-Next, to set the transition matrix $A$, sample the mean speech run length in the training data, $\bar{d}_\textup{on}$, which is the maximum likelihood estimate of $\mathbb{E}[D]$, and treating silence runs (sample mean $\bar{d}_\textup{off}$) the same way, gives
+Next, to set the transition matrix $A$, the sample mean speech-run length in the training data, $\bar{d}_\textup{on}$, is the maximum likelihood estimate of $\mathbb{E}[D]$, and treating silence runs (sample mean $\bar{d}_\textup{off}$) the same way gives
   \begin{equation}
   A_{11} = 1 - \frac{1}{\bar{d}_\textup{on}}, \quad
   A_{10} = \frac{1}{\bar{d}_\textup{on}}, \quad
@@ -158,7 +158,7 @@ The ELBO at this point does not use the labels $v_t$ for whether the target is p
 \end{equation}
 where $\lambda$ weights the label term. The gated run used $\beta = 0.01274$ and $\lambda = 0.04689$.
 
-\paragraph{Closed Form KL.} The KL term of \eqref{eq:gaussian} is intractable, but under the mean-field posterior has a closed form. Suppose 
+\paragraph{Closed-form KL.} The KL term of \eqref{eq:gaussian} is intractable, but under the mean-field posterior has a closed form. Suppose 
 \begin{equation}
   \mathrm{KL}\big(q_\psi(z \mid x, e)\,\|\,p(z)\big) = \mathbb{E}_{z \sim q_\psi(z \mid x,e)}\big[\log q_\psi(z \mid x, e)\big] - \mathbb{E}_{z \sim q_\psi(z \mid x,e)}\big[\log p(z)\big],
 \end{equation}
@@ -177,7 +177,7 @@ where $\mathbb{E}_{z \sim q_\psi(z \mid x,e)}\big[z_t\big] = \pi_t$. Term 2 simp
   \end{aligned}
   \label{eq:term2}
 \end{equation}
-Recalling that being in state $i$ at a time frame $t$ is modelled by the Bernoulli distribution, therefore for the first frame only consider the case of belonging to a state with no transitions, and from the second frame onwards, consider the transitions. The expectation of \eqref{eq:term2} is then:
+Recall that being in state $i$ at a time frame $t$ is modelled by the Bernoulli distribution. Therefore, for the first frame only the case of belonging to a state with no transitions is considered, and from the second frame onwards, the transitions are considered. The expectation of \eqref{eq:term2} is then:
 \begin{equation}
 \begin{aligned}
   \mathbb{E}_{z \sim q_\psi(z \mid x,e)}\big[\log p(z)\big] 
@@ -191,7 +191,7 @@ Recalling that being in state $i$ at a time frame $t$ is modelled by the Bernoul
   \label{eq:term2-expectation}
 \end{aligned}
 \end{equation}
-$\dagger$ where $p(z_1 = 1) = \rho$ from \eqref{eq:stationary}, and since $z_t \in \{0, 1\}$ exactly one of the four products is $1$ for each pair $(z_{t-1}, z_t)$, which selects the matching transition. $\ddagger$ where $\mathbb{E}_{z}\big[z_{t-1} z_t\big] = \mathbb{E}_{z}\big[z_{t-1}\big]\mathbb{E}_{z}\big[z_{t}\big] = \pi_{t-1} \pi_t$ by the mean field assumption, following the completely factorised variational inference of Ghahramani and Jordan \cite{ghahramani1997factorial}.
+$\dagger$ where $p(z_1 = 1) = \rho$ from \eqref{eq:stationary}, and since $z_t \in \{0, 1\}$ exactly one of the four products is $1$ for each pair $(z_{t-1}, z_t)$, which selects the matching transition. $\ddagger$ where $\mathbb{E}_{z}\big[z_{t-1} z_t\big] = \mathbb{E}_{z}\big[z_{t-1}\big]\mathbb{E}_{z}\big[z_{t}\big] = \pi_{t-1} \pi_t$ by the mean-field assumption, following the completely factorised variational inference of Ghahramani and Jordan \cite{ghahramani1997factorial}.
 Therefore subtracting \eqref{eq:term2-expectation} from \eqref{eq:term1} and removing $t=1$ from the first summation yields
 \begin{equation}
   \begin{aligned}
@@ -215,7 +215,7 @@ Using the identity $\mathrm{KL}\big(\mathrm{Bern}(a)\,\|\,\mathrm{Bern}(b)\big) 
   \mathcal{U}(0,1),
     \label{eq:concrete}
   \end{equation}
-  where $\tau > 0$ is a temperature. The noise $U_t$ does not depend on $\psi$, so $\tilde{z}_t$ is a differentiable function of $\pi_t$ (the reparameterisation trick \cite{kingma2014autoencoding}), and as $\tau \to 0$ it tends to a hard $\mathrm{Bern}(\pi_t)$ draw where $\tau$ is annealed, linearly per epoch from $1$ to $0.5$. At inference a single deterministic output is needed. The output that minimises the expected squared error to the random gated output \eqref{eq:gated-output} is its mean,
+  where $\tau > 0$ is a temperature. The noise $U_t$ does not depend on $\psi$, so $\tilde{z}_t$ is a differentiable function of $\pi_t$ (the reparameterisation trick \cite{kingma2014autoencoding}), and as $\tau \to 0$ it tends to a hard $\mathrm{Bern}(\pi_t)$ draw. The temperature $\tau$ is annealed linearly per epoch from $1$ to $0.5$. At inference a single deterministic output is needed. The output that minimises the expected squared error to the random gated output \eqref{eq:gated-output} is its mean,
   \begin{equation}
     \hat{S}_t = \mathbb{E}_{z_t \sim \mathrm{Bern}(\pi_t)}\big[z_t\,(M_t \otimes X_t + R_t)\big] = \pi_t\,(M_t \otimes X_t + R_t),
     \label{eq:gate-inference}
