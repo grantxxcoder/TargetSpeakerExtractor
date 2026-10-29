@@ -1,8 +1,10 @@
 """Writes the Kaggle notebook that trains one config from the code bundle of scripts/make_kaggle_bundle.py.
 
     ../tse_venv/bin/python scripts/make_kaggle_notebook.py --config experiments/configs/bsrnn_cue_context.yaml --epochs 6
+    ../tse_venv/bin/python scripts/make_kaggle_notebook.py --script scripts/train_turn_down.py --config experiments/configs/turn_down_head.yaml --epochs 6
 
-The notebook copies the bundle's repo/ and ecapa_pretrained/ into /kaggle/working, installs the pinned speechbrain and probe packages, runs scripts/train.py on the GPU, and zips the checkpoints and results into one download.
+The notebook copies the bundle's repo/ and ecapa_pretrained/ into /kaggle/working, installs the pinned speechbrain and probe packages, runs the training script on the GPU, and zips the checkpoints and results into one download.
+The script must take --config, --epochs, --data-root, --manifest-dir, --outdir and --resume, as scripts/train.py and scripts/train_turn_down.py both do.
 It refuses to run without a GPU, so it can never train on a CPU by accident.
 The config is set once, in the first code cell, and the notebook warns when it differs from the config the bundle was checked with.
 Rebuilt by Claude Code on 2026-10-28 at the author's request. The version deleted in db74c05 passed train.py flags the 2026-10-23 refactor removed (--split, --results-dir).
@@ -44,11 +46,13 @@ for name in ["repo", "ecapa_pretrained"]:
     shutil.copytree(code / name, work / name)
 
 manifest = json.loads((code / "bundle_manifest.json").read_text())
-print(f"bundle built {manifest['date']} from commit {manifest['git_commit']}, checked with {manifest['config']}")
-if manifest["config"] != CONFIG:
-    print(f"NOTE: the bundle was checked with {manifest['config']}, but this run trains {CONFIG}")
-if not (repo / CONFIG).exists():
-    raise SystemExit(f"{CONFIG} is not in the bundle.")
+# The repo copy has no git history, so the training script reads the bundle's commit from here.
+shutil.copy(code / "bundle_manifest.json", repo / "bundle_manifest.json")
+print(f"bundle built {manifest['date']} from commit {manifest['git_commit']}, checked with {manifest['script']} and {manifest['config']}")
+if manifest["config"] != CONFIG or manifest["script"] != SCRIPT:
+    print(f"NOTE: the bundle was checked with {manifest['script']} and {manifest['config']}, but this run uses {SCRIPT} and {CONFIG}")
+if not (repo / CONFIG).exists() or not (repo / SCRIPT).exists():
+    raise SystemExit(f"{SCRIPT} or {CONFIG} is not in the bundle.")
 
 # Pinned as in requirements.txt. speechbrain runs the ECAPA encoder; the other three run the per-epoch content probe.
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "speechbrain==1.1.1", "faster-whisper==1.2.1", "jiwer==4.0.0", "whisper-normalizer==0.1.15", "soundfile"], check=True)
@@ -56,10 +60,11 @@ subprocess.run([sys.executable, "-m", "pip", "install", "-q", "speechbrain==1.1.
 models = work / "models"
 models.mkdir(exist_ok=True)
 if RESUME_DIR:
-    shutil.copy(Path(RESUME_DIR) / "models/model_sir0.pt", models / "model_sir0.pt")
-    print(f"resuming from {RESUME_DIR}")"""
+    for checkpoint in sorted((Path(RESUME_DIR) / "models").glob("*.pt")):
+        shutil.copy(checkpoint, models / checkpoint.name)
+        print(f"resuming with {checkpoint.name} from {RESUME_DIR}")"""
 
-TRAIN = """command = [sys.executable, "-u", "scripts/train.py", "--config", CONFIG, "--epochs", str(EPOCHS), "--data-root", f"{DATA_DIR}/data", "--manifest-dir", f"{DATA_DIR}/data/manifests", "--outdir", str(models)]
+TRAIN = """command = [sys.executable, "-u", SCRIPT, "--config", CONFIG, "--epochs", str(EPOCHS), "--data-root", f"{DATA_DIR}/data", "--manifest-dir", f"{DATA_DIR}/data/manifests", "--outdir", str(models)]
 if RESUME_DIR:
     command.append("--resume")
 print(" ".join(command), flush=True)
@@ -110,6 +115,7 @@ def code_cell(text):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--script", default="scripts/train.py")
     parser.add_argument("--config", required=True)
     parser.add_argument("--epochs", type=int, required=True)
     parser.add_argument("--out", default="notebooks/kaggle_train.ipynb")
@@ -118,8 +124,11 @@ def main():
     arguments = parser.parse_args()
     if not (REPO_ROOT / arguments.config).exists():
         raise SystemExit(f"No config at {arguments.config}.")
+    if not (REPO_ROOT / arguments.script).exists():
+        raise SystemExit(f"No training script at {arguments.script}.")
 
-    knobs = f"""# The run, set once. RESUME_DIR is an attached earlier output holding models/model_sir0.pt, to continue that run with --resume.
+    knobs = f"""# The run, set once. RESUME_DIR is an attached earlier output whose models/ folder holds the checkpoints, to continue that run with --resume.
+SCRIPT = "{arguments.script}"
 CONFIG = "{arguments.config}"
 EPOCHS = {arguments.epochs}
 RESUME_DIR = None
@@ -131,7 +140,7 @@ WORK = "/kaggle/working\""""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w") as handle:
         json.dump(notebook, handle, indent=1)
-    print(f"wrote {arguments.out}: trains {arguments.config} for {arguments.epochs} epochs")
+    print(f"wrote {arguments.out}: runs {arguments.script} on {arguments.config} for {arguments.epochs} epochs")
 
 
 if __name__ == "__main__":

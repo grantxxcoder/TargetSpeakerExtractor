@@ -2,11 +2,12 @@
 
     ../tse_venv/bin/python scripts/make_kaggle_bundle.py --config experiments/configs/bsrnn_cue_context.yaml
     ../tse_venv/bin/python scripts/make_kaggle_bundle.py --config <config> --init-weights models/model_sir0_cuecontext-wer-e21.pt
+    ../tse_venv/bin/python scripts/make_kaggle_bundle.py --script scripts/train_turn_down.py --config experiments/configs/turn_down_head.yaml --init-weights models/model_sir0_cuecontext-wer-e21.pt
 
 The audio is not staged. It is already on Kaggle as the dataset tse-audio-s0-v3 (data/rendered and data/manifests of sir0_train and sir0_val), and only the code changes between runs.
-The code is the import closure of scripts/train.py, found by reading the import lines, so a module added later cannot be left out. Every config and docs/run_times.md (src/run_log.py appends to it) go with it.
+The code is the import closure of the training script (scripts/train.py unless --script says otherwise), found by reading the import lines, so a module added later cannot be left out. Every config and docs/run_times.md (src/run_log.py appends to it) go with it.
 The ECAPA snapshot sits beside the repo in the bundle (ecapa_pretrained/ next to repo/), because src/models/context_encoder.py looks for it one level above the repo.
-Before zipping, the staged copy is checked in its own process: train.py is imported from the staged folder and two validation batches go through the model and the loss with no gradients. Nothing is trained.
+Before zipping, the staged copy is checked in its own process: train.py is imported from the staged folder and two validation batches go through the model and the loss with no gradients. Any other script is run with its own --check, which must do the same. Nothing is trained.
 Rebuilt by Claude Code on 2026-10-28 at the author's request. The version deleted in db74c05 called train.py functions that the 2026-10-23 refactor removed, so it could not be restored as it was.
 """
 
@@ -26,7 +27,7 @@ BUNDLE_DIRECTORY = REPO_ROOT / "kaggle_bundle"
 STAGE_DIRECTORY = BUNDLE_DIRECTORY / "code"
 ZIP_PATH = BUNDLE_DIRECTORY / "kaggle_code.zip"
 ECAPA_SOURCE = REPO_ROOT.parent / "ecapa_pretrained"
-TRAIN_SCRIPT = REPO_ROOT / "scripts/train.py"
+DEFAULT_SCRIPT = "scripts/train.py"
 
 # The check that runs inside the staged repo. It is a separate process with the staged folder as its working directory, so nothing can quietly import from the real repo.
 VERIFY_CODE = """
@@ -162,11 +163,15 @@ def stage_repo(code_files, weights_path):
 
 
 # this checks the staged copy in its own process, against the local audio, which has the same layout as the Kaggle dataset
-def verify(repo_directory, config_relative, weights_relative):
+def verify(repo_directory, script_relative, config_relative, weights_relative):
     weights_argument = "none"
     if weights_relative is not None:
         weights_argument = weights_relative
-    result = subprocess.run([sys.executable, "-c", VERIFY_CODE, config_relative, str(REPO_ROOT / "data"), str(REPO_ROOT / "data/manifests"), weights_argument], cwd=repo_directory, capture_output=True, text=True)
+    command = [sys.executable, "-c", VERIFY_CODE, config_relative, str(REPO_ROOT / "data"), str(REPO_ROOT / "data/manifests"), weights_argument]
+    # Any script other than train.py checks itself with --check, which must run validation batches without gradients.
+    if script_relative != DEFAULT_SCRIPT:
+        command = [sys.executable, script_relative, "--check", "--config", config_relative, "--data-root", str(REPO_ROOT / "data"), "--manifest-dir", str(REPO_ROOT / "data/manifests")]
+    result = subprocess.run(command, cwd=repo_directory, capture_output=True, text=True)
     for line in result.stdout.strip().splitlines():
         print(f"  {line}")
     if result.returncode != 0:
@@ -178,13 +183,15 @@ def verify(repo_directory, config_relative, weights_relative):
 def zip_stage():
     with zipfile.ZipFile(ZIP_PATH, "w", zipfile.ZIP_DEFLATED) as archive:
         for path in sorted(STAGE_DIRECTORY.rglob("*")):
-            if path.is_file():
+            # The check leaves compiled caches behind in the staged copy; they are not part of the upload.
+            if path.is_file() and "__pycache__" not in path.parts:
                 archive.write(path, path.relative_to(STAGE_DIRECTORY))
     return ZIP_PATH.stat().st_size
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--script", default=DEFAULT_SCRIPT, help="the training script the Kaggle run will call")
     parser.add_argument("--config", required=True, help="the config the Kaggle run will train, checked here before upload")
     parser.add_argument("--init-weights", default=None, help="starting weights to ship, for example models/model_sir0_cuecontext-wer-e21.pt")
     parser.add_argument("--no-zip", action="store_true", help="stage and check only")
@@ -193,6 +200,9 @@ def main():
     config_path = REPO_ROOT / arguments.config
     if not config_path.exists():
         raise SystemExit(f"No config at {config_path}.")
+    script_path = REPO_ROOT / arguments.script
+    if not script_path.exists():
+        raise SystemExit(f"No training script at {script_path}.")
     weights_path = None
     if arguments.init_weights:
         weights_path = REPO_ROOT / arguments.init_weights
@@ -203,7 +213,7 @@ def main():
 
     if STAGE_DIRECTORY.exists():
         shutil.rmtree(STAGE_DIRECTORY)
-    code_files = import_closure(TRAIN_SCRIPT)
+    code_files = import_closure(script_path)
     repo_directory, staged_files = stage_repo(code_files, weights_path)
     shutil.copytree(ECAPA_SOURCE, STAGE_DIRECTORY / "ecapa_pretrained")
     # Generated by Claude Code
@@ -215,12 +225,12 @@ def main():
     if weights_path is not None:
         weights_relative = str(weights_path.relative_to(REPO_ROOT))
     print("checking the staged copy (no gradients, nothing trained)")
-    verify(repo_directory, arguments.config, weights_relative)
+    verify(repo_directory, arguments.script, arguments.config, weights_relative)
 
     ecapa_files = []
     for path in sorted((STAGE_DIRECTORY / "ecapa_pretrained").iterdir()):
         ecapa_files.append(path.name)
-    manifest = {"date": date.today().isoformat(), "git_commit": git_commit(), "config": arguments.config, "init_weights": weights_relative, "files": staged_files, "ecapa": ecapa_files}
+    manifest = {"date": date.today().isoformat(), "git_commit": git_commit(), "script": arguments.script, "config": arguments.config, "init_weights": weights_relative, "files": staged_files, "ecapa": ecapa_files}
     if weights_path is not None:
         manifest["init_weights_md5"] = md5_of(weights_path)
     with open(STAGE_DIRECTORY / "bundle_manifest.json", "w") as handle:

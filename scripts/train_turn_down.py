@@ -13,6 +13,7 @@ Claude Code wrote this script on 2026-10-29 from the option the author chose.
 import argparse
 import copy
 import csv
+import json
 import subprocess
 import sys
 import time
@@ -77,6 +78,7 @@ def batch_loss(batch, base_model, speaker_encoder, head, config, device, use_mix
 def run_epoch(loader, base_model, speaker_encoder, head, config, device, optimizer, max_batches):
     use_mixed_precision = device.type == "cuda"
     head.train(optimizer is not None)
+    pass_start = time.time()
     loss_sum = 0.0
     predicted_sum = 0.0
     oracle_sum = 0.0
@@ -96,19 +98,25 @@ def run_epoch(loader, base_model, speaker_encoder, head, config, device, optimiz
         oracle_sum += oracle_gain
         count += 1
         if optimizer is not None and count % PROGRESS_EVERY == 0:
-            print(f"    step {count}: loss {loss_sum / count:.3f} dB^2", flush=True)
+            # The elapsed time and the steps left give the epoch's length long before it ends.
+            elapsed = time.time() - pass_start
+            print(f"    step {count}/{len(loader)}: loss {loss_sum / count:.3f} dB^2, {elapsed / 60:.1f} min so far, about {elapsed / count * len(loader) / 60:.0f} min for this epoch's training", flush=True)
         if max_batches is not None and count >= max_batches:
             break
     return {"loss": loss_sum / count, "predicted_gain_db": predicted_sum / count, "oracle_gain_db": oracle_sum / count}
 
 
-# this gives the commit the run came from, marked dirty when the working tree has changes
+# this gives the commit the run came from, marked dirty when the working tree has changes. On Kaggle there is no git history, so it reads the commit the bundle was built from
 def git_commit():
     commit = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
-    status = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True).stdout.strip()
-    if commit and status:
-        return commit + "-dirty"
-    return commit or "unknown (no git in this folder)"
+    if commit:
+        status = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True).stdout.strip()
+        if status:
+            return commit + "-dirty"
+        return commit
+    if Path("bundle_manifest.json").exists():
+        return json.loads(Path("bundle_manifest.json").read_text())["git_commit"] + " (from the Kaggle bundle)"
+    return "unknown"
 
 
 def main():
