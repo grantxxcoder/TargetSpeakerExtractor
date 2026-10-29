@@ -1,6 +1,6 @@
 \subsection{Extension model architecture}
 \label{sec:e_architecture}
-The extension architecture is based on the baseline architecture of \autoref{sec:architecture}, with two modifications. The first change is how the cue is passed to the network (\autoref{sec:splitting_cue}). The second change gives the network more information about the target speaker's voice (\autoref{sec:speaker_context_embedding}). The final change adds a gate to better infer whether the target speaker is present in a frame (\autoref{sec:present}). 
+The extension architecture is based on the baseline architecture of \autoref{sec:architecture}, with three modifications. The first change is how the cue is passed to the network (\autoref{sec:splitting_cue}). The second change gives the network more information about the target speaker's voice (\autoref{sec:speaker_context_embedding}). The final change adds a gate to better infer whether the target speaker is present in a frame (\autoref{sec:present}). 
 \subsubsection{Splitting the cue into parts}
 \label{sec:splitting_cue}
 The baseline architecture passes the network the TF-Map cue of \cite{zhang2025multi} and includes the energy-recovery projection \eqref{eq:tfmap-energy}. By \eqref{eq:tfmap-unit}, every mixture frame is its loudness times its shape,
@@ -17,7 +17,7 @@ The baseline architecture passes the network the TF-Map cue of \cite{zhang2025mu
     c_t = \cos\theta_t = \big\langle \tilde{x}_t,\ u_t \big\rangle
     \label{eq:cue-similarity}
   \end{equation}
-is the cosine similarity of \eqref{eq:tfmap-cos} which is measured with the blended template of $u_t$ instead of an enrollment frame. The problem with $m_t$ in the baseline architecture is that once multiplying the loudness and the similarity into a scalar, the network cannot distinguish between a frame that is very loud but not similar to the target and a frame that is very similar but not loud. The idea is to pass the parts instead of the product (\ref{ai:eq-cue}). Two parts are already defined: the template direction $u_t$ of \eqref{eq:tfmap-energy} and the similarity $c_t$ of \eqref{eq:cue-similarity}. The third part is new and is the residual
+is the cosine similarity of \eqref{eq:tfmap-cos} which is measured with the blended template of $u_t$ instead of an enrolment frame. The problem with $m_t$ in the baseline architecture is that once multiplying the loudness and the similarity into a scalar, the network cannot distinguish between a frame that is very loud but not similar to the target and a frame that is very similar but not loud. The idea is to pass the parts instead of the product (\ref{ai:eq-cue}). Two parts are already defined: the template direction $u_t$ of \eqref{eq:tfmap-energy} and the similarity $c_t$ of \eqref{eq:cue-similarity}. The third part is new and is the residual
 \begin{equation}
   r_t = |X_t| - m_t u_t,
   \label{eq:cue-residual}
@@ -44,7 +44,7 @@ The three parts replace the single channel cue and thus the network input grows 
 
 \subsubsection{Speaker context embedding}
 \label{sec:speaker_context_embedding}
-Even split into parts, the cue (\autoref{sec:splitting_cue}) is described only by the enrollment's spectra. Target speakers that have similar pitch and vocal characteristics thus produce similar templates. Measured on the baseline architecture, the extractor was able to select the right voice \SI{71.8}{\percent} of the time when two speakers were of different gender, but only \SI{52.6}{\percent} when they were the same gender. The idea for this extension is to incorporate further target speaker identity. The second extension is to add a speaker embedding for each target speaker. Each enrollment clip is passed through a frozen speaker recognition network, ECAPA-TDNN \cite{desplanques2020ecapa} using the SpeechBrain checkpoint trained on VoxCeleb \cite{ravanelli2021speechbrain}, to produce a 192-dimensional embedding. The embedding is then passed through a small learned layer that maps a 192-dimensional embedding of $e$ to a 128-dimensional vector to be used in the extractor. ECAPA itself is large at 20.77 million parameters and hence would cause storage concerns if it were included in the extractor. However, the ECAPA network is run once per enrollment clip and the resulting embedding is stored, so ECAPA never runs while streaming.
+Even split into parts, the cue (\autoref{sec:splitting_cue}) is described only by the enrolment's spectra. Target speakers that have similar pitch and vocal characteristics thus produce similar templates. Measured on the baseline architecture, the extractor was able to select the right voice \SI{71.8}{\percent} of the time when two speakers were of different gender, but only \SI{52.6}{\percent} when they were the same gender. The idea for this extension is to incorporate further target speaker identity. The second extension is to add a speaker embedding for each target speaker. Each enrolment clip is passed through a frozen speaker recognition network, ECAPA-TDNN \cite{desplanques2020ecapa} using the SpeechBrain checkpoint trained on VoxCeleb \cite{ravanelli2021speechbrain}, to produce a 192-dimensional embedding. The embedding is then passed through a small learned layer that maps a 192-dimensional embedding of $e$ to a 128-dimensional vector to be used in the extractor. ECAPA itself is large at 20.77 million parameters and hence would cause storage concerns if it were included in the extractor. However, the ECAPA network is run once per enrolment clip and the resulting embedding is stored, so ECAPA never runs while streaming.
 
 The WeSep toolkit \cite{wang2024wesep}, an established open-source implementation of the baseline architecture, supports two uses of the embedding. The first (which is the one used in this work) is to consider utterance-level embedding, and the second is to consider contextual embedding of Zhang et al. \cite{zhang2025multi}. Although WeSep supports the contextual embedding, it was discarded as an option for this work because it recomputes the embedding for every frame of the mixture, which is computationally expensive. 
 
@@ -68,7 +68,7 @@ with $\bar{h}_t = \frac{1}{128}\sum_{n=1}^{128} h_{t,n}$, $\operatorname{var}(h_
   q_\psi(z_{1:T} \mid x, e) = \prod_{t=1}^{T}  \mathrm{Bern}(z_t; \pi_t),
   \label{eq:gate-posterior-sequence}
 \end{equation}
-where $x$ is the mixture and $e$ is the enrollment. The product over frames follows the mean field assumption.
+where $x$ is the mixture and $e$ is the enrolment. The product over frames follows the mean field assumption.
 \paragraph{Markov Prior.} The prior leverages the first order Markov property (as a target who speaks in one \SI{8}{\ms} frame is likely to speak in the next \cite{rabiner1989tutorial}) and is factorised as:
 \begin{equation}
 \begin{aligned}
@@ -107,7 +107,7 @@ Frame 1 has no previous frame, so it takes the stationary probability $\rho$ of 
   \end{equation}
 The actual transition matrix used in the prior can be found in \autoref{sec:appendix-gate}. 
 
-\paragraph{Objective.} Training should make the clean target speech $s$ as probable as possible given the mixture and the enrollment. 
+\paragraph{Objective.} Training should make the clean target speech $s$ as probable as possible given the mixture and the enrolment. 
 
 \begin{equation}
   \begin{aligned}

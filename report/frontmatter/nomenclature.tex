@@ -35,7 +35,7 @@ SI-SDR & Scale-invariant signal-to-distortion ratio \\
 SLT & IEEE Workshop on Spoken Language Technology \\
 SNR & Signal-to-noise ratio \\
 STFT  & Short-time Fourier transform \\
-TF Map & Time-frequency map \\
+TF-Map & Time-frequency map \\
 TSE   & Target speaker extraction \\
 VAD & Voice activity detection \\
 WER   & Word error rate \\
@@ -56,14 +56,14 @@ $d$ & Interfering speech signal \\
 \subsubsection*{Model and objective}
 \begin{longtable}[l]{@{}ll@{}}
 $X$, $X_t$ & STFT of the mixture; frame $t$ of it \\
-$X_e$, $x_e$ & STFT of the enrollment; the enrollment waveform \\
+$X_e$, $x_e$ & STFT of the enrolment; the enrolment waveform \\
 $S$, $\hat{S}$ & STFT of the target; of the model output \\
 $\Re(\cdot)$, $\Im(\cdot)$ & Real and imaginary parts of a complex value \\
 $N$, $H$, $h[n]$ & STFT window length, hop and window function \\
-$\tilde{x}_t$, $\tilde{e}_j$ & Unit-length mixture frame; unit-length enrollment frame \\
-$C_{t,j}$ & Cosine similarity of mixture frame $t$ and enrollment frame $j$ \\
-$A_{t,j}$ & Softmax weight of enrollment frame $j$ for mixture frame $t$ \\
-$\mu_t$, $u_t$ & Blended enrollment template; its unit-length direction \\
+$\tilde{x}_t$, $\tilde{e}_j$ & Unit-length mixture frame; unit-length enrolment frame \\
+$C_{t,j}$ & Cosine similarity of mixture frame $t$ and enrolment frame $j$ \\
+$A_{t,j}$ & Softmax weight of enrolment frame $j$ for mixture frame $t$ \\
+$\mu_t$, $u_t$ & Blended enrolment template; its unit-length direction \\
 $m_t$, $\phi_t$ & Projection of $|X_t|$ onto $u_t$; the baseline cue $m_t u_t$ \\
 $c_t$, $r_t$ & Similarity of $|X_t|$ to $u_t$; residual $|X_t| - m_t u_t$ \\
 $M$, $R$ & Complex mask; residual spectrogram \\

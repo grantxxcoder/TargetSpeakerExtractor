@@ -8,11 +8,11 @@ When a system produces output, either the offline or the live model with the pro
 
 \subsubsection{Listener Content Fidelity Word Error Rate}
 \label{sec:lcfwer}
-The Listener Content Fidelity Word Error Rate (LCF-WER) a word error rate applied to a live-model transcription of the audio. The equation is as follows:
+The Listener Content Fidelity Word Error Rate (LCF-WER) is a word error rate applied to a live-model transcription of the audio. The equation is as follows:
 \begin{equation}
     \textup{WER} = \frac{S + D + I}{N}
 \end{equation}
-where $S$ is the number of substitutions, $D$ is the number of deletions, $I$ is the number of insertions, and $N$ is the total number of words in the reference. It is essentially a minimum edit-distance formula, where the number of edits required to change a reference text into the proposed text is divided by the number of words in the reference text. Metric can go above 100\,\%.
+where $S$ is the number of substitutions, $D$ is the number of deletions, $I$ is the number of insertions, and $N$ is the total number of words in the reference. It is essentially a minimum edit-distance formula, where the number of edits required to change a reference text into the proposed text is divided by the number of words in the reference text. The metric can go above 100\,\%.
 
 
 \subsubsection{Interferer Content Rate}
@@ -37,7 +37,7 @@ Lower percentages are better for both metrics.
                                                                                                                                             
 \subsubsection{Fabrication Rate}
 \label{sec:fr}
-The Fabrication Rate (FR) highlights the case where the model has hallucinated a word that is neither present in the target or the interferer and is only computable with exact transcriptions as given in LibriSpeech~\cite{panayotov2015librispeech}. The FR metric is defined as follows:
+The Fabrication Rate (FR) highlights the case where the model has hallucinated a word that is neither present in the target nor the interferer and is only computable with exact transcriptions as given in LibriSpeech~\cite{panayotov2015librispeech}. The FR metric is defined as follows:
 Over the set $\mathcal{T}$ of trials with a non-empty response, the statistic is the mean invented count per trial of the number of words in the model output that are not present in either the target or interferer, 
 \begin{equation}
     \textup{FR}_{\textup{count}} = \frac{1}{|\mathcal{T}|} \sum_{i \in \mathcal{T}} \big| \mathcal{I}_i \big|,
@@ -49,7 +49,7 @@ where $\mathcal{I}_i$ is the set of words in the $i$-th trial's output that are 
     \qquad k = 2 \text{ chosen in this work.}
     \label{eq:frk}
 \end{equation}
-where $\mathbb{1}\!$ is the indicator function. An invented word is not necessarily a hallucination as defined by \cite{koenecke2024careless}: a misheard word is counted as invented, but it is not a hallucination. 
+where $\mathbf{1}\!$ is the indicator function. An invented word is not necessarily a hallucination as defined by \cite{koenecke2024careless}: a misheard word is counted as invented, but it is not a hallucination. 
 
 \subsubsection{Deep Noise Suppression Mean Opinion Score}
 \label{sec:dnsmos}

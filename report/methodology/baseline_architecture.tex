@@ -3,7 +3,7 @@
 The baseline architecture section describes the architecture that was used as a backbone in the REAL-TSE baseline \cite{wang2026realtse}. The architecture in this work is built from scratch, but the design is that of the baseline.
 \subsubsection{Band-split Recurrent Neural Network (BSRNN)}
 \label{sec:bsrnn}
-Luo and Yu \cite{luo2023music} propose the BSRNN model as a frequency-domain separation model that is designed for high sample rate audio. The implemented BSRNN is adapted to speech with a TF-Map enrollment conditioning module \cite{zhang2025multi} to turn it into a target speaker extraction model.
+Luo and Yu \cite{luo2023music} propose the BSRNN model as a frequency-domain separation model that is designed for high sample rate audio. The implemented BSRNN is adapted to speech with a TF-Map enrolment conditioning module \cite{zhang2025multi} to turn it into a target speaker extraction model.
 
 
 \subsubsection{Short-time Fourier transform}
@@ -42,14 +42,14 @@ where $\otimes$ is the complex product, taken bin by bin. The $X$ that the mask 
 
 \subsubsection{Time-frequency map}
 \label{sec:tfmap}
-The TF Map \cite{zhang2025multi} is the module that turns speech enhancement into target speaker extraction. It compares the mixture with the clean enrollment clip frame by frame, and gives the network a cue of what the target's spectrum should look like at each instant. Let $|X_t|$ be frame $t$ of the mixture's magnitude spectrogram and $|X_{e,j}|$ frame $j$ of the enrollment's. Every frame is first scaled to unit length, so that only the spectral \emph{shape} remains and does not keep the loudness:
+The TF-Map \cite{zhang2025multi} is the module that turns speech enhancement into target speaker extraction. It compares the mixture with the clean enrolment clip frame by frame, and gives the network a cue of what the target's spectrum should look like at each instant. Let $|X_t|$ be frame $t$ of the mixture's magnitude spectrogram and $|X_{e,j}|$ frame $j$ of the enrolment's. Every frame is first scaled to unit length, so that only the spectral \emph{shape} remains and does not keep the loudness:
   \begin{equation}
   \tilde{x}_t = \frac{|X_t|}{\big\lVert |X_t| \big\rVert},
   \qquad
   \tilde{e}_j = \frac{|X_{e,j}|}{\big\lVert |X_{e,j}| \big\rVert}.
   \label{eq:tfmap-unit}
   \end{equation}
-  Each mixture frame is then compared with every enrollment frame by cosine similarity. For unit vectors this is simply the inner product. The similarities are then turned into weights that blend the enrollment frames into a template that can be referenced against the mixture frame:
+  Each mixture frame is then compared with every enrolment frame by cosine similarity. For unit vectors this is simply the inner product. The similarities are then turned into weights that blend the enrolment frames into a template that can be referenced against the mixture frame:
   \begin{equation} 
   C_{t,j} = \big\langle \tilde{x}_t,\ \tilde{e}_j \big\rangle,
   \qquad
@@ -68,7 +68,7 @@ The TF Map \cite{zhang2025multi} is the module that turns speech enhancement int
   \phi_t = m_t\, u_t ,
   \label{eq:tfmap-energy}
   \end{equation}
-  where $m_t$ is a scalar per frame which describes how much of the mixture's energy lies along the target's predicted spectrum.  $\phi_t$, the template scaled by it, is the cue passed to the network. The TF Map itself has nothing to train as \eqref{eq:tfmap-unit}--\eqref{eq:tfmap-energy} contain no weights. The extra channel is the only addition as it widens the per-band projection by about \num{33000} parameters.
+  where $m_t$ is a scalar per frame which describes how much of the mixture's energy lies along the target's predicted spectrum.  $\phi_t$, the template scaled by it, is the cue passed to the network. The TF-Map itself has nothing to train as \eqref{eq:tfmap-unit}--\eqref{eq:tfmap-energy} contain no weights. The extra channel is the only addition as it widens the per-band projection by about \num{33000} parameters.
 
 
 \subsubsection{Objective function}

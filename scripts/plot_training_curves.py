@@ -128,7 +128,7 @@ PANELS = {
     "pres": {"title": r"Separation, $L_\mathrm{pres}$", "term": separation_term},
     "mr": {"title": r"Spectrum, $w_\mathrm{m} L_\mathrm{MR}$", "term": spectrum_term},
     "gain": {"title": r"Level, $w_\mathrm{g} L_\mathrm{gain}$", "term": level_term},
-    "gkl": {"title": r"Gate prior, $\kappa\,\mathrm{KL}(q\,\|\,p)$", "term": gate_prior_term},
+    "gkl": {"title": r"Gate prior, $\beta\,\mathrm{KL}(q\,\|\,p)$", "term": gate_prior_term},
     "gbce": {"title": r"Gate labels, $\lambda\,\mathrm{BCE}$", "term": gate_label_term},
 }
 
@@ -338,7 +338,7 @@ def main():
             val_values.append(term(row, "val_", gate_config))
         axis.plot(gate_epochs, train_values, "--", color=GATE["colour"], lw=1.1, zorder=3)
         axis.plot(gate_epochs, val_values, "o-", color=GATE["colour"], lw=1.3, ms=2.6, zorder=3)
-    print(f"Gate: epochs {gate_epochs[0]}-{gate_epochs[-1]} of {int(all_gate_rows[-1]['epoch'])} drawn, kappa {gate_config['loss']['presence']['beta']}, lambda {gate_config['loss']['presence']['lam']}")
+    print(f"Gate: epochs {gate_epochs[0]}-{gate_epochs[-1]} of {int(all_gate_rows[-1]['epoch'])} drawn, beta {gate_config['loss']['presence']['beta']}, lambda {gate_config['loss']['presence']['lam']}")
 
     # The earlier chosen line is labelled on its left, so the two labels share the top line without touching.
     chosen_labels.sort()

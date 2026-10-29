@@ -61,7 +61,13 @@ def fuse_context(model, features, enrol_embedding):
 # this runs the model on whole clips: mixtures shaped (batch, samples) and enrolments shaped (batch, enrolment samples), giving estimates shaped like the mixtures
 def extract(model, mixture, enrollment, enrol_embedding):
     """enrol_embedding is None for the baseline. For the extension it is the (batch, 192) embedding from context_encoder.embed_enrolment, computed once per utterance."""
-    num_samples = mixture.shape[-1]
+    estimate_spectrogram, features, mixture_spectrogram = extract_spectrogram(model, mixture, enrollment, enrol_embedding)
+    return stft_inverse(model.stft, estimate_spectrogram, mixture.shape[-1])
+
+
+# this is extract() without the inverse STFT. It also gives the separator's features, shaped (batch, bands, features, frames), and the mixture's spectrogram, which the turn-down head reads (decisions-pending.md 2026-10-29)
+def extract_spectrogram(model, mixture, enrollment, enrol_embedding):
+    """Split out of extract() by Claude Code on 2026-10-29. extract() gives the same output as before."""
     mixture_spectrogram = stft_forward(model.stft, mixture)
     enrollment_spectrogram = stft_forward(model.stft, enrollment)
     cue = tfmap(mixture_spectrogram.abs(), enrollment_spectrogram.abs(), model.tfmap_scale, model.tfmap_parts, model.tfmap_part_scales)
@@ -78,4 +84,4 @@ def extract(model, mixture, enrollment, enrol_embedding):
     features = fuse_context(model, features, enrol_embedding)
     features = band_sequence_model_forward(model.separator, features)
     estimate_spectrogram = estimator_forward(model.estimator, features, mixture_bands)
-    return stft_inverse(model.stft, estimate_spectrogram, num_samples)
+    return estimate_spectrogram, features, mixture_spectrogram
