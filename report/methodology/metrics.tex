@@ -4,7 +4,7 @@
 
 \subsubsection{Transcripts and references}
 \label{sec:transcripts}
-When a system produces output, either the offline or the live model with the prompt of \autoref{app:prompt}, it gives a transcript. The two anchors get transcribed as well to give the untouched mixture and the clean target. Every transcript is scored against the LibriSpeech reference transcript of the target speaker, and the interferer speaker. Before scoring, each transcript is normalised using Whisper's \texttt{EnglishTextNormalizer} \cite{whisper_normalizer,radford2023whisper}. This includes lowercasing, removing punctuation, expanding contractions and writing numbers consistently.
+When a system produces output, either the offline or the live model with the prompt of Appendix~\ref{app:prompt}, it gives a transcript. The two anchors get transcribed as well to give the untouched mixture and the clean target. Every transcript is scored against the LibriSpeech reference transcript of the target speaker, and the interferer speaker. Before scoring, each transcript is normalised using Whisper's \texttt{EnglishTextNormalizer} \cite{whisper_normalizer,radford2023whisper}. This includes lowercasing, removing punctuation, expanding contractions and writing numbers consistently.
 
 \subsubsection{Listener Content Fidelity Word Error Rate}
 \label{sec:lcfwer}
@@ -57,7 +57,7 @@ DNSMOS \cite{reddy2021dnsmos,reddy2022dnsmos835} is a neural network that predic
 
 \subsubsection{Signal-to-Distortion/Interference/Artefact Ratios}
 \label{sec:sdiar}
-SDR is used to measure how wrong the output audio is in total, and the SIR and SAR are used to measure in which direction the output audio is wrong. The SIR measures how much real audio that is not target speech is present in the output audio such as an interfering speaker or background noise, and the SAR measures how much of the output audio is not real audio, such as artefacts from the model. The output is split by orthogonal projection \cite{vincent2006bsseval} into the target part $s_\textup{proj}$ of \eqref{eq:alpha}, the interference $e_\textup{int}$ explained by the other speaker $d$ and the noise, and the artefact $e_\textup{art}$ explained by none of the sources, so that $\hat{s} = s_\textup{proj} + e_\textup{int} + e_\textup{art}$:
+SDR is used to measure how wrong the output audio is in total, and the SIR and SAR are used to measure in which direction the output audio is wrong. The SIR measures how much real audio that is not target speech is present in the output audio such as an interfering speaker or background noise, and the SAR measures how much of the output audio is not real audio, such as artefacts from the model. The output is split by orthogonal projection \cite{vincent2006bsseval} into the target part $s_\textup{proj}$ of \eqref{eq:alpha}, the interference $e_\textup{int}$ explained by the other speaker $s_\textup{int}$ and the noise, and the artefact $e_\textup{art}$ explained by none of the sources, so that $\hat{s} = s_\textup{proj} + e_\textup{int} + e_\textup{art}$:
 \begin{equation}
 \begin{aligned}
 \textup{SDR} &= 10\log_{10} \dfrac{\lVert s_\textup{proj}\rVert^2}{\lVert e_\textup{int} + e_\textup{art}\rVert^2}, \\
