@@ -3,7 +3,7 @@
 Tick as done. Items marked (H) are also on `docs/report-handoff-2026-10-27.md`.
 
 ## Supervisor
-- [ ] S1. Results are on the validation set, not the test set: motivate it, or switch.
+- [~] S1. Results are on the validation set, not the test set: motivate it, or switch. Done: abstract, Table 5.1, Fig 5.2 + text, Case 1 sentence, conclusion RQ3, test count 248/499, Fig 5.5 caption sentence. Left: motivation paragraph at start of §5; Fig 5.1 and 5.3 on test (jobs running); "validation" labels on Table 5.2 and voice-picking text.
 
 ## Overclaims and wording
 - [x] W1. §5 intro states the masking trade-off as fact; §5.2 calls it a hypothesis. Hypothesis in both.
@@ -22,14 +22,14 @@ Key: [x] done, [~] part done, [P] pinned, [ ] not started.
 
 - [x] P1. Mixed voice. "our" (results.tex:194) and "I believe / I had / I would suggest" (conclusion.tex:12) now impersonal. AI declaration and nomenclature AI note left in first person on purpose.
 - [~] P2. Mixed decimals. Done: abstract and conclusion to 2 dp (53.26, 39.59, 30.74, 46.88); 15.4 → 15.38 (results.tex:72). Left: one-decimal measured values need their source numbers (data shares 49.5/25.5/19.6/5.3; 5.8 %; −48.6/−29.2 dB; 71.8/52.6; 348.3 ms; 27.2 M; Appendix B AMI stats) and the w_m text −5.91/0.184 vs equation 5.9088/0.1842.
-- [P] P3. p: the 0.3 exponent and the 0.297 silent fraction. Proposal: silent fraction → f_abs.
-- [P] P4. τ used three ways. Proposal: τ = temperature only; loss floors → ε_pres, ε_abs.
-- [P] P5. ℓ: the loss and the leaked word count. Proposal: loss ℓ → L; also fix line 126 ("(ŝ−s)²", "Gaussian").
+- [x] P3. p: the 0.3 exponent and the 0.297 silent fraction. Proposal: silent fraction → f_abs. Done: f_abs.
+- [x] P4. τ used three ways. Proposal: τ = temperature only; loss floors → ε_pres, ε_abs. Done.
+- [x] P5. ℓ: the loss and the leaked word count. Proposal: loss ℓ → L; also fix line 126 ("(ŝ−s)²", "Gaussian"). Done, line 126 rewritten.
 - [x] P6. Interferer signal d → s_int (metrics.tex:60, nomenclature).
-- [P] P7. Fig 5.1 caption τ pointer. Waits on P4. Proposal: add the 10⁻³ floor to the SDR/SIR/SAR equations + one sentence.
+- [x] P7. Fig 5.1 caption τ pointer. Waits on P4. Proposal: add the 10⁻³ floor to the SDR/SIR/SAR equations + one sentence. Done: floor in SDR/SIR/SAR, caption uses ε_pres.
 - [x] P8. "Section D.1" → "Appendix~\ref" (metrics.tex:7, setup.tex:45).
 - [x] P9. Fig 5.2 caption: (\ref{ai:diagrams}).
-- [~] P10. Nomenclature. Done: GLU, IHM removed; MLP kept (used in baseline figure); API, CPU, ECAPA-TDNN, ELBO, KL, LLM, RMS, RNN, TDNN added. Pinned: DNSMOS personalised-model sentence.
+- [x] P10. Nomenclature. Done: GLU, IHM removed; MLP kept (used in baseline figure); API, CPU, ECAPA-TDNN, ELBO, KL, LLM, RMS, RNN, TDNN added. Pinned: DNSMOS personalised-model sentence. DNSMOS sentence dropped (author, 2026-10-30).
 - [x] P11. Second "As a final test…" deleted (data.tex:40).
 - [x] P12. Heading → "Trial cases" (data.tex:33).
 - [x] P13. AI declaration: own page, ToC entry, ``…'' quotes.
@@ -39,10 +39,10 @@ Key: [x] done, [~] part done, [P] pinned, [ ] not started.
 - [x] P17. [5] and [9] → @misc arXiv entries.
 - [x] P18. All booktitles "Proc."; Interspeech entries carry the year.
 - [P] P19. Conclusion RQ1–RQ3 answers. Draft below.
-- [P] P20. Six limitations. Draft below.
+- [x] P20. Six limitations. Draft below. Closed: author keeps the current limitations (2026-10-30).
 
 ## Follow-ups found while fixing
-- [ ] Interspeech references print the year twice ("Proc. Interspeech 2017, 2017"). Proposal: drop the year from the booktitle.
+- [x] Interspeech year printed once (booktitle "Proc. Interspeech").
 - [ ] RIR and SLT in the nomenclature are unused.
 - [ ] Appendix D prompt overflows the margin by 39 pt (H).
 - [ ] Build is 52 pages; handoff gives a 50-page limit.
@@ -65,3 +65,6 @@ Key: [x] done, [~] part done, [P] pinned, [ ] not started.
 ## Done after the list (2026-10-30)
 - [x] Nomenclature: RIR, SLT removed; unused symbols x_e, H, h[n] removed.
 - [x] Appendix D prompt: \footnotesize, no overflow; prompt text unchanged.
+- [x] W-audit fixes: fine-tune "three of the four cases"; artefact weight alone worsens LCF-WER; "cannot be told apart from chance"; conclusion RQ2 hedged; P.808 once; AMI paragraph "On AMI".
+- [ ] Unsupported claims left: ECAPA credit (abstract, §5.3, conclusion); WeSep "cannot be used in a live system"; AMI "degrading the target speech".
+- [ ] N used for STFT window length and WER reference word count.

@@ -123,35 +123,35 @@ The actual transition matrix used in the prior can be found in \autoref{sec:appe
   \label{eq:elbo}
   \end{equation}
 
-The first term of \eqref{eq:elbo} requires a probability, but only a loss is available during training: $\ell(\hat{s}, s)=(\hat{s}-s)^2$, the loss of \eqref{eq:total} on the gated output. Let the loss be modelled as a Gaussian with variance $\nu^2$, and let $\beta = 2\nu^2$:
+The first term of \eqref{eq:elbo} requires a probability, but only a loss is available during training: $L(\hat{s}, s)$, the loss of \eqref{eq:total} computed on the gated output. Let the probability fall exponentially as the loss grows, with a temperature $\beta > 0$:
 \begin{equation}
   p_\theta(s \mid x, e, z) = \frac{1}{\mathcal{Z}}
-  \exp\!\left(-\frac{\ell(\hat{s}(z), s)}{\beta}\right),
+  \exp\!\left(-\frac{L(\hat{s}(z), s)}{\beta}\right),
   \qquad
-  \log p_\theta(s \mid x, e, z) = -\frac{\ell(\hat{s}(z), s)}{\beta} -  \log \mathcal{Z},
+  \log p_\theta(s \mid x, e, z) = -\frac{L(\hat{s}(z), s)}{\beta} -  \log \mathcal{Z},
   \label{eq:pseudo-likelihood}
   \end{equation}
 where $\mathcal{Z}$ is the normalisation constant. Substitute \eqref{eq:pseudo-likelihood} into \eqref{eq:elbo} to give:
 \begin{equation}
   \begin{aligned}
-  \log p_\theta(s \mid x, e) &\ge \mathbb{E}_{z \sim q_\psi(z \mid x, e)}\big[-\frac{\ell(\hat{s}(z), s)}{\beta} - \log \mathcal{Z}\big] - \mathrm{KL}\big(q_\psi(z \mid x, e) \,\|\, p(z)\big) \\
-  &= -\frac{1}{\beta} \mathbb{E}_{z \sim q_\psi(z \mid x, e)}\big[\ell(\hat{s}(z), s)\big] - \log \mathcal{Z} - \mathrm{KL}\big(q_\psi(z \mid x, e) \,\|\, p(z)\big).
+  \log p_\theta(s \mid x, e) &\ge \mathbb{E}_{z \sim q_\psi(z \mid x, e)}\big[-\frac{L(\hat{s}(z), s)}{\beta} - \log \mathcal{Z}\big] - \mathrm{KL}\big(q_\psi(z \mid x, e) \,\|\, p(z)\big) \\
+  &= -\frac{1}{\beta} \mathbb{E}_{z \sim q_\psi(z \mid x, e)}\big[L(\hat{s}(z), s)\big] - \log \mathcal{Z} - \mathrm{KL}\big(q_\psi(z \mid x, e) \,\|\, p(z)\big).
   \end{aligned}
   \label{eq:objgate}
 \end{equation}
 Let the right-hand side of \eqref{eq:objgate} form part of the objective to obtain 
 \begin{equation}
 \begin{aligned}
-  \mathcal{L}(\theta, \psi) &= -\frac{1}{\beta}\,\mathbb{E}_{z \sim q_\psi(z \mid x,e)}\big[\ell(\hat s(z), s)\big] - \log \mathcal{Z} - \mathrm{KL}\big(q_\psi(z \mid x, e)\,\|\,p(z)\big) \\
-  -\beta\,\mathcal{L}(\theta, \psi) &= \mathbb{E}_{z \sim q_\psi(z \mid x,e)}\big[\ell(\hat s(z), s)\big] + \beta\log \mathcal{Z} + \beta\,\mathrm{KL}\big(q_\psi(z \mid x, e)\,\|\,p(z)\big) \\
-  &\propto \mathbb{E}_{z \sim q_\psi(z \mid x,e)}\big[\ell(\hat s(z), s)\big] + \beta\,\mathrm{KL}\big(q_\psi(z \mid x, e)\,\|\,p(z)\big).
+  \mathcal{L}(\theta, \psi) &= -\frac{1}{\beta}\,\mathbb{E}_{z \sim q_\psi(z \mid x,e)}\big[L(\hat s(z), s)\big] - \log \mathcal{Z} - \mathrm{KL}\big(q_\psi(z \mid x, e)\,\|\,p(z)\big) \\
+  -\beta\,\mathcal{L}(\theta, \psi) &= \mathbb{E}_{z \sim q_\psi(z \mid x,e)}\big[L(\hat s(z), s)\big] + \beta\log \mathcal{Z} + \beta\,\mathrm{KL}\big(q_\psi(z \mid x, e)\,\|\,p(z)\big) \\
+  &\propto \mathbb{E}_{z \sim q_\psi(z \mid x,e)}\big[L(\hat s(z), s)\big] + \beta\,\mathrm{KL}\big(q_\psi(z \mid x, e)\,\|\,p(z)\big).
 \end{aligned}
 \label{eq:gaussian}
 \end{equation}
 The ELBO at this point does not use the labels $v_t$ for whether the target is present and thus nothing forces $\pi_t$ to follow whether the target is speaking. Since $v_t$ is known for every frame in training, it is included in a binary cross-entropy between $\pi_t$ and $v_t$. This idea was suggested by Kingma et al.\ \cite{kingma2014semisupervised} in an image classification context. The final objective to train the presence gate is then:
 \begin{equation}
   \begin{aligned}
-  \mathcal{J}(\theta, \psi) = {}& \mathbb{E}_{z \sim q_\psi(z \mid x, e)}\big[\ell(\hat s(z), s)\big] + \beta\,\mathrm{KL}\big(q_\psi(z \mid x, e)\,\|\,p(z)\big) \\
+  \mathcal{J}(\theta, \psi) = {}& \mathbb{E}_{z \sim q_\psi(z \mid x, e)}\big[L(\hat s(z), s)\big] + \beta\,\mathrm{KL}\big(q_\psi(z \mid x, e)\,\|\,p(z)\big) \\
   & - \lambda\sum_{t=1}^{T}\big[v_t\log\pi_t + (1-v_t)\log(1-\pi_t)\big],
   \end{aligned}
   \label{eq:obj}
@@ -178,19 +178,18 @@ where $\mathbb{E}_{z \sim q_\psi(z \mid x,e)}\big[z_t\big] = \pi_t$. Term 2 simp
   \label{eq:term2}
 \end{equation}
 Recall that being in state $i$ at a time frame $t$ is modelled by the Bernoulli distribution. Therefore, for the first frame only the case of belonging to a state with no transitions is considered, and from the second frame onwards, the transitions are considered. The expectation of \eqref{eq:term2} is then:
-\begin{equation}
-\begin{aligned}
+% align with \allowdisplaybreaks, so this tall derivation can split across pages instead of leaving a gap.
+{\allowdisplaybreaks
+\begin{align}
   \mathbb{E}_{z \sim q_\psi(z \mid x,e)}\big[\log p(z)\big] 
-  &= \mathbb{E}_{z \sim q_\psi(z \mid x,e)}\big[\log p(z_1) + \sum_{t=2}^{T}\log A_{z_{t-1} z_t}\big] \\
-  &= \mathbb{E}_{z \sim q_\psi(z \mid x,e)}\Big[z_1\log \rho + (1-z_1)\log (1 - \rho) \\
-  &\quad + \sum_{t=2}^{T}\big(z_{t-1}z_t\log A_{11} + z_{t-1}(1-z_t)\log A_{10} \\
-  &\quad + (1-z_{t-1})z_t\log A_{01} + (1-z_{t-1})(1-z_t)\log A_{00}\big)\Big]^\dagger \\
-  &= \pi_1\log\rho + (1-\pi_1)\log(1-\rho) + \\
-    &\quad \sum_{t=2}^{T}\Big[\pi_{t-1}\pi_t\log A_{11} + \pi_{t-1}(1-\pi_t)\log A_{10} \\
-    &\quad + (1-\pi_{t-1})\pi_t\log A_{01}  + (1-\pi_{t-1})(1-\pi_t)\log A_{00}\Big]^\ddagger.
-  \label{eq:term2-expectation}
-\end{aligned}
-\end{equation}
+  &= \mathbb{E}_{z \sim q_\psi(z \mid x,e)}\big[\log p(z_1) + \sum_{t=2}^{T}\log A_{z_{t-1} z_t}\big] \notag \\
+  &= \mathbb{E}_{z \sim q_\psi(z \mid x,e)}\Big[z_1\log \rho + (1-z_1)\log (1 - \rho) \notag \\
+  &\quad + \sum_{t=2}^{T}\big(z_{t-1}z_t\log A_{11} + z_{t-1}(1-z_t)\log A_{10} \notag \\
+  &\quad + (1-z_{t-1})z_t\log A_{01} + (1-z_{t-1})(1-z_t)\log A_{00}\big)\Big]^\dagger \notag \\
+  &= \pi_1\log\rho + (1-\pi_1)\log(1-\rho) + \notag \\
+    &\quad \sum_{t=2}^{T}\Big[\pi_{t-1}\pi_t\log A_{11} + \pi_{t-1}(1-\pi_t)\log A_{10} \notag \\
+    &\quad + (1-\pi_{t-1})\pi_t\log A_{01}  + (1-\pi_{t-1})(1-\pi_t)\log A_{00}\Big]^\ddagger. \label{eq:term2-expectation}
+\end{align}}
 $\dagger$ where $p(z_1 = 1) = \rho$ from \eqref{eq:stationary}, and since $z_t \in \{0, 1\}$ exactly one of the four products is $1$ for each pair $(z_{t-1}, z_t)$, which selects the matching transition. $\ddagger$ where $\mathbb{E}_{z}\big[z_{t-1} z_t\big] = \mathbb{E}_{z}\big[z_{t-1}\big]\mathbb{E}_{z}\big[z_{t}\big] = \pi_{t-1} \pi_t$ by the mean-field assumption, following the completely factorised variational inference of Ghahramani and Jordan \cite{ghahramani1997factorial}.
 Therefore subtracting \eqref{eq:term2-expectation} from \eqref{eq:term1} and removing $t=1$ from the first summation yields
 \begin{equation}
@@ -209,7 +208,7 @@ Using the identity $\mathrm{KL}\big(\mathrm{Bern}(a)\,\|\,\mathrm{Bern}(b)\big) 
   \end{aligned}
 \end{equation}
 
-\paragraph{Training and inference.} The expectation of $\ell(\hat{s}(z), s)$ of \eqref{eq:obj} is too expensive to compute as an average over all $2^T$ possible sequences of $z_{1:T}$. Instead leverage Monte Carlo sampling to approximate the expectation (\ref{ai:eq-gate}). Only one sequence of $z_{1:T}$ is drawn per training clip and is an unbiased estimate of the expectation \cite{kingma2014autoencoding}. A sample $z_t \in \{0, 1\}$ drawn from a $\mathrm{Bern}(\pi_t)$, however, will potentially not change when $\pi_t$ is changed slightly, so $\partial z_t / \partial \pi_t = 0$ and thus the extraction loss sends no gradient to the gate. This is solved using a soft draw with the binary Concrete distribution \cite{maddison2017concrete, jang2017categorical}. 
+\paragraph{Training and inference.} The expectation of $L(\hat{s}(z), s)$ of \eqref{eq:obj} is too expensive to compute as an average over all $2^T$ possible sequences of $z_{1:T}$. Instead leverage Monte Carlo sampling to approximate the expectation (\ref{ai:eq-gate}). Only one sequence of $z_{1:T}$ is drawn per training clip and is an unbiased estimate of the expectation \cite{kingma2014autoencoding}. A sample $z_t \in \{0, 1\}$ drawn from a $\mathrm{Bern}(\pi_t)$, however, will potentially not change when $\pi_t$ is changed slightly, so $\partial z_t / \partial \pi_t = 0$ and thus the extraction loss sends no gradient to the gate. This is solved using a soft draw with the binary Concrete distribution \cite{maddison2017concrete, jang2017categorical}. 
  \begin{equation}
     \tilde{z}_t = \sigma\!\left(\frac{1}{\tau}\Big(\log\frac{\pi_t}{1-\pi_t} + \log U_t - \log(1-U_t)\Big)\right), \qquad U_t \sim
   \mathcal{U}(0,1),

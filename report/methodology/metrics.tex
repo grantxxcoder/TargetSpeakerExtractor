@@ -60,13 +60,13 @@ DNSMOS \cite{reddy2021dnsmos,reddy2022dnsmos835} is a neural network that predic
 SDR is used to measure how wrong the output audio is in total, and the SIR and SAR are used to measure in which direction the output audio is wrong. The SIR measures how much real audio that is not target speech is present in the output audio such as an interfering speaker or background noise, and the SAR measures how much of the output audio is not real audio, such as artefacts from the model. The output is split by orthogonal projection \cite{vincent2006bsseval} into the target part $s_\textup{proj}$ of \eqref{eq:alpha}, the interference $e_\textup{int}$ explained by the other speaker $s_\textup{int}$ and the noise, and the artefact $e_\textup{art}$ explained by none of the sources, so that $\hat{s} = s_\textup{proj} + e_\textup{int} + e_\textup{art}$:
 \begin{equation}
 \begin{aligned}
-\textup{SDR} &= 10\log_{10} \dfrac{\lVert s_\textup{proj}\rVert^2}{\lVert e_\textup{int} + e_\textup{art}\rVert^2}, \\
-\textup{SIR} &= 10\log_{10} \dfrac{\lVert s_\textup{proj}\rVert^2}{\lVert e_\textup{int}\rVert^2}, \\
-\textup{SAR} &= 10\log_{10} \dfrac{\lVert s_\textup{proj} + e_\textup{int}\rVert^2}{\lVert e_\textup{art}\rVert^2},
+\textup{SDR} &= 10\log_{10} \dfrac{\lVert s_\textup{proj}\rVert^2}{\lVert e_\textup{int} + e_\textup{art}\rVert^2 + \varepsilon_\textup{pres} \lVert s_\textup{proj}\rVert^2}, \\
+\textup{SIR} &= 10\log_{10} \dfrac{\lVert s_\textup{proj}\rVert^2}{\lVert e_\textup{int}\rVert^2 + \varepsilon_\textup{pres} \lVert s_\textup{proj}\rVert^2}, \\
+\textup{SAR} &= 10\log_{10} \dfrac{\lVert s_\textup{proj} + e_\textup{int}\rVert^2}{\lVert e_\textup{art}\rVert^2 + \varepsilon_\textup{pres} \lVert s_\textup{proj} + e_\textup{int}\rVert^2},
 \end{aligned}
 \label{eq:sdr-sir-sar}
 \end{equation}
-which are all measured in decibels (dB) where the higher ratio means better extraction of the target from the other audio in question. 
+which are all measured in decibels (dB) where the higher ratio means better extraction of the target from the other audio in question. Each denominator is floored at $\varepsilon_\textup{pres} = 10^{-3}$ of its numerator, as in \eqref{eq:lpres}, which caps every ratio at \SI[retain-explicit-plus]{+30}{\decibel}. 
 
 \subsubsection{Reference points}                                  
 \label{sec:anchors}

@@ -91,10 +91,10 @@ and then to compare the energy of that scaled target against the energy of whate
 L_\textup{pres}
   = -10 \log_{10}
     \frac{\lVert s_\textup{proj} \rVert^2}
-         {\lVert \hat{s} - s_\textup{proj} \rVert^2 + \tau_\textup{pres} \lVert s_\textup{proj} \rVert^2}.
+         {\lVert \hat{s} - s_\textup{proj} \rVert^2 + \varepsilon_\textup{pres} \lVert s_\textup{proj} \rVert^2}.
 \label{eq:lpres}
 \end{equation}
-Lower is better. The $\tau_\textup{pres} = 10^{-3}$ term in the denominator is a floor and caps the best score at \SI{-30}{dB}, which is a suggestion from CARTSE \cite{li2026cartse}. An output whose residual error already sits \SI{30}{dB} below the target is close enough to be treated as solved, so it would be wasteful to keep spending gradient on it. The measure has two blind spots. It views the leaked interferer, noise and artefacts as an identical error per unit of energy. Secondly, the ratio is dominated by the low frequencies and thus the quieter bands that carry the consonants can be reconstructed poorly without much penalty. 
+Lower is better. The $\varepsilon_\textup{pres} = 10^{-3}$ term in the denominator is a floor and caps the best score at \SI{-30}{dB}, which is a suggestion from CARTSE \cite{li2026cartse}. An output whose residual error already sits \SI{30}{dB} below the target is close enough to be treated as solved, so it would be wasteful to keep spending gradient on it. The measure has two blind spots. It views the leaked interferer, noise and artefacts as an identical error per unit of energy. Secondly, the ratio is dominated by the low frequencies and thus the quieter bands that carry the consonants can be reconstructed poorly without much penalty. 
 
 \paragraph{Multi-resolution spectral term.}
 Equation~\eqref{eq:lpres} cannot express \emph{where} in the spectrum the error lies: a model that reconstructs the loud low bands well and the quiet high bands poorly is barely penalised and, being scale-invariant, it does not constrain the output's absolute loudness at all. To address this, $s$ and $\hat{s}$ are compared at several resolutions so that the reconstruction of both the low- and high-frequency bands at different scales is encouraged. A spectral term allows for this following \cite{yu2023high}:
@@ -116,11 +116,11 @@ The model should penalise any output that is not silence. This is modelled after
 
 \begin{equation}
 L_\textup{abs} = 10 \log_{10}
-  \frac{\lVert \hat{s} \rVert^2 + \tau_\textup{abs} \lVert x \rVert^2}
+  \frac{\lVert \hat{s} \rVert^2 + \varepsilon_\textup{abs} \lVert x \rVert^2}
        {\lVert x \rVert^2}.
 \label{eq:labs}
 \end{equation}
- Including the denominator term makes the loss relative to the input, which is directly readable: \SI{0}{dB} means the output is as loud as the mixture, that is, the model did nothing; \SI{-10}{dB} means the interfering speech was suppressed by \SI{10}{dB}. The same $\tau_\textup{abs}$ floors the term at \SI{-20}{dB}, beyond which the output counts as silent. A positive value means the
+ Including the denominator term makes the loss relative to the input, which is directly readable: \SI{0}{dB} means the output is as loud as the mixture, that is, the model did nothing; \SI{-10}{dB} means the interfering speech was suppressed by \SI{10}{dB}. The same $\varepsilon_\textup{abs}$ floors the term at \SI{-20}{dB}, beyond which the output counts as silent. A positive value means the
 model amplified the mixture, which is a direct failure. The inclusion of the denominator also allows for scale invariance, which puts the loss in the same units as the loss for the target-present case.
 
 
@@ -148,9 +148,9 @@ L = (1 - w) \operatorname*{mean}_{\textup{target present}}
 
 \paragraph{Weights.} 
 
-The weight $w$ on the silent branch is derived rather than chosen. Silent crops make up a measured $p = 0.297$ of the training crops and, following \cite{li2026cartse}, each silent crop is counted twice ($\eta = 2$). The present branch then carries $1 - p = 0.703$ and the absent branch $\eta p = 0.594$, and normalising the two to sum to one gives
+The weight $w$ on the silent branch is derived rather than chosen. Silent crops make up a measured $f_\textup{abs} = 0.297$ of the training crops and, following \cite{li2026cartse}, each silent crop is counted twice ($\eta = 2$). The present branch then carries $1 - f_\textup{abs} = 0.703$ and the absent branch $\eta f_\textup{abs} = 0.594$, and normalising the two to sum to one gives
   \begin{equation*}
-  w = \frac{\eta p}{(1 - p) + \eta p} = \frac{0.594}{1.297} = 0.458 .
+  w = \frac{\eta f_\textup{abs}}{(1 - f_\textup{abs}) + \eta f_\textup{abs}} = \frac{0.594}{1.297} = 0.458 .
   \end{equation*}
 
 
