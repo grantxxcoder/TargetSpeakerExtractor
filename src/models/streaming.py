@@ -10,6 +10,7 @@ Streaming STFT and weighted overlap-add follow Allen & Rabiner, Proc. IEEE 1977.
 Claude Code used to generate this file (Hard).
 """
 
+import numpy as np
 import torch
 
 from src.models.bsrnn import fuse_context
@@ -59,7 +60,7 @@ def causal_stft_push(analysis, samples):
 def stream_start(model, enrollment, enrol_embedding):
     """Push audio in chunks of any size with stream_push, then call stream_flush for the rest.
 
-    The output lags the input by one window minus one hop (24 ms at 512/128), plus whatever part of a hop is still waiting.
+    The output lags the input by one window minus one hop (24 ms at 512/128), plus whatever part of a hop is still waiting, plus one hop per lookahead frame.
     The enrolment's spectrogram is computed once, here, as a deployed system would.
     """
     if model.training:
@@ -80,6 +81,9 @@ def stream_start(model, enrollment, enrol_embedding):
         "enrol_embedding": enrol_embedding,
         "analysis": causal_stft_start(stft),
         "lstm_states": [None] * len(model.separator.blocks),
+        # With a lookahead, each mixture frame waits here until the network has run that many frames past it, and the network's first outputs belong to no frame.
+        "waiting_frames": torch.zeros(1, stft.n_fft // 2 + 1, 0, dtype=torch.complex64, device=device),
+        "outputs_to_skip": model.lookahead_frames,
         # The overlap-add tail and its window envelope, still waiting for later frames.
         "overlap_tail": torch.zeros(stft.n_fft - stft.hop_length, device=device),
         "envelope_tail": torch.zeros(stft.n_fft - stft.hop_length, device=device),
@@ -100,8 +104,11 @@ def stream_push(stream, samples):
     if num_frames == 0:
         empty = mixture_frames[0].abs().cpu().numpy()
         return {"audio": empty[0, :0], "mix_mag": empty}
-    estimate_frames = stream_frames(stream, mixture_frames)
-    audio = stream_overlap_add(stream, estimate_frames, num_frames)
+    estimate_frames = stream_frames(stream, mixture_frames, False)
+    # Early in a stream with a lookahead, the new frames may all still be waiting, so nothing is final yet.
+    if estimate_frames.shape[-1] == 0:
+        return {"audio": torch.zeros(0).numpy(), "mix_mag": mixture_frames[0].abs().cpu().numpy()}
+    audio = stream_overlap_add(stream, estimate_frames, estimate_frames.shape[-1])
     return {"audio": audio.cpu().numpy(), "mix_mag": mixture_frames[0].abs().cpu().numpy()}
 
 
@@ -113,6 +120,14 @@ def stream_flush(stream):
     # The same frame count as stft_frame_count, written as a ceiling division.
     num_frames = -(-(samples_in + stream["padding"]) // stream["hop"])
     output = stream_push(stream, torch.zeros(num_frames * stream["hop"] - samples_in, device=stream["device"]))
+    # The frames still waiting for their lookahead get it from silent frames, run through the network only, as extract() does at the end of a clip.
+    lookahead_frames = stream["model"].lookahead_frames
+    if lookahead_frames > 0:
+        silence = torch.zeros(1, stream["n_fft"] // 2 + 1, lookahead_frames, dtype=torch.complex64, device=stream["device"])
+        estimate_frames = stream_frames(stream, silence, True)
+        if estimate_frames.shape[-1] > 0:
+            tail_audio = stream_overlap_add(stream, estimate_frames, estimate_frames.shape[-1]).cpu().numpy()
+            output["audio"] = np.concatenate([output["audio"], tail_audio])
     output["audio"] = output["audio"][:samples_in - samples_out_before]
     stream["samples_in"] = samples_in
     stream["samples_out"] = samples_in
@@ -120,16 +135,30 @@ def stream_flush(stream):
 
 
 # this runs the model from the STFT frames to the estimated frames, the same steps as extract(), for the new frames only
-def stream_frames(stream, mixture_frames):
+def stream_frames(stream, mixture_frames, is_padding):
+    """With a lookahead, the network's output for its frame s masks mixture frame s - lookahead, so the new frames join a queue and the oldest waiting frames are the ones masked.
+
+    is_padding marks the silent frames stream_flush adds after the clip: the network hears them, but they are not frames of the clip, so they never join the queue.
+    """
     model = stream["model"]
     cue = tfmap(mixture_frames.abs(), stream["enrollment_magnitude"], model.tfmap_scale, model.tfmap_parts, model.tfmap_part_scales)
     network_input = torch.cat([torch.stack([mixture_frames.real, mixture_frames.imag], dim=1), cue], dim=1)
-    mixture_bands = split_bands(mixture_frames, model.band_widths)
     input_bands = split_bands(network_input, model.band_widths)
     features = fuse_context(model, subband_norm_forward(model.subband_norm, input_bands), stream["enrol_embedding"])
     for block_index, block in enumerate(model.separator.blocks):
         features, stream["lstm_states"][block_index] = bsnet_step(block, features, stream["lstm_states"][block_index])
-    return estimator_forward(model.estimator, features, mixture_bands)
+    if not is_padding:
+        stream["waiting_frames"] = torch.cat([stream["waiting_frames"], mixture_frames], dim=-1)
+    # The network's first outputs come before any frame has its lookahead, so they mask nothing.
+    skip = min(stream["outputs_to_skip"], features.shape[-1])
+    stream["outputs_to_skip"] -= skip
+    features = features[..., skip:]
+    num_ready = features.shape[-1]
+    if num_ready == 0:
+        return torch.zeros(1, stream["n_fft"] // 2 + 1, 0, dtype=torch.complex64, device=stream["device"])
+    ready_frames = stream["waiting_frames"][..., :num_ready]
+    stream["waiting_frames"] = stream["waiting_frames"][..., num_ready:]
+    return estimator_forward(model.estimator, features, split_bands(ready_frames, model.band_widths))
 
 
 # this does stft_inverse a little at a time: samples before the next frame starts get no more contributions, so they are final

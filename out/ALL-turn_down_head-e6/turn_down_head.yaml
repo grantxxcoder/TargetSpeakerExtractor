@@ -1,0 +1,24 @@
+# The turn-down head on a frozen e21 (decisions-pending.md 2026-10-29), trained by scripts/train_turn_down.py.
+# Only the head trains. e21's own model block and data block are read from its checkpoint, so the frozen model is exactly e21.
+# It learns the oracle of the D1 test: each band of e21's estimate brought down to the clean target's energy, in frames where the target is active.
+
+seed: 42
+
+base:
+  weights: models/model_sir0_cuecontext-wer-e21.pt   # e21, the report's extension; its checkpoint carries its config
+
+head:
+  hidden_dim: 64             # a small trunk per band; the mask estimator uses 384 for a much harder job
+
+target:
+  activity_floor_db: -40.0   # a frame is target-active within 40 dB of the target's loudest frame in the crop
+  gain_floor_db: -30.0       # the oracle never asks for more than 30 dB of turn-down
+  audible_floor_db: -60.0    # the loss skips bands more than 60 dB below the crop's loudest band and frame
+
+training:
+  lr: 0.001                  # only 278,688 new weights, so a higher rate than e21's 5e-4
+  weight_decay: 1.0e-4       # e21's
+  epochs: 6                  # the length of the fine-tunes of 2026-10-03
+  grad_clip: 5.0             # e21's
+  batch_size: 3              # e21's, so its fp16 LSTM batch stays aligned (bsrnn_cue_context.yaml)
+  num_workers: 4             # e21's

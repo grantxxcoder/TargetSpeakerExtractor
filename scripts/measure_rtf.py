@@ -55,7 +55,8 @@ def main():
     model.load_state_dict(checkpoint["model"])
     model.eval().to(device)
     sample_rate = int(checkpoint["config"]["data"]["sample_rate"])
-    lookahead_ms = stft_latency_ms(model.stft)
+    # The framing's delay, plus one hop for each frame the mask waits to hear ahead (lookahead_frames, decisions-pending.md 2026-10-29). Zero frames for every model before the lookahead fine-tune.
+    lookahead_ms = stft_latency_ms(model.stft) + 1000 * model.lookahead_frames * model.stft.hop_length / model.stft.sample_rate
 
     chunk_samples = int(round(CHUNK_MS / 1000.0 * sample_rate))
     enrollment = torch.randn(1, int(ENROLLMENT_SECONDS * sample_rate), device=device)
@@ -100,6 +101,7 @@ def main():
         "chunk_ms": CHUNK_MS,
         "chunks_timed": len(per_chunk_ms),
         "lookahead_ms": lookahead_ms,
+        "lookahead_frames": model.lookahead_frames,
         "per_chunk_mean_ms": mean_ms,
         "per_chunk_p50_ms": percentile(50),
         "per_chunk_p95_ms": percentile(95),

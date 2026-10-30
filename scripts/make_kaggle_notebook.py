@@ -76,7 +76,7 @@ print(f"exit {return_code}")"""
 
 SAVE = """import zipfile
 
-# One download holds the checkpoints, the results folder train.py wrote, the config that ran and the run-time log.
+# One download holds the checkpoints, the results folder the script wrote, the config that ran, the run-time log and the bundle's manifest.
 archive_path = work / f"ALL-{Path(CONFIG).stem}-e{EPOCHS}.zip"
 results = repo / "experiments/results"
 with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_STORED) as archive:
@@ -88,6 +88,8 @@ with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_STORED) as archive:
                 archive.write(path, f"results/{path.relative_to(results)}")
     archive.write(repo / CONFIG, Path(CONFIG).name)
     archive.write(repo / "docs/run_times.md", "run_times.md")
+    # The bundle's manifest holds the commit the code came from, which the run's own logs cannot read without git.
+    archive.write(repo / "bundle_manifest.json", "bundle_manifest.json")
 print(f"{archive_path}: {archive_path.stat().st_size / 1e6:.0f} MB")"""
 
 

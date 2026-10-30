@@ -8,6 +8,9 @@ Machine unless stated: laptop, Intel i5-1135G7, **4 physical cores / 8 threads**
 
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
+| 2026-10-30 | `scripts/train.py --config experiments/configs/bsrnn_lookahead_ft.yaml` | 9,955 trials x 6 epochs, lookahead 3, from e21, padded 512-frame bundle (rerun) | 5.1 h | batch 3, cuda (Kaggle T4), **3,053 s/epoch** (18,319 s); the unpadded attempt below ran 10,836 s/epoch. Copied by hand from the session's own run_times.md. |
+| 2026-10-29 | `scripts/train.py --config experiments/configs/bsrnn_lookahead_ft.yaml --epochs 6` | 9,955 trials, lookahead 3, from e21; **stopped by Kaggle's 12 h cap after 3 of 6 epochs** | 32,585 s to the last logged epoch | batch 3, cuda (Kaggle T4), **10,836 s/epoch** mean, unpadded 507-frame sequence (padded bundle not yet timed). Copied by hand from the pasted log. |
+| 2026-10-29 | `scripts/train_turn_down.py --config experiments/configs/turn_down_head.yaml` | 9,955 trials x 6 epochs, head only on frozen e21 | 2.6 h | batch 3, cuda (Kaggle T4), **1,546 s/epoch** mean; epoch 0 2,187 s, then 1,418 s. Copied by hand from the session's own run_times.md. |
 | 2026-10-24 | scratch `e2e_metric3.py` (job tmp dir, not kept) | sir0_val `both` scored from caches, 0 API calls, after removing the fixed-value parameters from evaluate() | 78 s | cpu; results and the 618 gate rows identical to before the cleanup. Added by hand |
 | 2026-10-24 | `scripts/build_vad_index.py --help` | full VAD index build **(accidental: no parser, so --help started the job; stopped by hand, wrote nothing)** | ~2 min | 8 workers. Added by hand: SIGTERM skips run_log |
 | 2026-10-24 | `pytest tests/ -q` | all 28 test files after the ruthless cleanup, before deleting 23 of them: 129 passed, 68 failed, 13 collection errors, all from removed names, signatures or guards | 3.6 min | cpu. Added by hand |
@@ -69,6 +72,9 @@ Machine unless stated: laptop, Intel i5-1135G7, **4 physical cores / 8 threads**
 | 2026-09-23 | `content_probe.score()` end-to-end smoke, 3 clips | 3 clips, sir0_val, untrained 1c model, cpu extraction + faster-whisper small.en int8 cpu | 3.1 min | ~16 s/clip extraction on cpu, ~4 s/clip ASR, plus ~1 min of model loading. The Kaggle figure differs: extraction moves to the T4, so the ASR sets the per-epoch cost at ~4 s/clip. Added by hand. |
 | 2026-09-21 | `pytest tests/ -q` | 515 tests | 11 min | full suite after adding eval_by_case.py. Added by hand: pytest does not use run_log.timed |
 <!-- rows appended below by src/run_log.py -->
+| 2026-10-30 | `scripts/make_estimates.py` | 103 trials rendered, sir0 | 17 min | cpu, whole-clip |
+| 2026-10-29 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-10-29-est-e21-turn-down-head --systems estimate --metrics content --listener judge --out experiments/results/2026-10-29-eval-e21-turn-down-head-judge | 37 min |  |
+| 2026-10-29 | `scripts/make_turn_down_estimates.py` | --head models/model_sir0_turn-down-head-e5.pt --out experiments/results/2026-10-29-est-e21-turn-down-head | 12 min |  |
 | 2026-10-29 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-10-29-est-e21-turn-down-oracle --systems estimate --metrics content --listener judge --out experiments/results/2026-10-29-eval-e21-turn-down-oracle-judge | 30 min |  |
 | 2026-10-29 | `scripts/make_turn_down_estimates.py` | --oracle --out experiments/results/2026-10-29-est-e21-turn-down-oracle | 13 min |  |
 | 2026-10-28 | `scripts/evaluate.py` | --split sir0_val --condition both --est experiments/results/2026-10-28-est-e21-tracker-d2-kalman-r100q --systems estimate --metrics content --listener judge --out experiments/results/2026-10-28-eval-e21-tracker-d2-kalman-r100q-judge | 34 min |  |

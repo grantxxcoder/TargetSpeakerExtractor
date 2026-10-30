@@ -1,0 +1,60 @@
+# A small lookahead for context (decisions-pending.md 2026-10-29): e21 fine-tuned with each mask decision hearing 3 frames (24 ms) ahead.
+# Matched to the 2026-10-03 control fine-tune (bsrnn_interf_ft_control.yaml, deleted in 04859ef, models/model_sir0_interf-ft-control-e5-full.pt):
+# from e21, lr 1.25e-4, 6 epochs, seed 42, no w_schedule. The ONE other difference from that control is model.lookahead_frames.
+# Everything else is bsrnn_cue_context.yaml (e21's config) verbatim.
+#
+seed: 42
+
+data:
+  sample_rate: 16000
+  chunk_s: 4.008             # CARTSE's 4 s (decisions-m1.md 2026-08-18), plus 8 ms so the LSTM batch is a multiple of 8, which made fp16 steps 4.44 times faster
+  enrollment_variants: 3     # training rotates through 3 enrolment recordings per speaker, so the cue is not one waveform to memorise (decisions-m2.md 2026-08-30)
+  num_workers: 4             # what the final runs used on Kaggle
+  batch_size: 3              # trials per step; each trial gives two examples, one per speaker (decisions-m2.md 2026-08-26)
+
+model:
+  separator:
+    feature_dim: 128         # Yu et al., Interspeech 2023, section 4.2
+    num_repeat: 6
+    lstm_hidden: 192
+  mask:
+    mlp_hidden: 384          # Yu et al., Interspeech 2023
+  stft:
+    n_fft: 512               # 32 ms at 16 kHz
+    hop: 128                 # 8 ms
+  tfmap_scale: 16.0          # scale on the TF-Map attention logits, see src/models/conditioning.py
+  context_embedding: true    # item 1c: fuse the frozen ECAPA embedding (Desplanques et al., 2020)
+  context_embedding_dim: 192
+  tfmap_part_scales: [6.9402, 0.5073, 1.2803]  # measured on 200 sir0_val crops so each cue part has the RMS of the Re/Im channels beside it (decisions-m2.md 2026-09-22)
+  tfmap_parts: true          # item 1a: the cue enters as its three parts, direction, match fraction and unmatched
+  lookahead_frames: 3        # each mask decision hears 3 frames (24 ms) ahead; adds 24 ms of delay, no weights
+
+loss:
+  # The objective is in decisions-m2.md 2026-08-20, and its six deviations from CARTSE are in src/models/losses.py.
+  w: 0.458                   # weight on the target-absent half
+  # w_schedule left out: a fine-tune holds w from the first step, as the 2026-10-03 fine-tunes did (train.py w_at_step).
+  w_m: 9.62                  # weight on the multi-resolution term, measured at the do-nothing anchor (2026-08-20)
+  w_g: 1.69                  # weight on the gain term, derived so muting the output costs more than it earns (decisions-m2.md 2026-08-28)
+  gain_delta_db: 3.0         # the gain term is zero within 3 dB of the target's level
+  tau_pres: 0.001            # caps the target-present reward at 30 dB
+  tau_abs: 0.01              # caps the silence reward at 20 dB
+  p: 0.3                     # magnitude compression, Yu et al., Interspeech 2023, equation 3
+  windows_ms: [8, 16, 32, 64]
+
+training:
+  lr: 0.000125               # e21's own learning rate at epoch 21, as in the control fine-tune
+  init_weights: models/model_sir0_cuecontext-wer-e21.pt   # start from e21
+  epochs: 6                  # the control fine-tune's length
+  patience: 10
+  grad_clip: 5.0
+  weight_decay: 1.0e-4       # deliberately small, against memorisation (decisions-m2.md 2026-08-31)
+  lr_factor: 0.5
+  lr_patience: 3             # must stay below patience, or training stops before the learning rate ever drops
+  select_abs_max: -10.0      # an epoch is only kept if its silence loss is at most this (decisions-m2.md 2026-08-30)
+  keep_stride: 3             # also keep every third epoch and the last, so epochs can be re-scored on content later
+  keep_top_k: 3
+
+# The validation WER measured every epoch. It selects the checkpoint and steps the learning rate (decisions-m2.md 2026-09-23).
+content_probe:
+  n_trials: 40
+  ema_span: 3

@@ -93,7 +93,7 @@ def run_epoch(loader, base_model, speaker_encoder, head, config, device, optimiz
         else:
             with torch.no_grad():
                 loss, predicted_gain_db, oracle_gain = batch_loss(batch, base_model, speaker_encoder, head, config, device, use_mixed_precision)
-        loss_sum += float(loss)
+        loss_sum += float(loss.detach())
         predicted_sum += predicted_gain_db
         oracle_sum += oracle_gain
         count += 1

@@ -1,0 +1,41 @@
+{
+  "date": "2026-10-29",
+  "git_commit": "983f8de31eabeec91ca980020a18482ae7f8a2d8-dirty",
+  "script": "scripts/train.py",
+  "config": "experiments/configs/bsrnn_lookahead_ft.yaml",
+  "init_weights": "models/model_sir0_cuecontext-wer-e21.pt",
+  "files": [
+    "scripts/train.py",
+    "src/data/dataset_loader.py",
+    "src/estimates/__init__.py",
+    "src/estimates/runner.py",
+    "src/live_model_metric/content_probe.py",
+    "src/live_model_metric/lcf_wer.py",
+    "src/models/bands.py",
+    "src/models/bsrnn.py",
+    "src/models/conditioning.py",
+    "src/models/context_encoder.py",
+    "src/models/losses.py",
+    "src/models/modules.py",
+    "src/models/stft.py",
+    "src/run_log.py",
+    "experiments/configs/bsrnn_baseline_matched.yaml",
+    "experiments/configs/bsrnn_cue_context.yaml",
+    "experiments/configs/bsrnn_lookahead_ft.yaml",
+    "experiments/configs/demo_live.yaml",
+    "experiments/configs/eval_offline_asr_turbo.yaml",
+    "experiments/configs/generator.yaml",
+    "experiments/configs/splits.yaml",
+    "experiments/configs/turn_down_head.yaml",
+    "docs/run_times.md",
+    "models/model_sir0_cuecontext-wer-e21.pt"
+  ],
+  "ecapa": [
+    "classifier.ckpt",
+    "embedding_model.ckpt",
+    "hyperparams.yaml",
+    "label_encoder.ckpt",
+    "mean_var_norm_emb.ckpt"
+  ],
+  "init_weights_md5": "1dfca8f492d9c4aac86c11ebf8723ee9"
+}

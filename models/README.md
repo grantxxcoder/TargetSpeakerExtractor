@@ -13,5 +13,6 @@
 | `model_sir0_artif-ft-{e3,e5-full}.pt` | `2026-10-03-train-sir0-artif-ft` | **Report: artefact-weight fine-tune.** Same rule. |
 | `model_sir0_interf-ft-control-{e3,e5-full}.pt` | `2026-10-02-train-sir0-interf-ft-control` | the control for both fine-tunes. |
 | `model_sir0_interf-artif-ft-{e3,e5-full}.pt` | `2026-10-03-train-sir0-interf-artif-ft` | the both-weights cell of the 2x2. |
+| `model_sir0_lookahead-ft-{e0,e3,e5-full}.pt` | `2026-10-30-train-sir0-lookahead-ft` | Lookahead fine-tune (3 frames, 24 ms) from e21. e0 = probe-selected `model_sir0.pt`; e5 = registered comparison against the control's e5. |
 
 The fine-tunes' training options were removed on 2026-10-22 (neither final model uses them), so `train.py` cannot reproduce them. They still load as models, so `make_estimates.py` can render them.

@@ -16,13 +16,15 @@ from src.models.stft import build_stft, stft_forward, stft_inverse
 
 
 # this builds the baseline, or the extension when embedding_dim is given
-def build_bsrnn_tfmap(sample_rate, n_fft, hop, feature_dim, hidden_dim, num_repeat, mlp_hidden, tfmap_scale, tfmap_parts, tfmap_part_scales, embedding_dim):
+def build_bsrnn_tfmap(sample_rate, n_fft, hop, feature_dim, hidden_dim, num_repeat, mlp_hidden, tfmap_scale, tfmap_parts, tfmap_part_scales, embedding_dim, lookahead_frames=0):
     """Return a plain nn.Module holding the model's weights. Run it with extract().
 
     The baseline passes tfmap_parts=False, no part scales and embedding_dim=None. The extension passes tfmap_parts=True, its three part scales and embedding_dim=192.
+    lookahead_frames lets each mask decision hear that many frames ahead, at 8 ms more delay per frame. It adds no weights, and 0 is the trained models' behaviour (decisions-pending.md 2026-10-29).
     """
     model = nn.Module()
     model.band_widths = band_plan(sample_rate, n_fft)
+    model.lookahead_frames = int(lookahead_frames)
     # The network sees the mixture's real and imaginary parts plus the cue: one cue channel for the baseline, three for the extension.
     if tfmap_parts:
         in_channels = 2 + 3
@@ -70,10 +72,19 @@ def extract_spectrogram(model, mixture, enrollment, enrol_embedding):
     """Split out of extract() by Claude Code on 2026-10-29. extract() gives the same output as before."""
     mixture_spectrogram = stft_forward(model.stft, mixture)
     enrollment_spectrogram = stft_forward(model.stft, enrollment)
-    cue = tfmap(mixture_spectrogram.abs(), enrollment_spectrogram.abs(), model.tfmap_scale, model.tfmap_parts, model.tfmap_part_scales)
+    # With a lookahead, the network also hears that many silent frames after the clip, so the last frames get their look ahead too. The stream does the same in stream_flush.
+    num_frames = mixture_spectrogram.shape[-1]
+    network_spectrogram = mixture_spectrogram
+    if model.lookahead_frames > 0:
+        # A few more silent frames round the network's frame count up to a multiple of 8, which keeps the fp16 LSTM kernels on their fast path (4.44x, measured 2026-08-28; see chunk_s in bsrnn_cue_context.yaml).
+        # The network is causal, so frames after t + lookahead never reach output frame t, and the extra silence changes no output. Without it the 2026-10-29 Kaggle epoch took 10,856 s against e21's 2,575.
+        extra_frames = (-(num_frames + model.lookahead_frames)) % 8
+        silence = torch.zeros(mixture_spectrogram.shape[0], mixture_spectrogram.shape[1], model.lookahead_frames + extra_frames, dtype=mixture_spectrogram.dtype, device=mixture_spectrogram.device)
+        network_spectrogram = torch.cat([mixture_spectrogram, silence], dim=-1)
+    cue = tfmap(network_spectrogram.abs(), enrollment_spectrogram.abs(), model.tfmap_scale, model.tfmap_parts, model.tfmap_part_scales)
 
     # The network's input is the mixture's real and imaginary parts, with the cue stacked on as extra channels.
-    real_and_imaginary = torch.stack([mixture_spectrogram.real, mixture_spectrogram.imag], dim=1)
+    real_and_imaginary = torch.stack([network_spectrogram.real, network_spectrogram.imag], dim=1)
     network_input = torch.cat([real_and_imaginary, cue], dim=1)
 
     # The mask is applied to the complex mixture itself, so the cue only ever enters the network's input.
@@ -83,5 +94,7 @@ def extract_spectrogram(model, mixture, enrollment, enrol_embedding):
     features = subband_norm_forward(model.subband_norm, input_bands)
     features = fuse_context(model, features, enrol_embedding)
     features = band_sequence_model_forward(model.separator, features)
+    # The network runs causally, so output frame t reads its state after frame t + lookahead: each mask decision has heard that far ahead.
+    features = features[..., model.lookahead_frames:model.lookahead_frames + num_frames]
     estimate_spectrogram = estimator_forward(model.estimator, features, mixture_bands)
     return estimate_spectrogram, features, mixture_spectrogram

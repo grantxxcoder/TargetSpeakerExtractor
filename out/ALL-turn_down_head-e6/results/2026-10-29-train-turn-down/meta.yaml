@@ -1,0 +1,10 @@
+date: '2026-10-29'
+git_commit: 3cc2a2c09aba1d0b6327b2dca7be131915b68d92-dirty (from the Kaggle bundle)
+config: experiments/configs/turn_down_head.yaml
+seed: 42
+base_weights: models/model_sir0_cuecontext-wer-e21.pt
+head_weights: 278688
+epochs_run: 6
+best_val_loss_db2: 41.3373
+device: cuda
+wall_seconds: 9278

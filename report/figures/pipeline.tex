@@ -87,6 +87,6 @@
   \node[note, anchor=south] at (6.0,-5.55) {\textcolor{rqcolour}{\textbf{RQ1}}\enspace do they agree with LCF-WER?};
 
 \end{tikzpicture}
-\caption{End-to-end pipeline. Top: the extractor. Black blocks are the baseline. Orange blocks are the extension's additions: the cue passed as its parts (\autoref{sec:splitting_cue}) and a frozen ECAPA embedding that scales the features (\autoref{sec:speaker_context_embedding}). Gemini cannot be differentiated through, so training uses a proxy loss against the clean target (\autoref{sec:objective}). Bottom: evaluation. The output passes a speech gate, is transcribed by Gemini 3.7 Flash and is scored against both speakers' transcripts (\autoref{sec:metrics}). Bold tags mark where each research question is answered (\ref{ai:diagrams}).}
+\caption{End-to-end pipeline. Top: the extractor. Orange blocks are the extension's additions: the cue passed as its parts (\autoref{sec:splitting_cue}) and a frozen ECAPA embedding that scales the features (\autoref{sec:speaker_context_embedding}). Gemini cannot be differentiated through, so training uses a proxy loss against the clean target (\autoref{sec:objective}). Bottom: evaluation. The output passes a speech gate, is transcribed by Gemini 3.7 Flash and is scored against both speakers' transcripts (\autoref{sec:metrics}). Bold tags mark where each research question is answered (\ref{ai:diagrams}).}
 \label{fig:pipeline}
 \end{figure}
