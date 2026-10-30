@@ -1,13 +1,17 @@
 """Draws the report's conventional-measures figure: SDR, SIR, SAR and the four DNSMOS scores for every system, side by side.
 
     ../tse_venv/bin/python scripts/plot_conventional_measures.py --out report/figures/conventional_measures.pdf
+    ../tse_venv/bin/python scripts/plot_conventional_measures.py --set test --out report/figures/conventional_measures_test.pdf
 
 One panel per kind of measure, stacked at full text width, with one group of five bars per metric (no processing, baseline, extension, WeSep, target alone), so a reader can compare each measure's ranking of the systems with Gemini's (the table beside it in results.tex).
 The bars are wide enough for each value to be written level above its bar.
 A signal value at the +30 dB cap of the denominator floor is not a measurement, so its bar is left out: no processing's SAR and all three of the target alone's signal values.
 All values are on sir0_val, the 103 two-speaker validation trials, speech gate on.
 No processing, extension and target alone come from experiments/results/2026-09-26-eval-cuecontext-wer-e21-signal, the matched baseline e11 from 2026-10-09-eval-baseline-matched-e11-signal-perceptual, and WeSep from 2026-10-28-eval-wesep-signal-perceptual (recomputed because the report's WeSep row had no results file on disk; it matched the row exactly).
-Claude Code wrote this script from the author's figure specification (2026-10-28).
+With --set test it draws the same figure on the two-speaker test trials (eval_private both, 249 trials: trial 000372, left out of the Gemini scores, needs no judge and is kept).
+Test sources: experiments/results/2026-10-30-eval-private-baseline-matched-e11-signal-perceptual (no processing, baseline, target alone), 2026-10-30-eval-private-cuecontext-wer-e21-signal-perceptual (extension) and 2026-10-30-eval-private-wesep-signal-perceptual (WeSep).
+The interferer stems these need were rebuilt by experiments/results/2026-10-30-test-interferer-stems/add_interferer_stems.py.
+Claude Code wrote this script from the author's figure specification (2026-10-28); the test set option was added 2026-10-30.
 """
 
 import argparse
@@ -55,6 +59,16 @@ SOURCES = {
     "Target alone": (SIGNAL_E21, "ceiling"),
 }
 
+# The same files on the test set.
+TEST_BASELINE = RESULTS / "2026-10-30-eval-private-baseline-matched-e11-signal-perceptual/results.json"
+TEST_SOURCES = {
+    "No processing": (TEST_BASELINE, "floor"),
+    "Baseline": (TEST_BASELINE, "estimate"),
+    "Extension": (RESULTS / "2026-10-30-eval-private-cuecontext-wer-e21-signal-perceptual/results.json", "estimate"),
+    "WeSep": (RESULTS / "2026-10-30-eval-private-wesep-signal-perceptual/results.json", "estimate"),
+    "Target alone": (TEST_BASELINE, "ceiling"),
+}
+
 # The five systems drawn as bars in each group, with the colours of the other results figures; the two reference points are grey.
 BARS = [("No processing", MUTED), ("Baseline", ORANGE), ("Extension", BLUE), ("WeSep", WESEP_COLOUR), ("Target alone", LIGHT_GREY)]
 
@@ -70,9 +84,9 @@ BAR_WIDTH = 0.18
 
 
 # this reads every system's signal and DNSMOS scores from its results.json file
-def read_all():
+def read_all(sources):
     values = {}
-    for name, (path, system) in SOURCES.items():
+    for name, (path, system) in sources.items():
         with open(path) as handle:
             results = json.load(handle)
         values[name] = results["systems"][system]
@@ -108,8 +122,11 @@ def draw_panel(axis, values, title, metrics, bottom, y_range, number_format):
 
 
 # this draws the two panels one above the other, with one legend above them
-def draw(output_path):
-    values = read_all()
+def draw(output_path, which_set):
+    if which_set == "test":
+        values = read_all(TEST_SOURCES)
+    else:
+        values = read_all(SOURCES)
     # The side margins are kept small, so the panels fill the text width once the tight bounding box trims the figure.
     figure, axes = plt.subplots(len(PANELS), 1, figsize=(TEXTWIDTH_IN, FIGURE_HEIGHT_IN), gridspec_kw={"hspace": 0.45, "left": 0.06, "right": 0.99, "top": 0.86})
     for axis, (title, metrics, bottom, y_range, number_format) in zip(axes, PANELS):
@@ -132,8 +149,9 @@ def draw(output_path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", default="report/figures/conventional_measures.pdf")
+    parser.add_argument("--set", default="validation", choices=["validation", "test"])
     arguments = parser.parse_args()
-    draw(Path(arguments.out))
+    draw(Path(arguments.out), arguments.set)
 
 
 if __name__ == "__main__":

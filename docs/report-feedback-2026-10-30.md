@@ -1,70 +1,65 @@
 # Supervisor feedback, 2026-10-30
 
-Tick as done. Items marked (H) are also on `docs/report-handoff-2026-10-27.md`.
+Key: [x] done, [~] part done, [P] pinned, [-] dropped by the author, [ ] not started. (H) = also on `docs/report-handoff-2026-10-27.md`.
+
+**Status: 27 of 31 done, 2 part done (S1, P2), 2 pinned (W2, P19).**
 
 ## Supervisor
-- [~] S1. Results are on the validation set, not the test set: motivate it, or switch. Done: abstract, Table 5.1, Fig 5.2 + text, Case 1 sentence, conclusion RQ3, test count 248/499, Fig 5.5 caption sentence. Left: motivation paragraph at start of §5; Fig 5.1 and 5.3 on test (jobs running); "validation" labels on Table 5.2 and voice-picking text.
+- [~] S1. Results on the validation set, not the test set: motivate it.
+  - Done: abstract (test numbers, "on the test set", "about a third"); Table 5.1 on test; Fig 5.2 on test + its two paragraphs; Case 1 sentence on test; conclusion RQ3 on test; test count 248 / 499 (data.tex, intro); Fig 5.5 caption says why validation is fine for delay; AMI closing paragraph says "On AMI".
+  - Left: motivation paragraph at the start of §5; Fig 5.1 and Fig 5.3 on test (background jobs running); "validation" in the text of Table 5.2 (fine-tunes) and the voice-picking sentence.
 
 ## Overclaims and wording
-- [x] W1. §5 intro states the masking trade-off as fact; §5.2 calls it a hypothesis. Hypothesis in both.
-- [P] W2. §5.1 "established that LAMs are robust against noise": only white noise was tested (H). Pinned: affects the author's analysis. Same claim at litreview:32 and intro.
-- [x] W3. §5.2 "each fine-tune improves its own score": the artefact weight's invented CI [−0.65, +0.25] crosses zero.
-- [x] W4. §5.2 "hallucinated" → "invented". Also metrics.tex:40.
-- [x] W5. §5.3 same-gender sentence describes different genders. Next sentence still credits ECAPA; caption checkpoint note not added.
-- [x] W6. §5.1 "as pleasing to a human listener as WeSep": a predicted score.
-- [x] W7. Rewrite the Zheng et al. "80 %" sentence (lit review).
-- [x] W8. Rewrite the "filler words" and "grammatical issues" lines (ICR section).
-- [x] W9. Rewrite the Experiments chapter intro paragraph.
-- [x] W10. Rewrite "subjective to the actual perceptual system" (§5.1).
+- [x] W1. Masking trade-off stated as a hypothesis in the §5 intro.
+- [P] W2. "LAMs are robust against noise": only white noise was tested (H). Pinned: affects the author's analysis. Same claim in litreview:32 and the intro.
+- [x] W3. Fine-tune sentence gives intervals only.
+- [x] W4. "hallucinated" → "invented" (results, metrics.tex:40).
+- [x] W5. Same-gender sentence replaced with the author's wording.
+- [x] W6. P.808 "predicted listener rating", said once.
+- [x] W7. Zheng et al. sentence (checked against the paper's abstract).
+- [x] W8. Content-words paragraph rewritten.
+- [x] W9. Experiments intro rewritten in the author's style.
+- [x] W10. DNSMOS sentence rewritten.
 
 ## Polish
-Key: [x] done, [~] part done, [P] pinned, [ ] not started.
+- [x] P1. Impersonal voice in the body; AI declaration stays first person.
+- [~] P2. Decimals. Done: abstract, conclusion, 15.38. Left (need source values): trial-case shares 49.5/25.5/19.6/5.3; 5.8 % silent crops; −48.6/−29.2 dB; 71.8 % (§3.3); WeSep 348.3 → 348.32 ms; WeSep parameters 27.2 M (timing log 27,242,122 vs test-render log 33.46 M: check which is right); Appendix B AMI stats; w_m text −5.91/0.184 vs equation 5.9088/0.1842.
+- [x] P3. Silent share p → f_abs.
+- [x] P4. Loss floors τ → ε_pres, ε_abs; τ is the gate temperature only.
+- [x] P5. Gate-derivation loss ℓ → L; line 126 now "the loss of (3.12) on the gated output", temperature β (no Gaussian, no ν).
+- [x] P6. Interferer signal d → s_int.
+- [x] P7. Floor ε_pres added to SDR/SIR/SAR + "+30 dB cap" sentence; Fig 5.1 caption points to it.
+- [x] P8. "Appendix D.1" (explicit Appendix~\ref).
+- [x] P9. Fig 5.2 caption AI tag bracketed.
+- [x] P10. Nomenclature cleaned (GLU, IHM, RIR, SLT, x_e, H, h[n] removed; 9 acronyms added). DNSMOS sentence dropped by the author.
+- [x] P11. Duplicate "As a final test" removed.
+- [x] P12. Heading "Trial cases".
+- [x] P13. AI declaration on its own page, in the ToC, correct quotes.
+- [x] P14. CARTSE URL added (SA-Mamba already had one).
+- [x] P15. Pages for [28] and [29] (Crossref).
+- [x] P16. VoxCeleb1 + VoxCeleb2 cited.
+- [x] P17. arXiv entries as @misc.
+- [x] P18. "Proc." everywhere; Interspeech year printed once.
+- [P] P19. Conclusion answers RQ1–RQ3 one by one. Draft below.
+- [x] P20. Author keeps the current limitations.
 
-- [x] P1. Mixed voice. "our" (results.tex:194) and "I believe / I had / I would suggest" (conclusion.tex:12) now impersonal. AI declaration and nomenclature AI note left in first person on purpose.
-- [~] P2. Mixed decimals. Done: abstract and conclusion to 2 dp (53.26, 39.59, 30.74, 46.88); 15.4 → 15.38 (results.tex:72). Left: one-decimal measured values need their source numbers (data shares 49.5/25.5/19.6/5.3; 5.8 %; −48.6/−29.2 dB; 71.8/52.6; 348.3 ms; 27.2 M; Appendix B AMI stats) and the w_m text −5.91/0.184 vs equation 5.9088/0.1842.
-- [x] P3. p: the 0.3 exponent and the 0.297 silent fraction. Proposal: silent fraction → f_abs. Done: f_abs.
-- [x] P4. τ used three ways. Proposal: τ = temperature only; loss floors → ε_pres, ε_abs. Done.
-- [x] P5. ℓ: the loss and the leaked word count. Proposal: loss ℓ → L; also fix line 126 ("(ŝ−s)²", "Gaussian"). Done, line 126 rewritten.
-- [x] P6. Interferer signal d → s_int (metrics.tex:60, nomenclature).
-- [x] P7. Fig 5.1 caption τ pointer. Waits on P4. Proposal: add the 10⁻³ floor to the SDR/SIR/SAR equations + one sentence. Done: floor in SDR/SIR/SAR, caption uses ε_pres.
-- [x] P8. "Section D.1" → "Appendix~\ref" (metrics.tex:7, setup.tex:45).
-- [x] P9. Fig 5.2 caption: (\ref{ai:diagrams}).
-- [x] P10. Nomenclature. Done: GLU, IHM removed; MLP kept (used in baseline figure); API, CPU, ECAPA-TDNN, ELBO, KL, LLM, RMS, RNN, TDNN added. Pinned: DNSMOS personalised-model sentence. DNSMOS sentence dropped (author, 2026-10-30).
-- [x] P11. Second "As a final test…" deleted (data.tex:40).
-- [x] P12. Heading → "Trial cases" (data.tex:33).
-- [x] P13. AI declaration: own page, ToC entry, ``…'' quotes.
-- [x] P14. CARTSE URL added (PDF checked). SA-Mamba already had one.
-- [x] P15. Pages added: [28] 1–5, [29] 3830–3834 (+ DOI). Crossref checked.
-- [x] P16. VoxCeleb1 + VoxCeleb2 cited and added to bib (Crossref checked).
-- [x] P17. [5] and [9] → @misc arXiv entries.
-- [x] P18. All booktitles "Proc."; Interspeech entries carry the year.
-- [P] P19. Conclusion RQ1–RQ3 answers. Draft below.
-- [x] P20. Six limitations. Draft below. Closed: author keeps the current limitations (2026-10-30).
+## Found while fixing
+- [x] Interspeech year printed twice → booktitle "Proc. Interspeech".
+- [x] Appendix D prompt overflow → \footnotesize, prompt text unchanged.
+- [x] Gap at the bottom of page 18 → eq. 3.33 can break across pages.
+- [x] "+30 dB" lost its plus sign → retain-explicit-plus.
+- [x] Fine-tune "three of the four cases"; artefact weight alone worsens LCF-WER; "cannot be told apart from chance"; conclusion RQ2 hedged.
+- [-] Unsupported claims (ECAPA credit in abstract/§5.3/conclusion; WeSep "cannot be used in a live system"; AMI "degrading the target speech"): author chose to leave them.
+- [ ] N is both the STFT window length and the WER reference word count.
+- [ ] Page count: 52 pages against a 50-page limit; S1 paragraph and P19 will add text.
 
-## Follow-ups found while fixing
-- [x] Interspeech year printed once (booktitle "Proc. Interspeech").
-- [ ] RIR and SLT in the nomenclature are unused.
-- [ ] Appendix D prompt overflows the margin by 39 pt (H).
-- [ ] Build is 52 pages; handoff gives a 50-page limit.
+## Background jobs (started 2026-10-30)
+- Fig 5.1 on test: interferer stems rebuilt for 249 trials (0 mismatches, `experiments/results/2026-10-30-test-interferer-stems/`); signal + DNSMOS scoring into `experiments/results/2026-10-30-eval-private-*-signal-perceptual`.
+- Fig 5.3 on test: Case 2–4 renders into `experiments/results/2026-10-30-est-private-*-{target_only,interferer_only,noise_only}`; then Gemini scoring (author runs it with the key).
 
-## Pinned drafts (Claude Code, 2026-10-30; not in the report)
+## Pinned draft (Claude Code, 2026-10-30; not in the report)
 
-**P19 Key findings**
-- RQ1: SDR and SIR rank the five systems as Gemini does; DNSMOS does not (P.808 extension 3.03 vs WeSep 3.01, yet Gemini word error 39.59 vs 25.80). Per trial, among trials where SDR rose, Gemini still got worse on 32/82 baseline, 15/82 extension, 11/86 WeSep (Fig 5.1, both SIR groups summed).
-- RQ2: leak 63.90 → 23.08 % while invented rose 1.27 → 2.20 per trial. Leak weight: leaked −3.26, invented +0.72, WER +0.47 [−3.20, +4.15]. Artefact weight: invented −0.20 [−0.65, +0.25] (not reliable), WER +9.34. Hypothesis: both errors come from how hard the mask suppresses shared frames.
-- RQ3: test (248) 48.46 → 41.81, −6.65 [−10.66, −3.18]; same epoch 13: 58.47 vs 42.93; cue split alone = cue split + ECAPA = 45.23 (earlier protocol); compute 55.0 vs 55.4 ms per 80 ms chunk; 175 ms mean delay, RTF 0.69.
-
-**P20 Limitations**
-1. Checkpoints chosen on validation, so its numbers flatter the models; on test the baseline's gain over no processing is 3.59 [−9.33, +1.97], inside the noise.
-2. Extension 28 epochs, baseline 14; it still leads at equal epochs, but the final comparison is not at equal training.
-3. One seed (42); intervals cover trial sampling, not retraining.
-4. Gemini is closed and can change; three runs on the same baseline outputs differed by up to 3.41 points.
-5. AMI about 19 dB quieter than training (−48.6 vs −29.2 dB); the gate silenced 110/300 extension outputs; level and gate not separated from extraction.
-6. Algorithmic latency 120 ms (80 ms chunk + 40 ms lookahead) > REAL-TSE's 100 ms.
-
-## Done after the list (2026-10-30)
-- [x] Nomenclature: RIR, SLT removed; unused symbols x_e, H, h[n] removed.
-- [x] Appendix D prompt: \footnotesize, no overflow; prompt text unchanged.
-- [x] W-audit fixes: fine-tune "three of the four cases"; artefact weight alone worsens LCF-WER; "cannot be told apart from chance"; conclusion RQ2 hedged; P.808 once; AMI paragraph "On AMI".
-- [ ] Unsupported claims left: ECAPA credit (abstract, §5.3, conclusion); WeSep "cannot be used in a live system"; AMI "degrading the target speech".
-- [ ] N used for STFT window length and WER reference word count.
+**P19 Key findings** (RQ1 numbers wait for Fig 5.1 on test)
+- RQ1: SDR and SIR rank the systems as Gemini does; DNSMOS does not (P.808 extension 3.03 vs WeSep 3.01, yet Gemini word error is higher on the extension).
+- RQ2: on test, leak 47.89 → 21.15 % while invented rose 1.48 → 2.26 per trial. Fine-tunes (validation only): leak weight: leaked −3.26 [−6.59, −0.03], invented +0.72 [+0.27, +1.21], LCF-WER +0.47 [−3.20, +4.15]. Artefact weight: invented [−0.65, +0.25] (not reliable), LCF-WER +9.34. Hypothesis: both errors come from how hard the mask suppresses shared frames.
+- RQ3: test (248) 48.46 → 41.81, −6.65 [−10.66, −3.18]; same epoch 13: 58.47 vs 42.93; compute 55.0 vs 55.4 ms per 80 ms chunk; 175 ms mean delay, RTF 0.69.
