@@ -72,6 +72,7 @@ Machine unless stated: laptop, Intel i5-1135G7, **4 physical cores / 8 threads**
 | 2026-09-23 | `content_probe.score()` end-to-end smoke, 3 clips | 3 clips, sir0_val, untrained 1c model, cpu extraction + faster-whisper small.en int8 cpu | 3.1 min | ~16 s/clip extraction on cpu, ~4 s/clip ASR, plus ~1 min of model loading. The Kaggle figure differs: extraction moves to the T4, so the ASR sets the per-epoch cost at ~4 s/clip. Added by hand. |
 | 2026-09-21 | `pytest tests/ -q` | 515 tests | 11 min | full suite after adding eval_by_case.py. Added by hand: pytest does not use run_log.timed |
 <!-- rows appended below by src/run_log.py -->
+| 2026-10-30 | `scripts/make_estimates.py` | 115 trials rendered, sir0priv | 28 min | cpu, whole-clip |
 | 2026-10-30 | `experiments/results/2026-10-30-test-interferer-stems/add_interferer_stems.py` | ? | 76 s |  |
 | 2026-10-30 | `scripts/measure_rtf.py` | --checkpoint models/model_sir0_cuecontext-wer-e21.pt --out experiments/results/2026-10-30-rtf-e21-same-session | 2 min |  |
 | 2026-10-30 | `scripts/measure_rtf.py` | --checkpoint models/model_sir0_lookahead-ft-e5-full.pt --out experiments/results/2026-10-30-rtf-lookahead-ft-e5 | 2 min |  |
