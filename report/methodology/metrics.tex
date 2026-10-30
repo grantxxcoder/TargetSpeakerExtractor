@@ -19,7 +19,7 @@ where $S$ is the number of substitutions, $D$ is the number of deletions, $I$ is
 \label{sec:icr}
 The Interferer Content Rate (ICR) is the first metric used to highlight one particular nuance of the LCF-WER metric: when the live model transcribes a word that the target never said, that word was either invented by the model or heard from the interfering speaker. ICR measures the second case (\ref{ai:metrics}).
 
-\paragraph{Content words.} The ICR metric needs to identify which words are likely to be words that are not filler words that a model can easily hallucinate. Firstly, the words that are not considered content words are removed from consideration using a stopword list, taken from the NLTK English stopword corpus \cite{bird2009nltk}. Function words are removed because almost any two English sentences share them, so an overlap counted over these words would rather count as grammatical issues than content. These content words will be used to make an interferer-exclusive bag of words, which indicates which words the model picks up from the interfering speaker. Specifically, a content word is \emph{available to leak} on trial $i$ if the interfering speaker said it and the target did not. Each word is counted once per trial: $a_i$ is the number of words available to leak on trial $i$, and $\ell_i$ the number of those that leaked.
+\paragraph{Content words.} The ICR counts only content words. Function words such as \emph{the}, \emph{and} and \emph{of} are removed with the NLTK English stopword list \cite{bird2009nltk}, because almost any two English sentences share them. An overlap on these words would say nothing about whether the other speaker's content reached the listener. These content words will be used to make an interferer-exclusive bag of words, which indicates which words the model picks up from the interfering speaker. Specifically, a content word is \emph{available to leak} on trial $i$ if the interfering speaker said it and the target did not. Each word is counted once per trial: $a_i$ is the number of words available to leak on trial $i$, and $\ell_i$ the number of those that leaked.
 
 \paragraph{The rate.} The number of leaked words grows with how much the interfering speaker said, so the count is turned into two rates. The first asks how often a trial leaks. For a set of trials $\mathcal{T}$ and a threshold of $k$ words,
 \begin{equation}
@@ -37,7 +37,7 @@ Lower percentages are better for both metrics.
                                                                                                                                             
 \subsubsection{Fabrication Rate}
 \label{sec:fr}
-The Fabrication Rate (FR) highlights the case where the model has hallucinated a word that is present in neither the target nor the interferer and is only computable with exact transcriptions as given in LibriSpeech~\cite{panayotov2015librispeech}. The FR metric is defined as follows:
+The Fabrication Rate (FR) highlights the case where the model has invented a word that is present in neither the target nor the interferer and is only computable with exact transcriptions as given in LibriSpeech~\cite{panayotov2015librispeech}. The FR metric is defined as follows:
 Over the set $\mathcal{T}$ of trials with a non-empty response, the statistic is the mean invented count per trial of the number of words in the model output that are not present in either the target or interferer, 
 \begin{equation}
     \textup{FR}_{\textup{count}} = \frac{1}{|\mathcal{T}|} \sum_{i \in \mathcal{T}} \big| \mathcal{I}_i \big|,

@@ -48,8 +48,8 @@ Every parameter below is drawn independently per trial from the stated distribut
     Microphone height     & $[0.9, 1.8]$ m     & \\
     Early reflections     & $50$ ms            & Cutoff separating early echoes from the late tail \\
     \midrule
-    \multicolumn{3}{@{}l}{\emph{Enrolment}} \\
-    Enrolment length      & $5.0$ s            & Single clip, levelled, carrying no room \\
+    \multicolumn{3}{@{}l}{\emph{Enrollment}} \\
+    Enrollment length      & $5.0$ s            & Single clip, levelled, carrying no room \\
     EQ augmentation       & $p = 0.5$          & Three peaking biquads, log-uniform \SIrange{120}{6400}{\hertz}, $\pm$\SI{6}{\decibel}, $Q = 1.0$, RMS restored \\
     \midrule
     \multicolumn{3}{@{}l}{\emph{Speaker pairing}} \\
@@ -103,7 +103,7 @@ Every parameter below is drawn independently per trial from the stated distribut
     Meetings               & 58 \\
     Model input            & One table microphone, level as recorded \\
     Target alone           & The target's headset and it also picks up the other speaker \\
-    Enrolment             & 5.0 s of the target speaking alone, from their headset in a different meeting; 247 distinct clips \\
+    Enrollment             & 5.0 s of the target speaking alone, from their headset in a different meeting; 247 distinct clips \\
     \midrule
     \multicolumn{2}{@{}l}{\emph{Speakers}} \\
     Unique speakers        & 60 \\
@@ -145,11 +145,14 @@ with $\bar{d}_\textup{on} = 596.34$ frames (\SI{4.77}{\second}) and $\bar{d}_\te
 \subsection{Prompt for live-model transcription}
 \label{app:prompt}
 
+% \footnotesize so the second line fits the text width; the wording is the exact prompt and must not be rewrapped.
+{\footnotesize
 \begin{verbatim}
 Write down the words spoken in this audio, exactly as spoken.
 
 If no words are audible, leave the transcript empty and set status to no_speech.
 \end{verbatim}
+}
 
 
 \subsection{Pinned components of the measuring instrument}

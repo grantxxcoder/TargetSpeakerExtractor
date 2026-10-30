@@ -159,6 +159,25 @@
   howpublished = {arXiv:2106.04624}
 }
 
+% The datasets the SpeechBrain ECAPA checkpoint was trained on (7,205 speakers = VoxCeleb1 1,211 + VoxCeleb2 5,994).
+@inproceedings{nagrani2017voxceleb,
+  author    = {Nagrani, Arsha and Chung, Joon Son and Zisserman, Andrew},
+  title     = {{VoxCeleb}: A Large-Scale Speaker Identification Dataset},
+  booktitle = {Proc. Interspeech 2017},
+  year      = {2017},
+  pages     = {2616--2620},
+  doi       = {10.21437/Interspeech.2017-950}
+}
+
+@inproceedings{chung2018voxceleb2,
+  author    = {Chung, Joon Son and Nagrani, Arsha and Zisserman, Andrew},
+  title     = {{VoxCeleb2}: Deep Speaker Recognition},
+  booktitle = {Proc. Interspeech 2018},
+  year      = {2018},
+  pages     = {1086--1090},
+  doi       = {10.21437/Interspeech.2018-1929}
+}
+
 @inproceedings{xu2025noisyenrol,
   author    = {Xu, Shitong and Yang, Yiyuan and Trigoni, Niki and Markham, Andrew},
   title     = {Target Speaker Extraction through Comparing Noisy Positive and
@@ -224,14 +243,13 @@
   doi       = {10.1109/CVPR.2016.90}
 }
 
-@techreport{wang2026realtse,
+@misc{wang2026realtse,
   author      = {Wang, Shuai and Qian, Zihan and Zhang, Ke and Han, Jiangyu and
                  Liu, Zikai and Yu, Xiaoyang and Li, Haoyu and Delcroix, Marc and
                  Yu, Kai and Xie, Lei and Li, Ming and Li, Haizhou},
   title       = {{SLT} 2026 {REAL-TSE} Challenge: Real-world Target Speaker
                  Extraction from Conversational Recordings},
-  institution = {arXiv},
-  number      = {arXiv:2607.15198},
+  howpublished = {arXiv:2607.15198},
   year        = {2026}
 }
 
@@ -279,7 +297,7 @@
   author    = {Radford, Alec and Kim, Jong Wook and Xu, Tao and Brockman, Greg
                and McLeavey, Christine and Sutskever, Ilya},
   title     = {Robust Speech Recognition via Large-Scale Weak Supervision},
-  booktitle = {Proceedings of the 40th International Conference on Machine
+  booktitle = {Proc. 40th International Conference on Machine
                Learning ({ICML})},
   series    = {Proceedings of Machine Learning Research},
   volume    = {202},
@@ -414,7 +432,7 @@
                Zhao, Zhou and Zhou, Chang and Zhou, Jingren},
   title     = {{AIR-Bench}: Benchmarking Large Audio-Language Models via
                Generative Comprehension},
-  booktitle = {Proceedings of the 62nd Annual Meeting of the Association for
+  booktitle = {Proc. 62nd Annual Meeting of the Association for
                Computational Linguistics (Volume 1: Long Papers)},
   pages     = {1979--1998},
   year      = {2024},
@@ -429,7 +447,7 @@
                Pipatanakul, Kunat and Held, William and Yang, Diyi},
   title     = {{AudioJudge}: Understanding What Works in Large Audio Model Based
                Speech Evaluation},
-  booktitle = {Proceedings of the 19th Conference of the European Chapter of the
+  booktitle = {Proc. 19th Conference of the European Chapter of the
                Association for Computational Linguistics (Volume 1: Long
                Papers)},
   pages     = {3644--3663},
@@ -466,7 +484,7 @@
   author    = {Koenecke, Allison and Choi, Anna Seo Gyeong and Mei, Katelyn X.
                and Schellmann, Hilke and Sloane, Mona},
   title     = {Careless {Whisper}: Speech-to-Text Hallucination Harms},
-  booktitle = {Proceedings of the 2024 {ACM} Conference on Fairness,
+  booktitle = {Proc. 2024 {ACM} Conference on Fairness,
                Accountability, and Transparency ({FAccT})},
   pages     = {1672--1681},
   year      = {2024},
@@ -491,17 +509,15 @@
 % Technical report. MetricGAN+ denoising raised semantic WER for Whisper,
 % Parakeet, Gemini Flash 2.0 and Parrotlet in all 40 configurations. Noise only,
 % medical speech; the denoiser is itself tuned to a quality score.
-@techreport{chondhekar2025denoising,
+@misc{chondhekar2025denoising,
   author      = {Chondhekar, Sujal and Murukuri, Vasanth and Vasani, Rushabh and
                  Goyal, Sanika and Badami, Rajshree and Rana, Anushree and
                  SN, Sanjana and Pandia, Karthik and Katiyar, Sulabh and
                  Jagadeesh, Neha and Gulati, Sankalp},
   title       = {When De-noising Hurts: A Systematic Study of Speech Enhancement
                  Effects on Modern Medical {ASR} Systems},
-  institution = {arXiv},
-  number      = {arXiv:2512.17562},
-  year        = {2025},
-  note        = {Technical report}
+  howpublished = {arXiv:2512.17562},
+  year        = {2025}
 }
 
 % ---------------------------------------------------------------------------
@@ -517,7 +533,7 @@
                and Qian, Yanmin},
   title     = {Closing the Gap Between Time-Domain Multi-Channel Speech
                Enhancement on Real and Simulation Conditions},
-  booktitle = {Proceedings of the {IEEE} Workshop on Applications of Signal
+  booktitle = {Proc. {IEEE} Workshop on Applications of Signal
                Processing to Audio and Acoustics ({WASPAA})},
   pages     = {146--150},
   year      = {2021},
@@ -530,7 +546,7 @@
                Watanabe, Shinji},
   title     = {Deep Clustering: Discriminative Embeddings for Segmentation and
                Separation},
-  booktitle = {Proceedings of the {IEEE} International Conference on Acoustics,
+  booktitle = {Proc. {IEEE} International Conference on Acoustics,
                Speech and Signal Processing ({ICASSP})},
   pages     = {31--35},
   year      = {2016},
@@ -544,7 +560,7 @@
                Kinoshita, Keisuke and Moriya, Takafumi and Kamo, Naoyuki},
   title     = {Should We Always Separate?: Switching Between Enhanced and
                Observed Signals for Overlapping Speech Recognition},
-  booktitle = {Proceedings of Interspeech},
+  booktitle = {Proc. Interspeech 2021},
   pages     = {1149--1153},
   year      = {2021},
   doi       = {10.21437/Interspeech.2021-2253}
@@ -556,7 +572,7 @@
   author    = {Zhang, Zining and He, Bingsheng and Zhang, Zhenjie},
   title     = {{X-TaSNet}: Robust and Accurate Time-Domain Speaker Extraction
                Network},
-  booktitle = {Proceedings of Interspeech},
+  booktitle = {Proc. Interspeech 2020},
   pages     = {1421--1425},
   year      = {2020},
   doi       = {10.21437/Interspeech.2020-1706}
@@ -569,7 +585,7 @@
                Zmolikova, Katerina and Sato, Hiroshi and Nakatani, Tomohiro},
   title     = {Listen Only to Me! {H}ow Well Can Target Speech Extraction
                Handle False Alarms?},
-  booktitle = {Proceedings of Interspeech},
+  booktitle = {Proc. Interspeech 2022},
   pages     = {216--220},
   year      = {2022},
   doi       = {10.21437/Interspeech.2022-11252}
@@ -582,7 +598,7 @@
                Katagiri, Shigeru},
   title     = {How Bad Are Artifacts?: Analyzing the Impact of Speech
                Enhancement Errors on {ASR}},
-  booktitle = {Proceedings of Interspeech},
+  booktitle = {Proc. Interspeech 2022},
   pages     = {5418--5422},
   year      = {2022},
   doi       = {10.21437/Interspeech.2022-318}
@@ -623,7 +639,7 @@
   author    = {Le Roux, Jonathan and Wisdom, Scott and Erdogan, Hakan and
                Hershey, John R.},
   title     = {{SDR} -- Half-baked or Well Done?},
-  booktitle = {Proceedings of the {IEEE} International Conference on Acoustics,
+  booktitle = {Proc. {IEEE} International Conference on Acoustics,
                Speech and Signal Processing ({ICASSP})},
   pages     = {626--630},
   year      = {2019}
@@ -671,7 +687,7 @@
   author    = {Reddy, Chandan K. A. and Gopal, Vishak and Cutler, Ross},
   title     = {{DNSMOS}: A Non-Intrusive Perceptual Objective Speech Quality
                Metric to Evaluate Noise Suppressors},
-  booktitle = {Proceedings of the {IEEE} International Conference on Acoustics,
+  booktitle = {Proc. {IEEE} International Conference on Acoustics,
                Speech and Signal Processing ({ICASSP})},
   pages     = {6493--6497},
   year      = {2021}
@@ -681,7 +697,7 @@
   author    = {Reddy, Chandan K. A. and Gopal, Vishak and Cutler, Ross},
   title     = {{DNSMOS} {P.835}: A Non-Intrusive Perceptual Objective Speech
                Quality Metric to Evaluate Noise Suppressors},
-  booktitle = {Proceedings of the {IEEE} International Conference on Acoustics,
+  booktitle = {Proc. {IEEE} International Conference on Acoustics,
                Speech and Signal Processing ({ICASSP})},
   pages     = {886--890},
   year      = {2022},
@@ -695,7 +711,7 @@
                Kowalczyk, Konrad},
   title     = {Investigation of {Whisper} {ASR} Hallucinations Induced by
                Non-Speech Audio},
-  booktitle = {Proceedings of the {IEEE} International Conference on Acoustics,
+  booktitle = {Proc. {IEEE} International Conference on Acoustics,
                Speech and Signal Processing ({ICASSP})},
   pages     = {1--5},
   year      = {2025},
@@ -742,7 +758,7 @@
                Zhu, Licheng Richard and McQuinn, Emmett and Crow, Dwight and
                Manilow, Ethan and Le Roux, Jonathan},
   title     = {{WHAM!}: Extending Speech Separation to Noisy Environments},
-  booktitle = {Proceedings of Interspeech},
+  booktitle = {Proc. Interspeech 2019},
   pages     = {1368--1372},
   year      = {2019},
 }
@@ -760,7 +776,7 @@
   author    = {Scheibler, Robin and Bezzam, Eric and Dokmani{\'c}, Ivan},
   title     = {Pyroomacoustics: A Python Package for Audio Room Simulation and
                Array Processing Algorithms},
-  booktitle = {Proceedings of the {IEEE} International Conference on Acoustics,
+  booktitle = {Proc. {IEEE} International Conference on Acoustics,
                Speech and Signal Processing ({ICASSP})},
   pages     = {351--355},
   year      = {2018},
@@ -801,7 +817,7 @@
   author    = {Panayotov, Vassil and Chen, Guoguo and Povey, Daniel
                and Khudanpur, Sanjeev},
   title     = {Librispeech: An {ASR} Corpus Based on Public Domain Audio Books},
-  booktitle = {Proceedings of the {IEEE} International Conference on Acoustics,
+  booktitle = {Proc. {IEEE} International Conference on Acoustics,
                Speech and Signal Processing ({ICASSP})},
   pages     = {5206--5210},
   year      = {2015},
@@ -852,7 +868,7 @@
 @inproceedings{bisani2004bootstrap,
   author    = {Bisani, Maximilian and Ney, Hermann},
   title     = {Bootstrap Estimates for Confidence Intervals in {ASR} Performance Evaluation},
-  booktitle = {Proceedings of the {IEEE} International Conference on Acoustics, Speech and Signal Processing ({ICASSP})},
+  booktitle = {Proc. {IEEE} International Conference on Acoustics, Speech and Signal Processing ({ICASSP})},
   volume    = {1},
   pages     = {409--412},
   year      = {2004},

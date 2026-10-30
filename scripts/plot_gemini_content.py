@@ -1,13 +1,17 @@
 """Draws the report's Gemini content figure: LCF-WER, ICR@2, mean leak, FR@2 and invented words per trial for every system, with the spread of Gemini's three runs.
 
     ../tse_venv/bin/python scripts/plot_gemini_content.py --out report/figures/gemini_content.pdf
+    ../tse_venv/bin/python scripts/plot_gemini_content.py --set test --out report/figures/gemini_content_test.pdf
 
 It replaces the report's table of Gemini's results on the 103 two-speaker validation trials (sir0_val both).
 Each bar is the mean of three whole judge runs and its error bar is the plain standard deviation (ddof = 1) of those three run scores, as in the table it replaces.
 The run folders are the ones of experiments/results/2026-09-27-judge-plain-sd/plain_sd.py, which produced the table; its report.txt holds the same means and SDs.
 WeSep's first run (2026-09-03) predates FR@2 and invented words, so those two scores for that run come from the rebuild in experiments/results/2026-09-27-judge-repeats-wesep, as in plain_sd.py.
 Judge: gemini-3.7-flash, AI Studio, audio in and text out, prompt d118b7d3bf30.
-Claude Code wrote this script from the author's figure specification (2026-10-28).
+With --set test it draws the same figure on the 248 two-speaker test trials (eval_private both, trial 000372 left out for every system), one judge run each, so there are no error bars.
+Test sources: experiments/results/2026-10-08-eval-private-excl-000372 (no processing, extension, WeSep, target alone) and 2026-10-27-eval-private-baseline-matched-e11-judge-retry2 (baseline).
+The baseline's run covers 249 trials, one more than the others, so its LCF-WER is replaced by the 248-trial score of experiments/results/2026-10-27-test-set-paired-ci/ci.json; its other four scores still include the extra trial.
+Claude Code wrote this script from the author's figure specification (2026-10-28); the test set option was added 2026-10-30.
 """
 
 import argparse
@@ -55,6 +59,16 @@ RUNS = {
     "Target alone": ("ceiling", ["2026-09-21-anchors-recheck", "2026-09-27-eval-anchors-judge-r1", "2026-09-27-eval-anchors-judge-r2"]),
 }
 
+# The test set: each system's one judge run, as (name inside results.json, run folder).
+TEST_RUNS = {
+    "No processing": ("floor", "2026-10-08-eval-private-excl-000372/cuecontext-wer-e21"),
+    "Baseline": ("estimate", "2026-10-27-eval-private-baseline-matched-e11-judge-retry2"),
+    "Extension": ("estimate", "2026-10-08-eval-private-excl-000372/cuecontext-wer-e21"),
+    "WeSep": ("estimate", "2026-10-08-eval-private-excl-000372/wesep"),
+    "Target alone": ("ceiling", "2026-10-08-eval-private-excl-000372/cuecontext-wer-e21"),
+}
+TEST_CI_FILE = "2026-10-27-test-set-paired-ci/ci.json"
+
 # WeSep's first run has no FR@2 or invented-word score, so the rebuilt values are used, as in plain_sd.py.
 WESEP_FIRST_RUN_REBUILT = {"invented_per_trial": 1.796116504854369, "fr_at_2": 38.83495145631068}
 
@@ -63,7 +77,7 @@ BARS = [("No processing", MUTED), ("Baseline", ORANGE), ("Extension", BLUE), ("W
 
 # Each panel: its title, its metrics as (key, label), the y-axis range and the number format of the bar labels. Lower is better for every metric.
 PANELS = [
-    ("Share of trials or words (%)", [("lcf_wer", "LCF-WER"), ("icr_at_2", "ICR@2"), ("mean_leak", "Mean leak"), ("fr_at_2", "FR@2")], (0.0, 88.0), "{:.1f}"),
+    ("Share of trials or words (%)", [("lcf_wer", "LCF-WER"), ("icr_at_2", "ICR@2"), ("mean_leak", "Mean leak"), ("fr_at_2", "FR@2")], (0.0, 88.0), "{:.2f}"),
     ("Words per trial", [("invented_per_trial", "Invented")], (0.0, 3.1), "{:.2f}"),
 ]
 
@@ -92,6 +106,26 @@ def read_all():
     return values
 
 
+# this reads every system's one test-set run; there is no spread, so the standard deviation is None
+def read_test():
+    keys = []
+    for panel in PANELS:
+        for key, label in panel[1]:
+            keys.append(key)
+    with open(RESULTS / TEST_CI_FILE) as handle:
+        lcf_wer_248 = json.load(handle)["systems"]
+    values = {}
+    for name, (system, directory) in TEST_RUNS.items():
+        with open(RESULTS / directory / "results.json") as handle:
+            scores = json.load(handle)["systems"][system]
+        values[name] = {}
+        for key in keys:
+            values[name][key] = (scores[key], None)
+        # The baseline run has one extra trial, so its LCF-WER comes from the 248-trial file, as the report text uses.
+        values[name]["lcf_wer"] = (lcf_wer_248[name]["lcf_wer"], None)
+    return values
+
+
 # this draws one panel: a group of five bars per metric, each with its standard deviation and its value written above it
 def draw_panel(axis, values, title, metrics, y_range, number_format):
     tick_labels = []
@@ -101,8 +135,11 @@ def draw_panel(axis, values, title, metrics, y_range, number_format):
             mean, spread = values[name][key]
             x = position + (index - 2) * BAR_WIDTH
             axis.bar(x, mean, width=BAR_WIDTH * 0.9, color=colour, linewidth=0)
-            axis.errorbar(x, mean, yerr=spread, color=INK, linewidth=0.7, capsize=1.5, capthick=0.7)
-            axis.text(x, mean + spread + pad, number_format.format(mean), fontsize=7, color=INK, ha="center", va="bottom")
+            top = mean
+            if spread is not None:
+                axis.errorbar(x, mean, yerr=spread, color=INK, linewidth=0.7, capsize=1.5, capthick=0.7)
+                top = mean + spread
+            axis.text(x, top + pad, number_format.format(mean), fontsize=5.5, color=INK, ha="center", va="bottom")
         tick_labels.append(label + r" $\downarrow$")
     axis.set_xticks(range(len(metrics)))
     axis.set_xticklabels(tick_labels)
@@ -113,8 +150,11 @@ def draw_panel(axis, values, title, metrics, y_range, number_format):
 
 
 # this draws the two panels side by side, with one legend above them
-def draw(output_path):
-    values = read_all()
+def draw(output_path, which_set):
+    if which_set == "test":
+        values = read_test()
+    else:
+        values = read_all()
     widths = []
     for panel in PANELS:
         widths.append(len(panel[1]) + 0.35)
@@ -136,15 +176,19 @@ def draw(output_path):
     for name, scores in values.items():
         line = f"  {name:<14}"
         for key, (mean, spread) in scores.items():
-            line += f"  {key} {mean:.2f} +- {spread:.2f}"
+            if spread is None:
+                line += f"  {key} {mean:.2f}"
+            else:
+                line += f"  {key} {mean:.2f} +- {spread:.2f}"
         print(line)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", default="report/figures/gemini_content.pdf")
+    parser.add_argument("--set", default="validation", choices=["validation", "test"])
     arguments = parser.parse_args()
-    draw(Path(arguments.out))
+    draw(Path(arguments.out), arguments.set)
 
 
 if __name__ == "__main__":

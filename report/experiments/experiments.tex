@@ -1,6 +1,6 @@
 \section{Experiments}
 \label{sec:experiments}
-This section discusses the overall setup to conduct the experiments, including the evaluation protocol, and the experimental setup. The conventional measures and Gemini-based metrics are computed on the same outputs \textbf{(RQ1)}. Secondly, fine-tuning runs each weight one kind of error \textbf{(RQ2)} to demonstrate the interaction between the different error types. Finally, the voice-specific additions under the extension demonstrate the impact on the training procedures \textbf{(RQ3)}.
+This section discusses how the models are trained and selected, and how they are evaluated. Firstly, the conventional measures and the Gemini-based metrics are computed on the same outputs to see whether they agree \textbf{(RQ1)}. Secondly, fine-tuning runs are trained where each run weights one kind of error more heavily, to demonstrate how the leaked and invented errors interact \textbf{(RQ2)}. Finally, the baseline and the extension are compared on Gemini's errors, how often the right voice is picked and the delay, to show what the voice information adds in real time \textbf{(RQ3)}.
 
 
 \input{experiments/setup}

@@ -25,7 +25,7 @@
 
   % ---------- extractor ----------------------------------------------------
   \node[sig] (x) at (0.75,0) {mixture\\$x$};
-  \node[sig] (e) at (0.75,-1.5) {enrolment\\$e$};
+  \node[sig] (e) at (0.75,-1.5) {enrollment\\$e$};
 
   \node[block, text width=11mm] (stft) at (3.0,0) {STFT};
   \node[block, text width=21mm] (tfmap) at (3.35,-1.5) {TF-Map cue\\ \textcolor{extcolour}{as parts $u_t$, $c_t$, $r_t$}};
@@ -47,7 +47,7 @@
   \draw[arr] (sep) -- (est);
   \draw[arr] (est) -- (istft);
   \draw[arr] (istft) -- (out);
-  % ECAPA reads the enrolment once per utterance, not per frame
+  % ECAPA reads the enrollment once per utterance, not per frame
   \draw[extarr] (e.south) -- (e.south |- 0,-2.35) -| (ecapa.south);
   \draw[extarr] (ecapa) -- (fuse);
   % The complex mixture bypasses the network: the mask multiplies into it.
