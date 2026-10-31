@@ -1,6 +1,7 @@
 """Draws the report's trial-case figure: what Gemini heard from every system in each kind of validation trial, side by side.
 
     ../tse_venv/bin/python scripts/plot_trial_cases.py --out report/figures/trial_cases.pdf
+    ../tse_venv/bin/python scripts/plot_trial_cases.py --set test --out report/figures/trial_cases_test.pdf
 
 It replaces the report's table of Gemini's response per trial case (sir0_val). One panel per measure:
 Case 1, both speakers (103 trials): LCF-WER, the mean of three judge runs (experiments/results/2026-10-07-ci-clustered, as the report's main results).
@@ -9,7 +10,10 @@ Case 3, other speaker only (42 trials): the words Gemini wrote per trial, where 
 Case 4, noise only (8 trials), is left out: every output of every system was silenced there.
 Cases 2 and 3: no processing, target alone, the extension and WeSep from experiments/results/2026-09-28-case-suite-judge-{e21,wesep} (run 2026-09-28), the matched baseline e11 from 2026-10-09-case-suite-judge-baseline-matched-e11 (run 2026-10-10).
 Judge: gemini-3.7-flash, AI Studio, audio in and text out, prompt d118b7d3bf30.
-Claude Code wrote this script from the author's figure specification (2026-10-28).
+With --set test it draws the same figure on the test set (eval_private), one judge run per system:
+Case 1 (248 trials) from experiments/results/2026-10-27-test-set-paired-ci/ci.json; Cases 2 and 3 (115 and 109 trials) from experiments/results/2026-10-31-case-suite-test-{baseline-matched-e11,cuecontext-wer-e21,wesep-tfmap-causal}
+(no processing and target alone from the baseline's file), all scored from the judge cache of the runs of 2026-10-30.
+Claude Code wrote this script from the author's figure specification (2026-10-28); the test set option was added 2026-10-31.
 """
 
 import argparse
@@ -61,6 +65,17 @@ CASE_SUITES = {
     "Target alone": (CASE_SUITE_E21, "ceiling"),
 }
 
+# The same measures on the test set: Case 1 from the 248-trial file, Cases 2 and 3 from the test case suites.
+TEST_CASE_ONE_FILE = RESULTS / "2026-10-27-test-set-paired-ci/ci.json"
+TEST_BASELINE_SUITE = RESULTS / "2026-10-31-case-suite-test-baseline-matched-e11/results.json"
+TEST_CASE_SUITES = {
+    "No processing": (TEST_BASELINE_SUITE, "floor"),
+    "Baseline": (TEST_BASELINE_SUITE, "estimate"),
+    "Extension": (RESULTS / "2026-10-31-case-suite-test-cuecontext-wer-e21/results.json", "estimate"),
+    "WeSep": (RESULTS / "2026-10-31-case-suite-test-wesep-tfmap-causal/results.json", "estimate"),
+    "Target alone": (TEST_BASELINE_SUITE, "ceiling"),
+}
+
 # The five systems drawn as bars in each panel, with the colours of the other results figures; the two reference points are grey.
 BARS = [("No processing", MUTED), ("Baseline", ORANGE), ("Extension", BLUE), ("WeSep", WESEP_COLOUR), ("Target alone", LIGHT_GREY)]
 
@@ -75,16 +90,33 @@ PANELS = [
 # The last two panels are both Case 3, so they share one title written across the pair.
 CASE_THREE_TITLE = "Case 3: other speaker only\n(42 trials)"
 
+# The panels on the test set, with its trial counts and ranges.
+TEST_PANELS = [
+    ("Case 1: both speakers\n(248 trials)", "case_one_lcf_wer", "LCF-WER (%)", False, (0.0, 60.0), "{:.2f}"),
+    ("Case 2: target only\n(115 trials)", "target_only_lcf_wer", "LCF-WER (%)", False, (0.0, 14.5), "{:.2f}"),
+    ("", "other_only_words", "Words per trial", False, (0.0, 35.0), "{:.2f}"),
+    ("", "other_only_silenced", "Silenced (of 109)", True, (0.0, 66.0), "{:.0f}"),
+]
+TEST_CASE_THREE_TITLE = "Case 3: other speaker only\n(109 trials)"
+
 BAR_WIDTH = 0.19
 
 
 # this reads every system's score in each panel's measure; a measure that does not exist for a system is left out
-def read_all():
+def read_all(which_set):
     values = {}
-    for name, file_name in CASE_ONE_FILES.items():
-        with open(CASE_ONE_DIRECTORY / file_name) as handle:
-            values[name] = {"case_one_lcf_wer": json.load(handle)["lcf_wer_3run_mean"]}
-    for name, (path, system) in CASE_SUITES.items():
+    if which_set == "test":
+        with open(TEST_CASE_ONE_FILE) as handle:
+            case_one = json.load(handle)["systems"]
+        for name in CASE_ONE_FILES:
+            values[name] = {"case_one_lcf_wer": case_one[name]["lcf_wer"]}
+        case_suites = TEST_CASE_SUITES
+    else:
+        for name, file_name in CASE_ONE_FILES.items():
+            with open(CASE_ONE_DIRECTORY / file_name) as handle:
+                values[name] = {"case_one_lcf_wer": json.load(handle)["lcf_wer_3run_mean"]}
+        case_suites = CASE_SUITES
+    for name, (path, system) in case_suites.items():
         with open(path) as handle:
             cases = json.load(handle)["cases"]
         values[name]["target_only_lcf_wer"] = cases["target_only"]["scores"][system]["lcf_wer"]
@@ -116,11 +148,16 @@ def draw_panel(axis, values, title, key, label, higher_better, y_range, number_f
 
 
 # this draws the four panels side by side, with one legend above them
-def draw(output_path):
-    values = read_all()
+def draw(output_path, which_set):
+    values = read_all(which_set)
+    panels = PANELS
+    case_three_title = CASE_THREE_TITLE
+    if which_set == "test":
+        panels = TEST_PANELS
+        case_three_title = TEST_CASE_THREE_TITLE
     # The side margins are kept small, so the panels fill the text width once the tight bounding box trims the figure.
-    figure, axes = plt.subplots(1, len(PANELS), figsize=(TEXTWIDTH_IN, FIGURE_HEIGHT_IN), gridspec_kw={"wspace": 0.32, "left": 0.06, "right": 0.99, "top": 0.75})
-    for axis, (title, key, label, higher_better, y_range, number_format) in zip(axes, PANELS):
+    figure, axes = plt.subplots(1, len(panels), figsize=(TEXTWIDTH_IN, FIGURE_HEIGHT_IN), gridspec_kw={"wspace": 0.32, "left": 0.06, "right": 0.99, "top": 0.75})
+    for axis, (title, key, label, higher_better, y_range, number_format) in zip(axes, panels):
         draw_panel(axis, values, title, key, label, higher_better, y_range, number_format)
     # The shared title sits where a panel title would, centred over the two Case 3 panels, with a bracket under it spanning both panels so they read as one case.
     first_title = axes[0].title
@@ -128,7 +165,7 @@ def draw(output_path):
     title_bottom = figure.transFigure.inverted().transform(first_title.get_window_extent().p0)[1]
     left = axes[2].get_position().x0
     right = axes[3].get_position().x1
-    figure.text((left + right) / 2, title_bottom, CASE_THREE_TITLE, fontsize=8.5, ha="center", va="bottom", linespacing=first_title.get_linespacing())
+    figure.text((left + right) / 2, title_bottom, case_three_title, fontsize=8.5, ha="center", va="bottom", linespacing=first_title.get_linespacing())
     # The bracket sits in the gap between the title and the panel tops, inset so it does not join the axis lines.
     axes_top = axes[2].get_position().y1
     bracket_y = (title_bottom + axes_top) / 2 + 0.006
@@ -154,8 +191,9 @@ def draw(output_path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", default="report/figures/trial_cases.pdf")
+    parser.add_argument("--set", default="validation", choices=["validation", "test"])
     arguments = parser.parse_args()
-    draw(Path(arguments.out))
+    draw(Path(arguments.out), arguments.set)
 
 
 if __name__ == "__main__":
