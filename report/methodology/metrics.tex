@@ -1,6 +1,6 @@
 \subsection{Metrics}
 \label{sec:metrics}
- The metrics are where the main contribution of the work lies. Since the main task is intelligibility of the target speaker for the listeners and not necessarily the \textit{quality} of the extracted target speaker speech, the metrics that are designed in this section aim to reflect that objective. LCF-WER, ICR and FR measure what the listener recovers and split its errors into leaked and invented words, while DNSMOS, the signal-to-distortion ratios and the offline recogniser's word error rate are the conventional measures compared against them.
+ The metrics are where the main contribution of the work lies. Since the main task is intelligibility of the target speaker for the listeners and not necessarily the \textit{quality} of the extracted target speaker speech, the metrics that are designed in this section aim to reflect that objective. LCF-WER, ICR and FR measure what the listener recovers and split its errors into leaked and invented words, while DNSMOS and the signal-to-distortion ratios are the conventional measures compared against them.
 
 \subsubsection{Transcripts and references}
 \label{sec:transcripts}
@@ -70,7 +70,7 @@ which are all measured in decibels (dB) where the higher ratio means better extr
 
 \subsubsection{Reference points}                                  
 \label{sec:anchors}
-The following terms are used to describe the lower and upper bounds of the results section. The floor references passing the full mixture audio, unprocessed, to a listener as the worst-case scenario, and the ceiling references passing the clean target audio to the listener as the best case. The ceiling system is perfect separation and the listener hears only the target audio. The floor and ceiling systems are not real systems, but rather reference points for the listener to compare against. 
+The following terms are used to describe the lower and upper bounds of the results section. \emph{No processing} refers to passing the full mixture audio, unprocessed, to a listener as the worst-case scenario, and \emph{target alone} refers to passing the clean target audio to the listener as the best case. Target alone is perfect separation, where the listener hears only the target audio. Neither is a real system; both are reference points to compare the extractors against. 
 \subsubsection{Uncertainty}
 \label{sec:uncertainty}
 Each 95\,\% interval is a percentile bootstrap \cite{efron1979bootstrap}. The interval is computed using bootstrap resampling where the trials are redrawn with replacement 10{,}000 times, and on every draw the score is recomputed as the total errors over the total reference words \cite{bisani2004bootstrap}. Because trials from the same speaker are not independent, unique speakers are chosen rather than individual trials, and whole meetings for the AMI recordings. 

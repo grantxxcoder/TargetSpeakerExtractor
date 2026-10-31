@@ -158,7 +158,7 @@ The ELBO at this point does not use the labels $v_t$ for whether the target is p
 \end{equation}
 where $\lambda$ weights the label term. The gated run used $\beta = 0.01274$ and $\lambda = 0.04689$.
 
-\paragraph{Closed-form KL.} The KL term of \eqref{eq:gaussian} is intractable, but under the mean-field posterior has a closed form. Suppose 
+\paragraph{Closed-form KL.} The KL term of \eqref{eq:gaussian} under the mean-field posterior has a closed form. Suppose 
 \begin{equation}
   \mathrm{KL}\big(q_\psi(z \mid x, e)\,\|\,p(z)\big) = \mathbb{E}_{z \sim q_\psi(z \mid x,e)}\big[\log q_\psi(z \mid x, e)\big] - \mathbb{E}_{z \sim q_\psi(z \mid x,e)}\big[\log p(z)\big],
 \end{equation}
