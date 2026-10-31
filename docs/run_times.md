@@ -8,6 +8,7 @@ Machine unless stated: laptop, Intel i5-1135G7, **4 physical cores / 8 threads**
 
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
+| 2026-10-31 | `scripts/make_kaggle_bundle.py --config experiments/configs/bsrnn_cue_context_wide.yaml` | 14 code files + configs + ECAPA staged, 2 val batches checked (13.88M params), zipped 83 MB | 1.9 min | laptop cpu, no init weights. Added by hand: the script does not use `run_log.timed`. |
 | 2026-10-30 | `scripts/train.py --config experiments/configs/bsrnn_lookahead_ft.yaml` | 9,955 trials x 6 epochs, lookahead 3, from e21, padded 512-frame bundle (rerun) | 5.1 h | batch 3, cuda (Kaggle T4), **3,053 s/epoch** (18,319 s); the unpadded attempt below ran 10,836 s/epoch. Copied by hand from the session's own run_times.md. |
 | 2026-10-29 | `scripts/train.py --config experiments/configs/bsrnn_lookahead_ft.yaml --epochs 6` | 9,955 trials, lookahead 3, from e21; **stopped by Kaggle's 12 h cap after 3 of 6 epochs** | 32,585 s to the last logged epoch | batch 3, cuda (Kaggle T4), **10,836 s/epoch** mean, unpadded 507-frame sequence (padded bundle not yet timed). Copied by hand from the pasted log. |
 | 2026-10-29 | `scripts/train_turn_down.py --config experiments/configs/turn_down_head.yaml` | 9,955 trials x 6 epochs, head only on frozen e21 | 2.6 h | batch 3, cuda (Kaggle T4), **1,546 s/epoch** mean; epoch 0 2,187 s, then 1,418 s. Copied by hand from the session's own run_times.md. |
