@@ -1,6 +1,6 @@
 \subsection{Extension model architecture}
 \label{sec:e_architecture}
-The extension architecture is based on the baseline architecture of \autoref{sec:architecture}, with three modifications. The first change is how the cue is passed to the network (\autoref{sec:splitting_cue}). The second change gives the network more information about the target speaker's voice (\autoref{sec:speaker_context_embedding}). The final change adds a gate to better infer whether the target speaker is present in a frame (\autoref{sec:present}). 
+The extension architecture is based on the baseline architecture of \autoref{sec:architecture}, with three modifications. The first change is how the cue is passed to the network (\autoref{sec:splitting_cue}). The second change gives the network more information about the target speaker's voice (\autoref{sec:speaker_context_embedding}) (\ref{ai:equations}). The final change adds a gate to better infer whether the target speaker is present in a frame (\autoref{sec:present}). 
 \subsubsection{Splitting the cue into parts}
 \label{sec:splitting_cue}
 The baseline architecture passes the network the TF-Map cue of \cite{zhang2025multi} and includes the energy-recovery projection \eqref{eq:tfmap-energy}. By \eqref{eq:tfmap-unit}, every mixture frame is its loudness times its shape,
@@ -40,7 +40,7 @@ The baseline cue can be recovered exactly as:
   \phi_t = c_t\big\lVert |X_t| \big\rVert u_t.
   \label{eq:cue-rebuild}
 \end{equation}
-The three parts replace the single-channel cue and thus the network input grows from 3 to 5 channels. The new parts do not carry new information, as each part can be derived from the baseline's inputs, but recovering the parts would require a square root and a division operation, which the network's $1\times1$ projections cannot compute.
+The three parts replace the single-channel cue and thus the network input grows from 3 to 5 channels. The new parts do not carry new information, as each part can be derived from the baseline's inputs, but recovering the parts in the old equation would require a square root and a division operation, which the network's $1\times1$ projections cannot compute.
 
 \subsubsection{Speaker context embedding}
 \label{sec:speaker_context_embedding}
@@ -123,7 +123,7 @@ The actual transition matrix used in the prior can be found in \autoref{sec:appe
   \label{eq:elbo}
   \end{equation}
 
-The first term of \eqref{eq:elbo} requires a probability, but only a loss is available during training: $L(\hat{s}, s)$, the loss of \eqref{eq:total} computed on the gated output. Let the probability fall exponentially as the loss grows, with a temperature $\beta > 0$:
+The first term of \eqref{eq:elbo} requires a probability, but only a loss is available during training: $L(\hat{s}, s)$, the loss of \eqref{eq:total} computed on the gated output (\ref{ai:eq-gate}). Let the probability fall exponentially as the loss grows, with a temperature $\beta > 0$:
 \begin{equation}
   p_\theta(s \mid x, e, z) = \frac{1}{\mathcal{Z}}
   \exp\!\left(-\frac{L(\hat{s}(z), s)}{\beta}\right),
@@ -158,7 +158,7 @@ The ELBO at this point does not use the labels $v_t$ for whether the target is p
 \end{equation}
 where $\lambda$ weights the label term. The gated run used $\beta = 0.01274$ and $\lambda = 0.04689$.
 
-\paragraph{Closed-form KL.} The KL term of \eqref{eq:gaussian} under the mean-field posterior has a closed form. Suppose 
+\paragraph{Closed-form KL.} The KL term of \eqref{eq:gaussian} under the mean-field posterior has a closed form (\ref{ai:eq-gate}). Suppose 
 \begin{equation}
   \mathrm{KL}\big(q_\psi(z \mid x, e)\,\|\,p(z)\big) = \mathbb{E}_{z \sim q_\psi(z \mid x,e)}\big[\log q_\psi(z \mid x, e)\big] - \mathbb{E}_{z \sim q_\psi(z \mid x,e)}\big[\log p(z)\big],
 \end{equation}

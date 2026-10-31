@@ -1,6 +1,6 @@
 \subsection{Metrics}
 \label{sec:metrics}
- The metrics are where the main contribution of the work lies. Since the main task is intelligibility of the target speaker for the listeners and not necessarily the \textit{quality} of the extracted target speaker speech, the metrics that are designed in this section aim to reflect that objective. LCF-WER, ICR and FR measure what the listener recovers and split its errors into leaked and invented words, while DNSMOS and the signal-to-distortion ratios are the conventional measures compared against them.
+ Since the main task is intelligibility of the target speaker for the listeners and not necessarily the \textit{quality} of the extracted target speaker speech, the metrics that are designed in this section aim to reflect that objective. LCF-WER, ICR and FR measure what the listener recovers and split its errors into leaked and invented words, while DNSMOS and the signal-to-distortion ratios are the conventional measures compared against them (\ref{ai:metrics}).
 
 \subsubsection{Transcripts and references}
 \label{sec:transcripts}
@@ -57,7 +57,7 @@ DNSMOS \cite{reddy2021dnsmos,reddy2022dnsmos835} is a neural network that predic
 
 \subsubsection{Signal-to-Distortion/Interference/Artefact Ratios}
 \label{sec:sdiar}
-SDR is used to measure how wrong the output audio is in total, and the SIR and SAR are used to measure in which direction the output audio is wrong. The SIR measures how much real audio that is not target speech is present in the output audio such as an interfering speaker or background noise, and the SAR measures how much of the output audio is not real audio, such as artefacts from the model. The output is split by orthogonal projection \cite{vincent2006bsseval} into the target part $s_\textup{proj}$ of \eqref{eq:alpha}, the interference $e_\textup{int}$ explained by the other speaker $s_\textup{int}$ and the noise, and the artefact $e_\textup{art}$ explained by none of the sources, so that $\hat{s} = s_\textup{proj} + e_\textup{int} + e_\textup{art}$:
+SDR is used to measure how wrong the output audio is in total, and the SIR and SAR are used to measure in which direction the output audio is wrong. These are established ratios. The SIR measures how much real audio that is not target speech is present in the output audio such as an interfering speaker or background noise, and the SAR measures how much of the output audio is not real audio, such as artefacts from the model. The output is split by orthogonal projection \cite{vincent2006bsseval} into the target part $s_\textup{proj}$ of \eqref{eq:alpha}, the interference $e_\textup{int}$ explained by the other speaker $s_\textup{int}$ and the noise, and the artefact $e_\textup{art}$ explained by none of the sources, so that $\hat{s} = s_\textup{proj} + e_\textup{int} + e_\textup{art}$:
 \begin{equation}
 \begin{aligned}
 \textup{SDR} &= 10\log_{10} \dfrac{\lVert s_\textup{proj}\rVert^2}{\lVert e_\textup{int} + e_\textup{art}\rVert^2 + \varepsilon_\textup{pres} \lVert s_\textup{proj}\rVert^2}, \\

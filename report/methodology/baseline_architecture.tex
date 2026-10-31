@@ -1,6 +1,6 @@
 \subsection{Baseline model architecture}
 \label{sec:architecture}
-The baseline architecture section describes the architecture that was used as a backbone in the REAL-TSE baseline \cite{wang2026realtse}. The architecture in this work is built from scratch, but the design is that of the baseline.
+The baseline architecture section describes the architecture that was used as a backbone in the REAL-TSE baseline \cite{wang2026realtse}. The architecture in this work is built from scratch, but the design is that of the baseline. Refer to Figure~\ref{fig:pipeline} for a visual representation of the architecture. 
 \subsubsection{Band-split Recurrent Neural Network (BSRNN)}
 \label{sec:bsrnn}
 Luo and Yu \cite{luo2023music} propose the BSRNN model as a frequency-domain separation model that is designed for high-sample-rate audio. The implemented BSRNN is adapted to speech with a TF-Map enrollment conditioning module \cite{zhang2025multi} to turn it into a target speaker extraction model.
@@ -12,7 +12,7 @@ The model operates in the time-frequency domain rather than on the waveform. To 
 
 \subsubsection{Band plan}
 \label{sec:bandplan}
-  The band plan in this work follows the implementation from Zhang et al.\ \cite{zhang2025multi} for their \SI{16}{\kHz} target speaker extraction model, which is also used by the challenge baseline built on it. The split is 257 frequency bins into 32 bands, but no reason is given in the original paper for these particular boundaries, and no explanation is given in previous papers. More bands are allocated to the lower frequencies as speech is more densely concentrated there and requires more resolution.
+  The band plan in this work follows the implementation from Zhang et al.\ \cite{zhang2025multi} for their \SI{16}{\kHz} target speaker extraction model. The split is 257 frequency bins into 32 non-overlapping bands that span over time, but no reason is given in the original paper for these particular boundaries, and no explanation is given in previous papers. More bands are allocated to the lower frequencies as speech is more densely concentrated there and requires more resolution.
 
 \subsubsection{Per-band normalisation}
 \label{sec:subbandnorm}
@@ -42,7 +42,7 @@ where $\otimes$ is the complex product, taken bin by bin. The $X$ that the mask 
 
 \subsubsection{Time-frequency map}
 \label{sec:tfmap}
-The TF-Map \cite{zhang2025multi} is the module that turns speech enhancement into target speaker extraction. It compares the mixture with the clean enrollment clip frame by frame, and gives the network a cue of what the target's spectrum should look like at each instant. Let $|X_t|$ be frame $t$ of the mixture's magnitude spectrogram and $|X_{e,j}|$ frame $j$ of the enrollment's. Every frame is first scaled to unit length, so that only the spectral \emph{shape} remains, not the loudness:
+The TF-Map \cite{zhang2025multi} is the module that turns speech enhancement into target speaker extraction. It compares the mixture with the clean enrollment clip frame by frame, and gives the network a cue of what the target's spectrum should look like at each instant. Let $|X_t|$ be frame $t$ of the mixture's magnitude spectrogram and $|X_{e,j}|$ frame $j$ of the, $e$, enrollment's. Every frame is first scaled to unit length, so that only the spectral \emph{shape} remains, not the loudness:
   \begin{equation}
   \tilde{x}_t = \frac{|X_t|}{\big\lVert |X_t| \big\rVert},
   \qquad
@@ -74,9 +74,7 @@ The TF-Map \cite{zhang2025multi} is the module that turns speech enhancement int
 \subsubsection{Objective function}
 \label{sec:objective}
 
-The objective has to express two different requirements: output the target signal when it is present, and output silence otherwise. A single loss cannot serve both use cases and so the objective is split, and each crop is scored by the branch (target present versus absent) that applies to it.
-
-Throughout, $x$ is the mixture, $s$ the target reference and $\hat{s}$ the model's output, all in the time domain over one training crop.
+The objective has to express two different requirements: output the target signal when it is present, and output silence otherwise. A single loss cannot serve both use cases and so the objective is split, and each crop is scored by the branch (target present versus absent) that applies to it. Throughout, $x$ is the mixture, $s$ the target reference and $\hat{s}$ the model's output, all in the time domain over one training crop (\ref{ai:loss}).
 
 \paragraph{Target present.}
 The first term measures how much of the output is the target and how much is everything else, following \cite{li2026cartse}. The loss needs to be invariant to the overall volume: if $\hat{s}$ has the correct shape, it should not be penalised for being loud or quiet. Therefore the first step is to find the single gain that best explains the output as a scaled copy of the target, which will be calculated as a projection, 
@@ -131,7 +129,7 @@ L_\textup{gain} = \max\!\Big(0,\ \Big|\, 20 \log_{10} \frac{\operatorname{rms}(\
 \qquad \delta = \SI{3}{dB}.
 \label{eq:lgain}
 \end{equation}
-Inside $\pm\SI{3}{dB}$ of the target's level the term is exactly zero, where $\operatorname{rms}$ is the root mean square. Its weight, $w_\textup{g} = 1.69$, is derived rather than chosen: it is the geometric midpoint of the weight at which muting stops paying (where what muting saves on \eqref{eq:labs} equals what it costs on \eqref{eq:lgain}, both weighted as in \eqref{eq:total}) and the weight where output level will outweigh the actual content extracted.
+Inside $\pm\SI{3}{dB}$ of the target's level the term is exactly zero, where $\operatorname{rms}$ is the root mean square. Its weight, $w_\textup{g} = 1.69$, is derived rather than chosen: it is the geometric midpoint of the weight at which muting stops paying (where what muting saves on \eqref{eq:labs} equals what it costs on \eqref{eq:lgain}, both weighted as in \eqref{eq:total}) and the weight where output level will outweigh the actual content extracted (\ref{ai:loss}).
 
 
 \paragraph{Combining the two branches.}
