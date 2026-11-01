@@ -73,6 +73,7 @@ Machine unless stated: laptop, Intel i5-1135G7, **4 physical cores / 8 threads**
 | 2026-09-23 | `content_probe.score()` end-to-end smoke, 3 clips | 3 clips, sir0_val, untrained 1c model, cpu extraction + faster-whisper small.en int8 cpu | 3.1 min | ~16 s/clip extraction on cpu, ~4 s/clip ASR, plus ~1 min of model loading. The Kaggle figure differs: extraction moves to the T4, so the ASR sets the per-epoch cost at ~4 s/clip. Added by hand. |
 | 2026-09-21 | `pytest tests/ -q` | 515 tests | 11 min | full suite after adding eval_by_case.py. Added by hand: pytest does not use run_log.timed |
 <!-- rows appended below by src/run_log.py -->
+| 2026-11-01 | `scripts/train.py --config experiments/configs/bsrnn_cue_context_wide.yaml` | 9,955 trials x 7 epochs, sir0 | 7.3 h | batch 3, cuda, 3766 s/epoch |
 | 2026-10-31 | `scripts/eval_by_case.py --split eval_private --listener judge` | 4 cases, eval_private, listener judge | 2 min |  |
 | 2026-10-31 | `scripts/eval_by_case.py --split eval_private --listener judge` | 4 cases, eval_private, listener judge **(failed)** | 75 s |  |
 | 2026-10-31 | `scripts/eval_by_case.py --split eval_private --listener judge` | 4 cases, eval_private, listener judge | 2 min |  |

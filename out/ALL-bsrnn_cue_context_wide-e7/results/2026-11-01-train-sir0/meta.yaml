@@ -1,0 +1,69 @@
+date: '2026-11-01'
+script: scripts/train.py
+seed: 42
+config: experiments/configs/bsrnn_cue_context_wide.yaml
+config_md5: 9452ff0748ea2dbe08ed789d416719b7
+manifest: /kaggle/input/datasets/grantbooysen/tse-audio-s0-v3/data/manifests/sir0_train.csv
+manifest_config_md5: c139dc0ccf25658ff0a64b8482c6ec25
+device: cuda
+resumed: false
+model:
+  system: extension
+  n_parameters: 13882032
+  n_bands: 32
+epochs_requested: 7
+epochs_run: 7
+early_stopped: false
+wall_seconds: 26363.8
+seconds_per_epoch: 3766.3
+data:
+  sample_rate: 16000
+  chunk_s: 4.008
+  enrollment_variants: 3
+  num_workers: 4
+  batch_size: 3
+loss:
+  w: 0.458
+  w_schedule:
+    w_start: 0.0
+    warmup_steps: 6632
+    ramp_steps: 4974
+  w_m: 9.62
+  w_g: 1.69
+  gain_delta_db: 3.0
+  tau_pres: 0.001
+  tau_abs: 0.01
+  p: 0.3
+  windows_ms:
+  - 8
+  - 16
+  - 32
+  - 64
+training:
+  lr: 0.0005
+  epochs: 100
+  patience: 10
+  grad_clip: 5.0
+  weight_decay: 0.0001
+  lr_factor: 0.5
+  lr_patience: 3
+  select_abs_max: -10.0
+  keep_stride: 3
+  keep_top_k: 3
+best_val:
+  epoch: 6
+  total: -3.1924323391415954
+  L_pres: -3.059415020933553
+  L_MR: 0.17081275002823937
+  L_abs: -12.65229343338836
+  content_wer_ema: 61.4878841607565
+  lr: 0.0005
+final_train:
+  total: -6.521740507515707
+  L_pres: -4.951182231011417
+  L_MR: 0.16804516580220222
+  L_gain: 2.230039194188852
+  L_abs: -14.753417588864494
+  n_present: 12624
+  n_absent: 7284
+checkpoint: /kaggle/working/models/model_sir0.pt
