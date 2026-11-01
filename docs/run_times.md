@@ -8,6 +8,7 @@ Machine unless stated: laptop, Intel i5-1135G7, **4 physical cores / 8 threads**
 
 | date | command | scope | wall | rate |
 |---|---|---|---|---|
+| 2026-10-31 | `scripts/make_kaggle_bundle.py --config experiments/configs/bsrnn_cue_context_wide.yaml` | 14 code files + configs + ECAPA staged, 2 val batches checked (13.88M params), zipped 83 MB | 1.9 min | laptop cpu, no init weights. Added by hand: the script does not use `run_log.timed`. |
 | 2026-10-30 | `scripts/train.py --config experiments/configs/bsrnn_lookahead_ft.yaml` | 9,955 trials x 6 epochs, lookahead 3, from e21, padded 512-frame bundle (rerun) | 5.1 h | batch 3, cuda (Kaggle T4), **3,053 s/epoch** (18,319 s); the unpadded attempt below ran 10,836 s/epoch. Copied by hand from the session's own run_times.md. |
 | 2026-10-29 | `scripts/train.py --config experiments/configs/bsrnn_lookahead_ft.yaml --epochs 6` | 9,955 trials, lookahead 3, from e21; **stopped by Kaggle's 12 h cap after 3 of 6 epochs** | 32,585 s to the last logged epoch | batch 3, cuda (Kaggle T4), **10,836 s/epoch** mean, unpadded 507-frame sequence (padded bundle not yet timed). Copied by hand from the pasted log. |
 | 2026-10-29 | `scripts/train_turn_down.py --config experiments/configs/turn_down_head.yaml` | 9,955 trials x 6 epochs, head only on frozen e21 | 2.6 h | batch 3, cuda (Kaggle T4), **1,546 s/epoch** mean; epoch 0 2,187 s, then 1,418 s. Copied by hand from the session's own run_times.md. |
@@ -72,6 +73,7 @@ Machine unless stated: laptop, Intel i5-1135G7, **4 physical cores / 8 threads**
 | 2026-09-23 | `content_probe.score()` end-to-end smoke, 3 clips | 3 clips, sir0_val, untrained 1c model, cpu extraction + faster-whisper small.en int8 cpu | 3.1 min | ~16 s/clip extraction on cpu, ~4 s/clip ASR, plus ~1 min of model loading. The Kaggle figure differs: extraction moves to the T4, so the ASR sets the per-epoch cost at ~4 s/clip. Added by hand. |
 | 2026-09-21 | `pytest tests/ -q` | 515 tests | 11 min | full suite after adding eval_by_case.py. Added by hand: pytest does not use run_log.timed |
 <!-- rows appended below by src/run_log.py -->
+| 2026-11-01 | `scripts/train.py --config experiments/configs/bsrnn_cue_context_wide.yaml` | 9,955 trials x 7 epochs, sir0 | 7.3 h | batch 3, cuda, 3766 s/epoch |
 | 2026-10-31 | `scripts/eval_by_case.py --split eval_private --listener judge` | 4 cases, eval_private, listener judge | 2 min |  |
 | 2026-10-31 | `scripts/eval_by_case.py --split eval_private --listener judge` | 4 cases, eval_private, listener judge **(failed)** | 75 s |  |
 | 2026-10-31 | `scripts/eval_by_case.py --split eval_private --listener judge` | 4 cases, eval_private, listener judge | 2 min |  |
